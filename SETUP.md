@@ -16,10 +16,10 @@ Create a `.env.local` file in the root directory with the following variables:
 
 ### Google Sheets Integration (Reading Packages)
 
-\`\`\`env
+```env
 # For reading travel packages from Google Sheets
 GOOGLE_SHEET_ID=your_sheet_id_here
-\`\`\`
+```
 
 **How to get your Google Sheet ID:**
 1. Open your Google Sheet
@@ -40,14 +40,14 @@ Your Google Sheet should have these columns (case-insensitive):
 
 ### GoHighLevel Integration (Lead Management & Bookings)
 
-\`\`\`env
+```env
 # GoHighLevel API credentials
 GOHIGHLEVEL_API_KEY=your_api_key_here
 GOHIGHLEVEL_LOCATION_ID=your_location_id_here
 
 # Optional: Pipeline ID for creating opportunities
 GOHIGHLEVEL_PIPELINE_ID=your_pipeline_id_here
-\`\`\`
+```
 
 **How to get your GoHighLevel credentials:**
 
@@ -81,7 +81,7 @@ GOHIGHLEVEL_PIPELINE_ID=your_pipeline_id_here
 
 ## Installation
 
-\`\`\`bash
+```bash
 # Install dependencies
 npm install
 
@@ -93,7 +93,7 @@ npm run build
 
 # Start production server
 npm start
-\`\`\`
+```
 
 ## Deployment
 
