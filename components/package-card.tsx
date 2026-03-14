@@ -14,11 +14,12 @@ interface PackageCardProps {
   package: TravelPackage
   language: Language
   currency: Currency
+  usdToCadRate: number
 }
 
-export function PackageCard({ package: pkg, language, currency }: PackageCardProps) {
+export function PackageCard({ package: pkg, language, currency, usdToCadRate }: PackageCardProps) {
   const priceValue = pkg.priceValue ?? parseUsdPrice(pkg.price)
-  const priceDisplay = priceValue ? formatPrice(priceValue, currency) : pkg.price
+  const priceDisplay = priceValue ? formatPrice(priceValue, currency, usdToCadRate) : pkg.price
 
   return (
     <Card className="group overflow-hidden border-border bg-card transition-all hover:border-primary hover:shadow-xl hover:shadow-primary/20">

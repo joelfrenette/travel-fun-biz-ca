@@ -8,10 +8,11 @@ import { TestimonialsSection } from "@/components/testimonials-section"
 import { getPackages } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
+import { getUsdToCadRate } from "@/lib/fx"
 
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
-  const packages = await getPackages()
+  const [packages, usdToCadRate] = await Promise.all([getPackages(), getUsdToCadRate()])
   const packageNames = packages.map((pkg) => pkg.name)
   const { language, currency } = preferences
 
@@ -20,7 +21,12 @@ export default async function HomePage() {
       <Header language={language} currency={currency} />
       <main className="flex-1">
         <HeroSection language={language} />
-        <PackagesSection packages={packages} language={language} currency={currency} />
+        <PackagesSection
+          packages={packages}
+          language={language}
+          currency={currency}
+          usdToCadRate={usdToCadRate}
+        />
         <FeaturesSection language={language} />
 
         <TestimonialsSection language={language} />

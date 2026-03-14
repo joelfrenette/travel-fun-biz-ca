@@ -10,9 +10,10 @@ interface PackagesSectionProps {
   packages: TravelPackage[]
   language: Language
   currency: Currency
+  usdToCadRate: number
 }
 
-export function PackagesSection({ packages, language, currency }: PackagesSectionProps) {
+export function PackagesSection({ packages, language, currency, usdToCadRate }: PackagesSectionProps) {
   const categories = ["All", ...Array.from(new Set(packages.map((pkg) => pkg.category)))] 
 
   return (
@@ -41,7 +42,13 @@ export function PackagesSection({ packages, language, currency }: PackagesSectio
                 {packages
                   .filter((pkg) => category === "All" || pkg.category === category)
                   .map((pkg) => (
-                    <PackageCard key={pkg.id} package={pkg} language={language} currency={currency} />
+                    <PackageCard
+                      key={pkg.id}
+                      package={pkg}
+                      language={language}
+                      currency={currency}
+                      usdToCadRate={usdToCadRate}
+                    />
                   ))}
               </div>
             </TabsContent>
