@@ -4,6 +4,12 @@ import bcrypt from 'bcryptjs'
 const adminEmail = process.env.ADMIN_EMAIL
 const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH
 
+
+console.log('[auth] loaded env', {
+  email: adminEmail,
+  hasHash: Boolean(adminPasswordHash),
+})
+
 if (!adminEmail || !adminPasswordHash) {
   console.warn('[auth] ADMIN_EMAIL or ADMIN_PASSWORD_HASH env vars are missing')
 }
