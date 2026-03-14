@@ -1247,6 +1247,9 @@
   .text-primary-foreground {
     color: var(--primary-foreground);
   }
+  .text-red-600 {
+    color: var(--color-red-600);
+  }
   .text-secondary-foreground {
     color: var(--secondary-foreground);
   }

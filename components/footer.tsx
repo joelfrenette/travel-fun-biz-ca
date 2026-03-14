@@ -1,14 +1,7 @@
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import Image from "next/image"
-import {
-  legalLinks,
-  newsletterDealOptions,
-  officeInfo,
-  recognitionBadges,
-  socialPromos,
-} from "@/content/footer"
+import { legalLinks, officeInfo, recognitionBadges, socialPromos } from "@/content/footer"
+import { NewsletterForm } from "@/components/newsletter-form"
 
 export function Footer() {
   return (
@@ -119,47 +112,7 @@ export function Footer() {
               </p>
             </div>
             <div className="rounded-lg bg-white p-6 text-gray-900">
-              <form className="space-y-4">
-                <div>
-                  <label htmlFor="fullName" className="mb-1 block text-sm font-medium">
-                    What is Your Full Name *
-                  </label>
-                  <Input id="fullName" type="text" placeholder="Full Name" required className="border-gray-300 bg-gray-100" />
-                </div>
-
-                <div>
-                  <label htmlFor="email" className="mb-1 block text-sm font-medium">
-                    Enter Your Email *
-                  </label>
-                  <Input id="email" type="email" placeholder="Email" required className="border-gray-300 bg-gray-100" />
-                </div>
-
-                <div>
-                  <label htmlFor="phone" className="mb-1 block text-sm font-medium">
-                    Mobile Phone *
-                  </label>
-                  <Input id="phone" type="tel" placeholder="Phone" required className="border-gray-300 bg-gray-100" />
-                </div>
-
-                <div>
-                  <label htmlFor="deals" className="mb-1 block text-sm font-medium">
-                    Which deals you like? (multi-select) *
-                  </label>
-                  <select
-                    id="deals"
-                    multiple
-                    className="w-full rounded-md border border-gray-300 bg-gray-100 p-2 text-sm"
-                  >
-                    {newsletterDealOptions.map((option) => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <Button type="submit" className="w-full bg-[#e31e24] py-6 text-lg font-bold hover:bg-[#c01a1f]">
-                  SUBMIT
-                </Button>
-              </form>
+              <NewsletterForm className="space-y-4" />
             </div>
           </div>
         </div>
