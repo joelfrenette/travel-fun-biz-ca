@@ -18,7 +18,7 @@ export function HeroSection() {
   }, [])
 
   return (
-    <section className="relative overflow-hidden bg-black py-20 md:py-32">
+    <section className="relative overflow-hidden bg-background py-20 md:py-32">
       <div className="absolute inset-0">
         {heroSlides.map((slide, index) => (
           <div
@@ -34,7 +34,7 @@ export function HeroSection() {
               className="object-cover"
               priority={index === 0}
             />
-            <div className="absolute inset-0 bg-black/60" />
+            <div className="absolute inset-0 bg-black/60 dark:bg-black/60" />
           </div>
         ))}
       </div>
@@ -44,7 +44,7 @@ export function HeroSection() {
           <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
             {heroSlides[currentSlide].title}
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-gray-300 md:text-xl">
+          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-gray-200 md:text-xl">
             Specializing in luxury travel, group adventures, and singles vacations. From tropical paradises to cultural
             expeditions, your perfect journey awaits.
           </p>

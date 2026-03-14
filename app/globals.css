@@ -4,39 +4,38 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* TravelFunBiz.com inspired color palette - Black background with red accents */
-  --background: oklch(0.1 0 0); /* Near black */
-  --foreground: oklch(1 0 0); /* White text */
-  --card: oklch(0.15 0 0); /* Slightly lighter black for cards */
-  --card-foreground: oklch(1 0 0);
-  --popover: oklch(0.15 0 0);
-  --popover-foreground: oklch(1 0 0);
-  --primary: oklch(0.55 0.22 25); /* Bright red accent */
-  --primary-foreground: oklch(1 0 0); /* White text on red */
-  --secondary: oklch(0.2 0 0); /* Dark gray */
-  --secondary-foreground: oklch(1 0 0);
-  --muted: oklch(0.25 0 0);
-  --muted-foreground: oklch(0.7 0 0); /* Light gray text */
-  --accent: oklch(0.55 0.22 25); /* Red accent */
-  --accent-foreground: oklch(1 0 0);
+  --background: oklch(0.98 0 0);
+  --foreground: oklch(0.18 0 0);
+  --card: oklch(0.96 0 0);
+  --card-foreground: oklch(0.22 0 0);
+  --popover: oklch(0.96 0 0);
+  --popover-foreground: oklch(0.18 0 0);
+  --primary: oklch(0.55 0.22 25);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.9 0 0);
+  --secondary-foreground: oklch(0.22 0 0);
+  --muted: oklch(0.92 0 0);
+  --muted-foreground: oklch(0.45 0 0);
+  --accent: oklch(0.97 0.03 40);
+  --accent-foreground: oklch(0.18 0 0);
   --destructive: oklch(0.55 0.22 25);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.25 0 0); /* Subtle borders */
-  --input: oklch(0.25 0 0);
-  --ring: oklch(0.55 0.22 25); /* Red focus ring */
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.9 0 0);
+  --ring: oklch(0.55 0.22 25);
   --chart-1: oklch(0.55 0.22 25);
   --chart-2: oklch(0.6 0.15 220);
   --chart-3: oklch(0.7 0.15 140);
   --chart-4: oklch(0.65 0.18 60);
   --chart-5: oklch(0.6 0.2 300);
   --radius: 0.5rem;
-  --sidebar: oklch(0.1 0 0);
-  --sidebar-foreground: oklch(1 0 0);
+  --sidebar: oklch(0.96 0 0);
+  --sidebar-foreground: oklch(0.22 0 0);
   --sidebar-primary: oklch(0.55 0.22 25);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.2 0 0);
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-border: oklch(0.25 0 0);
+  --sidebar-accent: oklch(0.92 0 0);
+  --sidebar-accent-foreground: oklch(0.22 0 0);
+  --sidebar-border: oklch(0.9 0 0);
   --sidebar-ring: oklch(0.55 0.22 25);
 }
 
