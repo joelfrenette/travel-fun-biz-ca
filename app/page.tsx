@@ -6,6 +6,7 @@ import { ContactForm } from "@/components/contact-form"
 import { Footer } from "@/components/footer"
 import { TestimonialsSection } from "@/components/testimonials-section"
 import { getPackages } from "@/lib/packages"
+import { SectionHeading } from "@/components/section-heading"
 
 export default async function HomePage() {
   const packages = await getPackages()
@@ -23,13 +24,13 @@ export default async function HomePage() {
 
         <section id="contact" className="bg-muted/30 py-20">
           <div className="container mx-auto px-4">
-            <div className="mb-12 text-center">
-              <h2 className="text-balance text-3xl font-bold text-foreground">Get Your Free Travel Concierge</h2>
-              <p className="mx-auto mt-4 max-w-2xl text-pretty text-muted-foreground">
-                Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.
-              </p>
+            <SectionHeading
+              title="Get Your Free Travel Concierge"
+              subtitle="Ready to explore the world? Fill out the form below and let us help you plan your dream vacation."
+            />
+            <div className="mt-12">
+              <ContactForm packageOptions={packageNames} />
             </div>
-            <ContactForm packageOptions={packageNames} />
           </div>
         </section>
       </main>

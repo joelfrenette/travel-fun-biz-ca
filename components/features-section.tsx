@@ -1,21 +1,15 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { featureItems } from "@/content/features"
+import { SectionHeading } from "@/components/section-heading"
 
 export function FeaturesSection() {
   return (
     <section className="py-20 md:py-32">
       <div className="container mx-auto px-4">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl md:text-5xl">
-            Why Choose TravelFunBiz.CA
-          </h2>
-          <p className="mt-4 text-pretty text-lg leading-relaxed text-muted-foreground">
-            When you work with us, you save time, you save stress, you save money. We take care of all the hard work
-            with a <span className="font-semibold text-primary">FREE dedicated experience concierge</span>. That's
-            right—you don't pay more! We meet or beat what you can get on your own. We get paid by the suppliers for
-            bringing them millions in business, and we get group rates and exclusive offers that we pass on to YOU.
-          </p>
-        </div>
+        <SectionHeading
+          title="Why Choose TravelFunBiz.CA"
+          subtitle="When you work with us, you save time, you save stress, you save money. We take care of all the hard work with a FREE dedicated experience concierge. That's right—you don't pay more! We meet or beat what you can get on your own. We get paid by the suppliers for bringing them millions in business, and we get group rates and exclusive offers that we pass on to YOU."
+        />
 
         <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {featureItems.map((feature) => (

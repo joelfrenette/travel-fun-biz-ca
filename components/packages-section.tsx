@@ -1,6 +1,7 @@
 import { PackageCard } from "@/components/package-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { TravelPackage } from "@/types/travel"
+import { SectionHeading } from "@/components/section-heading"
 
 interface PackagesSectionProps {
   packages: TravelPackage[]
@@ -13,14 +14,10 @@ export function PackagesSection({ packages }: PackagesSectionProps) {
   return (
     <section id="packages" className="py-20 md:py-32">
       <div className="container mx-auto px-4">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl md:text-5xl">
-            Featured Travel Packages
-          </h2>
-          <p className="mt-4 text-pretty text-lg leading-relaxed text-muted-foreground">
-            Discover handpicked destinations and experiences tailored for unforgettable adventures.
-          </p>
-        </div>
+        <SectionHeading
+          title="Featured Travel Packages"
+          subtitle="Discover handpicked destinations and experiences tailored for unforgettable adventures."
+        />
 
         <Tabs defaultValue="All" className="mt-12">
           <TabsList className="mx-auto flex w-full max-w-2xl flex-wrap justify-center">
