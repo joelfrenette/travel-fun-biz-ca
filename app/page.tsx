@@ -9,6 +9,7 @@ import { getPackages } from "@/lib/packages"
 
 export default async function HomePage() {
   const packages = await getPackages()
+  const packageNames = packages.map((pkg) => pkg.name)
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -28,7 +29,7 @@ export default async function HomePage() {
                 Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.
               </p>
             </div>
-            <ContactForm />
+            <ContactForm packageOptions={packageNames} />
           </div>
         </section>
       </main>

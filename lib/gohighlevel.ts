@@ -1,13 +1,8 @@
 // GoHighLevel API Integration for Lead Management
 
-interface LeadData {
-  name: string
-  email: string
-  phone?: string
-  package: string
-  travelDate?: string
-  travelers?: string
-  message?: string
+import type { ContactFormValues } from '@/lib/schemas/contact'
+
+type LeadData = ContactFormValues & {
   submittedAt: string
 }
 
