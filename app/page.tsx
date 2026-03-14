@@ -89,6 +89,8 @@ export default async function HomePage() {
   // To use Google Sheets, set GOOGLE_SHEET_ID environment variable
   let packages = samplePackages
 
+  // Small change to trigger PR
+
   const sheetId = process.env.GOOGLE_SHEET_ID
   if (sheetId) {
     try {
