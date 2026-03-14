@@ -12,7 +12,7 @@ const translations: Record<Language, Record<string, string>> = {
     'Privacy Policy': 'Politique de confidentialité',
     'Terms & Conditions': 'Modalités et conditions',
     'Earnings Disclaimer': 'Avertissement sur les gains',
-    'Affiliate Agreement': 'Accord d\'affiliation',
+    'Affiliate Agreement': 'Accord d’affiliation',
     'By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
       'En appelant ou en envoyant un texto au (365) 800-6363, vous acceptez de recevoir des messages texte. Pour vous désabonner, répondez « STOP » en tout temps.',
     'Get Started': 'Commencer',
@@ -24,7 +24,7 @@ const translations: Record<Language, Record<string, string>> = {
     Singles: 'Célibataires',
     'No packages available at the moment. Check back soon!': 'Aucun forfait disponible pour le moment. Revenez bientôt!',
     'Admin Sign In': 'Connexion administrateur',
-    'Access travel automation tools': 'Accédez aux outils d\'automatisation du voyage',
+    'Access travel automation tools': 'Accédez aux outils d’automatisation du voyage',
     Email: 'Courriel',
     'Password': 'Mot de passe',
     'Sign In': 'Se connecter',
@@ -59,12 +59,38 @@ const translations: Record<Language, Record<string, string>> = {
     'Additional Information': 'Informations supplémentaires',
     'Submit Inquiry': 'Envoyer la demande',
     'Submitting...': 'Envoi en cours...',
+    'Tell us about your travel preferences, special requirements, or any questions you have...':
+      'Parlez-nous de vos préférences de voyage, de vos besoins particuliers ou de vos questions...',
     'Custom Package': 'Forfait personnalisé',
     '1 Person': '1 personne',
     '2 People': '2 personnes',
     '3-4 People': '3-4 personnes',
     '5-8 People': '5-8 personnes',
     '9+ People': '9 personnes et plus',
+    '7 Days / 6 Nights': '7 jours / 6 nuits',
+    '12 Days / 11 Nights': '12 jours / 11 nuits',
+    '10 Days / 9 Nights': '10 jours / 9 nuits',
+    '8 Days / 7 Nights': '8 jours / 7 nuits',
+    '9 Days / 8 Nights': '9 jours / 8 nuits',
+    '6 Days / 5 Nights': '6 jours / 5 nuits',
+    'Tropical Paradise Escape': 'Évasion paradis tropical',
+    'Experience luxury in overwater bungalows with crystal-clear waters, pristine beaches, and world-class diving.':
+      'Vivez le luxe dans des villas sur pilotis avec eaux cristallines, plages immaculées et plongée de classe mondiale.',
+    'European Heritage Tour': 'Circuit patrimoine européen',
+    'Explore ancient ruins, Renaissance art, and culinary delights across Rome, Florence, and Paris.':
+      'Explorez les ruines antiques, l’art de la Renaissance et les délices culinaires de Rome, Florence et Paris.',
+    'Mountain Adventure Trek': 'Trek d’aventure en montagne',
+    'Trek through the Himalayas, visit ancient monasteries, and witness breathtaking mountain vistas.':
+      'Parcourez l’Himalaya, visitez des monastères anciens et admirez des panoramas à couper le souffle.',
+    'Wellness Retreat & Spa': 'Retraite bien-être et spa',
+    'Rejuvenate your mind and body with yoga, meditation, spa treatments, and healthy cuisine in paradise.':
+      'Régénérez corps et esprit avec yoga, méditation, soins spa et cuisine saine au paradis.',
+    'Singles Getaway Experience': 'Escapade pour célibataires',
+    'Connect with like-minded travelers, enjoy adventure activities, and explore stunning beaches and rainforests.':
+      'Rencontrez des voyageurs partageant vos intérêts, vivez des aventures et explorez plages et forêts tropicales.',
+    'Amazon Rainforest Expedition': 'Expédition en Amazonie',
+    "Explore the world's largest rainforest, encounter exotic wildlife, and learn from indigenous guides.":
+      'Explorez la plus grande forêt tropicale du monde, observez une faune exotique et apprenez des guides autochtones.',
     'Success!': 'Succès!',
     "We've received your inquiry and will contact you soon.": 'Nous avons reçu votre demande et vous contacterons sous peu.',
     Error: 'Erreur',
@@ -75,7 +101,7 @@ const translations: Record<Language, Record<string, string>> = {
     "Don't just take our word for it. Here's what our happy travelers have to say about their experiences.":
       'Ne vous fiez pas seulement à nous. Voici ce que disent nos voyageurs.',
     'per person': 'par personne',
-    'More Info': 'Plus d\'infos',
+    'More Info': 'Plus d’infos',
     'Dedicated Travel Concierge': 'Concierge voyage dédié',
     'Save Time': 'Gagnez du temps',
     'Save Stress': 'Moins de stress',
@@ -87,14 +113,20 @@ const translations: Record<Language, Record<string, string>> = {
     'Mobile Phone *': 'Téléphone mobile *',
     'Which deals you like? (multi-select) *': 'Quels forfaits vous intéressent? (choix multiples) *',
     SUBMIT: 'SOUMETTRE',
+    'All-Inclusive Resorts': 'Forfaits tout-inclus',
+    Cruises: 'Croisières',
+    'European Tours': 'Circuits européens',
+    'Adventure Travel': 'Voyages d’aventure',
+    'Luxury Escapes': 'Escapades de luxe',
     'View site': 'Voir le site',
+
     'Sign Out': 'Se déconnecter',
     'Signing out...': 'Déconnexion en cours...',
     'By submitting this form, you agree to our privacy policy and terms of service.':
-      'En envoyant ce formulaire, vous acceptez notre politique de confidentialité et nos conditions d\'utilisation.',
+      'En envoyant ce formulaire, vous acceptez notre politique de confidentialité et nos conditions d’utilisation.',
     "Success! We'll keep you posted with the latest travel deals.":
       'Succès! Nous vous informerons des dernières offres de voyage.',
-    'Subscription failed': 'Échec de l\'inscription',
+    'Subscription failed': 'Échec de l’inscription',
     'Please try again in a moment.': 'Veuillez réessayer sous peu.',
     'Subscribe': 'S\'abonner',
     'Newsletter Sign Up': 'Inscription infolettre',

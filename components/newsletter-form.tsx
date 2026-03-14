@@ -65,7 +65,13 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
           <label htmlFor="fullName" className="mb-1 block text-sm font-medium">
             {translate(language, 'What is Your Full Name *')}
           </label>
-          <Input id="fullName" placeholder="Full Name" autoComplete="name" {...register('fullName')} />
+          <Input
+            id="fullName"
+            placeholder={translate(language, 'Full Name')}
+            autoComplete="name"
+            {...register('fullName')}
+          />
+
           {errors.fullName && <p className="text-sm text-red-600">{errors.fullName.message}</p>}
         </div>
 
@@ -73,7 +79,14 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
           <label htmlFor="email" className="mb-1 block text-sm font-medium">
             {translate(language, 'Enter Your Email *')}
           </label>
-          <Input id="email" type="email" placeholder="Email" autoComplete="email" {...register('email')} />
+          <Input
+            id="email"
+            type="email"
+            placeholder={translate(language, 'Email Address')}
+            autoComplete="email"
+            {...register('email')}
+          />
+
           {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
         </div>
 
@@ -81,7 +94,14 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
           <label htmlFor="phone" className="mb-1 block text-sm font-medium">
             {translate(language, 'Mobile Phone *')}
           </label>
-          <Input id="phone" type="tel" placeholder="Phone" autoComplete="tel" {...register('phone')} />
+          <Input
+            id="phone"
+            type="tel"
+            placeholder={translate(language, 'Phone Number')}
+            autoComplete="tel"
+            {...register('phone')}
+          />
+
           {errors.phone && <p className="text-sm text-red-600">{errors.phone.message}</p>}
         </div>
 

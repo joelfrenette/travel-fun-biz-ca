@@ -8,7 +8,7 @@ import type { TravelPackage } from "@/types/travel"
 import type { Language } from "@/lib/preferences"
 import type { Currency } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
-import { formatPrice } from "@/lib/currency"
+import { formatPrice, parseUsdPrice } from "@/lib/currency"
 
 interface PackageCardProps {
   package: TravelPackage
@@ -17,7 +17,8 @@ interface PackageCardProps {
 }
 
 export function PackageCard({ package: pkg, language, currency }: PackageCardProps) {
-  const priceDisplay = pkg.priceValue ? formatPrice(pkg.priceValue, currency) : pkg.price
+  const priceValue = pkg.priceValue ?? parseUsdPrice(pkg.price)
+  const priceDisplay = priceValue ? formatPrice(priceValue, currency) : pkg.price
 
   return (
     <Card className="group overflow-hidden border-border bg-card transition-all hover:border-primary hover:shadow-xl hover:shadow-primary/20">
@@ -36,24 +37,28 @@ export function PackageCard({ package: pkg, language, currency }: PackageCardPro
         </div>
       </CardHeader>
       <CardContent className="p-6">
-        <h3 className="mb-2 text-balance text-xl font-bold uppercase text-foreground">{pkg.name}</h3>
+        <h3 className="mb-2 text-balance text-xl font-bold uppercase text-foreground">
+          {translate(language, pkg.name)}
+        </h3>
         <div className="mb-4 flex flex-wrap gap-3 text-sm text-muted-foreground">
           <div className="flex items-center gap-1">
             <MapPin className="h-4 w-4" />
-            <span>{pkg.destination}</span>
+            <span>{translate(language, pkg.destination)}</span>
           </div>
           <div className="flex items-center gap-1">
             <Calendar className="h-4 w-4" />
-            <span>{pkg.duration}</span>
+            <span>{translate(language, pkg.duration)}</span>
           </div>
           {pkg.maxPeople && (
             <div className="flex items-center gap-1">
               <Users className="h-4 w-4" />
-              <span>{pkg.maxPeople}</span>
+              <span>{translate(language, pkg.maxPeople)}</span>
             </div>
           )}
         </div>
-        <p className="mb-4 line-clamp-2 text-pretty text-sm leading-relaxed text-muted-foreground">{pkg.description}</p>
+        <p className="mb-4 line-clamp-2 text-pretty text-sm leading-relaxed text-muted-foreground">
+          {translate(language, pkg.description)}
+        </p>
         {pkg.rating && (
           <div className="mb-4 flex items-center gap-1 text-foreground">
             <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
@@ -63,6 +68,7 @@ export function PackageCard({ package: pkg, language, currency }: PackageCardPro
         )}
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-bold text-foreground">{priceDisplay}</span>
+          <span className="text-sm text-muted-foreground uppercase">{currency.toUpperCase()}</span>
           <span className="text-sm text-muted-foreground">{translate(language, 'per person')}</span>
         </div>
       </CardContent>

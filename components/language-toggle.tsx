@@ -22,6 +22,7 @@ export function LanguageToggle({ language }: LanguageToggleProps) {
       await fetch("/api/preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ language: normalized }),
       })
       router.refresh()
@@ -32,9 +33,10 @@ export function LanguageToggle({ language }: LanguageToggleProps) {
 
   return (
     <Select value={value} onValueChange={handleChange} disabled={pending}>
-      <SelectTrigger className="w-[90px]">
+      <SelectTrigger className="w-[90px]" aria-label="Select language">
         <SelectValue placeholder="Lang" />
       </SelectTrigger>
+
       <SelectContent>
         <SelectItem value="en">EN</SelectItem>
         <SelectItem value="fr">FR</SelectItem>

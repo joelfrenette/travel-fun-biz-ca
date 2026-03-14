@@ -22,6 +22,7 @@ export function CurrencyToggle({ currency }: CurrencyToggleProps) {
       await fetch("/api/preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ currency: normalized }),
       })
       router.refresh()
@@ -32,9 +33,10 @@ export function CurrencyToggle({ currency }: CurrencyToggleProps) {
 
   return (
     <Select value={value} onValueChange={handleChange} disabled={pending}>
-      <SelectTrigger className="w-[90px]">
+      <SelectTrigger className="w-[90px]" aria-label="Select currency">
         <SelectValue placeholder="Currency" />
       </SelectTrigger>
+
       <SelectContent>
         <SelectItem value="usd">USD</SelectItem>
         <SelectItem value="cad">CAD</SelectItem>

@@ -3,6 +3,13 @@ export type Currency = 'usd' | 'cad'
 
 const USD_TO_CAD_RATE = 1.36
 
+export function parseUsdPrice(value?: string): number | undefined {
+  if (!value) return undefined
+  const cleaned = value.replace(/[^0-9.,]/g, '').replace(',', '')
+  const parsed = Number.parseFloat(cleaned)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 export function convertUsd(amount: number, currency: Currency): number {
   if (currency === 'cad') {
     return amount * USD_TO_CAD_RATE

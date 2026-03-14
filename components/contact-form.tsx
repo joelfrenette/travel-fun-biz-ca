@@ -234,7 +234,10 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
             <Label htmlFor="message">{translate(language, 'Additional Information')}</Label>
             <Textarea
               id="message"
-              placeholder="Tell us about your travel preferences, special requirements, or any questions you have..."
+              placeholder={translate(
+                language,
+                'Tell us about your travel preferences, special requirements, or any questions you have...',
+              )}
               rows={5}
               {...register("message")}
             />

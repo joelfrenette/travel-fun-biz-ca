@@ -1,14 +1,8 @@
 import type { TravelPackage } from '@/types/travel'
+import { parseUsdPrice } from '@/lib/currency'
 
 export interface SheetRow {
   [key: string]: string
-}
-
-function parsePriceValue(input?: string): number | undefined {
-  if (!input) return undefined
-  const cleaned = input.replace(/[^0-9.]/g, '')
-  const value = Number.parseFloat(cleaned)
-  return Number.isFinite(value) ? value : undefined
 }
 
 export async function fetchGoogleSheetData(sheetId: string, range = "Sheet1"): Promise<SheetRow[]> {
@@ -61,7 +55,7 @@ export function mapSheetRowToPackage(row: SheetRow, index: number): TravelPackag
     destination,
     duration: row.duration || row.Duration || '',
     price: price,
-    priceValue: parsePriceValue(price),
+    priceValue: parseUsdPrice(price),
     description: row.description || row.Description || '',
     image:
       row.image ||
