@@ -2,8 +2,14 @@ import Link from "next/link"
 import Image from "next/image"
 import { legalLinks, officeInfo, recognitionBadges, socialPromos } from "@/content/footer"
 import { NewsletterForm } from "@/components/newsletter-form"
+import type { Language } from "@/lib/preferences"
+import { translate } from "@/lib/i18n"
 
-export function Footer() {
+interface FooterProps {
+  language: Language
+}
+
+export function Footer({ language }: FooterProps) {
   return (
     <footer className="bg-[#2a2a2a] text-white">
       <div className="container mx-auto px-4 py-12">
@@ -30,7 +36,7 @@ export function Footer() {
             <div className="space-y-2 text-xs text-gray-400">
               {legalLinks.map((link) => (
                 <Link key={link.href} href={link.href} className="block hover:text-white">
-                  {link.label}
+                  {translate(link.label, language)}
                 </Link>
               ))}
             </div>
@@ -45,7 +51,7 @@ export function Footer() {
 
             {officeInfo.disclaimers.map((item) => (
               <p key={item} className="text-xs text-gray-400">
-                {item}
+                {translate(item, language)}
               </p>
             ))}
 
@@ -106,13 +112,11 @@ export function Footer() {
           <div>
             <div className="mb-4 bg-[#e31e24] px-6 py-3 text-center">
               <p className="text-2xl font-bold leading-tight">
-                NOTIFY ME OF
-                <br />
-                TRAVEL DEALS
+                {translate('NOTIFY ME OF TRAVEL DEALS', language)}
               </p>
             </div>
             <div className="rounded-lg bg-white p-6 text-gray-900">
-              <NewsletterForm className="space-y-4" />
+              <NewsletterForm className="space-y-4" language={language} />
             </div>
           </div>
         </div>

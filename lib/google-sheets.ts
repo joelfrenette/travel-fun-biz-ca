@@ -4,6 +4,14 @@ export interface SheetRow {
   [key: string]: string
 }
 
+function parsePriceValue(raw?: string): number | undefined {
+  if (!raw) return undefined
+  const numeric = raw.replace(/[^0-9.]/g, '')
+  if (!numeric) return undefined
+  const value = Number.parseFloat(numeric)
+  return Number.isFinite(value) ? value : undefined
+}
+
 export async function fetchGoogleSheetData(sheetId: string, range = "Sheet1"): Promise<SheetRow[]> {
   try {
     // Google Sheets API endpoint for public sheets
@@ -46,13 +54,15 @@ export function mapSheetRowToPackage(row: SheetRow, index: number): TravelPackag
   const category = row.category || row.Category || row.type || row.Type || 'Adventure'
   const ratingSource = row.rating || row.Rating
   const parsedRating = ratingSource ? Number.parseFloat(ratingSource) : undefined
+  const price = row.price || row.Price || ''
 
   return {
     id: row.id || `package-${index}`,
     name,
     destination,
     duration: row.duration || row.Duration || '',
-    price: row.price || row.Price || '',
+    price,
+    priceValue: parsePriceValue(price),
     description: row.description || row.Description || '',
     image:
       row.image ||

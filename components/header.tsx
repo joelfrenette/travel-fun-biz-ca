@@ -8,10 +8,17 @@ import Image from "next/image"
 import { ctaLink, primaryNavLinks, type NavLink } from "@/content/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useTheme } from "next-themes"
+import { LanguageToggle } from "@/components/language-toggle"
+import { CurrencyToggle } from "@/components/currency-toggle"
+import type { Language, Currency } from "@/lib/preferences"
+import { translate } from "@/lib/i18n"
 
-const linkClassName = "text-sm font-medium uppercase text-primary transition-colors hover:text-primary/80 dark:text-primary dark:hover:text-primary/80"
+const linkBaseClass = "text-sm font-medium uppercase transition-colors"
 
-function renderNavLink(link: NavLink, onClick?: () => void) {
+function renderNavLink(link: NavLink, language: Language, onClick?: () => void) {
+  const label = translate(link.label, language)
+  const className = `${linkBaseClass} text-primary hover:text-primary/80 dark:text-primary dark:hover:text-primary/80`
+
   if (link.external) {
     return (
       <a
@@ -19,22 +26,27 @@ function renderNavLink(link: NavLink, onClick?: () => void) {
         href={link.href}
         target="_blank"
         rel="noopener noreferrer"
-        className={linkClassName}
+        className={className}
         onClick={onClick}
       >
-        {link.label}
+        {label}
       </a>
     )
   }
 
   return (
-    <Link key={link.href} href={link.href} className={linkClassName} onClick={onClick}>
-      {link.label}
+    <Link key={link.href} href={link.href} className={className} onClick={onClick}>
+      {label}
     </Link>
   )
 }
 
-export function Header() {
+interface HeaderProps {
+  language: Language
+  currency: Currency
+}
+
+export function Header({ language, currency }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { resolvedTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -54,18 +66,22 @@ export function Header() {
 
         {/* Desktop Navigation */}
         <div className="hidden items-center gap-8 md:flex">
-          {primaryNavLinks.map((link) => renderNavLink(link))}
+          {primaryNavLinks.map((link) => renderNavLink(link, language))}
         </div>
 
-        <div className="hidden items-center gap-4 md:flex">
+        <div className="hidden items-center gap-3 md:flex">
+          <LanguageToggle language={language} />
+          <CurrencyToggle currency={currency} />
           <ThemeToggle />
           <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90">
-            <Link href={ctaLink.href}>{ctaLink.label}</Link>
+            <Link href={ctaLink.href}>{translate(ctaLink.label, language)}</Link>
           </Button>
         </div>
 
         {/* Mobile Menu Button */}
         <div className="flex items-center gap-2 md:hidden">
+          <LanguageToggle language={language} />
+          <CurrencyToggle currency={currency} />
           <ThemeToggle />
           <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle menu">
             {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
@@ -77,10 +93,10 @@ export function Header() {
       {mobileMenuOpen && (
         <div className="border-t border-border bg-background md:hidden">
           <div className="container mx-auto flex flex-col gap-4 px-4 py-6">
-            {primaryNavLinks.map((link) => renderNavLink(link, () => setMobileMenuOpen(false)))}
+            {primaryNavLinks.map((link) => renderNavLink(link, language, () => setMobileMenuOpen(false)))}
             <Button asChild className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
               <Link href={ctaLink.href} onClick={() => setMobileMenuOpen(false)}>
-                {ctaLink.label}
+                {translate(ctaLink.label, language)}
               </Link>
             </Button>
           </div>

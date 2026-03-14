@@ -14,10 +14,13 @@ import { useToast } from "@/hooks/use-toast"
 import { Loader2, CheckCircle2 } from "lucide-react"
 import { contactFormSchema, type ContactFormValues } from "@/lib/schemas/contact"
 import { samplePackages } from "@/content/packages"
+import type { Language } from "@/lib/preferences"
+import { translate } from "@/lib/i18n"
 
 interface ContactFormProps {
   preselectedPackage?: string
   packageOptions?: string[]
+  language: Language
 }
 
 const travelerOptions = [
@@ -28,7 +31,7 @@ const travelerOptions = [
   { value: "9+", label: "9+ People" },
 ]
 
-export function ContactForm({ preselectedPackage, packageOptions }: ContactFormProps) {
+export function ContactForm({ preselectedPackage, packageOptions, language }: ContactFormProps) {
   const { toast } = useToast()
   const searchParams = useSearchParams()
   const [isSuccess, setIsSuccess] = useState(false)
@@ -84,19 +87,21 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
       })
 
       if (!response.ok) {
-        throw new Error("Failed to submit form")
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || translate('Something went wrong. Please try again.', language))
       }
 
       setIsSuccess(true)
       toast({
-        title: "Success!",
-        description: "We've received your inquiry and will contact you soon.",
+        title: translate('Success!', language),
+        description: translate("We've received your inquiry and will contact you soon.", language),
       })
       reset(baseDefaultValues)
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Something went wrong. Please try again.",
+        title: translate('Error', language),
+        description:
+          error instanceof Error ? error.message : translate('Something went wrong. Please try again.', language),
         variant: "destructive",
       })
     }
@@ -107,12 +112,15 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
       <Card className="mx-auto max-w-2xl">
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
           <CheckCircle2 className="mb-4 h-16 w-16 text-green-600" />
-          <h3 className="mb-2 text-2xl font-bold text-foreground">Thank You!</h3>
+          <h3 className="mb-2 text-2xl font-bold text-foreground">{translate('Thank You!', language)}</h3>
           <p className="text-muted-foreground">
-            We've received your travel inquiry. Our team will contact you within 24 hours to discuss your perfect trip.
+            {translate(
+              "We've received your travel inquiry. Our team will contact you within 24 hours to discuss your perfect trip.",
+              language,
+            )}
           </p>
-          <Button onClick={() => { setIsSuccess(false); reset(baseDefaultValues) }} variant="outline" className="mt-6">
-            Submit Another Inquiry
+          <Button onClick={() => setIsSuccess(false)} variant="outline" className="mt-6">
+            {translate('Submit Another Inquiry', language)}
           </Button>
         </CardContent>
       </Card>
@@ -122,15 +130,15 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
   return (
     <Card className="mx-auto max-w-2xl">
       <CardHeader>
-        <CardTitle className="text-2xl">Plan Your Perfect Trip</CardTitle>
-        <CardDescription>Fill out the form below and our travel experts will contact you shortly.</CardDescription>
+        <CardTitle className="text-2xl">{translate('Plan Your Perfect Trip', language)}</CardTitle>
+        <CardDescription>{translate('Fill out the form below and our travel experts will contact you shortly.', language)}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="name">
-                Full Name <span className="text-destructive">*</span>
+                {translate('Full Name', language)} <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="name"
@@ -144,7 +152,7 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
 
             <div className="space-y-2">
               <Label htmlFor="email">
-                Email <span className="text-destructive">*</span>
+                {translate('Email', language)} <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="email"
@@ -160,7 +168,7 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
 
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number</Label>
+              <Label htmlFor="phone">{translate('Phone Number', language)}</Label>
               <Input
                 id="phone"
                 type="tel"
@@ -172,7 +180,7 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
 
             <div className="space-y-2">
               <Label htmlFor="package">
-                Interested Package <span className="text-destructive">*</span>
+                {translate('Interested Package', language)} <span className="text-destructive">*</span>
               </Label>
               <Controller
                 control={control}
@@ -180,12 +188,12 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
                 render={({ field }) => (
                   <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger id="package" aria-invalid={!!errors.package}>
-                      <SelectValue placeholder="Select a package" />
+                      <SelectValue placeholder={translate('Select a package', language)} />
                     </SelectTrigger>
                     <SelectContent>
                       {availablePackages.map((option) => (
                         <SelectItem key={option} value={option}>
-                          {option}
+                          {translate(option, language)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -198,24 +206,24 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
 
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="travelDate">Preferred Travel Date</Label>
+              <Label htmlFor="travelDate">{translate('Preferred Travel Date', language)}</Label>
               <Input id="travelDate" type="date" {...register("travelDate")} />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="travelers">Number of Travelers</Label>
+              <Label htmlFor="travelers">{translate('Number of Travelers', language)}</Label>
               <Controller
                 control={control}
                 name="travelers"
                 render={({ field }) => (
                   <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger id="travelers">
-                      <SelectValue placeholder="Select number" />
+                      <SelectValue placeholder={translate('Select number', language)} />
                     </SelectTrigger>
                     <SelectContent>
                       {travelerOptions.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
-                          {option.label}
+                          {translate(option.label, language)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -226,28 +234,21 @@ export function ContactForm({ preselectedPackage, packageOptions }: ContactFormP
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="message">Additional Information</Label>
+            <Label htmlFor="message">{translate('Additional Information', language)}</Label>
             <Textarea
               id="message"
-              placeholder="Tell us about your travel preferences, special requirements, or any questions you have..."
+              placeholder={translate('Tell us about your travel preferences, special requirements, or any questions you have...', language)}
               rows={5}
               {...register("message")}
             />
           </div>
 
           <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Submitting...
-              </>
-            ) : (
-              "Submit Inquiry"
-            )}
+            {isSubmitting ? translate('Submitting...', language) : translate('Submit Inquiry', language)}
           </Button>
 
           <p className="text-center text-xs text-muted-foreground">
-            By submitting this form, you agree to our privacy policy and terms of service.
+            {translate('By submitting this form, you agree to our privacy policy and terms of service.', language)}
           </p>
         </form>
       </CardContent>

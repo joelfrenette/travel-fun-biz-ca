@@ -7,6 +7,7 @@ export const samplePackages: TravelPackage[] = [
     destination: 'Maldives',
     duration: '7 Days / 6 Nights',
     price: '$2,499',
+    priceValue: 2499,
     description:
       'Experience luxury in overwater bungalows with crystal-clear waters, pristine beaches, and world-class diving.',
     image: '/maldives-tropical-beach-resort.jpg',
@@ -20,6 +21,7 @@ export const samplePackages: TravelPackage[] = [
     destination: 'Italy & France',
     duration: '12 Days / 11 Nights',
     price: '$3,899',
+    priceValue: 3899,
     description:
       'Explore ancient ruins, Renaissance art, and culinary delights across Rome, Florence, and Paris.',
     image: '/european-cities-architecture.jpg',
@@ -33,6 +35,7 @@ export const samplePackages: TravelPackage[] = [
     destination: 'Nepal',
     duration: '10 Days / 9 Nights',
     price: '$1,899',
+    priceValue: 1899,
     description:
       'Trek through the Himalayas, visit ancient monasteries, and witness breathtaking mountain vistas.',
     image: '/himalayan-trekking.png',
@@ -46,6 +49,7 @@ export const samplePackages: TravelPackage[] = [
     destination: 'Bali, Indonesia',
     duration: '8 Days / 7 Nights',
     price: '$3,299',
+    priceValue: 3299,
     description:
       'Rejuvenate your mind and body with yoga, meditation, spa treatments, and healthy cuisine in paradise.',
     image: '/african-safari-wildlife.jpg',
@@ -59,6 +63,7 @@ export const samplePackages: TravelPackage[] = [
     destination: 'Costa Rica',
     duration: '9 Days / 8 Nights',
     price: '$2,799',
+    priceValue: 2799,
     description:
       'Connect with like-minded travelers, enjoy adventure activities, and explore stunning beaches and rainforests.',
     image: '/greek-islands-santorini.png',
@@ -72,8 +77,8 @@ export const samplePackages: TravelPackage[] = [
     destination: 'Brazil',
     duration: '6 Days / 5 Nights',
     price: '$2,199',
-    description:
-      "Explore the world's largest rainforest, encounter exotic wildlife, and learn from indigenous guides.",
+    priceValue: 2199,
+    description: "Explore the world's largest rainforest, encounter exotic wildlife, and learn from indigenous guides.",
     image: '/amazon-rainforest-jungle.jpg',
     category: 'Adventure',
     rating: 4.6,

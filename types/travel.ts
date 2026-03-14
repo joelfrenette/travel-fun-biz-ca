@@ -4,6 +4,7 @@ export interface TravelPackage {
   destination: string
   duration: string
   price: string
+  priceValue?: number
   description: string
   image: string
   category: string

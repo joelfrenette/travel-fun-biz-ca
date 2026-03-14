@@ -8,12 +8,15 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { newsletterDealOptions } from '@/content/footer'
 import { useState } from 'react'
+import type { Language } from '@/lib/preferences'
+import { translate } from '@/lib/i18n'
 
 interface NewsletterFormProps {
   className?: string
+  language: Language
 }
 
-export function NewsletterForm({ className }: NewsletterFormProps) {
+export function NewsletterForm({ className, language }: NewsletterFormProps) {
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const {
@@ -36,15 +39,15 @@ export function NewsletterForm({ className }: NewsletterFormProps) {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to subscribe')
+        throw new Error('Subscription failed')
       }
 
-      toast({ title: 'Subscribed!', description: 'We will keep you posted with the latest travel deals.' })
+      toast({ title: translate('Subscribed!', language), description: translate('We will keep you posted with the latest travel deals.', language) })
       reset({ fullName: '', email: '', phone: '', deals: [] })
     } catch (error) {
       toast({
-        title: 'Subscription failed',
-        description: 'Please try again in a moment.',
+        title: translate('Subscription failed', language),
+        description: translate('Please try again in a moment.', language),
         variant: 'destructive',
       })
     } finally {
@@ -57,49 +60,44 @@ export function NewsletterForm({ className }: NewsletterFormProps) {
       <div className="space-y-4">
         <div>
           <label htmlFor="fullName" className="mb-1 block text-sm font-medium">
-            What is Your Full Name *
+            {translate('What is Your Full Name *', language)}
           </label>
           <Input id="fullName" placeholder="Full Name" autoComplete="name" {...register('fullName')} />
-          {errors.fullName && <p className="text-sm text-red-600">{errors.fullName.message}</p>}
+          {errors.fullName && <p className="text-sm text-destructive">{errors.fullName.message}</p>}
         </div>
 
         <div>
           <label htmlFor="email" className="mb-1 block text-sm font-medium">
-            Enter Your Email *
+            {translate('Enter Your Email *', language)}
           </label>
           <Input id="email" type="email" placeholder="Email" autoComplete="email" {...register('email')} />
-          {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
+          {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
         </div>
 
         <div>
           <label htmlFor="phone" className="mb-1 block text-sm font-medium">
-            Mobile Phone *
+            {translate('Mobile Phone *', language)}
           </label>
           <Input id="phone" type="tel" placeholder="Phone" autoComplete="tel" {...register('phone')} />
-          {errors.phone && <p className="text-sm text-red-600">{errors.phone.message}</p>}
+          {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
         </div>
 
         <div>
           <label htmlFor="deals" className="mb-1 block text-sm font-medium">
-            Which deals you like? (multi-select) *
+            {translate('Which deals you like? (multi-select) *', language)}
           </label>
-          <select
-            id="deals"
-            multiple
-            className="w-full rounded-md border border-gray-300 bg-gray-100 p-2 text-sm"
-            {...register('deals')}
-          >
+          <select id="deals" multiple className="w-full rounded-md border border-gray-300 bg-gray-100 p-2 text-sm" {...register('deals')}>
             {newsletterDealOptions.map((option) => (
               <option key={option} value={option}>
-                {option}
+                {translate(option, language)}
               </option>
             ))}
           </select>
-          {errors.deals && <p className="text-sm text-red-600">{errors.deals.message}</p>}
+          {errors.deals && <p className="text-sm text-destructive">{errors.deals.message}</p>}
         </div>
 
         <Button type="submit" className="w-full bg-[#e31e24] py-6 text-lg font-bold hover:bg-[#c01a1f]" disabled={isSubmitting}>
-          {isSubmitting ? 'Submitting…' : 'SUBMIT'}
+          {isSubmitting ? translate('Submitting...', language) : translate('SUBMIT', language)}
         </Button>
       </div>
     </form>
