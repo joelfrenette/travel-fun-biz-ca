@@ -78,7 +78,8 @@ export const samplePackages: TravelPackage[] = [
     duration: '6 Days / 5 Nights',
     price: '$2,199',
     priceValue: 2199,
-    description: "Explore the world's largest rainforest, encounter exotic wildlife, and learn from indigenous guides.",
+    description:
+      "Explore the world's largest rainforest, encounter exotic wildlife, and learn from indigenous guides.",
     image: '/amazon-rainforest-jungle.jpg',
     category: 'Adventure',
     rating: 4.6,

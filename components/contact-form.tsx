@@ -87,21 +87,19 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
       })
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || translate('Something went wrong. Please try again.', language))
+        throw new Error("Failed to submit form")
       }
 
       setIsSuccess(true)
       toast({
-        title: translate('Success!', language),
-        description: translate("We've received your inquiry and will contact you soon.", language),
+        title: translate(language, "Success!"),
+        description: translate(language, "We've received your inquiry and will contact you soon."),
       })
       reset(baseDefaultValues)
     } catch (error) {
       toast({
-        title: translate('Error', language),
-        description:
-          error instanceof Error ? error.message : translate('Something went wrong. Please try again.', language),
+        title: translate(language, "Error"),
+        description: translate(language, "Something went wrong. Please try again."),
         variant: "destructive",
       })
     }
@@ -112,15 +110,12 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
       <Card className="mx-auto max-w-2xl">
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
           <CheckCircle2 className="mb-4 h-16 w-16 text-green-600" />
-          <h3 className="mb-2 text-2xl font-bold text-foreground">{translate('Thank You!', language)}</h3>
+          <h3 className="mb-2 text-2xl font-bold text-foreground">{translate(language, 'Thank You!')}</h3>
           <p className="text-muted-foreground">
-            {translate(
-              "We've received your travel inquiry. Our team will contact you within 24 hours to discuss your perfect trip.",
-              language,
-            )}
+            {translate(language, "We've received your inquiry and will contact you soon.")}
           </p>
           <Button onClick={() => setIsSuccess(false)} variant="outline" className="mt-6">
-            {translate('Submit Another Inquiry', language)}
+            {translate(language, 'Submit Another Inquiry')}
           </Button>
         </CardContent>
       </Card>
@@ -130,15 +125,17 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
   return (
     <Card className="mx-auto max-w-2xl">
       <CardHeader>
-        <CardTitle className="text-2xl">{translate('Plan Your Perfect Trip', language)}</CardTitle>
-        <CardDescription>{translate('Fill out the form below and our travel experts will contact you shortly.', language)}</CardDescription>
+        <CardTitle className="text-2xl">{translate(language, 'Plan Your Perfect Trip')}</CardTitle>
+        <CardDescription>
+          {translate(language, 'Fill out the form below and our travel experts will contact you shortly.')}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="name">
-                {translate('Full Name', language)} <span className="text-destructive">*</span>
+                {translate(language, 'Full Name')} <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="name"
@@ -152,7 +149,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
 
             <div className="space-y-2">
               <Label htmlFor="email">
-                {translate('Email', language)} <span className="text-destructive">*</span>
+                {translate(language, 'Email Address')} <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="email"
@@ -168,7 +165,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
 
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="phone">{translate('Phone Number', language)}</Label>
+              <Label htmlFor="phone">{translate(language, 'Phone Number')}</Label>
               <Input
                 id="phone"
                 type="tel"
@@ -180,7 +177,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
 
             <div className="space-y-2">
               <Label htmlFor="package">
-                {translate('Interested Package', language)} <span className="text-destructive">*</span>
+                {translate(language, 'Interested Package')} <span className="text-destructive">*</span>
               </Label>
               <Controller
                 control={control}
@@ -188,12 +185,12 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
                 render={({ field }) => (
                   <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger id="package" aria-invalid={!!errors.package}>
-                      <SelectValue placeholder={translate('Select a package', language)} />
+                      <SelectValue placeholder={translate(language, 'Select a package')} />
                     </SelectTrigger>
                     <SelectContent>
                       {availablePackages.map((option) => (
                         <SelectItem key={option} value={option}>
-                          {translate(option, language)}
+                          {translate(language, option)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -206,24 +203,24 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
 
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="travelDate">{translate('Preferred Travel Date', language)}</Label>
+              <Label htmlFor="travelDate">{translate(language, 'Preferred Travel Date')}</Label>
               <Input id="travelDate" type="date" {...register("travelDate")} />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="travelers">{translate('Number of Travelers', language)}</Label>
+              <Label htmlFor="travelers">{translate(language, 'Number of Travelers')}</Label>
               <Controller
                 control={control}
                 name="travelers"
                 render={({ field }) => (
                   <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger id="travelers">
-                      <SelectValue placeholder={translate('Select number', language)} />
+                      <SelectValue placeholder={translate(language, 'Select number')} />
                     </SelectTrigger>
                     <SelectContent>
                       {travelerOptions.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
-                          {translate(option.label, language)}
+                          {translate(language, option.label)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -234,21 +231,21 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="message">{translate('Additional Information', language)}</Label>
+            <Label htmlFor="message">{translate(language, 'Additional Information')}</Label>
             <Textarea
               id="message"
-              placeholder={translate('Tell us about your travel preferences, special requirements, or any questions you have...', language)}
+              placeholder="Tell us about your travel preferences, special requirements, or any questions you have..."
               rows={5}
               {...register("message")}
             />
           </div>
 
           <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-            {isSubmitting ? translate('Submitting...', language) : translate('Submit Inquiry', language)}
+            {isSubmitting ? translate(language, 'Submitting...') : translate(language, 'Submit Inquiry')}
           </Button>
 
           <p className="text-center text-xs text-muted-foreground">
-            {translate('By submitting this form, you agree to our privacy policy and terms of service.', language)}
+            {translate(language, 'By submitting this form, you agree to our privacy policy and terms of service.')}
           </p>
         </form>
       </CardContent>

@@ -36,7 +36,7 @@ export function Footer({ language }: FooterProps) {
             <div className="space-y-2 text-xs text-gray-400">
               {legalLinks.map((link) => (
                 <Link key={link.href} href={link.href} className="block hover:text-white">
-                  {translate(link.label, language)}
+                  {translate(language, link.label)}
                 </Link>
               ))}
             </div>
@@ -51,7 +51,7 @@ export function Footer({ language }: FooterProps) {
 
             {officeInfo.disclaimers.map((item) => (
               <p key={item} className="text-xs text-gray-400">
-                {translate(item, language)}
+                {translate(language, item)}
               </p>
             ))}
 
@@ -112,7 +112,9 @@ export function Footer({ language }: FooterProps) {
           <div>
             <div className="mb-4 bg-[#e31e24] px-6 py-3 text-center">
               <p className="text-2xl font-bold leading-tight">
-                {translate('NOTIFY ME OF TRAVEL DEALS', language)}
+                {translate(language, 'NOTIFY ME OF')}
+                <br />
+                {translate(language, 'TRAVEL DEALS')}
               </p>
             </div>
             <div className="rounded-lg bg-white p-6 text-gray-900">

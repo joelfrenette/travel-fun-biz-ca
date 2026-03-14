@@ -1,32 +1,37 @@
-'use client'
+"use client"
 
-import { useTransition } from 'react'
-import { useRouter } from 'next/navigation'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import type { Language } from '@/lib/preferences'
+import { useState } from "react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useRouter } from "next/navigation"
+import type { Language } from "@/lib/preferences"
 
 interface LanguageToggleProps {
   language: Language
 }
 
 export function LanguageToggle({ language }: LanguageToggleProps) {
-  const [pending, startTransition] = useTransition()
   const router = useRouter()
+  const [value, setValue] = useState<Language>(language)
+  const [pending, setPending] = useState(false)
 
-  function handleChange(next: Language) {
-    if (next === language) return
-    startTransition(async () => {
-      await fetch('/api/preferences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language: next }),
+  async function handleChange(nextValue: string) {
+    const normalized = nextValue === "fr" ? "fr" : "en"
+    setValue(normalized)
+    setPending(true)
+    try {
+      await fetch("/api/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: normalized }),
       })
       router.refresh()
-    })
+    } finally {
+      setPending(false)
+    }
   }
 
   return (
-    <Select value={language} onValueChange={(value) => handleChange(value as Language)} disabled={pending}>
+    <Select value={value} onValueChange={handleChange} disabled={pending}>
       <SelectTrigger className="w-[90px]">
         <SelectValue placeholder="Lang" />
       </SelectTrigger>

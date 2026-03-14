@@ -1,8 +1,8 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { featureItems } from "@/content/features"
-import { translate } from "@/lib/i18n"
-import type { Language } from "@/lib/preferences"
 import { SectionHeading } from "@/components/section-heading"
+import type { Language } from "@/lib/preferences"
+import { translate } from "@/lib/i18n"
 
 interface FeaturesSectionProps {
   language: Language
@@ -13,10 +13,10 @@ export function FeaturesSection({ language }: FeaturesSectionProps) {
     <section className="py-20 md:py-32">
       <div className="container mx-auto px-4">
         <SectionHeading
-          title={translate('Why Choose TravelFunBiz.CA', language)}
+          title={translate(language, 'Why Choose TravelFunBiz.CA')}
           subtitle={translate(
-            "When you work with us, you save time, you save stress, you save money. We take care of all the hard work with a FREE dedicated experience concierge. That's right—you don't pay more! We meet or beat what you can get on your own. We get paid by the suppliers for bringing them millions in business, and we get group rates and exclusive offers that we pass on to YOU.",
             language,
+            "When you work with us, you save time, you save stress, you save money. We take care of all the hard work with a FREE dedicated experience concierge. That's right—you don't pay more! We meet or beat what you can get on your own. We get paid by the suppliers for bringing them millions in business, and we get group rates and exclusive offers that we pass on to YOU.",
           )}
         />
 
@@ -27,8 +27,12 @@ export function FeaturesSection({ language }: FeaturesSectionProps) {
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
                   <feature.icon className="h-6 w-6 text-primary" />
                 </div>
-                <h3 className="mb-2 text-lg font-semibold text-foreground">{translate(feature.title, language)}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">{translate(feature.description, language)}</p>
+                <h3 className="mb-2 text-lg font-semibold text-foreground">
+                  {translate(language, feature.title)}
+                </h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {translate(language, feature.description)}
+                </p>
               </CardContent>
             </Card>
           ))}

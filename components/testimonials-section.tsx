@@ -15,8 +15,11 @@ export function TestimonialsSection({ language }: TestimonialsSectionProps) {
     <section id="testimonials" className="py-20">
       <div className="container mx-auto px-4">
         <SectionHeading
-          title={translate('What Our Travelers Say', language)}
-          subtitle={translate("Don't just take our word for it. Here's what our happy travelers have to say about their experiences.", language)}
+          title={translate(language, 'What Our Travelers Say')}
+          subtitle={translate(
+            language,
+            "Don't just take our word for it. Here's what our happy travelers have to say about their experiences.",
+          )}
         />
 
         <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -33,7 +36,7 @@ export function TestimonialsSection({ language }: TestimonialsSectionProps) {
                   />
                   <div>
                     <h3 className="font-semibold text-foreground">{testimonial.name}</h3>
-                    <p className="text-sm text-muted-foreground">{translate(testimonial.location, language)}</p>
+                    <p className="text-sm text-muted-foreground">{testimonial.location}</p>
                   </div>
                 </div>
 
@@ -43,7 +46,7 @@ export function TestimonialsSection({ language }: TestimonialsSectionProps) {
                   ))}
                 </div>
 
-                <p className="text-pretty text-sm leading-relaxed text-muted-foreground">{translate(testimonial.text, language)}</p>
+                <p className="text-pretty text-sm leading-relaxed text-muted-foreground">{testimonial.text}</p>
               </CardContent>
             </Card>
           ))}

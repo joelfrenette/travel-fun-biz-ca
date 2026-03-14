@@ -39,15 +39,18 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
       })
 
       if (!response.ok) {
-        throw new Error('Subscription failed')
+        throw new Error('Failed to subscribe')
       }
 
-      toast({ title: translate('Subscribed!', language), description: translate('We will keep you posted with the latest travel deals.', language) })
+      toast({
+        title: translate(language, "Success! We'll keep you posted with the latest travel deals."),
+        description: translate(language, 'Thank You!'),
+      })
       reset({ fullName: '', email: '', phone: '', deals: [] })
     } catch (error) {
       toast({
-        title: translate('Subscription failed', language),
-        description: translate('Please try again in a moment.', language),
+        title: translate(language, 'Subscription failed'),
+        description: translate(language, 'Please try again in a moment.'),
         variant: 'destructive',
       })
     } finally {
@@ -60,44 +63,49 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
       <div className="space-y-4">
         <div>
           <label htmlFor="fullName" className="mb-1 block text-sm font-medium">
-            {translate('What is Your Full Name *', language)}
+            {translate(language, 'What is Your Full Name *')}
           </label>
           <Input id="fullName" placeholder="Full Name" autoComplete="name" {...register('fullName')} />
-          {errors.fullName && <p className="text-sm text-destructive">{errors.fullName.message}</p>}
+          {errors.fullName && <p className="text-sm text-red-600">{errors.fullName.message}</p>}
         </div>
 
         <div>
           <label htmlFor="email" className="mb-1 block text-sm font-medium">
-            {translate('Enter Your Email *', language)}
+            {translate(language, 'Enter Your Email *')}
           </label>
           <Input id="email" type="email" placeholder="Email" autoComplete="email" {...register('email')} />
-          {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+          {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
         </div>
 
         <div>
           <label htmlFor="phone" className="mb-1 block text-sm font-medium">
-            {translate('Mobile Phone *', language)}
+            {translate(language, 'Mobile Phone *')}
           </label>
           <Input id="phone" type="tel" placeholder="Phone" autoComplete="tel" {...register('phone')} />
-          {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
+          {errors.phone && <p className="text-sm text-red-600">{errors.phone.message}</p>}
         </div>
 
         <div>
           <label htmlFor="deals" className="mb-1 block text-sm font-medium">
-            {translate('Which deals you like? (multi-select) *', language)}
+            {translate(language, 'Which deals you like? (multi-select) *')}
           </label>
-          <select id="deals" multiple className="w-full rounded-md border border-gray-300 bg-gray-100 p-2 text-sm" {...register('deals')}>
+          <select
+            id="deals"
+            multiple
+            className="w-full rounded-md border border-gray-300 bg-gray-100 p-2 text-sm"
+            {...register('deals')}
+          >
             {newsletterDealOptions.map((option) => (
               <option key={option} value={option}>
-                {translate(option, language)}
+                {translate(language, option)}
               </option>
             ))}
           </select>
-          {errors.deals && <p className="text-sm text-destructive">{errors.deals.message}</p>}
+          {errors.deals && <p className="text-sm text-red-600">{errors.deals.message}</p>}
         </div>
 
         <Button type="submit" className="w-full bg-[#e31e24] py-6 text-lg font-bold hover:bg-[#c01a1f]" disabled={isSubmitting}>
-          {isSubmitting ? translate('Submitting...', language) : translate('SUBMIT', language)}
+          {isSubmitting ? translate(language, 'Submitting...') : translate(language, 'SUBMIT')}
         </Button>
       </div>
     </form>

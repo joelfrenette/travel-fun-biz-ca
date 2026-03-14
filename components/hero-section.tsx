@@ -23,6 +23,12 @@ export function HeroSection({ language }: HeroSectionProps) {
     return () => clearInterval(timer)
   }, [])
 
+  const headline = translate(language, heroSlides[currentSlide].title)
+  const description = translate(
+    language,
+    'Specializing in luxury travel, group adventures, and singles vacations. From tropical paradises to cultural expeditions, your perfect journey awaits.',
+  )
+
   return (
     <section className="relative overflow-hidden bg-background py-20 md:py-32">
       <div className="absolute inset-0">
@@ -35,7 +41,7 @@ export function HeroSection({ language }: HeroSectionProps) {
           >
             <Image
               src={slide.image || "/placeholder.svg"}
-              alt={translate(slide.title, language)}
+              alt={slide.title}
               fill
               className="object-cover"
               priority={index === 0}
@@ -48,18 +54,13 @@ export function HeroSection({ language }: HeroSectionProps) {
       <div className="container relative z-10 mx-auto px-4">
         <div className="mx-auto max-w-4xl text-center">
           <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
-            {translate(heroSlides[currentSlide].title, language)}
+            {headline}
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-gray-200 md:text-xl">
-            {translate(
-              'Specializing in luxury travel, group adventures, and singles vacations. From tropical paradises to cultural expeditions, your perfect journey awaits.',
-              language,
-            )}
-          </p>
+          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-gray-200 md:text-xl">{description}</p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Button asChild size="lg" className="w-full bg-primary text-white hover:bg-primary/90 sm:w-auto">
               <Link href="/#packages">
-                {translate('Explore Packages', language)}
+                {translate(language, 'Explore Packages')}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
@@ -69,7 +70,7 @@ export function HeroSection({ language }: HeroSectionProps) {
               variant="outline"
               className="w-full border-primary text-primary hover:bg-primary hover:text-white sm:w-auto bg-transparent"
             >
-              <Link href="/#contact">{translate('Plan My Trip', language)}</Link>
+              <Link href="/#contact">{translate(language, 'Plan My Trip')}</Link>
             </Button>
           </div>
 

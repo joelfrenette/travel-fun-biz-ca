@@ -1,47 +1,38 @@
-import { cookies as nextCookies } from 'next/headers'
+// preferences.ts - read/write visitor language & currency preferences
+import { cookies } from 'next/headers'
+import type { Currency } from '@/lib/currency'
 
 export type Language = 'en' | 'fr'
-export type Currency = 'usd' | 'cad'
 
-export const LANGUAGE_COOKIE = 'pref-language'
-export const CURRENCY_COOKIE = 'pref-currency'
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
-
-export function isLanguage(value: unknown): value is Language {
-  return value === 'en' || value === 'fr'
+const LANGUAGE_COOKIE = 'lang'
+const CURRENCY_COOKIE = 'currency'
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: 'lax' as const,
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+  maxAge: 60 * 60 * 24 * 365,
 }
 
-export function isCurrency(value: unknown): value is Currency {
-  return value === 'usd' || value === 'cad'
+export function normalizeLanguage(value?: string | null): Language {
+  return value === 'fr' ? 'fr' : 'en'
 }
 
-function readCookie<T extends string>(key: string, validate: (value: unknown) => value is T, fallback: T): T {
-  const store = nextCookies()
-  const value = store.get(key)?.value
-  return validate(value) ? value : fallback
-}
-
-export function getVisitorLanguage(): Language {
-  return readCookie(LANGUAGE_COOKIE, isLanguage, 'en')
-}
-
-export function getVisitorCurrency(): Currency {
-  return readCookie(CURRENCY_COOKIE, isCurrency, 'usd')
+export function normalizeCurrency(value?: string | null): Currency {
+  return value === 'cad' ? 'cad' : 'usd'
 }
 
 export function getVisitorPreferences() {
-  return {
-    language: getVisitorLanguage(),
-    currency: getVisitorCurrency(),
-  }
+  const cookieStore = cookies()
+  const language = normalizeLanguage(cookieStore.get(LANGUAGE_COOKIE)?.value)
+  const currency = normalizeCurrency(cookieStore.get(CURRENCY_COOKIE)?.value)
+  return { language, currency }
 }
 
-export function setPreferenceCookie(key: string, value: string) {
-  nextCookies().set(key, value, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: COOKIE_MAX_AGE,
-  })
+export function setVisitorLanguage(language: Language) {
+  cookies().set(LANGUAGE_COOKIE, language, COOKIE_OPTIONS)
+}
+
+export function setVisitorCurrency(currency: Currency) {
+  cookies().set(CURRENCY_COOKIE, currency, COOKIE_OPTIONS)
 }

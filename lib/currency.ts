@@ -1,20 +1,21 @@
-import type { Currency, Language } from '@/lib/preferences'
+// currency.ts - helpers for formatting and converting prices
+export type Currency = 'usd' | 'cad'
 
-const USD_TO_CAD = 1.35
+const USD_TO_CAD_RATE = 1.36
 
-function convertUsd(valueUsd: number, currency: Currency): number {
+export function convertUsd(amount: number, currency: Currency): number {
   if (currency === 'cad') {
-    return valueUsd * USD_TO_CAD
+    return amount * USD_TO_CAD_RATE
   }
-  return valueUsd
+  return amount
 }
 
-export function formatPrice(valueUsd: number, currency: Currency, language: Language) {
-  const locale = language === 'fr' ? 'fr-CA' : currency === 'usd' ? 'en-US' : 'en-CA'
-  const formatter = new Intl.NumberFormat(locale, {
+export function formatPrice(amountUsd: number, currency: Currency): string {
+  const converted = convertUsd(amountUsd, currency)
+  const formatter = new Intl.NumberFormat(currency === 'cad' ? 'fr-CA' : 'en-US', {
     style: 'currency',
-    currency: currency === 'usd' ? 'USD' : 'CAD',
+    currency: currency.toUpperCase(),
     maximumFractionDigits: 0,
   })
-  return formatter.format(convertUsd(valueUsd, currency))
+  return formatter.format(converted)
 }

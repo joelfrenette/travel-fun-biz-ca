@@ -10,15 +10,14 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { useTheme } from "next-themes"
 import { LanguageToggle } from "@/components/language-toggle"
 import { CurrencyToggle } from "@/components/currency-toggle"
-import type { Language, Currency } from "@/lib/preferences"
+import type { Language } from "@/lib/preferences"
+import type { Currency } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
 
-const linkBaseClass = "text-sm font-medium uppercase transition-colors"
+const linkClassName =
+  "text-sm font-medium uppercase text-primary transition-colors hover:text-primary/80 dark:text-primary dark:hover:text-primary/80"
 
-function renderNavLink(link: NavLink, language: Language, onClick?: () => void) {
-  const label = translate(link.label, language)
-  const className = `${linkBaseClass} text-primary hover:text-primary/80 dark:text-primary dark:hover:text-primary/80`
-
+function renderNavLink(link: NavLink, label: string, onClick?: () => void) {
   if (link.external) {
     return (
       <a
@@ -26,7 +25,7 @@ function renderNavLink(link: NavLink, language: Language, onClick?: () => void) 
         href={link.href}
         target="_blank"
         rel="noopener noreferrer"
-        className={className}
+        className={linkClassName}
         onClick={onClick}
       >
         {label}
@@ -35,7 +34,7 @@ function renderNavLink(link: NavLink, language: Language, onClick?: () => void) 
   }
 
   return (
-    <Link key={link.href} href={link.href} className={className} onClick={onClick}>
+    <Link key={link.href} href={link.href} className={linkClassName} onClick={onClick}>
       {label}
     </Link>
   )
@@ -66,15 +65,17 @@ export function Header({ language, currency }: HeaderProps) {
 
         {/* Desktop Navigation */}
         <div className="hidden items-center gap-8 md:flex">
-          {primaryNavLinks.map((link) => renderNavLink(link, language))}
+          {primaryNavLinks.map((link) =>
+            renderNavLink(link, translate(language, link.label)),
+          )}
         </div>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-2 md:flex">
           <LanguageToggle language={language} />
           <CurrencyToggle currency={currency} />
           <ThemeToggle />
           <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90">
-            <Link href={ctaLink.href}>{translate(ctaLink.label, language)}</Link>
+            <Link href={ctaLink.href}>{translate(language, ctaLink.label)}</Link>
           </Button>
         </div>
 
@@ -93,10 +94,12 @@ export function Header({ language, currency }: HeaderProps) {
       {mobileMenuOpen && (
         <div className="border-t border-border bg-background md:hidden">
           <div className="container mx-auto flex flex-col gap-4 px-4 py-6">
-            {primaryNavLinks.map((link) => renderNavLink(link, language, () => setMobileMenuOpen(false)))}
+            {primaryNavLinks.map((link) =>
+              renderNavLink(link, translate(language, link.label), () => setMobileMenuOpen(false)),
+            )}
             <Button asChild className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
               <Link href={ctaLink.href} onClick={() => setMobileMenuOpen(false)}>
-                {translate(ctaLink.label, language)}
+                {translate(language, ctaLink.label)}
               </Link>
             </Button>
           </div>

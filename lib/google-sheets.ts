@@ -4,11 +4,10 @@ export interface SheetRow {
   [key: string]: string
 }
 
-function parsePriceValue(raw?: string): number | undefined {
-  if (!raw) return undefined
-  const numeric = raw.replace(/[^0-9.]/g, '')
-  if (!numeric) return undefined
-  const value = Number.parseFloat(numeric)
+function parsePriceValue(input?: string): number | undefined {
+  if (!input) return undefined
+  const cleaned = input.replace(/[^0-9.]/g, '')
+  const value = Number.parseFloat(cleaned)
   return Number.isFinite(value) ? value : undefined
 }
 
@@ -61,7 +60,7 @@ export function mapSheetRowToPackage(row: SheetRow, index: number): TravelPackag
     name,
     destination,
     duration: row.duration || row.Duration || '',
-    price,
+    price: price,
     priceValue: parsePriceValue(price),
     description: row.description || row.Description || '',
     image:
