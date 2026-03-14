@@ -8,6 +8,9 @@ const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH
 console.log('[auth] loaded env', {
   email: adminEmail,
   hasHash: Boolean(adminPasswordHash),
+  hashLength: adminPasswordHash?.length,
+  hashStart: adminPasswordHash?.substring(0, 10),
+  hashEnd: adminPasswordHash?.substring((adminPasswordHash?.length ?? 0) - 5),
 })
 
 if (!adminEmail || !adminPasswordHash) {
@@ -24,7 +27,13 @@ export async function verifyAdminCredentials(email: string, password: string): P
   }
 
   try {
-    return await bcrypt.compare(password, adminPasswordHash)
+    const result = await bcrypt.compare(password, adminPasswordHash)
+    console.log('[auth] bcrypt.compare result:', result, {
+      passwordLength: password.length,
+      hashLength: adminPasswordHash.length,
+      hashPrefix: adminPasswordHash.substring(0, 7),
+    })
+    return result
   } catch (error) {
     console.error('[auth] Failed to compare password hash', error)
     return false
