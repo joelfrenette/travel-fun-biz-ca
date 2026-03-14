@@ -34,7 +34,7 @@ export function HeroSection({ language }: HeroSectionProps) {
       <div className="absolute inset-0">
         {heroSlides.map((slide, index) => (
           <div
-            key={slide.title}
+            key={slide.image}
             className={`absolute inset-0 transition-opacity duration-1000 ${
               index === currentSlide ? "opacity-100" : "opacity-0"
             }`}
@@ -77,7 +77,7 @@ export function HeroSection({ language }: HeroSectionProps) {
           <div className="mt-8 flex justify-center gap-2">
             {heroSlides.map((slide, index) => (
               <button
-                key={slide.title}
+                key={slide.image}
                 onClick={() => setCurrentSlide(index)}
                 className={`h-2 w-2 rounded-full transition-all ${
                   index === currentSlide ? "w-8 bg-primary" : "bg-white/50"
