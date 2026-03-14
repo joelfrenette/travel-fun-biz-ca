@@ -3,10 +3,11 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Menu, X } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Image from "next/image"
 import { ctaLink, primaryNavLinks, type NavLink } from "@/content/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { useTheme } from "next-themes"
 
 const linkClassName = "text-sm font-medium uppercase text-primary transition-colors hover:text-primary/80 dark:text-primary dark:hover:text-primary/80"
 
@@ -35,12 +36,20 @@ function renderNavLink(link: NavLink, onClick?: () => void) {
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const logoSrc = !mounted || resolvedTheme === "dark" ? "/logo.png" : "/logo-light.png"
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link href="/" className="flex items-center">
-          <Image src="/logo.png" alt="TravelFunBiz.CA" width={180} height={68} className="h-12 w-auto" priority />
+          <Image src={logoSrc} alt="TravelFunBiz.CA" width={180} height={68} className="h-12 w-auto" priority />
         </Link>
 
         {/* Desktop Navigation */}
@@ -50,7 +59,7 @@ export function Header() {
 
         <div className="hidden items-center gap-4 md:flex">
           <ThemeToggle />
-          <Button asChild className="bg-primary text-white hover:bg-primary/90">
+          <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90">
             <Link href={ctaLink.href}>{ctaLink.label}</Link>
           </Button>
         </div>
@@ -69,7 +78,7 @@ export function Header() {
         <div className="border-t border-border bg-background md:hidden">
           <div className="container mx-auto flex flex-col gap-4 px-4 py-6">
             {primaryNavLinks.map((link) => renderNavLink(link, () => setMobileMenuOpen(false)))}
-            <Button asChild className="w-full bg-primary text-white hover:bg-primary/90">
+            <Button asChild className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
               <Link href={ctaLink.href} onClick={() => setMobileMenuOpen(false)}>
                 {ctaLink.label}
               </Link>

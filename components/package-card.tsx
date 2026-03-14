@@ -12,7 +12,7 @@ interface PackageCardProps {
 
 export function PackageCard({ package: pkg }: PackageCardProps) {
   return (
-    <Card className="group overflow-hidden border-gray-800 bg-card transition-all hover:border-primary hover:shadow-xl hover:shadow-primary/20">
+    <Card className="group overflow-hidden border-border bg-card transition-all hover:border-primary hover:shadow-xl hover:shadow-primary/20">
       <CardHeader className="p-0">
         <div className="relative h-48 w-full overflow-hidden">
           <Image
@@ -22,12 +22,12 @@ export function PackageCard({ package: pkg }: PackageCardProps) {
             className="object-cover transition-transform duration-300 group-hover:scale-110"
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
-          <Badge className="absolute right-3 top-3 bg-primary text-white font-bold uppercase">{pkg.category}</Badge>
+          <Badge className="absolute right-3 top-3 bg-primary text-primary-foreground font-bold uppercase">{pkg.category}</Badge>
         </div>
       </CardHeader>
       <CardContent className="p-6">
-        <h3 className="mb-2 text-balance text-xl font-bold uppercase text-white">{pkg.name}</h3>
-        <div className="mb-4 flex flex-wrap gap-3 text-sm text-gray-400">
+        <h3 className="mb-2 text-balance text-xl font-bold uppercase text-foreground">{pkg.name}</h3>
+        <div className="mb-4 flex flex-wrap gap-3 text-sm text-muted-foreground">
           <div className="flex items-center gap-1">
             <MapPin className="h-4 w-4" />
             <span>{pkg.destination}</span>
@@ -43,21 +43,21 @@ export function PackageCard({ package: pkg }: PackageCardProps) {
             </div>
           )}
         </div>
-        <p className="mb-4 line-clamp-2 text-pretty text-sm leading-relaxed text-gray-400">{pkg.description}</p>
+        <p className="mb-4 line-clamp-2 text-pretty text-sm leading-relaxed text-muted-foreground">{pkg.description}</p>
         {pkg.rating && (
-          <div className="mb-4 flex items-center gap-1">
+          <div className="mb-4 flex items-center gap-1 text-foreground">
             <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-            <span className="text-sm font-medium text-white">{pkg.rating}</span>
-            <span className="text-sm text-gray-400">/5</span>
+            <span className="text-sm font-medium">{pkg.rating}</span>
+            <span className="text-sm text-muted-foreground">/5</span>
           </div>
         )}
         <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold text-white">{pkg.price}</span>
-          <span className="text-sm text-gray-400">per person</span>
+          <span className="text-2xl font-bold text-foreground">{pkg.price}</span>
+          <span className="text-sm text-muted-foreground">per person</span>
         </div>
       </CardContent>
       <CardFooter className="p-6 pt-0">
-        <Button asChild className="w-full bg-primary text-white font-bold uppercase hover:bg-primary/90">
+        <Button asChild className="w-full bg-primary text-primary-foreground font-bold uppercase hover:bg-primary/90">
           <Link href={`/#contact?package=${encodeURIComponent(pkg.name)}`}>
             More Info
           </Link>
