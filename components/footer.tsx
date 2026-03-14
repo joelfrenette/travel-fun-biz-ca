@@ -1,6 +1,14 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import Image from "next/image"
+import {
+  legalLinks,
+  newsletterDealOptions,
+  officeInfo,
+  recognitionBadges,
+  socialPromos,
+} from "@/content/footer"
 
 export function Footer() {
   return (
@@ -9,172 +17,97 @@ export function Footer() {
         <div className="grid gap-8 lg:grid-cols-4">
           <div className="space-y-4">
             <div className="mb-6">
-              <img
+              <Image
                 src="https://travelfunbiz.com/wp-content/uploads/2023/09/500x185-trim-Logo-PlayfairBuffaloMontserrat.trans_.png"
                 alt="TravelFun.Biz Logo"
-                className="w-full max-w-[300px]"
+                width={300}
+                height={110}
+                className="h-auto w-full max-w-[300px]"
+                unoptimized
               />
             </div>
 
             <div className="space-y-2 text-sm text-gray-300">
-              <p>375 University Avenue, Suite 1072</p>
-              <p>Toronto, ON M5G 2J5</p>
-              <p className="pt-2">(365) 800-6363</p>
+              {officeInfo.addressLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+              <p className="pt-2">{officeInfo.phone}</p>
             </div>
 
             <div className="space-y-2 text-xs text-gray-400">
-              <Link href="https://www.travelfunbiz.com/privacy-policy/" className="block hover:text-white">
-                Privacy Policy
-              </Link>
-              <Link href="https://www.travelfunbiz.com/terms-conditions/" className="block hover:text-white">
-                Terms & Conditions
-              </Link>
-              <Link href="https://www.travelfunbiz.com/earnings-disclaimer/" className="block hover:text-white">
-                Earnings Disclaimer
-              </Link>
-              <Link href="https://travelfunbiz.com/affiliate-agreement/" className="block hover:text-white">
-                Affiliate Agreement
-              </Link>
+              {legalLinks.map((link) => (
+                <Link key={link.href} href={link.href} className="block hover:text-white">
+                  {link.label}
+                </Link>
+              ))}
             </div>
 
             <div className="space-y-1 text-xs text-gray-400">
-              <p className="font-semibold text-white">Florida Seller of Travel # ST42324</p>
-              <p className="font-semibold text-white">California Seller of Travel # 2154919-50</p>
+              {officeInfo.registrations.map((item) => (
+                <p key={item} className="font-semibold text-white">
+                  {item}
+                </p>
+              ))}
             </div>
 
-            <p className="text-xs text-gray-400">
-              By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive
-              text messages, you may opt out at any time by replying "STOP"
-            </p>
+            {officeInfo.disclaimers.map((item) => (
+              <p key={item} className="text-xs text-gray-400">
+                {item}
+              </p>
+            ))}
 
             <div className="pt-4">
-              <img
+              <Image
                 src="https://travelfunbiz.com/wp-content/uploads/2025/10/logo-IATAN.png"
                 alt="IATAN - International Airlines Travel Agent Network"
-                className="w-[300px]"
+                width={300}
+                height={120}
+                className="h-auto w-[300px]"
+                unoptimized
               />
             </div>
           </div>
 
           <div className="space-y-4">
-            <a
-              href="https://travelfunbiz.com/reviews/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2024/01/300xReviews.jpg"
-                alt="Google and Facebook Reviews"
-                className="w-full rounded"
-              />
-            </a>
-
-            <a
-              href="https://web.bocaratonchamber.com/TRAVEL-AGENCIES/TravelFunbiz-15987"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2024/01/300xChamber.png"
-                alt="Boca Raton Chamber of Commerce"
-                className="w-full rounded"
-              />
-            </a>
-
-            <a
-              href="https://www.bbb.org/us/fl/boca-raton/profile/online-travel-agency/travelfun-llc-0633-90563333"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2018/10/300x100-bbb_a_rating_logo-2.png"
-                alt="BBB A+ Rating"
-                className="w-full rounded"
-              />
-            </a>
-
-            <a
-              href="https://cruising.org/en/verify-a-travel-agency-member"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2024/01/CLIA-o-graph-e1705621125433-300x92.jpg"
-                alt="CLIA - Cruise Lines International Association"
-                className="w-full rounded"
-              />
-            </a>
-
-            <a
-              href="https://www.asta.org/travelerServices/advisor-directory"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2024/01/asta-logo-1-e1705621308273-300x122.png"
-                alt="ASTA - American Society of Travel Advisors"
-                className="w-full rounded"
-              />
-            </a>
+            {recognitionBadges.map((badge) => (
+              <Link
+                key={badge.href}
+                href={badge.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block transition-opacity hover:opacity-90"
+              >
+                <Image
+                  src={badge.src}
+                  alt={badge.alt}
+                  width={320}
+                  height={140}
+                  className="h-auto w-full rounded"
+                  unoptimized
+                />
+              </Link>
+            ))}
           </div>
 
           <div className="space-y-4">
-            <a
-              href="https://www.facebook.com/MostPartiesMostFun"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2019/12/best-singles-cruises-11.jpg"
-                alt="Follow us on Facebook"
-                className="w-full rounded"
-              />
-            </a>
-
-            <a
-              href="https://www.instagram.com/solotravelexpert/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2019/12/best-singles-cruises-12.jpg"
-                alt="Follow us on Instagram"
-                className="w-full rounded"
-              />
-            </a>
-
-            <a
-              href="https://bit.ly/SubscribeSoloTravelTV"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2021/11/YouTube-Subscribe-300x139-1.jpg"
-                alt="Subscribe to YouTube Channel"
-                className="w-full rounded"
-              />
-            </a>
-
-            <a
-              href="https://www.tiktok.com/@travelfunjoel"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block transition-opacity hover:opacity-90"
-            >
-              <img
-                src="https://travelfunbiz.com/wp-content/uploads/2022/01/600x282-tiktok.png"
-                alt="Follow us on TikTok"
-                className="w-full rounded"
-              />
-            </a>
+            {socialPromos.map((promo) => (
+              <Link
+                key={promo.href}
+                href={promo.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block transition-opacity hover:opacity-90"
+              >
+                <Image
+                  src={promo.src}
+                  alt={promo.alt}
+                  width={320}
+                  height={140}
+                  className="h-auto w-full rounded"
+                  unoptimized
+                />
+              </Link>
+            ))}
           </div>
 
           <div>
@@ -185,49 +118,41 @@ export function Footer() {
                 TRAVEL DEALS
               </p>
             </div>
-            <div className="rounded-lg bg-white p-6">
+            <div className="rounded-lg bg-white p-6 text-gray-900">
               <form className="space-y-4">
                 <div>
-                  <label htmlFor="fullName" className="mb-1 block text-sm font-medium text-gray-900">
+                  <label htmlFor="fullName" className="mb-1 block text-sm font-medium">
                     What is Your Full Name *
                   </label>
-                  <Input
-                    id="fullName"
-                    type="text"
-                    placeholder="Full Name"
-                    required
-                    className="border-gray-300 bg-gray-100"
-                  />
+                  <Input id="fullName" type="text" placeholder="Full Name" required className="border-gray-300 bg-gray-100" />
                 </div>
 
                 <div>
-                  <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-900">
+                  <label htmlFor="email" className="mb-1 block text-sm font-medium">
                     Enter Your Email *
                   </label>
                   <Input id="email" type="email" placeholder="Email" required className="border-gray-300 bg-gray-100" />
                 </div>
 
                 <div>
-                  <label htmlFor="phone" className="mb-1 block text-sm font-medium text-gray-900">
+                  <label htmlFor="phone" className="mb-1 block text-sm font-medium">
                     Mobile Phone *
                   </label>
                   <Input id="phone" type="tel" placeholder="Phone" required className="border-gray-300 bg-gray-100" />
                 </div>
 
                 <div>
-                  <label htmlFor="deals" className="mb-1 block text-sm font-medium text-gray-900">
-                    Which Deals you like? (multi-select) *
+                  <label htmlFor="deals" className="mb-1 block text-sm font-medium">
+                    Which deals you like? (multi-select) *
                   </label>
                   <select
                     id="deals"
                     multiple
-                    className="w-full rounded-md border border-gray-300 bg-gray-100 p-2 text-sm text-gray-900"
+                    className="w-full rounded-md border border-gray-300 bg-gray-100 p-2 text-sm"
                   >
-                    <option>All-Inclusive Resorts</option>
-                    <option>Cruises</option>
-                    <option>European Tours</option>
-                    <option>Adventure Travel</option>
-                    <option>Luxury Escapes</option>
+                    {newsletterDealOptions.map((option) => (
+                      <option key={option}>{option}</option>
+                    ))}
                   </select>
                 </div>
 

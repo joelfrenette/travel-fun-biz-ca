@@ -722,6 +722,9 @@
   .h-\[var\(--radix-select-trigger-height\)\] {
     height: var(--radix-select-trigger-height);
   }
+  .h-auto {
+    height: auto;
+  }
   .h-full {
     height: 100%;
   }
