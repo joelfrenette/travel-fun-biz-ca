@@ -4,40 +4,15 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 import { useState, useEffect } from "react"
-
-const slides = [
-  {
-    image: "/group-of-mature-adults-enjoying-river-cruise-deck.jpg",
-    title: "Your FUN is our Biz",
-  },
-  {
-    image: "/mature-travelers-relaxing-at-luxury-hotel-pool.jpg",
-    title: "FUN is our middle name", // Capitalized FUN to match brand style
-  },
-  {
-    image: "/large-group-of-seniors-celebrating-on-river-cruise.jpg",
-    title: "FUN Starts Here",
-  },
-  {
-    image: "/mature-friends-enjoying-poolside-resort-vacation.jpg",
-    title: "Your Passport to FUN",
-  },
-  {
-    image: "/group-of-older-adults-having-fun-on-cruise-ship.jpg",
-    title: "Making Travel Fun Again",
-  },
-  {
-    image: "/mature-travelers-socializing-at-resort-pool-area.jpg",
-    title: "Your FUN is our Biz",
-  },
-]
+import Image from "next/image"
+import { heroSlides } from "@/content/hero"
 
 export function HeroSection() {
   const [currentSlide, setCurrentSlide] = useState(0)
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % slides.length)
+      setCurrentSlide((prev) => (prev + 1) % heroSlides.length)
     }, 5000)
     return () => clearInterval(timer)
   }, [])
@@ -45,17 +20,19 @@ export function HeroSection() {
   return (
     <section className="relative overflow-hidden bg-black py-20 md:py-32">
       <div className="absolute inset-0">
-        {slides.map((slide, index) => (
+        {heroSlides.map((slide, index) => (
           <div
-            key={index}
+            key={slide.title}
             className={`absolute inset-0 transition-opacity duration-1000 ${
               index === currentSlide ? "opacity-100" : "opacity-0"
             }`}
           >
-            <img
+            <Image
               src={slide.image || "/placeholder.svg"}
-              alt="People having fun"
-              className="h-full w-full object-cover"
+              alt={slide.title}
+              fill
+              className="object-cover"
+              priority={index === 0}
             />
             <div className="absolute inset-0 bg-black/60" />
           </div>
@@ -65,7 +42,7 @@ export function HeroSection() {
       <div className="container relative z-10 mx-auto px-4">
         <div className="mx-auto max-w-4xl text-center">
           <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
-            {slides[currentSlide].title}
+            {heroSlides[currentSlide].title}
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-gray-300 md:text-xl">
             Specializing in luxury travel, group adventures, and singles vacations. From tropical paradises to cultural
@@ -89,9 +66,9 @@ export function HeroSection() {
           </div>
 
           <div className="mt-8 flex justify-center gap-2">
-            {slides.map((_, index) => (
+            {heroSlides.map((slide, index) => (
               <button
-                key={index}
+                key={slide.title}
                 onClick={() => setCurrentSlide(index)}
                 className={`h-2 w-2 rounded-full transition-all ${
                   index === currentSlide ? "w-8 bg-primary" : "bg-white/50"

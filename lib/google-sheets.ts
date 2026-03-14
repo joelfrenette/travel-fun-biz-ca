@@ -1,3 +1,5 @@
+import type { TravelPackage } from '@/types/travel'
+
 export interface SheetRow {
   [key: string]: string
 }
@@ -38,21 +40,27 @@ export async function fetchGoogleSheetData(sheetId: string, range = "Sheet1"): P
   }
 }
 
-export function mapSheetRowToPackage(row: SheetRow, index: number): any {
+export function mapSheetRowToPackage(row: SheetRow, index: number): TravelPackage {
+  const name = row.name || row.Name || row.title || row.Title || `Package ${index + 1}`
+  const destination = row.destination || row.Destination || row.location || row.Location || ''
+  const category = row.category || row.Category || row.type || row.Type || 'Adventure'
+  const ratingSource = row.rating || row.Rating
+  const parsedRating = ratingSource ? Number.parseFloat(ratingSource) : undefined
+
   return {
     id: row.id || `package-${index}`,
-    name: row.name || row.Name || row.title || row.Title || "",
-    destination: row.destination || row.Destination || row.location || row.Location || "",
-    duration: row.duration || row.Duration || "",
-    price: row.price || row.Price || "",
-    description: row.description || row.Description || "",
+    name,
+    destination,
+    duration: row.duration || row.Duration || '',
+    price: row.price || row.Price || '',
+    description: row.description || row.Description || '',
     image:
       row.image ||
       row.Image ||
       row.imageUrl ||
-      `/placeholder.svg?height=400&width=600&query=${encodeURIComponent(row.name || "travel destination")}`,
-    category: row.category || row.Category || row.type || row.Type || "Adventure",
-    rating: row.rating || row.Rating ? Number.parseFloat(row.rating || row.Rating) : undefined,
-    maxPeople: row.maxPeople || row.MaxPeople || row.capacity || row.Capacity || "",
+      `/placeholder.svg?height=400&width=600&query=${encodeURIComponent(name)}`,
+    category,
+    rating: Number.isFinite(parsedRating) ? parsedRating : undefined,
+    maxPeople: row.maxPeople || row.MaxPeople || row.capacity || row.Capacity || '',
   }
 }

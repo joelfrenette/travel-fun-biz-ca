@@ -1,5 +1,6 @@
-import { PackageCard, type TravelPackage } from "@/components/package-card"
+import { PackageCard } from "@/components/package-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import type { TravelPackage } from "@/types/travel"
 
 interface PackagesSectionProps {
   packages: TravelPackage[]
@@ -7,7 +8,7 @@ interface PackagesSectionProps {
 
 export function PackagesSection({ packages }: PackagesSectionProps) {
   // Get unique categories
-  const categories = ["All", ...Array.from(new Set(packages.map((pkg) => pkg.category)))]
+  const categories = ["All", ...Array.from(new Set(packages.map((pkg) => pkg.category)))] 
 
   return (
     <section id="packages" className="py-20 md:py-32">

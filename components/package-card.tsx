@@ -4,19 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { MapPin, Calendar, Users, Star } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
-
-export interface TravelPackage {
-  id: string
-  name: string
-  destination: string
-  duration: string
-  price: string
-  description: string
-  image: string
-  category: string
-  rating?: number
-  maxPeople?: string
-}
+import type { TravelPackage } from "@/types/travel"
 
 interface PackageCardProps {
   package: TravelPackage
@@ -70,7 +58,9 @@ export function PackageCard({ package: pkg }: PackageCardProps) {
       </CardContent>
       <CardFooter className="p-6 pt-0">
         <Button asChild className="w-full bg-primary text-white font-bold uppercase hover:bg-primary/90">
-          <Link href={`/#contact?package=${encodeURIComponent(pkg.name)}`}>More Info</Link>
+          <Link href={`/#contact?package=${encodeURIComponent(pkg.name)}`}>
+            More Info
+          </Link>
         </Button>
       </CardFooter>
     </Card>
