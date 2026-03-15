@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -186,78 +187,91 @@ const features = [
     description: "Set affiliate codes and auto-convert keywords to affiliate hyperlinks across the site.",
     icon: Link2,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "AI Voice & Chat Agent",
     description: "Manage travel info and Q&A files for the AI voice agent and chat agent.",
     icon: Bot,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Blog Auto-Writer",
     description: "Auto-generate and publish blog articles from trends, news, emails, and curated content.",
     icon: FileText,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Branchup Email Importer",
     description: "Auto-post Branchup.com email content and promotions to the blog.",
     icon: BarChart3,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Cookie Lead Collector",
     description: "Auto-collect visitor names, emails, phone numbers, and referrer info via a cookie consent banner on the main site.",
     icon: Cookie,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Google Trends & Analytics",
     description: "Pull trending keywords and analytics data to auto-generate optimized blog posts.",
     icon: TrendingUp,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Image & Meta Bulk Editor",
     description: "Bulk update all image alt tags, meta tags, OG descriptions, and OG images site-wide.",
     icon: Image,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Quora & Reddit Scraper",
     description: "Scrape, post, and answer travel questions on Quora and Reddit to drive traffic.",
     icon: MessageSquare,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Search Engine Submission",
     description: "Ping new pages, submit sitemaps, manage backlinks, and trigger crawls on Google & Bing.",
     icon: Search,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "SEO & GEO Manager",
     description: "Mass update alt tags, meta descriptions, OG images, robots.txt, AI.txt, and submit to search engines.",
     icon: Globe,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Site Settings",
     description: "Manage site-wide settings, navigation, footer content, and general configuration.",
     icon: Settings,
     status: "Coming Soon",
+    href: null,
   },
   {
     title: "Travel News Auto-Poster",
     description: "Automatically post the latest travel news, events, and industry updates to the blog.",
     icon: Newspaper,
     status: "Coming Soon",
+    href: null,
   },
   {
-    title: "Travel Package Builder",
-    description: "AI-powered tool to research, scrape, and auto-create travel package pages with booking links and info cards.",
+    title: "Travel Packages",
+    description: "Manage all travel packages: add via AI interview, scrape URLs, upload Excel, or enter manually. Full CRUD with sorting and filtering.",
     icon: Package,
-    status: "Coming Soon",
+    status: "Active",
+    href: "/admin/packages",
   },
 ].sort((a, b) => a.title.localeCompare(b.title))
 
@@ -271,6 +285,8 @@ const quickStats = [
 
 // ─── Admin Dashboard ────────────────────────────────────────────────
 function DashboardView({ email, onLogout }: { email: string; onLogout: () => void }) {
+  const router = useRouter()
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -337,13 +353,21 @@ function DashboardView({ email, onLogout }: { email: string; onLogout: () => voi
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {features.map((feature) => (
-            <Card key={feature.title} className="group relative overflow-hidden transition-shadow hover:shadow-lg">
+            <Card
+              key={feature.title}
+              className={`group relative overflow-hidden transition-shadow hover:shadow-lg ${feature.href ? "cursor-pointer" : ""}`}
+              onClick={() => feature.href && router.push(feature.href)}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="rounded-lg bg-primary/10 p-2">
                     <feature.icon className="h-5 w-5 text-primary" />
                   </div>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+                    feature.status === "Active"
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-muted text-muted-foreground"
+                  }`}>
                     {feature.status}
                   </span>
                 </div>
