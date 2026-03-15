@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { verifyAdminCredentials } from '@/lib/auth'
-import { setAdminSession } from '@/lib/session'
+import { createSessionValue } from '@/lib/session'
 
 export async function POST(request: Request) {
   try {
@@ -17,8 +17,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
-    await setAdminSession({ email })
-    return NextResponse.json({ success: true })
+    // Create session token and return it with an explicit Set-Cookie on the response
+    const sessionValue = createSessionValue({ email })
+    const res = NextResponse.json({ success: true })
+
+    // Set cookie on the response so the browser receives it reliably
+    res.cookies.set('adminSession', sessionValue, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: 60 * 60 * 8,
+    })
+
+    console.log('[admin-login] issued session for', email)
+    return res
   } catch (error) {
     console.error('[admin-login] Unexpected error', error)
     return NextResponse.json({ error: 'Unable to login' }, { status: 500 })

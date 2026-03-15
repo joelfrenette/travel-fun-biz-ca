@@ -34,7 +34,13 @@ function decode(value: string): Record<string, string> | null {
 export function createSessionValue(payload: Record<string, string>): string {
   const encoded = encode(payload)
   const signature = sign(encoded)
-  return `${encoded}.${signature}`
+  const combined = `${encoded}.${signature}`
+  // Log lengths (do not log secrets)
+  console.log('[session] createSessionValue', {
+    encodedLength: encoded.length,
+    signatureLength: signature.length,
+  })
+  return combined
 }
 
 export function parseSessionValue(value?: string): Record<string, string> | null {
@@ -45,6 +51,7 @@ export function parseSessionValue(value?: string): Record<string, string> | null
   try {
     const expected = sign(encoded)
     if (expected !== signature) {
+      console.warn('[session] Signature mismatch when parsing session')
       return null
     }
   } catch (error) {
@@ -57,6 +64,8 @@ export function parseSessionValue(value?: string): Record<string, string> | null
 
 export async function setAdminSession(payload: Record<string, string>) {
   const value = createSessionValue(payload)
+  // log that we're setting the cookie (do not expose the cookie value)
+  console.log('[session] Setting session cookie', { cookieName: SESSION_COOKIE })
   cookies().set(SESSION_COOKIE, value, {
     httpOnly: true,
     sameSite: 'lax',
@@ -77,5 +86,9 @@ export function getAdminSession(): Record<string, string> | null {
 
 export function getAdminSessionFromRequest(request: NextRequest): Record<string, string> | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value
-  return parseSessionValue(raw)
+  const parsed = parseSessionValue(raw)
+  if (!parsed && raw) {
+    console.warn('[session] Failed to parse session from request cookie', { rawLength: raw.length })
+  }
+  return parsed
 }
