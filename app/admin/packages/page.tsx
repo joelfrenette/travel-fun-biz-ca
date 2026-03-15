@@ -330,13 +330,15 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
   const [url, setUrl] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [extractedData, setExtractedData] = useState<Record<string, any> | null>(null)
+  const [packages, setPackages] = useState<any[]>([])
+  const [adapter, setAdapter] = useState<string | null>(null)
 
   async function handleScrape() {
     if (!url.trim()) return
     setLoading(true)
     setError("")
-    setExtractedData(null)
+    setPackages([])
+    setAdapter(null)
 
     const token = localStorage.getItem("adminToken")
 
@@ -357,7 +359,8 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
         return
       }
 
-      setExtractedData(result.data)
+      setPackages(result.packages || [])
+      setAdapter(result.adapter || null)
     } catch (err) {
       setError("Network error — please try again")
     } finally {
@@ -365,129 +368,114 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
     }
   }
 
-  function handleUseData() {
-    if (extractedData) {
-      onComplete(extractedData)
-    }
+  function handleUseData(pkg: any) {
+    onComplete({
+      name: pkg.name,
+      destination: pkg.destination,
+      duration: pkg.duration,
+      price_display: pkg.price || pkg.price_display || 'From $1,000',
+      price_value: pkg.priceValue,
+      short_description: pkg.description,
+      image_url: pkg.imageUrl,
+      booking_url: pkg.bookingUrl,
+      supplier: pkg.supplier,
+      category: pkg.category || 'Adventure',
+      highlights: pkg.highlights,
+      status: 'draft',
+    })
   }
 
   return (
-    <Card className="mx-auto max-w-2xl">
+    <Card className="mx-auto max-w-5xl">
       <CardHeader>
         <div className="flex items-center gap-2 text-primary">
           <Globe className="h-5 w-5" />
           <span className="text-sm font-medium">Scrape Package from URL</span>
         </div>
         <CardTitle className="mt-2">Enter a URL to scrape</CardTitle>
-        <CardDescription>We'll extract package details automatically from the page</CardDescription>
+        <CardDescription>We'll detect package blocks on the page and extract each one automatically.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         <div className="space-y-2">
           <Label>Package URL</Label>
           <div className="flex gap-2">
             <Input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://www.sandals.com/resorts/jamaica/..."
+              placeholder="https://travelfunbiz.com"
               disabled={loading}
             />
             <Button onClick={handleScrape} disabled={loading || !url.trim()}>
               {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scraping...</> : "Scrape"}
             </Button>
           </div>
+          {adapter && (
+            <p className="text-xs text-muted-foreground">
+              Parser: {adapter}
+            </p>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
 
-        {extractedData && (
-          <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+        {packages.length > 0 ? (
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h4 className="font-medium">Extracted Data</h4>
+              <h4 className="text-lg font-semibold">Select packages to import</h4>
               <Badge variant="outline" className="text-green-600">
-                <Check className="mr-1 h-3 w-3" />
-                Found {Object.keys(extractedData).filter(k => extractedData[k]).length} fields
+                Found {packages.length} package{packages.length === 1 ? '' : 's'}
               </Badge>
             </div>
-            
-            <div className="grid gap-3 text-sm">
-              {extractedData.name && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Name:</span>
-                  <span className="ml-2">{extractedData.name}</span>
-                </div>
-              )}
-              {extractedData.destination && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Destination:</span>
-                  <span className="ml-2">{extractedData.destination}</span>
-                </div>
-              )}
-              {extractedData.supplier && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Supplier:</span>
-                  <span className="ml-2">{extractedData.supplier}</span>
-                </div>
-              )}
-              {extractedData.duration && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Duration:</span>
-                  <span className="ml-2">{extractedData.duration}</span>
-                </div>
-              )}
-              {extractedData.price_display && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Price:</span>
-                  <span className="ml-2">{extractedData.price_display}</span>
-                </div>
-              )}
-              {extractedData.category && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Category:</span>
-                  <span className="ml-2">{extractedData.category}</span>
-                </div>
-              )}
-              {extractedData.short_description && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Description:</span>
-                  <p className="mt-1 text-xs text-muted-foreground">{extractedData.short_description}</p>
-                </div>
-              )}
-              {extractedData.image_url && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Image:</span>
-                  <div className="mt-2 h-32 w-48 overflow-hidden rounded-lg bg-muted">
-                    <img src={extractedData.image_url} alt="" className="h-full w-full object-cover" />
-                  </div>
-                </div>
-              )}
-              {extractedData.highlights && extractedData.highlights.length > 0 && (
-                <div>
-                  <span className="font-medium text-muted-foreground">Highlights:</span>
-                  <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
-                    {extractedData.highlights.slice(0, 5).map((h: string, i: number) => (
-                      <li key={i}>{h}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+            <div className="grid gap-4 lg:grid-cols-2">
+              {packages.map((pkg, idx) => (
+                <Card key={idx} className="border-primary/20">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{pkg.name || `Package ${idx + 1}`}</CardTitle>
+                    {pkg.destination && <p className="text-xs text-muted-foreground">{pkg.destination}</p>}
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-3">
+                      {pkg.imageUrl ? (
+                        <div className="h-24 w-32 overflow-hidden rounded bg-muted">
+                          <img src={pkg.imageUrl} alt={pkg.name} className="h-full w-full object-cover" />
+                        </div>
+                      ) : (
+                        <div className="flex h-24 w-32 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
+                          No image
+                        </div>
+                      )}
+                      <div className="text-sm text-muted-foreground">
+                        {pkg.duration && <p><span className="font-medium text-foreground">Duration:</span> {pkg.duration}</p>}
+                        {pkg.price && <p><span className="font-medium text-foreground">Price:</span> {pkg.price}</p>}
+                        {pkg.bookingUrl && <p className="truncate"><span className="font-medium text-foreground">Link:</span> {pkg.bookingUrl}</p>}
+                      </div>
+                    </div>
+                    {pkg.description && <p className="text-sm text-muted-foreground">{pkg.description}</p>}
+                    {pkg.highlights && pkg.highlights.length > 0 && (
+                      <ul className="list-inside list-disc text-xs text-muted-foreground">
+                        {pkg.highlights.slice(0, 4).map((h: string, i: number) => (
+                          <li key={i}>{h}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="flex justify-end">
+                      <Button onClick={() => handleUseData(pkg)}>
+                        <Check className="mr-1 h-4 w-4" />Import Package
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setExtractedData(null)}>
-                Clear & Try Again
-              </Button>
-              <Button onClick={handleUseData}>
-                <Check className="mr-1 h-4 w-4" />
-                Use This Data
-              </Button>
-            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">
+            Paste any travel landing page URL (e.g., travelfunbiz.com) to detect all highlighted packages automatically.
           </div>
         )}
 
-        {!extractedData && (
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          </div>
-        )}
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+        </div>
       </CardContent>
     </Card>
   )
