@@ -182,63 +182,9 @@ function TrafficChart() {
 // ─── Feature cards for the dashboard ────────────────────────────────
 const features = [
   {
-    title: "Cookie Lead Collector",
-    description: "Auto-collect visitor names, emails, phone numbers, and referrer info via a cookie consent banner on the main site.",
-    icon: Cookie,
-    status: "Coming Soon",
-  },
-  {
-    title: "Travel Package Builder",
-    description: "AI-powered tool to research, scrape, and auto-create travel package pages with booking links and info cards.",
-    icon: Package,
-    status: "Coming Soon",
-  },
-  {
-    title: "Blog Auto-Writer",
-    description: "Auto-generate and publish blog articles from trends, news, emails, and curated content.",
-    icon: FileText,
-    status: "Coming Soon",
-  },
-  {
-    title: "SEO & GEO Manager",
-    description: "Mass update alt tags, meta descriptions, OG images, robots.txt, AI.txt, and submit to search engines.",
-    icon: Globe,
-    status: "Coming Soon",
-  },
-  {
-    title: "Google Trends & Analytics",
-    description: "Pull trending keywords and analytics data to auto-generate optimized blog posts.",
-    icon: TrendingUp,
-    status: "Coming Soon",
-  },
-  {
     title: "Affiliate Code Manager",
     description: "Set affiliate codes and auto-convert keywords to affiliate hyperlinks across the site.",
     icon: Link2,
-    status: "Coming Soon",
-  },
-  {
-    title: "Image & Meta Bulk Editor",
-    description: "Bulk update all image alt tags, meta tags, OG descriptions, and OG images site-wide.",
-    icon: Image,
-    status: "Coming Soon",
-  },
-  {
-    title: "Travel News Auto-Poster",
-    description: "Automatically post the latest travel news, events, and industry updates to the blog.",
-    icon: Newspaper,
-    status: "Coming Soon",
-  },
-  {
-    title: "Quora & Reddit Scraper",
-    description: "Scrape, post, and answer travel questions on Quora and Reddit to drive traffic.",
-    icon: MessageSquare,
-    status: "Coming Soon",
-  },
-  {
-    title: "Branchup Email Importer",
-    description: "Auto-post Branchup.com email content and promotions to the blog.",
-    icon: BarChart3,
     status: "Coming Soon",
   },
   {
@@ -248,9 +194,51 @@ const features = [
     status: "Coming Soon",
   },
   {
+    title: "Blog Auto-Writer",
+    description: "Auto-generate and publish blog articles from trends, news, emails, and curated content.",
+    icon: FileText,
+    status: "Coming Soon",
+  },
+  {
+    title: "Branchup Email Importer",
+    description: "Auto-post Branchup.com email content and promotions to the blog.",
+    icon: BarChart3,
+    status: "Coming Soon",
+  },
+  {
+    title: "Cookie Lead Collector",
+    description: "Auto-collect visitor names, emails, phone numbers, and referrer info via a cookie consent banner on the main site.",
+    icon: Cookie,
+    status: "Coming Soon",
+  },
+  {
+    title: "Google Trends & Analytics",
+    description: "Pull trending keywords and analytics data to auto-generate optimized blog posts.",
+    icon: TrendingUp,
+    status: "Coming Soon",
+  },
+  {
+    title: "Image & Meta Bulk Editor",
+    description: "Bulk update all image alt tags, meta tags, OG descriptions, and OG images site-wide.",
+    icon: Image,
+    status: "Coming Soon",
+  },
+  {
+    title: "Quora & Reddit Scraper",
+    description: "Scrape, post, and answer travel questions on Quora and Reddit to drive traffic.",
+    icon: MessageSquare,
+    status: "Coming Soon",
+  },
+  {
     title: "Search Engine Submission",
     description: "Ping new pages, submit sitemaps, manage backlinks, and trigger crawls on Google & Bing.",
     icon: Search,
+    status: "Coming Soon",
+  },
+  {
+    title: "SEO & GEO Manager",
+    description: "Mass update alt tags, meta descriptions, OG images, robots.txt, AI.txt, and submit to search engines.",
+    icon: Globe,
     status: "Coming Soon",
   },
   {
@@ -259,7 +247,19 @@ const features = [
     icon: Settings,
     status: "Coming Soon",
   },
-]
+  {
+    title: "Travel News Auto-Poster",
+    description: "Automatically post the latest travel news, events, and industry updates to the blog.",
+    icon: Newspaper,
+    status: "Coming Soon",
+  },
+  {
+    title: "Travel Package Builder",
+    description: "AI-powered tool to research, scrape, and auto-create travel package pages with booking links and info cards.",
+    icon: Package,
+    status: "Coming Soon",
+  },
+].sort((a, b) => a.title.localeCompare(b.title))
 
 // ─── Quick Stats Row ────────────────────────────────────────────────
 const quickStats = [
