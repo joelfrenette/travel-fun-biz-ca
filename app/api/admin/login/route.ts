@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { verifyAdminCredentials } from '@/lib/auth'
 import { createSessionValue } from '@/lib/session'
+import { createToken } from '@/lib/simple-session'
 
 export async function POST(request: Request) {
   try {
@@ -28,8 +29,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
-    // Create session token and either redirect (form flow) or return JSON
-    const sessionValue = createSessionValue({ email })
+    // Create an in-memory token and return it as a host-only cookie
+    const token = createToken(email)
 
     const cookieOptions: any = {
       httpOnly: true,
@@ -39,22 +40,17 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 8,
     }
 
-    // Use host-only cookie (no explicit domain) to avoid domain mismatches.
-
     if (redirect) {
-      // Return a redirect response with Set-Cookie so the browser receives the cookie and follows the redirect
       const loginUrl = new URL(redirect, request.url)
       const res = NextResponse.redirect(loginUrl)
-      res.cookies.set('adminSession', sessionValue, cookieOptions)
-      console.log('[admin-login] issued session and redirect for', email)
+      res.cookies.set('adminToken', token, cookieOptions)
+      console.log('[admin-login] issued simple token and redirect for', email)
       return res
     }
 
-    // JSON API flow: set cookie on JSON response
     const res = NextResponse.json({ success: true })
-    res.cookies.set('adminSession', sessionValue, cookieOptions)
-
-    console.log('[admin-login] issued session for', email)
+    res.cookies.set('adminToken', token, cookieOptions)
+    console.log('[admin-login] issued simple token for', email)
     return res
   } catch (error) {
     console.error('[admin-login] Unexpected error', error)
