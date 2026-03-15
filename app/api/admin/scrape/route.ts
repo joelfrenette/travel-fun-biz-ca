@@ -8,12 +8,20 @@ export async function POST(request: Request) {
   const authHeader = request.headers.get('authorization')
   const token = authHeader?.replace('Bearer ', '')
   
-  if (!validateToken(token || '')) {
+  console.log('[scrape] Auth header present:', !!authHeader)
+  console.log('[scrape] Token length:', token?.length || 0)
+  
+  const email = validateToken(token || '')
+  if (!email) {
+    console.log('[scrape] Token validation failed')
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  
+  console.log('[scrape] Authenticated as:', email)
 
   if (!SCRAPINGBEE_API_KEY) {
-    return NextResponse.json({ error: 'Scraping API not configured' }, { status: 500 })
+    console.log('[scrape] SCRAPINGBEE_API_KEY not configured')
+    return NextResponse.json({ error: 'Scraping API not configured. Add SCRAPINGBEE_API_KEY to environment variables.' }, { status: 500 })
   }
 
   try {

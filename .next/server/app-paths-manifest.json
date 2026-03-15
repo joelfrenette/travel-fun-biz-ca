@@ -1,8 +1,5 @@
 {
-  "/admin/page": "app/admin/page.js",
   "/page": "app/page.js",
-  "/api/admin/login/route": "app/api/admin/login/route.js",
-  "/admin/packages/page": "app/admin/packages/page.js",
-  "/api/admin/packages/route": "app/api/admin/packages/route.js",
-  "/api/admin/scrape/route": "app/api/admin/scrape/route.js"
+  "/admin/page": "app/admin/page.js",
+  "/admin/packages/page": "app/admin/packages/page.js"
 }
