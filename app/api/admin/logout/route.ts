@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server'
-import { clearAdminSession } from '@/lib/session'
+import { revokeToken } from '@/lib/admin-auth'
 
-export async function POST() {
-  await clearAdminSession()
-  return NextResponse.json({ success: true })
+export async function POST(request: Request) {
+  try {
+    const { token } = await request.json()
+    if (token) revokeToken(token)
+    return NextResponse.json({ success: true })
+  } catch {
+    return NextResponse.json({ success: true })
+  }
 }
