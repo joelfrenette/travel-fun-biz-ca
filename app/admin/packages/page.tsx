@@ -343,6 +343,7 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
     const token = localStorage.getItem("adminToken")
 
     try {
+      console.log("[scrape] Starting scrape for URL:", url)
       const res = await fetch("/api/admin/scrape", {
         method: "POST",
         headers: {
@@ -352,17 +353,23 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
         body: JSON.stringify({ url: url.trim() }),
       })
 
+      console.log("[scrape] Response status:", res.status)
       const result = await res.json()
+      console.log("[scrape] Response data:", result)
 
       if (!res.ok) {
-        setError(result.error || "Failed to scrape URL")
+        const errorMsg = result.error || "Failed to scrape URL"
+        console.error("[scrape] Error:", errorMsg)
+        setError(errorMsg)
         return
       }
 
+      console.log("[scrape] Found packages:", result.packages?.length || 0)
       setPackages(result.packages || [])
       setAdapter(result.adapter || null)
     } catch (err) {
-      setError("Network error — please try again")
+      console.error("[scrape] Network error:", err)
+      setError("Network error — please try again. Make sure you're connected to the internet.")
     } finally {
       setLoading(false)
     }
@@ -404,6 +411,7 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://travelfunbiz.com"
               disabled={loading}
+              onKeyDown={(e) => e.key === 'Enter' && handleScrape()}
             />
             <Button onClick={handleScrape} disabled={loading || !url.trim()}>
               {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scraping...</> : "Scrape"}
@@ -411,10 +419,21 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
           </div>
           {adapter && (
             <p className="text-xs text-muted-foreground">
-              Parser: {adapter}
+              ✓ Parser: {adapter}
             </p>
           )}
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              <p className="font-medium">Error:</p>
+              <p className="mt-1">{error}</p>
+              {error.includes("API not configured") && (
+                <p className="mt-2 text-xs">
+                  Please set <code className="bg-destructive/20 px-1 py-0.5 rounded">SCRAPINGBEE_API_KEY</code> in your .env.local file.
+                  Get a free API key from <a href="https://app.scrapingbee.com/api" target="_blank" rel="noopener noreferrer" className="underline hover:text-destructive-foreground">ScrapingBee</a>.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {packages.length > 0 ? (
