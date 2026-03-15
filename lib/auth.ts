@@ -1,41 +1,29 @@
 // auth.ts - central admin credential verification helpers
 
-const adminEmail = process.env.ADMIN_EMAIL
-const adminPassword = process.env.ADMIN_PASSWORD
-
-const expectedPassword = adminPassword ? adminPassword.trim() : undefined
+const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
+const adminPassword = (process.env.ADMIN_PASSWORD || '').trim()
 
 console.log('[auth] env check', {
   hasEmail: Boolean(adminEmail),
   hasPassword: Boolean(adminPassword),
-  passwordLength: expectedPassword ? expectedPassword.length : 0,
+  passwordLength: adminPassword.length,
 })
 
-if (!adminEmail || !expectedPassword) {
-  console.warn('[auth] ADMIN_EMAIL or ADMIN_PASSWORD env vars are missing')
-}
-
 export async function verifyAdminCredentials(email: string, password: string): Promise<boolean> {
-  if (!adminEmail || !expectedPassword) {
-    return false
-  }
+  const providedEmail = (email || '').trim().toLowerCase()
+  const providedPassword = (password || '').trim()
 
-  const providedEmail = email.trim().toLowerCase()
-  const expectedEmail = adminEmail.trim().toLowerCase()
-  const providedPassword = typeof password === 'string' ? password.trim() : ''
-
-  const emailMatches = providedEmail === expectedEmail
-  const passwordMatches = providedPassword === expectedPassword
+  const emailMatches = providedEmail === adminEmail
+  const passwordMatches = providedPassword === adminPassword
 
   console.log('[auth] verify attempt', {
     providedEmail,
-    expectedEmail,
+    expectedEmail: adminEmail,
     emailMatches,
     providedPasswordLength: providedPassword.length,
-    expectedPasswordLength: expectedPassword.length,
+    expectedPasswordLength: adminPassword.length,
     passwordMatches,
   })
 
-  if (!emailMatches) return false
-  return passwordMatches
+  return emailMatches && passwordMatches
 }

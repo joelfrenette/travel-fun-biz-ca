@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server'
 import { verifyAdminCredentials } from '@/lib/auth'
 import { createSessionValue } from '@/lib/session'
 
-const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined
-
 export async function POST(request: Request) {
   try {
     let body: any = {}
@@ -41,11 +39,7 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 8,
     }
 
-    if (COOKIE_DOMAIN) {
-      cookieOptions.domain = COOKIE_DOMAIN
-    }
-
-    console.log('[admin-login] setting cookie with domain:', COOKIE_DOMAIN || '(host-only)')
+    // Use host-only cookie (no explicit domain) to avoid domain mismatches.
 
     if (redirect) {
       // Return a redirect response with Set-Cookie so the browser receives the cookie and follows the redirect
