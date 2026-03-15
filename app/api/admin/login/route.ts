@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { verifyAdminCredentials } from '@/lib/auth'
 import { createSessionValue } from '@/lib/session'
 
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined
+
 export async function POST(request: Request) {
   try {
     let body: any = {}
@@ -31,30 +33,32 @@ export async function POST(request: Request) {
     // Create session token and either redirect (form flow) or return JSON
     const sessionValue = createSessionValue({ email })
 
+    const cookieOptions: any = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: 60 * 60 * 8,
+    }
+
+    if (COOKIE_DOMAIN) {
+      cookieOptions.domain = COOKIE_DOMAIN
+    }
+
+    console.log('[admin-login] setting cookie with domain:', COOKIE_DOMAIN || '(host-only)')
+
     if (redirect) {
       // Return a redirect response with Set-Cookie so the browser receives the cookie and follows the redirect
       const loginUrl = new URL(redirect, request.url)
       const res = NextResponse.redirect(loginUrl)
-      res.cookies.set('adminSession', sessionValue, {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
-        path: '/',
-        maxAge: 60 * 60 * 8,
-      })
+      res.cookies.set('adminSession', sessionValue, cookieOptions)
       console.log('[admin-login] issued session and redirect for', email)
       return res
     }
 
     // JSON API flow: set cookie on JSON response
     const res = NextResponse.json({ success: true })
-    res.cookies.set('adminSession', sessionValue, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 8,
-    })
+    res.cookies.set('adminSession', sessionValue, cookieOptions)
 
     console.log('[admin-login] issued session for', email)
     return res
