@@ -41,6 +41,7 @@ export function AdminLoginForm({ redirectPath = "/admin" }: AdminLoginFormProps)
       const response = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'same-origin',
         body: JSON.stringify(values),
       })
 
@@ -49,8 +50,9 @@ export function AdminLoginForm({ redirectPath = "/admin" }: AdminLoginFormProps)
         throw new Error(data.error || "Login failed")
       }
 
-      router.replace(redirectPath)
-      router.refresh()
+      // Do a full navigation so the browser attaches the session cookie on the subsequent request
+      // This is more reliable than client-side router.replace for ensuring middleware sees the cookie
+      window.location.href = redirectPath
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to login")
     } finally {
