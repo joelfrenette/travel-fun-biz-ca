@@ -7,7 +7,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { useRouter } from "next/navigation"
 
 const schema = z.object({
   email: z.string().email("Enter a valid email"),
@@ -21,7 +20,6 @@ interface AdminLoginFormProps {
 }
 
 export function AdminLoginForm({ redirectPath = "/admin" }: AdminLoginFormProps) {
-  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -37,25 +35,35 @@ export function AdminLoginForm({ redirectPath = "/admin" }: AdminLoginFormProps)
   async function onSubmit(values: FormValues) {
     setLoading(true)
     setError(null)
+
     try {
-      const response = await fetch("/api/admin/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: 'same-origin',
-        body: JSON.stringify(values),
-      })
+      // Submit as a traditional form so the browser handles Set-Cookie and redirects reliably
+      const form = document.createElement('form')
+      form.method = 'POST'
+      form.action = '/api/admin/login'
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || "Login failed")
-      }
+      const emailInput = document.createElement('input')
+      emailInput.type = 'hidden'
+      emailInput.name = 'email'
+      emailInput.value = values.email
+      form.appendChild(emailInput)
 
-      // Do a full navigation so the browser attaches the session cookie on the subsequent request
-      // This is more reliable than client-side router.replace for ensuring middleware sees the cookie
-      window.location.href = redirectPath
+      const passInput = document.createElement('input')
+      passInput.type = 'hidden'
+      passInput.name = 'password'
+      passInput.value = values.password
+      form.appendChild(passInput)
+
+      const redirectInput = document.createElement('input')
+      redirectInput.type = 'hidden'
+      redirectInput.name = 'redirect'
+      redirectInput.value = redirectPath
+      form.appendChild(redirectInput)
+
+      document.body.appendChild(form)
+      form.submit()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to login")
-    } finally {
       setLoading(false)
     }
   }

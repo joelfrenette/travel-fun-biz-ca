@@ -4,9 +4,20 @@ import { createSessionValue } from '@/lib/session'
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    let body: any = {}
+    const contentType = request.headers.get('content-type') || ''
+
+    if (contentType.includes('application/json')) {
+      body = await request.json()
+    } else {
+      // support form submissions (browser form POST)
+      const form = await request.formData()
+      body = Object.fromEntries(form.entries())
+    }
+
     const email = typeof body.email === 'string' ? body.email : ''
     const password = typeof body.password === 'string' ? body.password : ''
+    const redirect = typeof body.redirect === 'string' ? body.redirect : ''
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
@@ -17,11 +28,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
-    // Create session token and return it with an explicit Set-Cookie on the response
+    // Create session token and either redirect (form flow) or return JSON
     const sessionValue = createSessionValue({ email })
-    const res = NextResponse.json({ success: true })
 
-    // Set cookie on the response so the browser receives it reliably
+    if (redirect) {
+      // Return a redirect response with Set-Cookie so the browser receives the cookie and follows the redirect
+      const loginUrl = new URL(redirect, request.url)
+      const res = NextResponse.redirect(loginUrl)
+      res.cookies.set('adminSession', sessionValue, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 60 * 60 * 8,
+      })
+      console.log('[admin-login] issued session and redirect for', email)
+      return res
+    }
+
+    // JSON API flow: set cookie on JSON response
+    const res = NextResponse.json({ success: true })
     res.cookies.set('adminSession', sessionValue, {
       httpOnly: true,
       sameSite: 'lax',
