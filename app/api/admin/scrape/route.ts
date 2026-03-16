@@ -8,6 +8,7 @@ export async function POST(request: Request) {
   const authHeader = request.headers.get('authorization')
   const token = authHeader?.replace('Bearer ', '')
 
+  console.log('[scrape-api] ===== SCRAPE REQUEST STARTED =====')
   console.log('[scrape-api] Request received')
   console.log('[scrape-api] Token exists:', !!token)
   
@@ -37,8 +38,10 @@ export async function POST(request: Request) {
     scrapingBeeUrl.searchParams.set('url', url)
     scrapingBeeUrl.searchParams.set('render_js', 'true')
     scrapingBeeUrl.searchParams.set('premium_proxy', 'true')
+    scrapingBeeUrl.searchParams.set('wait_for', '2000')
 
     console.log('[scrape-api] Calling ScrapingBee...')
+    console.log('[scrape-api] ScrapingBee URL:', scrapingBeeUrl.toString().replace(/api_key=[^&]+/, 'api_key=***'))
 
     const response = await fetch(scrapingBeeUrl.toString(), { method: 'GET' })
 
@@ -52,13 +55,26 @@ export async function POST(request: Request) {
 
     const html = await response.text()
     console.log('[scrape-api] HTML received, length:', html.length)
+    console.log('[scrape-api] HTML preview (first 500 chars):', html.substring(0, 500))
     
     const result = parsePackagesFromHtml(url, html)
     console.log('[scrape-api] Parsed packages:', result.packages.length)
+    console.log('[scrape-api] Adapter used:', result.adapter)
+    
+    if (result.packages.length > 0) {
+      console.log('[scrape-api] Sample package:', JSON.stringify(result.packages[0], null, 2))
+    } else {
+      console.log('[scrape-api] No packages found - checking for alternative extraction')
+      console.log('[scrape-api] Has images:', html.includes('<img'))
+      console.log('[scrape-api] Has links:', html.includes('<a href'))
+      console.log('[scrape-api] Has headings:', html.includes('<h1') || html.includes('<h2'))
+    }
 
+    console.log('[scrape-api] ===== SCRAPE REQUEST COMPLETED =====')
     return NextResponse.json({ success: true, ...result })
   } catch (error) {
     console.error('[scrape-api] Error:', error)
+    console.log('[scrape-api] ===== SCRAPE REQUEST FAILED =====')
     return NextResponse.json({ error: `Scraping failed: ${error instanceof Error ? error.message : 'Unknown error'}` }, { status: 500 })
   }
 }
