@@ -31,6 +31,11 @@ export function Footer({ language }: FooterProps) {
                 <p key={line}>{line}</p>
               ))}
               <p className="pt-2">{officeInfo.phone}</p>
+              <div>
+                <Link href="/admin" className="block mt-2 text-sm hover:text-white">
+                  Login
+                </Link>
+              </div>
             </div>
 
             <div className="space-y-2 text-xs text-gray-400">
