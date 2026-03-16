@@ -15,7 +15,7 @@ export function LanguageToggle({ language }: LanguageToggleProps) {
   const [pending, setPending] = useState(false)
 
   async function handleChange(nextValue: string) {
-    const normalized = nextValue === "fr" ? "fr" : "en"
+    const normalized = nextValue === "fr" ? "fr" : nextValue === "es" ? "es" : "en"
     setValue(normalized)
     setPending(true)
     try {
@@ -40,6 +40,7 @@ export function LanguageToggle({ language }: LanguageToggleProps) {
       <SelectContent>
         <SelectItem value="en">EN</SelectItem>
         <SelectItem value="fr">FR</SelectItem>
+        <SelectItem value="es">SP</SelectItem>
       </SelectContent>
     </Select>
   )

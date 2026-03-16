@@ -1,4 +1,4 @@
-// i18n.ts - lightweight translation map for EN/FR-CA
+// i18n.ts - lightweight translation map for EN/FR/ES
 import type { Language } from '@/lib/preferences'
 
 const translations: Record<Language, Record<string, string>> = {
@@ -12,7 +12,7 @@ const translations: Record<Language, Record<string, string>> = {
     'Privacy Policy': 'Politique de confidentialité',
     'Terms & Conditions': 'Modalités et conditions',
     'Earnings Disclaimer': 'Avertissement sur les gains',
-    'Affiliate Agreement': 'Accord d’affiliation',
+    'Affiliate Agreement': 'Accord d\'affiliation',
     'By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
       'En appelant ou en envoyant un texto au (365) 800-6363, vous acceptez de recevoir des messages texte. Pour vous désabonner, répondez « STOP » en tout temps.',
     'Get Started': 'Commencer',
@@ -24,7 +24,7 @@ const translations: Record<Language, Record<string, string>> = {
     Singles: 'Célibataires',
     'No packages available at the moment. Check back soon!': 'Aucun forfait disponible pour le moment. Revenez bientôt!',
     'Admin Sign In': 'Connexion administrateur',
-    'Access travel automation tools': 'Accédez aux outils d’automatisation du voyage',
+    'Access travel automation tools': 'Accédez aux outils d\'automatisation du voyage',
     Email: 'Courriel',
     'Password': 'Mot de passe',
     'Sign In': 'Se connecter',
@@ -78,10 +78,10 @@ const translations: Record<Language, Record<string, string>> = {
       'Vivez le luxe dans des villas sur pilotis avec eaux cristallines, plages immaculées et plongée de classe mondiale.',
     'European Heritage Tour': 'Circuit patrimoine européen',
     'Explore ancient ruins, Renaissance art, and culinary delights across Rome, Florence, and Paris.':
-      'Explorez les ruines antiques, l’art de la Renaissance et les délices culinaires de Rome, Florence et Paris.',
-    'Mountain Adventure Trek': 'Trek d’aventure en montagne',
+      'Explorez les ruines antiques, l\'art de la Renaissance et les délices culinaires de Rome, Florence et Paris.',
+    'Mountain Adventure Trek': 'Trek d\'aventure en montagne',
     'Trek through the Himalayas, visit ancient monasteries, and witness breathtaking mountain vistas.':
-      'Parcourez l’Himalaya, visitez des monastères anciens et admirez des panoramas à couper le souffle.',
+      'Parcourez l\'Himalaya, visitez des monastères anciens et admirez des panoramas à couper le souffle.',
     'Wellness Retreat & Spa': 'Retraite bien-être et spa',
     'Rejuvenate your mind and body with yoga, meditation, spa treatments, and healthy cuisine in paradise.':
       'Régénérez corps et esprit avec yoga, méditation, soins spa et cuisine saine au paradis.',
@@ -101,7 +101,7 @@ const translations: Record<Language, Record<string, string>> = {
     "Don't just take our word for it. Here's what our happy travelers have to say about their experiences.":
       'Ne vous fiez pas seulement à nous. Voici ce que disent nos voyageurs.',
     'per person': 'par personne',
-    'More Info': 'Plus d’infos',
+    'More Info': 'Plus d\'infos',
     'Dedicated Travel Concierge': 'Concierge voyage dédié',
     'Save Time': 'Gagnez du temps',
     'Save Stress': 'Moins de stress',
@@ -116,25 +116,155 @@ const translations: Record<Language, Record<string, string>> = {
     'All-Inclusive Resorts': 'Forfaits tout-inclus',
     Cruises: 'Croisières',
     'European Tours': 'Circuits européens',
-    'Adventure Travel': 'Voyages d’aventure',
+    'Adventure Travel': 'Voyages d\'aventure',
     'Luxury Escapes': 'Escapades de luxe',
     'View site': 'Voir le site',
 
     'Sign Out': 'Se déconnecter',
     'Signing out...': 'Déconnexion en cours...',
     'By submitting this form, you agree to our privacy policy and terms of service.':
-      'En envoyant ce formulaire, vous acceptez notre politique de confidentialité et nos conditions d’utilisation.',
+      'En envoyant ce formulaire, vous acceptez notre politique de confidentialité et nos conditions d\'utilisation.',
     "Success! We'll keep you posted with the latest travel deals.":
       'Succès! Nous vous informerons des dernières offres de voyage.',
-    'Subscription failed': 'Échec de l’inscription',
+    'Subscription failed': 'Échec de l\'inscription',
     'Please try again in a moment.': 'Veuillez réessayer sous peu.',
     'Subscribe': 'S\'abonner',
     'Newsletter Sign Up': 'Inscription infolettre',
     'Which Deals you like? (multi-select) *': 'Quels forfaits aimez-vous? (choix multiples) *',
   },
+  es: {
+    'Travel Agents': 'Agentes de viaje',
+    'In The News': 'En las noticias',
+    'About Us': 'Sobre nosotros',
+    'Contact Us': 'Contáctenos',
+    Booking: 'Reservas',
+    'Privacy Policy': 'Política de privacidad',
+    'Terms & Conditions': 'Términos y condiciones',
+    'Earnings Disclaimer': 'Descargo de responsabilidad sobre ganancias',
+    'Affiliate Agreement': 'Acuerdo de afiliado',
+    'By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
+      'Al llamar o enviar un mensaje de texto al (365) 800-6363, acepta recibir mensajes de texto. Si ya no desea recibir mensajes, puede darse de baja en cualquier momento respondiendo "STOP".',
+    'Get Started': 'Comenzar',
+    'All': 'Todos',
+    Luxury: 'Lujo',
+    Groups: 'Grupos',
+    Adventure: 'Aventura',
+    Wellness: 'Bienestar',
+    Singles: 'Solteros',
+    'No packages available at the moment. Check back soon!': 'No hay paquetes disponibles en este momento. ¡Vuelva pronto!',
+    'Admin Sign In': 'Inicio de sesión administrador',
+    'Access travel automation tools': 'Acceder a las herramientas de automatización de viajes',
+    Email: 'Correo electrónico',
+    'Password': 'Contraseña',
+    'Sign In': 'Iniciar sesión',
+    'Signing in...': 'Iniciando sesión...',
+    'Your FUN is our Biz': 'Tu DIVERSIÓN es nuestro negocio',
+    'FUN is our middle name': 'DIVERSIÓN es nuestro segundo nombre',
+    'FUN Starts Here': 'La DIVERSIÓN comienza aquí',
+    'Your Passport to FUN': 'Tu pasaporte a la DIVERSIÓN',
+    'Making Travel Fun Again': 'Haciendo que viajar sea divertido de nuevo',
+    'Specializing in luxury travel, group adventures, and singles vacations. From tropical paradises to cultural expeditions, your perfect journey awaits.':
+      'Especializados en viajes de lujo, aventuras en grupo y vacaciones para solteros. Desde paraísos tropicales hasta expediciones culturales, tu viaje perfecto te espera.',
+    'Explore Packages': 'Explorar paquetes',
+    'Plan My Trip': 'Planear mi viaje',
+    'Featured Travel Packages': 'Paquetes de viaje destacados',
+    'Discover handpicked destinations and experiences tailored for unforgettable adventures.':
+      'Descubre destinos seleccionados y experiencias diseñadas para aventuras inolvidables.',
+    'Why Choose TravelFunBiz.CA': 'Por qué elegir TravelFunBiz.CA',
+    'Get Your Free Travel Concierge': 'Obtén tu conserje de viajes gratis',
+    'Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.':
+      '¿Listo para explorar el mundo? Completa el formulario a continuación y permítenos ayudarte a planear tus vacaciones soñadas.',
+    'Plan Your Perfect Trip': 'Planifica tu viaje perfecto',
+    'Fill out the form below and our travel experts will contact you shortly.':
+      'Completa el formulario y nuestros expertos en viajes se comunicarán contigo pronto.',
+    'Full Name': 'Nombre completo',
+    'Email Address': 'Dirección de correo electrónico',
+    'Phone Number': 'Número de teléfono',
+    'Interested Package': 'Paquete de interés',
+    'Select a package': 'Seleccionar un paquete',
+    'Preferred Travel Date': 'Fecha de viaje preferida',
+    'Number of Travelers': 'Número de viajeros',
+    'Select number': 'Seleccionar número',
+    'Additional Information': 'Información adicional',
+    'Submit Inquiry': 'Enviar consulta',
+    'Submitting...': 'Enviando...',
+    'Tell us about your travel preferences, special requirements, or any questions you have...':
+      'Cuéntanos sobre tus preferencias de viaje, requisitos especiales o cualquier pregunta que tengas...',
+    'Custom Package': 'Paquete personalizado',
+    '1 Person': '1 persona',
+    '2 People': '2 personas',
+    '3-4 People': '3-4 personas',
+    '5-8 People': '5-8 personas',
+    '9+ People': '9+ personas',
+    '7 Days / 6 Nights': '7 días / 6 noches',
+    '12 Days / 11 Nights': '12 días / 11 noches',
+    '10 Days / 9 Nights': '10 días / 9 noches',
+    '8 Days / 7 Nights': '8 días / 7 noches',
+    '9 Days / 8 Nights': '9 días / 8 noches',
+    '6 Days / 5 Nights': '6 días / 5 noches',
+    'Tropical Paradise Escape': 'Escapada paraíso tropical',
+    'Experience luxury in overwater bungalows with crystal-clear waters, pristine beaches, and world-class diving.':
+      'Experimenta el lujo en bungalows sobre el agua con aguas cristalinas, playas prístinas y buceo de clase mundial.',
+    'European Heritage Tour': 'Tour patrimonio europeo',
+    'Explore ancient ruins, Renaissance art, and culinary delights across Rome, Florence, and Paris.':
+      'Explora ruinas antiguas, arte renacentista y delicias culinarias en Roma, Florencia y París.',
+    'Mountain Adventure Trek': 'Trek de aventura en la montaña',
+    'Trek through the Himalayas, visit ancient monasteries, and witness breathtaking mountain vistas.':
+      'Camina por el Himalaya, visita monasterios antiguos y contempla vistas montañosas impresionantes.',
+    'Wellness Retreat & Spa': 'Retiro de bienestar y spa',
+    'Rejuvenate your mind and body with yoga, meditation, spa treatments, and healthy cuisine in paradise.':
+      'Rejuvenece tu mente y cuerpo con yoga, meditación, tratamientos de spa y cocina saludable en el paraíso.',
+    'Singles Getaway Experience': 'Escapada para solteros',
+    'Connect with like-minded travelers, enjoy adventure activities, and explore stunning beaches and rainforests.':
+      'Conéctate con viajeros afines, disfruta de actividades de aventura y explora playas y selvas impresionantes.',
+    'Amazon Rainforest Expedition': 'Expedición en la Amazonía',
+    "Explore the world's largest rainforest, encounter exotic wildlife, and learn from indigenous guides.":
+      'Explora la selva tropical más grande del mundo, encuentra fauna exótica y aprende de guías indígenas.',
+    'Success!': '¡Éxito!',
+    "We've received your inquiry and will contact you soon.": 'Hemos recibido tu consulta y nos pondremos en contacto pronto.',
+    Error: 'Error',
+    'Something went wrong. Please try again.': 'Algo salió mal. Por favor intenta de nuevo.',
+    'Thank You!': '¡Gracias!',
+    'Submit Another Inquiry': 'Enviar otra consulta',
+    'What Our Travelers Say': 'Lo que dicen nuestros viajeros',
+    "Don't just take our word for it. Here's what our happy travelers have to say about their experiences.":
+      'No te fíes solo de nuestra palabra. Esto es lo que dicen nuestros viajeros felices sobre sus experiencias.',
+    'per person': 'por persona',
+    'More Info': 'Más información',
+    'Dedicated Travel Concierge': 'Conserje de viajes dedicado',
+    'Save Time': 'Ahorra tiempo',
+    'Save Stress': 'Reduce el estrés',
+    'Save Money': 'Ahorra dinero',
+    'NOTIFY ME OF': 'AVÍSAME DE',
+    'TRAVEL DEALS': 'OFERTAS DE VIAJE',
+    'What is Your Full Name *': '¿Cuál es tu nombre completo *',
+    'Enter Your Email *': 'Ingresa tu correo electrónico *',
+    'Mobile Phone *': 'Teléfono móvil *',
+    'Which deals you like? (multi-select) *': '¿Qué ofertas te gustan? (selección múltiple) *',
+    SUBMIT: 'ENVIAR',
+    'All-Inclusive Resorts': 'Resorts todo incluido',
+    Cruises: 'Cruceros',
+    'European Tours': 'Tours por Europa',
+    'Adventure Travel': 'Viajes de aventura',
+    'Luxury Escapes': 'Escapadas de lujo',
+    'View site': 'Ver sitio',
+
+    'Sign Out': 'Cerrar sesión',
+    'Signing out...': 'Cerrando sesión...',
+    'By submitting this form, you agree to our privacy policy and terms of service.':
+      'Al enviar este formulario, aceptas nuestra política de privacidad y términos de servicio.',
+    "Success! We'll keep you posted with the latest travel deals.":
+      '¡Éxito! Te mantendremos informado con las últimas ofertas de viaje.',
+    'Subscription failed': 'La suscripción falló',
+    'Please try again in a moment.': 'Por favor intenta de nuevo en un momento.',
+    'Subscribe': 'Suscribirse',
+    'Newsletter Sign Up': 'Registro al boletín',
+    'Which Deals you like? (multi-select) *': '¿Qué ofertas te gustan? (selección múltiple) *',
+  },
 }
 
 export function translate(language: Language, text: string): string {
   if (language === 'en') return text
-  return translations.fr[text] || text
+  if (language === 'fr') return translations.fr[text] || text
+  return translations.es[text] || text
 }

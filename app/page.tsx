@@ -8,13 +8,13 @@ import { TestimonialsSection } from "@/components/testimonials-section"
 import { getPackages } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
-import { getUsdToCadRate } from "@/lib/fx"
+import { getUsdToRate } from "@/lib/fx"
 
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
-  const [packages, usdToCadRate] = await Promise.all([getPackages(), getUsdToCadRate()])
-  const packageNames = packages.map((pkg) => pkg.name)
   const { language, currency } = preferences
+  const [packages, usdToTargetRate] = await Promise.all([getPackages(), getUsdToRate(currency)])
+  const packageNames = packages.map((pkg) => pkg.name)
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -25,7 +25,7 @@ export default async function HomePage() {
           packages={packages}
           language={language}
           currency={currency}
-          usdToCadRate={usdToCadRate}
+          usdToTargetRate={usdToTargetRate}
         />
         <FeaturesSection language={language} />
 

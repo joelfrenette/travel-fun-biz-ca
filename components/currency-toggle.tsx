@@ -15,7 +15,7 @@ export function CurrencyToggle({ currency }: CurrencyToggleProps) {
   const [pending, setPending] = useState(false)
 
   async function handleChange(next: string) {
-    const normalized = next === "cad" ? "cad" : "usd"
+    const normalized = next === "cad" ? "cad" : next === "aud" ? "aud" : next === "eur" ? "eur" : "usd"
     setValue(normalized)
     setPending(true)
     try {
@@ -40,6 +40,8 @@ export function CurrencyToggle({ currency }: CurrencyToggleProps) {
       <SelectContent>
         <SelectItem value="usd">USD</SelectItem>
         <SelectItem value="cad">CAD</SelectItem>
+        <SelectItem value="aud">AUD</SelectItem>
+        <SelectItem value="eur">EUR</SelectItem>
       </SelectContent>
     </Select>
   )

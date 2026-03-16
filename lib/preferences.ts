@@ -2,7 +2,7 @@
 import { cookies } from 'next/headers'
 import type { Currency } from '@/lib/currency'
 
-export type Language = 'en' | 'fr'
+export type Language = 'en' | 'fr' | 'es'
 
 const LANGUAGE_COOKIE = 'lang'
 const CURRENCY_COOKIE = 'currency'
@@ -15,11 +15,17 @@ const COOKIE_OPTIONS = {
 }
 
 export function normalizeLanguage(value?: string | null): Language {
-  return value === 'fr' ? 'fr' : 'en'
+  if (value === 'fr') return 'fr'
+  if (value === 'es') return 'es'
+  return 'en'
 }
 
 export function normalizeCurrency(value?: string | null): Currency {
-  return value === 'cad' ? 'cad' : 'usd'
+  // Accept known currency codes and default to 'usd'
+  if (!value) return 'usd'
+  const v = value.toLowerCase()
+  if (v === 'cad' || v === 'aud' || v === 'eur' || v === 'usd') return v as Currency
+  return 'usd'
 }
 
 export function getVisitorPreferences() {
