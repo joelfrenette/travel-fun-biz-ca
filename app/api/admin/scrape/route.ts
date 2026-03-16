@@ -38,7 +38,8 @@ export async function POST(request: Request) {
     scrapingBeeUrl.searchParams.set('url', url)
     scrapingBeeUrl.searchParams.set('render_js', 'true')
     scrapingBeeUrl.searchParams.set('premium_proxy', 'true')
-    scrapingBeeUrl.searchParams.set('wait_for', '2000')
+    // Use 'wait' (milliseconds) to let the page render. 'wait_for' expects a CSS selector.
+    scrapingBeeUrl.searchParams.set('wait', '2000')
 
     console.log('[scrape-api] Calling ScrapingBee...')
     console.log('[scrape-api] ScrapingBee URL:', scrapingBeeUrl.toString().replace(/api_key=[^&]+/, 'api_key=***'))
