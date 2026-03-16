@@ -17,8 +17,7 @@ import { translate } from "@/lib/i18n"
 const linkClassName =
   "text-sm font-medium uppercase text-primary transition-colors hover:text-primary/80 dark:text-primary dark:hover:text-primary/80"
 
-function renderNavLink(link: NavLink, label: string, language: Language, onClick?: () => void) {
-  // Make internal links locale-aware by prefixing the selected language
+function renderNavLink(link: NavLink, label: string, onClick?: () => void) {
   if (link.external) {
     return (
       <a
@@ -34,21 +33,8 @@ function renderNavLink(link: NavLink, label: string, language: Language, onClick
     )
   }
 
-  // Ensure we don't double-prefix if the href already includes a locale
-  const href = (() => {
-    try {
-      if (!link.href.startsWith('/')) return `/${language}/${link.href}`
-      // If path already looks like /en/ or /fr/ or /es/, use it as-is
-      const match = link.href.match(/^\/(en|fr|es)(?:\/|$)/i)
-      if (match) return link.href
-      return `/${language}${link.href}`
-    } catch {
-      return link.href
-    }
-  })()
-
   return (
-    <Link key={href} href={href} className={linkClassName} onClick={onClick}>
+    <Link key={link.href} href={link.href} className={linkClassName} onClick={onClick}>
       {label}
     </Link>
   )
@@ -73,14 +59,14 @@ export function Header({ language, currency }: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link href={`/${language}/`} className="flex items-center">
+        <Link href="/" className="flex items-center">
           <Image src={logoSrc} alt="TravelFunBiz.CA" width={180} height={68} className="h-12 w-auto" priority />
         </Link>
 
         {/* Desktop Navigation */}
         <div className="hidden items-center gap-8 md:flex">
           {primaryNavLinks.map((link) =>
-            renderNavLink(link, translate(language, link.label), language),
+            renderNavLink(link, translate(language, link.label)),
           )}
         </div>
 
@@ -89,7 +75,7 @@ export function Header({ language, currency }: HeaderProps) {
           <CurrencyToggle currency={currency} />
           <ThemeToggle />
           <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90">
-            <Link href={`/${language}${ctaLink.href}`}>{translate(language, ctaLink.label)}</Link>
+            <Link href={ctaLink.href}>{translate(language, ctaLink.label)}</Link>
           </Button>
         </div>
 
@@ -109,10 +95,10 @@ export function Header({ language, currency }: HeaderProps) {
         <div className="border-t border-border bg-background md:hidden">
           <div className="container mx-auto flex flex-col gap-4 px-4 py-6">
             {primaryNavLinks.map((link) =>
-              renderNavLink(link, translate(language, link.label), language, () => setMobileMenuOpen(false)),
+              renderNavLink(link, translate(language, link.label), () => setMobileMenuOpen(false)),
             )}
             <Button asChild className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
-              <Link href={`/${language}${ctaLink.href}`} onClick={() => setMobileMenuOpen(false)}>
+              <Link href={ctaLink.href} onClick={() => setMobileMenuOpen(false)}>
                 {translate(language, ctaLink.label)}
               </Link>
             </Button>

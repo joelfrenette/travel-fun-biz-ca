@@ -7,7 +7,6 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { cookies } from 'next/headers'
 import { normalizeLanguage } from '@/lib/preferences'
-import HeadLocales from '@/components/head-locales'
 
 const inter = Inter({
   subsets: ["latin"],
@@ -53,7 +52,6 @@ export default function RootLayout({
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <Suspense fallback={null}>{children}</Suspense>
-          <HeadLocales />
           <Analytics />
         </ThemeProvider>
       </body>
