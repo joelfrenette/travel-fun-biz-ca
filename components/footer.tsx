@@ -31,10 +31,12 @@ export function Footer({ language }: FooterProps) {
                 <p key={line}>{line}</p>
               ))}
               <p className="pt-2">{officeInfo.phone}</p>
+
+              {/* Login link opens in a new tab to avoid embedded preview authentication issues */}
               <div>
-                <Link href="/admin" className="block mt-2 text-sm hover:text-white">
+                <a href="/admin" target="_blank" rel="noopener noreferrer" className="block mt-2 text-sm hover:text-white">
                   Login
-                </Link>
+                </a>
               </div>
             </div>
 
