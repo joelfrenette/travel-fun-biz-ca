@@ -35,7 +35,7 @@ import {
   ArrowLeft, Plus, Pencil, Trash2, Eye, EyeOff, Star, Sparkles,
   ChevronRight, Check, Loader2, Upload, Globe, MessageSquare,
   ArrowUpDown, ArrowUp, ArrowDown, Filter, MoreHorizontal,
-  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X
+  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download
 } from "lucide-react"
 import type { DbPackage } from "@/lib/packages"
 
@@ -55,6 +55,97 @@ const categories = [
 
 type SortField = "name" | "available_from" | "destination" | "price_value" | "duration_days" | "supplier" | "status" | "created_at"
 type SortDir = "asc" | "desc"
+
+// ─── AI Field Generator Button ──────────────────────────────────────
+function AIFieldButton({ onClick, loading, title }: { onClick: () => void; loading?: boolean; title?: string }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8 shrink-0"
+      onClick={onClick}
+      disabled={loading}
+      title={title || "Generate with AI"}
+    >
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4 text-primary" />}
+    </Button>
+  )
+}
+
+// ─── Multi-Select Category Component ────────────────────────────────
+function CategoryMultiSelect({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  function toggle(cat: string) {
+    if (value.includes(cat)) {
+      onChange(value.filter(c => c !== cat))
+    } else {
+      onChange([...value, cat])
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {categories.map((cat) => (
+        <label key={cat} className="flex items-center gap-1.5 cursor-pointer">
+          <Checkbox checked={value.includes(cat)} onCheckedChange={() => toggle(cat)} />
+          <span className="text-sm">{cat}</span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
+// ─── FAQ Item Component ─────────────────────────────────────────────
+interface FAQItem {
+  question: string
+  answer: string
+}
+
+function FAQEditor({ faqs, onChange }: { faqs: FAQItem[]; onChange: (faqs: FAQItem[]) => void }) {
+  function updateFaq(idx: number, field: 'question' | 'answer', value: string) {
+    const updated = [...faqs]
+    updated[idx] = { ...updated[idx], [field]: value }
+    onChange(updated)
+  }
+
+  function addFaq() {
+    onChange([...faqs, { question: '', answer: '' }])
+  }
+
+  function removeFaq(idx: number) {
+    onChange(faqs.filter((_, i) => i !== idx))
+  }
+
+  return (
+    <div className="space-y-3">
+      {faqs.map((faq, idx) => (
+        <div key={idx} className="rounded-lg border p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 space-y-2">
+              <Input
+                placeholder="Question"
+                value={faq.question}
+                onChange={(e) => updateFaq(idx, 'question', e.target.value)}
+              />
+              <Textarea
+                placeholder="Answer"
+                value={faq.answer}
+                onChange={(e) => updateFaq(idx, 'answer', e.target.value)}
+                rows={2}
+              />
+            </div>
+            <Button type="button" variant="ghost" size="icon" onClick={() => removeFaq(idx)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={addFaq}>
+        <Plus className="mr-1 h-4 w-4" />Add FAQ
+      </Button>
+    </div>
+  )
+}
 
 // ─── AI Interview Questions ─────────────────────────────────────────
 const interviewQuestions = [
@@ -215,17 +306,35 @@ function AIInterview({ onComplete, onCancel }: { onComplete: (data: any) => void
 
 // ─── Manual Form Component ──────────────────────────────────────────
 function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: any) => void; onCancel: () => void; initialData?: Partial<DbPackage> }) {
-  const [formData, setFormData] = useState<Record<string, any>>(initialData || {})
+  const [formData, setFormData] = useState<Record<string, any>>(() => {
+    const data: Record<string, any> = { ...initialData } || {}
+    // Ensure categories is an array
+    if (typeof data.category === 'string') {
+      data.categories = data.category ? [data.category] : []
+    } else if (Array.isArray(data.categories)) {
+      // already good
+    } else {
+      data.categories = []
+    }
+    // Parse FAQs
+    if (data.ai_faqs && typeof data.ai_faqs === 'object') {
+      data.faqs = data.ai_faqs
+    } else {
+      data.faqs = []
+    }
+    return data
+  })
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [aiImageUrl, setAiImageUrl] = useState<string | null>(null)
+  const [generatingField, setGeneratingField] = useState<string | null>(null)
+  const [generatingFaqs, setGeneratingFaqs] = useState(false)
 
   function handleChange(field: string, value: any) {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
   async function handleGenerateAIThumbnail() {
-    // Collect a few fields to help generate the AI thumbnail
     const payload = {
       name: formData.name || '',
       destination: formData.destination || '',
@@ -244,31 +353,134 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
       const data = await res.json()
       if (res.ok && data.url) {
         setAiImageUrl(data.url)
-        // Optionally set as form image_url automatically
         handleChange('image_url', data.url)
       } else {
-        console.error('AI thumbnail generation failed', data)
-        alert(data.error || data.message || 'AI generation failed')
+        alert(data.error || 'AI generation failed')
       }
     } catch (err) {
-      console.error('Failed to generate AI thumbnail', err)
       alert('Failed to generate AI thumbnail')
     } finally {
       setGenerating(false)
     }
   }
 
+  async function handleGenerateField(field: string) {
+    setGeneratingField(field)
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch('/api/admin/generate-field', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          field,
+          name: formData.name || '',
+          destination: formData.destination || '',
+          duration: formData.duration || '',
+          price_display: formData.price_display || '',
+          short_description: formData.short_description || '',
+          highlights: formData.highlights || '',
+          categories: formData.categories || [],
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.value) {
+        handleChange(field, data.value)
+      } else {
+        alert(data.error || 'AI generation failed')
+      }
+    } catch (err) {
+      alert('Failed to generate content')
+    } finally {
+      setGeneratingField(null)
+    }
+  }
+
+  async function handleGenerateFaqs() {
+    setGeneratingFaqs(true)
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch('/api/admin/generate-faqs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: formData.name || '',
+          destination: formData.destination || '',
+          duration: formData.duration || '',
+          price_display: formData.price_display || '',
+          short_description: formData.short_description || '',
+          highlights: formData.highlights || '',
+          price_includes: formData.price_includes || '',
+          not_included: formData.not_included || '',
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.faqs) {
+        handleChange('faqs', data.faqs)
+      } else {
+        alert(data.error || 'FAQ generation failed')
+      }
+    } catch (err) {
+      alert('Failed to generate FAQs')
+    } finally {
+      setGeneratingFaqs(false)
+    }
+  }
+
+  function handleExportFaqs() {
+    const faqs = formData.faqs || []
+    if (faqs.length === 0) {
+      alert('No FAQs to export')
+      return
+    }
+
+    // Create markdown content
+    let content = `# FAQ: ${formData.name || 'Travel Package'}\n\n`
+    content += `**Destination:** ${formData.destination || 'N/A'}\n`
+    content += `**Duration:** ${formData.duration || 'N/A'}\n`
+    content += `**Price:** ${formData.price_display || 'N/A'}\n\n`
+    content += `---\n\n`
+
+    faqs.forEach((faq: FAQItem, idx: number) => {
+      content += `## Q${idx + 1}: ${faq.question}\n\n`
+      content += `${faq.answer}\n\n`
+    })
+
+    // Download as file
+    const blob = new Blob([content], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `faq-${(formData.name || 'package').toLowerCase().replace(/\s+/g, '-')}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     const data = { ...formData }
+    
+    // Convert highlights to array
     if (data.highlights && typeof data.highlights === "string") {
       data.highlights = data.highlights.split("\n").filter((h: string) => h.trim())
     }
+    
+    // Convert categories array to single category (for DB compatibility)
+    if (Array.isArray(data.categories) && data.categories.length > 0) {
+      data.category = data.categories[0] // Primary category
+      data.tags = data.categories // Store all as tags
+    }
+    
+    // Store FAQs in ai_faqs field
+    if (data.faqs) {
+      data.ai_faqs = data.faqs
+    }
+    
     const priceMatch = data.price_display?.match(/[\d,]+/)
     if (priceMatch) data.price_value = parseFloat(priceMatch[0].replace(/,/g, ""))
     const durationMatch = data.duration?.match(/(\d+)\s*day/i)
     if (durationMatch) data.duration_days = parseInt(durationMatch[1])
+    
     onComplete(data)
   }
 
@@ -279,10 +491,9 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
         <CardDescription>Fill out the package details below</CardDescription>
       </CardHeader>
 
-      {/* New: Top thumbnail cards */}
+      {/* Thumbnail cards */}
       <div className="px-6 pb-4">
         <div className="grid grid-cols-2 gap-4">
-          {/* Actual downloaded thumbnail */}
           <div className="rounded-lg border bg-card/50 p-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">Current Thumbnail</h3>
@@ -296,15 +507,11 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
               )}
               <div className="flex-1 text-sm text-muted-foreground">
                 <p className="font-medium">Source image</p>
-                <p className="truncate">{formData.image_url || 'No image URL provided'}</p>
-                <div className="mt-3">
-                  <Button variant="outline" size="sm" onClick={() => { navigator.clipboard?.writeText(formData.image_url || ''); alert('Image URL copied') }}>Copy URL</Button>
-                </div>
+                <p className="truncate text-xs">{formData.image_url || 'No image URL'}</p>
               </div>
             </div>
           </div>
 
-          {/* AI thumbnail generator */}
           <div className="rounded-lg border bg-card/50 p-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">AI Thumbnail</h3>
@@ -316,15 +523,11 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
               ) : (
                 <div className="h-28 w-44 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">AI preview</div>
               )}
-              <div className="flex-1 text-sm text-muted-foreground">
-                <p className="font-medium">Promotional thumbnail</p>
-                <p className="truncate">Generate an AI thumbnail using package name, destination and highlights.</p>
-                <div className="mt-3 flex gap-2">
-                  <Button onClick={handleGenerateAIThumbnail} disabled={generating}>
-                    {generating ? 'Generating...' : 'Generate AI Thumbnail'}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => { if (aiImageUrl) { handleChange('image_url', aiImageUrl); alert('Set AI image as package image') } }} disabled={!aiImageUrl}>Use AI Image</Button>
-                </div>
+              <div className="flex-1">
+                <Button size="sm" onClick={handleGenerateAIThumbnail} disabled={generating}>
+                  <Wand2 className="mr-1 h-4 w-4" />
+                  {generating ? 'Generating...' : 'Generate'}
+                </Button>
               </div>
             </div>
           </div>
@@ -333,6 +536,7 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
 
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Basic Info */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Package Name *</Label>
@@ -346,14 +550,9 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
               <Label>Supplier / Tour Company</Label>
               <Input value={formData.supplier || ""} onChange={(e) => handleChange("supplier", e.target.value)} />
             </div>
-            <div className="space-y-2">
-              <Label>Category *</Label>
-              <Select value={formData.category || ""} onValueChange={(v) => handleChange("category", v)}>
-                <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                <SelectContent>
-                  {categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Categories *</Label>
+              <CategoryMultiSelect value={formData.categories || []} onChange={(v) => handleChange("categories", v)} />
             </div>
             <div className="space-y-2">
               <Label>Start Date</Label>
@@ -384,26 +583,80 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
               <Input type="number" min="1" max="5" step="0.1" value={formData.rating || ""} onChange={(e) => handleChange("rating", e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Keywords (comma-separated)</Label>
+              <div className="flex items-center justify-between">
+                <Label>Keywords (comma-separated)</Label>
+                <AIFieldButton onClick={() => handleGenerateField('keywords')} loading={generatingField === 'keywords'} />
+              </div>
               <Input value={formData.keywords || ""} onChange={(e) => handleChange("keywords", e.target.value)} />
             </div>
           </div>
+
+          {/* Short Description */}
           <div className="space-y-2">
-            <Label>Short Description *</Label>
+            <div className="flex items-center justify-between">
+              <Label>Short Description *</Label>
+              <AIFieldButton onClick={() => handleGenerateField('short_description')} loading={generatingField === 'short_description'} />
+            </div>
             <Textarea value={formData.short_description || ""} onChange={(e) => handleChange("short_description", e.target.value)} rows={2} required />
           </div>
+
+          {/* Full Description */}
           <div className="space-y-2">
-            <Label>Full Description</Label>
+            <div className="flex items-center justify-between">
+              <Label>Full Description</Label>
+              <AIFieldButton onClick={() => handleGenerateField('full_description')} loading={generatingField === 'full_description'} />
+            </div>
             <Textarea value={formData.full_description || ""} onChange={(e) => handleChange("full_description", e.target.value)} rows={4} />
           </div>
+
+          {/* Highlights */}
           <div className="space-y-2">
-            <Label>Highlights (one per line)</Label>
+            <div className="flex items-center justify-between">
+              <Label>Highlights (one per line)</Label>
+              <AIFieldButton onClick={() => handleGenerateField('highlights')} loading={generatingField === 'highlights'} />
+            </div>
             <Textarea value={Array.isArray(formData.highlights) ? formData.highlights.join("\n") : formData.highlights || ""} onChange={(e) => handleChange("highlights", e.target.value)} rows={4} />
           </div>
+
+          {/* What's Included */}
           <div className="space-y-2">
-            <Label>What's Included</Label>
+            <div className="flex items-center justify-between">
+              <Label>What's Included</Label>
+              <AIFieldButton onClick={() => handleGenerateField('price_includes')} loading={generatingField === 'price_includes'} />
+            </div>
             <Textarea value={formData.price_includes || ""} onChange={(e) => handleChange("price_includes", e.target.value)} rows={3} />
           </div>
+
+          {/* Not Included */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Not Included</Label>
+              <AIFieldButton onClick={() => handleGenerateField('not_included')} loading={generatingField === 'not_included'} />
+            </div>
+            <Textarea value={formData.not_included || ""} onChange={(e) => handleChange("not_included", e.target.value)} rows={3} placeholder="e.g., Flights, Travel insurance, Personal expenses..." />
+          </div>
+
+          {/* FAQ Section */}
+          <div className="rounded-lg border p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-medium">Frequently Asked Questions</h3>
+                <p className="text-sm text-muted-foreground">Common questions and answers about this package</p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={handleExportFaqs} disabled={(formData.faqs || []).length === 0}>
+                  <Download className="mr-1 h-4 w-4" />Export FAQ
+                </Button>
+                <Button type="button" size="sm" onClick={handleGenerateFaqs} disabled={generatingFaqs}>
+                  <Wand2 className="mr-1 h-4 w-4" />
+                  {generatingFaqs ? 'Generating...' : 'Generate FAQs'}
+                </Button>
+              </div>
+            </div>
+            <FAQEditor faqs={formData.faqs || []} onChange={(faqs) => handleChange('faqs', faqs)} />
+          </div>
+
+          {/* Submit */}
           <div className="flex justify-end gap-2 pt-4">
             <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
             <Button type="submit" disabled={saving}>{saving ? "Saving..." : initialData?.id ? "Update Package" : "Create Package"}</Button>
@@ -449,8 +702,6 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
   }
 
   async function handleScrape() {
-    console.log("[scrape] Button clicked, URL:", url)
-    
     if (!url.trim()) {
       setError("Please enter a URL to scrape")
       return
@@ -464,51 +715,38 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
     setSelectedIndexes(new Set())
 
     const token = localStorage.getItem("adminToken")
-    console.log("[scrape] Token exists:", !!token)
-
     if (!token) {
-      setError("You must be logged in as admin to scrape. Please log in first.")
+      setError("You must be logged in as admin to scrape.")
       setLoading(false)
       setStatus("")
       return
     }
 
     try {
-      console.log("[scrape] Starting scrape for URL:", url)
       setStatus("Fetching page content (this may take 10-30 seconds)...")
       
       const res = await fetch("/api/admin/scrape", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ url: url.trim() }),
       })
 
-      console.log("[scrape] Response status:", res.status)
       setStatus("Processing response...")
-      
       const result = await res.json()
-      console.log("[scrape] Response data:", result)
 
       if (!res.ok) {
-        const errorMsg = result.error || "Failed to scrape URL"
-        console.error("[scrape] Error:", errorMsg)
-        setError(errorMsg)
+        setError(result.error || "Failed to scrape URL")
         setStatus("")
         return
       }
 
-      console.log("[scrape] Found packages:", result.packages?.length || 0)
       setPackages(result.packages || [])
       setAdapter(result.adapter || null)
       setStatus(result.packages?.length > 0 
         ? `Found ${result.packages.length} package(s)!` 
-        : "No packages found on this page. Try a different URL.")
+        : "No packages found on this page.")
     } catch (err) {
-      console.error("[scrape] Network error:", err)
-      setError("Network error — please try again. Make sure you're connected to the internet.")
+      setError("Network error — please try again.")
       setStatus("")
     } finally {
       setLoading(false)
@@ -520,6 +758,8 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
       name: pkg.name,
       destination: pkg.destination,
       duration: pkg.duration,
+      available_from: pkg.startDate || '',
+      available_to: pkg.endDate || '',
       price_display: pkg.price || pkg.price_display || 'From $1,000',
       price_value: pkg.priceValue,
       short_description: pkg.description,
@@ -553,7 +793,7 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
     if (selectedIndexes.size === 0) return
     const token = localStorage.getItem('adminToken')
     if (!token) {
-      setError('You must be logged in as admin to import packages.')
+      setError('You must be logged in as admin.')
       return
     }
 
@@ -568,6 +808,8 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
           name: pkg.name,
           destination: pkg.destination,
           duration: pkg.duration,
+          available_from: pkg.startDate || '',
+          available_to: pkg.endDate || '',
           price_display: pkg.price || pkg.price_display || 'From $1,000',
           price_value: pkg.priceValue,
           short_description: pkg.description,
@@ -586,19 +828,16 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
         })
 
         if (!res.ok) {
-          const err = await res.text()
-          throw new Error(`Failed to import package: ${res.status} ${err}`)
+          throw new Error(`Failed to import package: ${res.status}`)
         }
 
         setImportProgress((p) => ({ ...p, done: p.done + 1 }))
       }
 
       setStatus(`Imported ${selectedList.length} package(s) successfully.`)
-      // Notify parent to refresh and close the form
       if (onImportedBatch) onImportedBatch()
       else onCancel()
     } catch (err: any) {
-      console.error('[scrape] Import error:', err)
       setError(err.message || 'Import failed')
     } finally {
       setImporting(false)
@@ -627,7 +866,7 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
               <SelectContent>
                 {presetSites.map((site) => (
                   <SelectItem key={site.url} value={site.url}>
-                    {site.name} - {site.url}
+                    {site.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -649,7 +888,6 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
               </Button>
             </div>
             
-            {/* Status indicator */}
             {status && !error && (
               <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -657,96 +895,68 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
               </div>
             )}
             
-            {adapter && (
-              <p className="text-xs text-muted-foreground">
-                ✓ Parser: {adapter}
-              </p>
-            )}
+            {adapter && <p className="text-xs text-muted-foreground">✓ Parser: {adapter}</p>}
             {error && (
               <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
                 <p className="font-medium">Error:</p>
                 <p className="mt-1">{error}</p>
-                {error.includes("API not configured") && (
-                  <p className="mt-2 text-xs">
-                    Please set <code className="bg-destructive/20 px-1 py-0.5 rounded">SCRAPINGBEE_API_KEY</code> in your .env.local file.
-                    Get a free API key from <a href="https://app.scrapingbee.com/api" target="_blank" rel="noopener noreferrer" className="underline hover:text-destructive-foreground">ScrapingBee</a>.
-                  </p>
-                )}
-                {error.includes("logged in") && (
-                  <p className="mt-2 text-xs">
-                    Go back to the <a href="/admin" className="underline">Admin page</a> and log in first.
-                  </p>
-                )}
               </div>
             )}
           </div>
         </div>
 
-        {packages.length > 0 ? (
+        {packages.length > 0 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h4 className="text-lg font-semibold">Select packages to import</h4>
               <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-green-600">
-                  Found {packages.length} package{packages.length === 1 ? '' : 's'}
-                </Badge>
+                <Badge variant="outline" className="text-green-600">Found {packages.length}</Badge>
                 <Button variant="outline" size="sm" onClick={selectAll}>Select All</Button>
                 <Button variant="outline" size="sm" onClick={clearSelection}>Clear</Button>
                 <Button onClick={handleImportSelected} disabled={importing || selectedIndexes.size === 0}>
-                  {importing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing {importProgress.done}/{importProgress.total}</> : <>Import Selected</>}
+                  {importing ? `Importing ${importProgress.done}/${importProgress.total}` : 'Import Selected'}
                 </Button>
               </div>
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
               {packages.map((pkg, idx) => (
                 <Card key={idx} className="border-primary/20">
-                  <CardHeader className="pb-3 flex items-start gap-3">
-                    <div className="mt-1">
-                      <Checkbox checked={selectedIndexes.has(idx)} onCheckedChange={() => toggleSelect(idx)} />
-                    </div>
+                  <CardHeader className="pb-3 flex flex-row items-start gap-3">
+                    <Checkbox checked={selectedIndexes.has(idx)} onCheckedChange={() => toggleSelect(idx)} className="mt-1" />
                     <div className="flex-1">
-                      <CardTitle className="text-base inline-flex items-center gap-2">{pkg.name || `Package ${idx + 1}`}</CardTitle>
+                      <CardTitle className="text-base">{pkg.name || `Package ${idx + 1}`}</CardTitle>
                       {pkg.destination && <p className="text-xs text-muted-foreground">{pkg.destination}</p>}
+                      {(pkg.startDate || pkg.endDate) && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {pkg.startDate && `Start: ${pkg.startDate}`}
+                          {pkg.startDate && pkg.endDate && ' | '}
+                          {pkg.endDate && `End: ${pkg.endDate}`}
+                        </p>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="flex gap-3">
                       {pkg.imageUrl ? (
-                        <div className="h-24 w-32 overflow-hidden rounded bg-muted">
-                          <img src={pkg.imageUrl} alt={pkg.name} className="h-full w-full object-cover" />
-                        </div>
+                        <img src={pkg.imageUrl} alt={pkg.name} className="h-24 w-32 rounded object-cover" />
                       ) : (
-                        <div className="flex h-24 w-32 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
-                          No image
-                        </div>
+                        <div className="h-24 w-32 rounded bg-muted flex items-center justify-center text-xs">No image</div>
                       )}
                       <div className="text-sm text-muted-foreground">
-                        {pkg.duration && <p><span className="font-medium text-foreground">Duration:</span> {pkg.duration}</p>}
-                        {pkg.price && <p><span className="font-medium text-foreground">Price:</span> {pkg.price}</p>}
-                        {pkg.bookingUrl && <p className="truncate"><span className="font-medium text-foreground">Link:</span> {pkg.bookingUrl}</p>}
+                        {pkg.duration && <p><span className="font-medium">Duration:</span> {pkg.duration}</p>}
+                        {pkg.price && <p><span className="font-medium">Price:</span> {pkg.price}</p>}
                       </div>
                     </div>
-                    {pkg.description && <p className="text-sm text-muted-foreground">{pkg.description}</p>}
-                    {pkg.highlights && pkg.highlights.length > 0 && (
-                      <ul className="list-inside list-disc text-xs text-muted-foreground">
-                        {pkg.highlights.slice(0, 4).map((h: string, i: number) => (
-                          <li key={i}>{h}</li>
-                        ))}
-                      </ul>
-                    )}
-                    <div className="flex justify-end gap-2">
-                      <Button onClick={() => handleUseData(pkg)}>
-                        <Check className="mr-1 h-4 w-4" />Import Package
+                    {pkg.description && <p className="text-sm text-muted-foreground line-clamp-2">{pkg.description}</p>}
+                    <div className="flex justify-end">
+                      <Button size="sm" onClick={() => handleUseData(pkg)}>
+                        <Check className="mr-1 h-4 w-4" />Import
                       </Button>
                     </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
-          </div>
-        ) : (
-          <div className="text-sm text-muted-foreground">
-            Paste any travel landing page URL (e.g., travelfunbiz.com) to detect all highlighted packages automatically.
           </div>
         )}
 
@@ -766,10 +976,9 @@ function UploadExcelForm({ onComplete, onCancel }: { onComplete: (data: any) => 
   async function handleUpload() {
     if (!file) return
     setLoading(true)
-    // TODO: Implement actual Excel parsing
     setTimeout(() => {
       setLoading(false)
-      alert("Excel upload coming soon! For now, use AI Interview or Manual entry.")
+      alert("Excel upload coming soon!")
       onCancel()
     }, 1500)
   }
@@ -777,22 +986,15 @@ function UploadExcelForm({ onComplete, onCancel }: { onComplete: (data: any) => 
   return (
     <Card className="mx-auto max-w-xl">
       <CardHeader>
-        <div className="flex items-center gap-2 text-primary">
-          <FileSpreadsheet className="h-5 w-5" />
-          <span className="text-sm font-medium">Upload Excel File</span>
-        </div>
-        <CardTitle className="mt-2">Bulk import packages</CardTitle>
+        <CardTitle>Bulk import packages</CardTitle>
         <CardDescription>Upload an Excel file with package data</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label>Excel File (.xlsx, .xls)</Label>
-          <Input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        </div>
+        <Input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files?.[0] || null)} />
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button onClick={handleUpload} disabled={loading || !file}>
-            {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading...</> : "Upload & Import"}
+            {loading ? "Uploading..." : "Upload & Import"}
           </Button>
         </div>
       </CardContent>
@@ -802,80 +1004,45 @@ function UploadExcelForm({ onComplete, onCancel }: { onComplete: (data: any) => 
 
 // ─── Package Table Component ────────────────────────────────────────
 function PackageTable({
-  packages,
-  sortField,
-  sortDir,
-  onSort,
-  onEdit,
-  onDelete,
-  onToggleStatus,
-  onToggleFeatured,
-  onAIAction,
-  selectedIds,
-  onSelectToggle,
-  onSelectAll,
+  packages, sortField, sortDir, onSort, onEdit, onDelete, onToggleStatus, onToggleFeatured, onAIAction, selectedIds, onSelectToggle, onSelectAll,
 }: {
-  packages: DbPackage[]
-  sortField: SortField
-  sortDir: SortDir
-  onSort: (field: SortField) => void
-  onEdit: (pkg: DbPackage) => void
-  onDelete: (id: string) => void
-  onToggleStatus: (pkg: DbPackage) => void
-  onToggleFeatured: (pkg: DbPackage) => void
-  onAIAction: (action: string, pkg: DbPackage) => void
-  selectedIds: Set<string>
-  onSelectToggle: (id: string) => void
-  onSelectAll: () => void
+  packages: DbPackage[]; sortField: SortField; sortDir: SortDir; onSort: (field: SortField) => void; onEdit: (pkg: DbPackage) => void; onDelete: (id: string) => void; onToggleStatus: (pkg: DbPackage) => void; onToggleFeatured: (pkg: DbPackage) => void; onAIAction: (action: string, pkg: DbPackage) => void; selectedIds: Set<string>; onSelectToggle: (id: string) => void; onSelectAll: () => void
 }) {
-  const columns: { key: SortField; label: string; className?: string }[] = [
-    { key: "name", label: "Package", className: "min-w-[200px]" },
-    { key: "available_from", label: "Start Date", className: "w-[100px]" },
-    { key: "duration_days", label: "Length", className: "w-[80px]" },
-    { key: "supplier", label: "Supplier", className: "w-[150px]" },
-    { key: "destination", label: "Destination", className: "w-[150px]" },
-    { key: "price_value", label: "Price", className: "w-[100px]" },
-    { key: "status", label: "Status", className: "w-[100px]" },
+  const columns: { key: SortField; label: string }[] = [
+    { key: "name", label: "Package" },
+    { key: "available_from", label: "Start" },
+    { key: "duration_days", label: "Length" },
+    { key: "supplier", label: "Supplier" },
+    { key: "destination", label: "Destination" },
+    { key: "price_value", label: "Price" },
+    { key: "status", label: "Status" },
   ]
-
-  function SortIcon({ field }: { field: SortField }) {
-    if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
-    return sortDir === "asc" ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
-  }
 
   return (
     <div className="overflow-x-auto rounded-lg border">
       <table className="w-full text-sm">
         <thead className="bg-muted/50">
           <tr>
-            <th className="w-10 p-3">
-              <Checkbox checked={selectedIds.size === packages.length && packages.length > 0} onCheckedChange={onSelectAll} />
-            </th>
-            <th className="w-16 p-3 text-left text-xs font-medium uppercase text-muted-foreground">Thumb</th>
+            <th className="w-10 p-3"><Checkbox checked={selectedIds.size === packages.length && packages.length > 0} onCheckedChange={onSelectAll} /></th>
+            <th className="w-16 p-3 text-left text-xs font-medium uppercase">Thumb</th>
             {columns.map((col) => (
-              <th key={col.key} className={`p-3 text-left text-xs font-medium uppercase text-muted-foreground ${col.className || ""}`}>
+              <th key={col.key} className="p-3 text-left text-xs font-medium uppercase">
                 <button onClick={() => onSort(col.key)} className="flex items-center hover:text-foreground">
                   {col.label}
-                  <SortIcon field={col.key} />
+                  {sortField === col.key ? (sortDir === "asc" ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />) : <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />}
                 </button>
               </th>
             ))}
-            <th className="w-20 p-3 text-right text-xs font-medium uppercase text-muted-foreground">Actions</th>
+            <th className="w-20 p-3 text-right text-xs font-medium uppercase">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y">
           {packages.map((pkg) => (
             <tr key={pkg.id} className="hover:bg-muted/30">
-              <td className="p-3">
-                <Checkbox checked={selectedIds.has(pkg.id)} onCheckedChange={() => onSelectToggle(pkg.id)} />
-              </td>
+              <td className="p-3"><Checkbox checked={selectedIds.has(pkg.id)} onCheckedChange={() => onSelectToggle(pkg.id)} /></td>
               <td className="p-3">
                 <div className="h-10 w-14 overflow-hidden rounded bg-muted">
-                  {pkg.image_url ? (
-                    <img src={pkg.image_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-[8px] text-muted-foreground">No img</div>
-                  )}
+                  {pkg.image_url ? <img src={pkg.image_url} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-[8px]">No img</div>}
                 </div>
               </td>
               <td className="p-3">
@@ -883,56 +1050,22 @@ function PackageTable({
                   <span className="font-medium">{pkg.name}</span>
                   {pkg.featured && <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />}
                 </div>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground" style={{ maxWidth: 200 }}>{pkg.short_description}</p>
               </td>
               <td className="p-3 text-xs">{pkg.available_from || "—"}</td>
               <td className="p-3 text-xs">{pkg.duration_days ? `${pkg.duration_days}d` : pkg.duration || "—"}</td>
               <td className="p-3 text-xs">{pkg.supplier || "—"}</td>
               <td className="p-3 text-xs">{pkg.destination}</td>
               <td className="p-3 text-xs font-medium">{pkg.price_display}</td>
-              <td className="p-3">
-                <Badge variant={pkg.status === "published" ? "default" : "secondary"} className="text-[10px]">
-                  {pkg.status}
-                </Badge>
-              </td>
+              <td className="p-3"><Badge variant={pkg.status === "published" ? "default" : "secondary"} className="text-[10px]">{pkg.status}</Badge></td>
               <td className="p-3 text-right">
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
+                  <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => onEdit(pkg)}>
-                      <Pencil className="mr-2 h-4 w-4" />Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onToggleStatus(pkg)}>
-                      {pkg.status === "published" ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
-                      {pkg.status === "published" ? "Unpublish" : "Publish"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onToggleFeatured(pkg)}>
-                      <Star className="mr-2 h-4 w-4" />{pkg.featured ? "Unfeature" : "Feature"}
-                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onEdit(pkg)}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onToggleStatus(pkg)}>{pkg.status === "published" ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}{pkg.status === "published" ? "Unpublish" : "Publish"}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onToggleFeatured(pkg)}><Star className="mr-2 h-4 w-4" />{pkg.featured ? "Unfeature" : "Feature"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => onAIAction("faq", pkg)}>
-                      <MessageSquare className="mr-2 h-4 w-4" />Generate FAQ
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onAIAction("thumbnail", pkg)}>
-                      <Image className="mr-2 h-4 w-4" />Generate Thumbnails
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onAIAction("descriptions", pkg)}>
-                      <FileText className="mr-2 h-4 w-4" />Generate Descriptions
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onAIAction("social", pkg)}>
-                      <Share2 className="mr-2 h-4 w-4" />Generate Social Posts
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onAIAction("page", pkg)}>
-                      <Wand2 className="mr-2 h-4 w-4" />Generate Full Page
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => onDelete(pkg.id)} className="text-destructive">
-                      <Trash2 className="mr-2 h-4 w-4" />Delete
-                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onDelete(pkg.id)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </td>
@@ -940,9 +1073,7 @@ function PackageTable({
           ))}
         </tbody>
       </table>
-      {packages.length === 0 && (
-        <div className="py-12 text-center text-muted-foreground">No packages found</div>
-      )}
+      {packages.length === 0 && <div className="py-12 text-center text-muted-foreground">No packages found</div>}
     </div>
   )
 }
@@ -956,24 +1087,16 @@ export default function PackagesAdminPage() {
   const [editingPackage, setEditingPackage] = useState<DbPackage | null>(null)
   const [saving, setSaving] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
-
-  // Sorting & filtering
   const [sortField, setSortField] = useState<SortField>("created_at")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [filterText, setFilterText] = useState("")
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [filterCategory, setFilterCategory] = useState<string>("all")
-
-  // Selection for bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  // Auth check
   useEffect(() => {
     const token = localStorage.getItem("adminToken")
-    if (!token) {
-      router.push("/admin")
-      return
-    }
+    if (!token) { router.push("/admin"); return }
     fetchPackages()
   }, [])
 
@@ -990,82 +1113,39 @@ export default function PackagesAdminPage() {
     }
   }
 
-  // Filtered & sorted packages
   const filteredPackages = useMemo(() => {
     let result = [...packages]
-
-    // Text filter
     if (filterText) {
       const lower = filterText.toLowerCase()
-      result = result.filter((p) =>
-        p.name.toLowerCase().includes(lower) ||
-        p.destination.toLowerCase().includes(lower) ||
-        (p.supplier || "").toLowerCase().includes(lower)
-      )
+      result = result.filter((p) => p.name.toLowerCase().includes(lower) || p.destination.toLowerCase().includes(lower) || (p.supplier || "").toLowerCase().includes(lower))
     }
-
-    // Status filter
-    if (filterStatus !== "all") {
-      result = result.filter((p) => p.status === filterStatus)
-    }
-
-    // Category filter
-    if (filterCategory !== "all") {
-      result = result.filter((p) => p.category === filterCategory)
-    }
-
-    // Sort
+    if (filterStatus !== "all") result = result.filter((p) => p.status === filterStatus)
+    if (filterCategory !== "all") result = result.filter((p) => p.category === filterCategory)
     result.sort((a, b) => {
-      let aVal: any = a[sortField]
-      let bVal: any = b[sortField]
-
-      // Handle dates
-      if (sortField === "available_from") {
-        aVal = a.available_from || ""
-        bVal = b.available_from || ""
-      }
-
-      if (aVal == null) aVal = ""
-      if (bVal == null) bVal = ""
-
+      let aVal: any = a[sortField]; let bVal: any = b[sortField]
+      if (aVal == null) aVal = ""; if (bVal == null) bVal = ""
       if (typeof aVal === "string") aVal = aVal.toLowerCase()
       if (typeof bVal === "string") bVal = bVal.toLowerCase()
-
       if (aVal < bVal) return sortDir === "asc" ? -1 : 1
       if (aVal > bVal) return sortDir === "asc" ? 1 : -1
       return 0
     })
-
     return result
   }, [packages, filterText, filterStatus, filterCategory, sortField, sortDir])
 
   function handleSort(field: SortField) {
-    if (sortField === field) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc")
-    } else {
-      setSortField(field)
-      setSortDir("asc")
-    }
+    if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc")
+    else { setSortField(field); setSortDir("asc") }
   }
 
   async function handleCreatePackage(data: any) {
     setSaving(true)
     const token = localStorage.getItem("adminToken")
     try {
-      const res = await fetch("/api/admin/packages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...data, status: "draft" }),
-      })
-      if (res.ok) {
-        setView("list")
-        fetchPackages()
-      }
-    } catch (error) {
-      console.error("Failed to create package:", error)
-    } finally {
-      setSaving(false)
-    }
+      const res = await fetch("/api/admin/packages", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ ...data, status: "draft" }) })
+      if (res.ok) { setView("list"); fetchPackages() }
+    } catch (error) { console.error("Failed to create package:", error) }
+    finally { setSaving(false) }
   }
 
   async function handleUpdatePackage(data: any) {
@@ -1073,164 +1153,58 @@ export default function PackagesAdminPage() {
     setSaving(true)
     const token = localStorage.getItem("adminToken")
     try {
-      const res = await fetch(`/api/admin/packages/${editingPackage.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(data),
-      })
-      if (res.ok) {
-        setView("list")
-        setEditingPackage(null)
-        fetchPackages()
-      }
-    } catch (error) {
-      console.error("Failed to update package:", error)
-    } finally {
-      setSaving(false)
-    }
+      const res = await fetch(`/api/admin/packages/${editingPackage.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(data) })
+      if (res.ok) { setView("list"); setEditingPackage(null); fetchPackages() }
+    } catch (error) { console.error("Failed to update package:", error) }
+    finally { setSaving(false) }
   }
 
   async function handleToggleStatus(pkg: DbPackage) {
     const token = localStorage.getItem("adminToken")
     const newStatus = pkg.status === "published" ? "draft" : "published"
-    try {
-      await fetch(`/api/admin/packages/${pkg.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: newStatus }),
-      })
-      fetchPackages()
-    } catch (error) {
-      console.error("Failed to update package:", error)
-    }
+    try { await fetch(`/api/admin/packages/${pkg.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ status: newStatus }) }); fetchPackages() }
+    catch (error) { console.error("Failed to update package:", error) }
   }
 
   async function handleToggleFeatured(pkg: DbPackage) {
     const token = localStorage.getItem("adminToken")
-    try {
-      await fetch(`/api/admin/packages/${pkg.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ featured: !pkg.featured }),
-      })
-      fetchPackages()
-    } catch (error) {
-      console.error("Failed to update package:", error)
-    }
+    try { await fetch(`/api/admin/packages/${pkg.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ featured: !pkg.featured }) }); fetchPackages() }
+    catch (error) { console.error("Failed to update package:", error) }
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this package?")) return
     const token = localStorage.getItem("adminToken")
-    try {
-      await fetch(`/api/admin/packages/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
-      fetchPackages()
-    } catch (error) {
-      console.error("Failed to delete package:", error)
-    }
+    try { await fetch(`/api/admin/packages/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); fetchPackages() }
+    catch (error) { console.error("Failed to delete package:", error) }
   }
 
-  function handleEdit(pkg: DbPackage) {
-    setEditingPackage(pkg)
-    setView("manual")
-  }
+  function handleEdit(pkg: DbPackage) { setEditingPackage(pkg); setView("manual") }
+  function handleAIAction(action: string, pkg: DbPackage) { alert(`AI ${action} for "${pkg.name}" coming soon!`) }
+  function handleSelectToggle(id: string) { setSelectedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next }) }
+  function handleSelectAll() { if (selectedIds.size === filteredPackages.length) setSelectedIds(new Set()); else setSelectedIds(new Set(filteredPackages.map((p) => p.id))) }
+  function handleAddMethodSelect(method: string) { setShowAddModal(false); setEditingPackage(null); setView(method as any) }
 
-  function handleAIAction(action: string, pkg: DbPackage) {
-    // TODO: Implement AI actions
-    alert(`AI ${action} for "${pkg.name}" coming soon!`)
-  }
-
-  function handleSelectToggle(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function handleSelectAll() {
-    if (selectedIds.size === filteredPackages.length) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(filteredPackages.map((p) => p.id)))
-    }
-  }
-
-  function handleAddMethodSelect(method: string) {
-    setShowAddModal(false)
-    setEditingPackage(null)
-    setView(method as any)
-  }
-
-  // Render different views
-  if (view === "interview") {
-    return (
-      <div className="min-h-screen bg-background p-6">
-        <AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} />
-      </div>
-    )
-  }
-
-  if (view === "manual") {
-    return (
-      <div className="min-h-screen bg-background p-6">
-        <ManualForm
-          onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage}
-          onCancel={() => { setView("list"); setEditingPackage(null) }}
-          initialData={editingPackage || undefined}
-        />
-      </div>
-    )
-  }
-
-  if (view === "scrape") {
-    return (
-      <div className="min-h-screen bg-background p-6">
-        <ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImportedBatch={() => { fetchPackages(); setView("list") }} />
-      </div>
-    )
-  }
-
-  if (view === "upload") {
-    return (
-      <div className="min-h-screen bg-background p-6">
-        <UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} />
-      </div>
-    )
-  }
+  if (view === "interview") return <div className="min-h-screen bg-background p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
+  if (view === "manual") return <div className="min-h-screen bg-background p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null) }} initialData={editingPackage || undefined} /></div>
+  if (view === "scrape") return <div className="min-h-screen bg-background p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImportedBatch={() => { fetchPackages(); setView("list") }} /></div>
+  if (view === "upload") return <div className="min-h-screen bg-background p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b bg-card/50">
         <div className="container mx-auto flex items-center justify-between px-4 py-4">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => router.push("/admin")}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Admin</p>
-              <h1 className="text-xl font-bold">Travel Packages</h1>
-            </div>
+            <Button variant="ghost" size="icon" onClick={() => router.push("/admin")}><ArrowLeft className="h-4 w-4" /></Button>
+            <div><p className="text-xs uppercase tracking-wider text-muted-foreground">Admin</p><h1 className="text-xl font-bold">Travel Packages</h1></div>
           </div>
-          <Button onClick={() => setShowAddModal(true)}>
-            <Plus className="mr-1 h-4 w-4" />Add Package
-          </Button>
+          <Button onClick={() => setShowAddModal(true)}><Plus className="mr-1 h-4 w-4" />Add Package</Button>
         </div>
       </header>
 
-      {/* Filters */}
       <div className="border-b bg-card/30">
         <div className="container mx-auto flex flex-wrap items-center gap-3 px-4 py-3">
-          <div className="flex-1">
-            <Input
-              placeholder="Search packages..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="max-w-xs"
-            />
-          </div>
+          <Input placeholder="Search packages..." value={filterText} onChange={(e) => setFilterText(e.target.value)} className="max-w-xs" />
           <Select value={filterStatus} onValueChange={setFilterStatus}>
             <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -1247,45 +1221,15 @@ export default function PackagesAdminPage() {
               {categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
-          {selectedIds.size > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">{selectedIds.size} selected</span>
-              <Button variant="outline" size="sm" onClick={() => alert("Bulk edit coming soon!")}>
-                Bulk Edit
-              </Button>
-              <Button variant="outline" size="sm" className="text-destructive" onClick={() => alert("Bulk delete coming soon!")}>
-                Delete Selected
-              </Button>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Content */}
       <main className="container mx-auto px-4 py-6">
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <PackageTable
-            packages={filteredPackages}
-            sortField={sortField}
-            sortDir={sortDir}
-            onSort={handleSort}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onToggleStatus={handleToggleStatus}
-            onToggleFeatured={handleToggleFeatured}
-            onAIAction={handleAIAction}
-            selectedIds={selectedIds}
-            onSelectToggle={handleSelectToggle}
-            onSelectAll={handleSelectAll}
-          />
+        {loading ? <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div> : (
+          <PackageTable packages={filteredPackages} sortField={sortField} sortDir={sortDir} onSort={handleSort} onEdit={handleEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onToggleFeatured={handleToggleFeatured} onAIAction={handleAIAction} selectedIds={selectedIds} onSelectToggle={handleSelectToggle} onSelectAll={handleSelectAll} />
         )}
       </main>
 
-      {/* Add Method Modal */}
       <AddMethodModal open={showAddModal} onClose={() => setShowAddModal(false)} onSelect={handleAddMethodSelect} />
     </div>
   )

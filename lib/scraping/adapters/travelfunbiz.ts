@@ -270,23 +270,102 @@ function extractFromBlock($: CheerioAPI, block: ReturnType<CheerioAPI>, sourceUr
   let startDate: string | undefined
   let endDate: string | undefined
 
-  // Date range: "March 13 – 21, 2026" or "Jun 8 – 16, 2026"
-  const dateRangeMatch = allText.match(
+  // Try multiple date patterns
+
+  // Pattern 1: "April 3 – 11, 2026" (same month)
+  const sameMonthMatch = allText.match(
     /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2})\s*[–\-—]\s*(\d{1,2}),?\s*(\d{4})\b/i
   )
-  if (dateRangeMatch) {
-    startDate = `${dateRangeMatch[1]}, ${dateRangeMatch[3]}`
-    endDate = `${dateRangeMatch[2]} ${dateRangeMatch[3]}`
+  if (sameMonthMatch) {
+    const month = sameMonthMatch[1].match(/(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)/i)?.[0] || ''
+    startDate = `${sameMonthMatch[1]}, ${sameMonthMatch[3]}`
+    endDate = `${month} ${sameMonthMatch[2]}, ${sameMonthMatch[3]}`
+    console.log('[travelfunbiz] Parsed same-month date range:', startDate, '-', endDate)
   }
 
-  // Full date range: "April 25 – May 9, 2026"
-  const fullDateRangeMatch = allText.match(
-    /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2})\s*[–\-—]\s*((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}),?\s*(\d{4})\b/i
-  )
-  if (fullDateRangeMatch) {
-    startDate = `${fullDateRangeMatch[1]}, ${fullDateRangeMatch[3]}`
-    endDate = `${fullDateRangeMatch[2]}, ${fullDateRangeMatch[3]}`
+  // Pattern 2: "April 25 – May 9, 2026" (different months)
+  if (!startDate) {
+    const diffMonthMatch = allText.match(
+      /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2})\s*[–\-—]\s*((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}),?\s*(\d{4})\b/i
+    )
+    if (diffMonthMatch) {
+      startDate = `${diffMonthMatch[1]}, ${diffMonthMatch[3]}`
+      endDate = `${diffMonthMatch[2]}, ${diffMonthMatch[3]}`
+      console.log('[travelfunbiz] Parsed diff-month date range:', startDate, '-', endDate)
+    }
   }
+
+  // Pattern 3: "March 13 - 21, 2025" with hyphen
+  if (!startDate) {
+    const hyphenMatch = allText.match(
+      /\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)\s+(\d{1,2})\s*[-–—]\s*(\d{1,2}),?\s*(\d{4})\b/i
+    )
+    if (hyphenMatch) {
+      startDate = `${hyphenMatch[1]} ${hyphenMatch[2]}, ${hyphenMatch[4]}`
+      endDate = `${hyphenMatch[1]} ${hyphenMatch[3]}, ${hyphenMatch[4]}`
+      console.log('[travelfunbiz] Parsed hyphen date range:', startDate, '-', endDate)
+    }
+  }
+
+  // Pattern 4: "September 3 - 16, 2026" 
+  if (!startDate) {
+    const fullMonthMatch = allText.match(
+      /\b(September|October|November|December|January|February|March|April|May|June|July|August)\s+(\d{1,2})\s*[-–—]\s*(\d{1,2}),?\s*(\d{4})\b/i
+    )
+    if (fullMonthMatch) {
+      startDate = `${fullMonthMatch[1]} ${fullMonthMatch[2]}, ${fullMonthMatch[4]}`
+      endDate = `${fullMonthMatch[1]} ${fullMonthMatch[3]}, ${fullMonthMatch[4]}`
+      console.log('[travelfunbiz] Parsed full month date range:', startDate, '-', endDate)
+    }
+  }
+
+  // Pattern 5: ISO dates "2026-04-03"
+  if (!startDate) {
+    const isoMatch = allText.match(/(\d{4}-\d{2}-\d{2})/g)
+    if (isoMatch && isoMatch.length >= 1) {
+      startDate = isoMatch[0]
+      if (isoMatch.length >= 2) endDate = isoMatch[1]
+      console.log('[travelfunbiz] Parsed ISO dates:', startDate, endDate)
+    }
+  }
+
+  // Convert text dates to ISO format for database storage
+  function parseTextDate(textDate: string): string | undefined {
+    if (!textDate) return undefined
+    
+    // Already ISO format
+    if (/^\d{4}-\d{2}-\d{2}$/.test(textDate)) return textDate
+    
+    const months: Record<string, string> = {
+      'jan': '01', 'january': '01',
+      'feb': '02', 'february': '02',
+      'mar': '03', 'march': '03',
+      'apr': '04', 'april': '04',
+      'may': '05',
+      'jun': '06', 'june': '06',
+      'jul': '07', 'july': '07',
+      'aug': '08', 'august': '08',
+      'sep': '09', 'september': '09',
+      'oct': '10', 'october': '10',
+      'nov': '11', 'november': '11',
+      'dec': '12', 'december': '12',
+    }
+    
+    // Parse "April 3, 2026" or "Apr 3, 2026"
+    const match = textDate.match(/([a-z]+)\s+(\d{1,2}),?\s*(\d{4})/i)
+    if (match) {
+      const monthNum = months[match[1].toLowerCase()]
+      if (monthNum) {
+        const day = match[2].padStart(2, '0')
+        return `${match[3]}-${monthNum}-${day}`
+      }
+    }
+    
+    return undefined
+  }
+
+  const parsedStartDate = parseTextDate(startDate || '')
+  const parsedEndDate = parseTextDate(endDate || '')
 
   // Duration: "(7 Nights)" or "(9 Days)" or "(14 Nights Transatlantic)"
   const durationMatch = allText.match(/\((\d+)\s*(nights?|days?)[^)]*\)/i)
@@ -359,8 +438,8 @@ function extractFromBlock($: CheerioAPI, block: ReturnType<CheerioAPI>, sourceUr
     name,
     description: description || undefined,
     destination,
-    startDate,
-    endDate,
+    startDate: parsedStartDate || startDate,
+    endDate: parsedEndDate || endDate,
     duration,
     price,
     imageUrl,
