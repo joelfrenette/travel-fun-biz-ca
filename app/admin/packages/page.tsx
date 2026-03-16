@@ -326,12 +326,29 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
 }
 
 // ─── Scrape URL Component ───────────────────────────────────────────
+const presetSites = [
+  { name: "TravelFunBiz", url: "https://travelfunbiz.com" },
+  { name: "Expedia", url: "https://www.expedia.com" },
+  { name: "Booking.com", url: "https://www.booking.com" },
+  { name: "TripAdvisor", url: "https://www.tripadvisor.com" },
+  { name: "Viator", url: "https://www.viator.com" },
+]
+
 function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => void; onCancel: () => void }) {
   const [url, setUrl] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [packages, setPackages] = useState<any[]>([])
   const [adapter, setAdapter] = useState<string | null>(null)
+  const [selectedPreset, setSelectedPreset] = useState<string>("")
+
+  function handlePresetChange(value: string) {
+    setSelectedPreset(value)
+    const preset = presetSites.find(p => p.url === value)
+    if (preset) {
+      setUrl(preset.url)
+    }
+  }
 
   async function handleScrape() {
     if (!url.trim()) return
@@ -344,6 +361,8 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
 
     try {
       console.log("[scrape] Starting scrape for URL:", url)
+      console.log("[scrape] Token exists:", !!token)
+      
       const res = await fetch("/api/admin/scrape", {
         method: "POST",
         headers: {
@@ -403,37 +422,55 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
         <CardDescription>We'll detect package blocks on the page and extract each one automatically.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-2">
-          <Label>Package URL</Label>
-          <div className="flex gap-2">
-            <Input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://travelfunbiz.com"
-              disabled={loading}
-              onKeyDown={(e) => e.key === 'Enter' && handleScrape()}
-            />
-            <Button onClick={handleScrape} disabled={loading || !url.trim()}>
-              {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scraping...</> : "Scrape"}
-            </Button>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Quick Select (Optional)</Label>
+            <Select value={selectedPreset} onValueChange={handlePresetChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a preset site..." />
+              </SelectTrigger>
+              <SelectContent>
+                {presetSites.map((site) => (
+                  <SelectItem key={site.url} value={site.url}>
+                    {site.name} - {site.url}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          {adapter && (
-            <p className="text-xs text-muted-foreground">
-              ✓ Parser: {adapter}
-            </p>
-          )}
-          {error && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-              <p className="font-medium">Error:</p>
-              <p className="mt-1">{error}</p>
-              {error.includes("API not configured") && (
-                <p className="mt-2 text-xs">
-                  Please set <code className="bg-destructive/20 px-1 py-0.5 rounded">SCRAPINGBEE_API_KEY</code> in your .env.local file.
-                  Get a free API key from <a href="https://app.scrapingbee.com/api" target="_blank" rel="noopener noreferrer" className="underline hover:text-destructive-foreground">ScrapingBee</a>.
-                </p>
-              )}
+
+          <div className="space-y-2">
+            <Label>Package URL</Label>
+            <div className="flex gap-2">
+              <Input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://travelfunbiz.com"
+                disabled={loading}
+                onKeyDown={(e) => e.key === 'Enter' && handleScrape()}
+              />
+              <Button onClick={handleScrape} disabled={loading || !url.trim()}>
+                {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scraping...</> : "Scrape"}
+              </Button>
             </div>
-          )}
+            {adapter && (
+              <p className="text-xs text-muted-foreground">
+                ✓ Parser: {adapter}
+              </p>
+            )}
+            {error && (
+              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                <p className="font-medium">Error:</p>
+                <p className="mt-1">{error}</p>
+                {error.includes("API not configured") && (
+                  <p className="mt-2 text-xs">
+                    Please set <code className="bg-destructive/20 px-1 py-0.5 rounded">SCRAPINGBEE_API_KEY</code> in your .env.local file.
+                    Get a free API key from <a href="https://app.scrapingbee.com/api" target="_blank" rel="noopener noreferrer" className="underline hover:text-destructive-foreground">ScrapingBee</a>.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {packages.length > 0 ? (
