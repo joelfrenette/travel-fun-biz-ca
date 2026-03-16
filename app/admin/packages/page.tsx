@@ -337,7 +337,7 @@ const presetSites = [
   { name: "Transat - All Inclusive", url: "https://www.transat.com/en-CA/book/type-accomodation/all-inclusive-vacation?search=package" },
 ]
 
-function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => void; onCancel: () => void }) {
+function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: (data: any) => void; onCancel: () => void; onImportedBatch?: () => void }) {
   const [url, setUrl] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -345,6 +345,9 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
   const [adapter, setAdapter] = useState<string | null>(null)
   const [selectedPreset, setSelectedPreset] = useState<string>("")
   const [status, setStatus] = useState<string>("")
+  const [selectedIndexes, setSelectedIndexes] = useState<Set<number>>(new Set())
+  const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState<{done:number;total:number}>({done:0,total:0})
 
   function handlePresetChange(value: string) {
     setSelectedPreset(value)
@@ -369,6 +372,7 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
     setPackages([])
     setAdapter(null)
     setStatus("Connecting to scraping service...")
+    setSelectedIndexes(new Set())
 
     const token = localStorage.getItem("adminToken")
     console.log("[scrape] Token exists:", !!token)
@@ -437,6 +441,80 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
       highlights: pkg.highlights,
       status: 'draft',
     })
+  }
+
+  function toggleSelect(idx: number) {
+    setSelectedIndexes((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
+  function selectAll() {
+    setSelectedIndexes(new Set(packages.map((_, i) => i)))
+  }
+
+  function clearSelection() {
+    setSelectedIndexes(new Set())
+  }
+
+  async function handleImportSelected() {
+    if (selectedIndexes.size === 0) return
+    const token = localStorage.getItem('adminToken')
+    if (!token) {
+      setError('You must be logged in as admin to import packages.')
+      return
+    }
+
+    const selectedList = Array.from(selectedIndexes).map(i => packages[i])
+    setImporting(true)
+    setImportProgress({ done: 0, total: selectedList.length })
+
+    try {
+      for (let i = 0; i < selectedList.length; i++) {
+        const pkg = selectedList[i]
+        const payload = {
+          name: pkg.name,
+          destination: pkg.destination,
+          duration: pkg.duration,
+          price_display: pkg.price || pkg.price_display || 'From $1,000',
+          price_value: pkg.priceValue,
+          short_description: pkg.description,
+          image_url: pkg.imageUrl,
+          booking_url: pkg.bookingUrl,
+          supplier: pkg.supplier,
+          category: pkg.category || 'Adventure',
+          highlights: pkg.highlights,
+          status: 'draft',
+        }
+
+        const res = await fetch('/api/admin/packages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        })
+
+        if (!res.ok) {
+          const err = await res.text()
+          throw new Error(`Failed to import package: ${res.status} ${err}`)
+        }
+
+        setImportProgress((p) => ({ ...p, done: p.done + 1 }))
+      }
+
+      setStatus(`Imported ${selectedList.length} package(s) successfully.`)
+      // Notify parent to refresh and close the form
+      if (onImportedBatch) onImportedBatch()
+      else onCancel()
+    } catch (err: any) {
+      console.error('[scrape] Import error:', err)
+      setError(err.message || 'Import failed')
+    } finally {
+      setImporting(false)
+      setSelectedIndexes(new Set())
+    }
   }
 
   return (
@@ -519,16 +597,28 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h4 className="text-lg font-semibold">Select packages to import</h4>
-              <Badge variant="outline" className="text-green-600">
-                Found {packages.length} package{packages.length === 1 ? '' : 's'}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-green-600">
+                  Found {packages.length} package{packages.length === 1 ? '' : 's'}
+                </Badge>
+                <Button variant="outline" size="sm" onClick={selectAll}>Select All</Button>
+                <Button variant="outline" size="sm" onClick={clearSelection}>Clear</Button>
+                <Button onClick={handleImportSelected} disabled={importing || selectedIndexes.size === 0}>
+                  {importing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing {importProgress.done}/{importProgress.total}</> : <>Import Selected</>}
+                </Button>
+              </div>
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
               {packages.map((pkg, idx) => (
                 <Card key={idx} className="border-primary/20">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">{pkg.name || `Package ${idx + 1}`}</CardTitle>
-                    {pkg.destination && <p className="text-xs text-muted-foreground">{pkg.destination}</p>}
+                  <CardHeader className="pb-3 flex items-start gap-3">
+                    <div className="mt-1">
+                      <Checkbox checked={selectedIndexes.has(idx)} onCheckedChange={() => toggleSelect(idx)} />
+                    </div>
+                    <div className="flex-1">
+                      <CardTitle className="text-base inline-flex items-center gap-2">{pkg.name || `Package ${idx + 1}`}</CardTitle>
+                      {pkg.destination && <p className="text-xs text-muted-foreground">{pkg.destination}</p>}
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="flex gap-3">
@@ -555,7 +645,7 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
                         ))}
                       </ul>
                     )}
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-2">
                       <Button onClick={() => handleUseData(pkg)}>
                         <Check className="mr-1 h-4 w-4" />Import Package
                       </Button>
@@ -1008,7 +1098,7 @@ export default function PackagesAdminPage() {
   if (view === "scrape") {
     return (
       <div className="min-h-screen bg-background p-6">
-        <ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} />
+        <ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImportedBatch={() => { fetchPackages(); setView("list") }} />
       </div>
     )
   }
