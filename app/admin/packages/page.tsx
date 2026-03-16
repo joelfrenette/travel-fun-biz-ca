@@ -328,10 +328,13 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
 // ─── Scrape URL Component ───────────────────────────────────────────
 const presetSites = [
   { name: "TravelFunBiz", url: "https://travelfunbiz.com" },
-  { name: "Expedia", url: "https://www.expedia.com" },
-  { name: "Booking.com", url: "https://www.booking.com" },
-  { name: "TripAdvisor", url: "https://www.tripadvisor.com" },
-  { name: "Viator", url: "https://www.viator.com" },
+  { name: "Best Single Travel - Cruises", url: "https://www.bestsingletravel.com/single-cruises.html" },
+  { name: "WestJet - Last Minute", url: "https://www.westjetvacations.com/en/packages/last-minute-vacations" },
+  { name: "Exoticca - Last Minute Tours", url: "https://www.exoticca.com/us/landing/last-minute-tours" },
+  { name: "Collette - Deals", url: "https://www.gocollette.com/en-us/deals" },
+  { name: "Sunwing - Last Minute", url: "https://www.sunwing.ca/en/promotion/packages/last-minute-vacations" },
+  { name: "WestJet - All Inclusive", url: "https://www.westjetvacations.com/en/packages/vacation-packages#all-inclusive" },
+  { name: "Transat - All Inclusive", url: "https://www.transat.com/en-CA/book/type-accomodation/all-inclusive-vacation?search=package" },
 ]
 
 function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => void; onCancel: () => void }) {
