@@ -42,14 +42,13 @@ export async function POST(request: Request) {
         const timestamp = Date.now()
         const safeName = (name || 'ai-thumb').replace(/[^a-z0-9\-]/gi, '_').toLowerCase()
         const filename = `${safeName}-${timestamp}.jpg`
-        const filePath = `package-images/${filename}`
 
         const { error: uploadError } = await supabase.storage
           .from('package-images')
-          .upload(filePath, buffer, { contentType: 'image/jpeg' })
+          .upload(filename, buffer, { contentType: 'image/jpeg' })
 
         if (!uploadError) {
-          const { data: urlData } = supabase.storage.from('package-images').getPublicUrl(filePath)
+          const { data: urlData } = supabase.storage.from('package-images').getPublicUrl(filename)
           if (urlData && urlData.publicUrl) {
             return NextResponse.json({ url: urlData.publicUrl })
           }

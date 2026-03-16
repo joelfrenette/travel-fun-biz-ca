@@ -31,7 +31,7 @@ async function uploadImageToSupabase(externalUrl: string, slugBase = 'package') 
     const timestamp = Date.now()
     const safeName = (slugBase || 'package').replace(/[^a-z0-9\-]/gi, '_').toLowerCase()
     const filename = `${safeName}-${timestamp}${ext}`
-    const filePath = `package-images/${filename}`
+    const filePath = filename  // Just the filename, bucket name is specified in .from()
 
     const arrayBuffer = await res.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
