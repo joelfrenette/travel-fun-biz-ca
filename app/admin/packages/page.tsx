@@ -217,9 +217,45 @@ function AIInterview({ onComplete, onCancel }: { onComplete: (data: any) => void
 function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: any) => void; onCancel: () => void; initialData?: Partial<DbPackage> }) {
   const [formData, setFormData] = useState<Record<string, any>>(initialData || {})
   const [saving, setSaving] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [aiImageUrl, setAiImageUrl] = useState<string | null>(null)
 
   function handleChange(field: string, value: any) {
     setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  async function handleGenerateAIThumbnail() {
+    // Collect a few fields to help generate the AI thumbnail
+    const payload = {
+      name: formData.name || '',
+      destination: formData.destination || '',
+      short_description: formData.short_description || '',
+      highlights: Array.isArray(formData.highlights) ? formData.highlights : (typeof formData.highlights === 'string' ? formData.highlights.split('\n') : []),
+    }
+
+    setGenerating(true)
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch('/api/admin/generate-thumbnail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (res.ok && data.url) {
+        setAiImageUrl(data.url)
+        // Optionally set as form image_url automatically
+        handleChange('image_url', data.url)
+      } else {
+        console.error('AI thumbnail generation failed', data)
+        alert(data.error || data.message || 'AI generation failed')
+      }
+    } catch (err) {
+      console.error('Failed to generate AI thumbnail', err)
+      alert('Failed to generate AI thumbnail')
+    } finally {
+      setGenerating(false)
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -242,6 +278,59 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
         <CardTitle>{initialData?.id ? "Edit Package" : "Add Package Manually"}</CardTitle>
         <CardDescription>Fill out the package details below</CardDescription>
       </CardHeader>
+
+      {/* New: Top thumbnail cards */}
+      <div className="px-6 pb-4">
+        <div className="grid grid-cols-2 gap-4">
+          {/* Actual downloaded thumbnail */}
+          <div className="rounded-lg border bg-card/50 p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium">Current Thumbnail</h3>
+              <p className="text-xs text-muted-foreground">From source</p>
+            </div>
+            <div className="mt-3 flex items-center gap-4">
+              {formData.image_url ? (
+                <img src={formData.image_url} alt="thumbnail" className="h-28 w-44 rounded object-cover border" />
+              ) : (
+                <div className="h-28 w-44 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">No image</div>
+              )}
+              <div className="flex-1 text-sm text-muted-foreground">
+                <p className="font-medium">Source image</p>
+                <p className="truncate">{formData.image_url || 'No image URL provided'}</p>
+                <div className="mt-3">
+                  <Button variant="outline" size="sm" onClick={() => { navigator.clipboard?.writeText(formData.image_url || ''); alert('Image URL copied') }}>Copy URL</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* AI thumbnail generator */}
+          <div className="rounded-lg border bg-card/50 p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium">AI Thumbnail</h3>
+              <p className="text-xs text-muted-foreground">Generate promotional image</p>
+            </div>
+            <div className="mt-3 flex items-center gap-4">
+              {aiImageUrl ? (
+                <img src={aiImageUrl} alt="ai-thumb" className="h-28 w-44 rounded object-cover border" />
+              ) : (
+                <div className="h-28 w-44 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">AI preview</div>
+              )}
+              <div className="flex-1 text-sm text-muted-foreground">
+                <p className="font-medium">Promotional thumbnail</p>
+                <p className="truncate">Generate an AI thumbnail using package name, destination and highlights.</p>
+                <div className="mt-3 flex gap-2">
+                  <Button onClick={handleGenerateAIThumbnail} disabled={generating}>
+                    {generating ? 'Generating...' : 'Generate AI Thumbnail'}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => { if (aiImageUrl) { handleChange('image_url', aiImageUrl); alert('Set AI image as package image') } }} disabled={!aiImageUrl}>Use AI Image</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2">
