@@ -344,27 +344,45 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
   const [packages, setPackages] = useState<any[]>([])
   const [adapter, setAdapter] = useState<string | null>(null)
   const [selectedPreset, setSelectedPreset] = useState<string>("")
+  const [status, setStatus] = useState<string>("")
 
   function handlePresetChange(value: string) {
     setSelectedPreset(value)
     const preset = presetSites.find(p => p.url === value)
     if (preset) {
       setUrl(preset.url)
+      setError("")
+      setStatus("")
     }
   }
 
   async function handleScrape() {
-    if (!url.trim()) return
+    console.log("[scrape] Button clicked, URL:", url)
+    
+    if (!url.trim()) {
+      setError("Please enter a URL to scrape")
+      return
+    }
+    
     setLoading(true)
     setError("")
     setPackages([])
     setAdapter(null)
+    setStatus("Connecting to scraping service...")
 
     const token = localStorage.getItem("adminToken")
+    console.log("[scrape] Token exists:", !!token)
+
+    if (!token) {
+      setError("You must be logged in as admin to scrape. Please log in first.")
+      setLoading(false)
+      setStatus("")
+      return
+    }
 
     try {
       console.log("[scrape] Starting scrape for URL:", url)
-      console.log("[scrape] Token exists:", !!token)
+      setStatus("Fetching page content (this may take 10-30 seconds)...")
       
       const res = await fetch("/api/admin/scrape", {
         method: "POST",
@@ -376,6 +394,8 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
       })
 
       console.log("[scrape] Response status:", res.status)
+      setStatus("Processing response...")
+      
       const result = await res.json()
       console.log("[scrape] Response data:", result)
 
@@ -383,15 +403,20 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
         const errorMsg = result.error || "Failed to scrape URL"
         console.error("[scrape] Error:", errorMsg)
         setError(errorMsg)
+        setStatus("")
         return
       }
 
       console.log("[scrape] Found packages:", result.packages?.length || 0)
       setPackages(result.packages || [])
       setAdapter(result.adapter || null)
+      setStatus(result.packages?.length > 0 
+        ? `Found ${result.packages.length} package(s)!` 
+        : "No packages found on this page. Try a different URL.")
     } catch (err) {
       console.error("[scrape] Network error:", err)
       setError("Network error — please try again. Make sure you're connected to the internet.")
+      setStatus("")
     } finally {
       setLoading(false)
     }
@@ -456,6 +481,15 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
                 {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scraping...</> : "Scrape"}
               </Button>
             </div>
+            
+            {/* Status indicator */}
+            {status && !error && (
+              <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                <span>{status}</span>
+              </div>
+            )}
+            
             {adapter && (
               <p className="text-xs text-muted-foreground">
                 ✓ Parser: {adapter}
@@ -469,6 +503,11 @@ function ScrapeUrlForm({ onComplete, onCancel }: { onComplete: (data: any) => vo
                   <p className="mt-2 text-xs">
                     Please set <code className="bg-destructive/20 px-1 py-0.5 rounded">SCRAPINGBEE_API_KEY</code> in your .env.local file.
                     Get a free API key from <a href="https://app.scrapingbee.com/api" target="_blank" rel="noopener noreferrer" className="underline hover:text-destructive-foreground">ScrapingBee</a>.
+                  </p>
+                )}
+                {error.includes("logged in") && (
+                  <p className="mt-2 text-xs">
+                    Go back to the <a href="/admin" className="underline">Admin page</a> and log in first.
                   </p>
                 )}
               </div>
