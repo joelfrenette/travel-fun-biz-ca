@@ -67,8 +67,7 @@ export function HeroSection({ language }: HeroSectionProps) {
             <Button
               asChild
               size="lg"
-              variant="outline"
-              className="w-full border-primary text-primary hover:bg-primary hover:text-white sm:w-auto bg-transparent"
+              className="w-full bg-primary text-white hover:bg-primary/90 sm:w-auto"
             >
               <Link href="/#contact">{translate(language, 'Plan My Trip')}</Link>
             </Button>
