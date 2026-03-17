@@ -54,12 +54,12 @@ export function Header({ language, currency }: HeaderProps) {
     setMounted(true)
   }, [])
 
-  // Use the new square logos and display slightly larger for better readability
+  // Use the trimmed logos (black for light theme, white for dark theme)
   const logoSrc = !mounted
-    ? "/assets/logo-black-square.png"
+    ? "/assets/logo-black-trim.png"
     : resolvedTheme === "dark"
-    ? "/assets/logo-white-square.png"
-    : "/assets/logo-black-square.png"
+    ? "/assets/logo-white-trim.png"
+    : "/assets/logo-black-trim.png"
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -68,9 +68,9 @@ export function Header({ language, currency }: HeaderProps) {
           <Image
             src={logoSrc}
             alt="TravelFunBiz.CA"
-            width={240}
-            height={96}
-            className="h-14 w-auto sm:h-16"
+            width={280}
+            height={112}
+            className="h-16 w-auto sm:h-18"
             priority
             unoptimized
           />
