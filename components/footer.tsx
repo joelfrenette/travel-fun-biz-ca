@@ -16,14 +16,16 @@ export function Footer({ language }: FooterProps) {
         <div className="grid gap-8 lg:grid-cols-4">
           <div className="space-y-4">
             <div className="mb-6">
-              <Image
-                src="https://travelfunbiz.com/wp-content/uploads/2023/09/500x185-trim-Logo-PlayfairBuffaloMontserrat.trans_.png"
-                alt="TravelFun.Biz Logo"
-                width={300}
-                height={110}
-                className="h-auto w-full max-w-[300px]"
-                unoptimized
-              />
+              <a href="https://www.travelfunbiz.ca" target="_blank" rel="noopener noreferrer">
+                <Image
+                  src="/assets/logo-black.png"
+                  alt="TravelFun.Biz Logo"
+                  width={300}
+                  height={110}
+                  className="h-auto w-full max-w-[300px]"
+                  unoptimized
+                />
+              </a>
             </div>
 
             <div className="space-y-2 text-sm text-gray-300">

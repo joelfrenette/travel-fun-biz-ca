@@ -54,14 +54,19 @@ export function Header({ language, currency }: HeaderProps) {
     setMounted(true)
   }, [])
 
-  const logoSrc = !mounted || resolvedTheme === "dark" ? "/logo.png" : "/logo-light.png"
+  // Use white logo for dark theme, black for light. Fallback to existing assets if missing.
+  const logoSrc = !mounted
+    ? "/logo.png"
+    : resolvedTheme === "dark"
+    ? "/assets/logo-white.png"
+    : "/assets/logo-black.png"
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link href="/" className="flex items-center">
-          <Image src={logoSrc} alt="TravelFunBiz.CA" width={180} height={68} className="h-12 w-auto" priority />
-        </Link>
+        <a href="https://www.travelfunbiz.ca" className="flex items-center">
+          <Image src={logoSrc} alt="TravelFunBiz.CA" width={180} height={68} className="h-12 w-auto" priority unoptimized />
+        </a>
 
         {/* Desktop Navigation */}
         <div className="hidden items-center gap-8 md:flex">
