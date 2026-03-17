@@ -54,7 +54,7 @@ export function Header({ language, currency }: HeaderProps) {
     setMounted(true)
   }, [])
 
-  // Use the trimmed logos (black for light theme, white for dark theme)
+  // Show black logo on light theme and white logo on dark theme (correct mapping)
   const logoSrc = !mounted
     ? "/assets/logo-black-trim.png"
     : resolvedTheme === "dark"
