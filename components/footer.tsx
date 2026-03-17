@@ -18,11 +18,11 @@ export function Footer({ language }: FooterProps) {
             <div className="mb-6">
               <a href="https://www.travelfunbiz.ca" target="_blank" rel="noopener noreferrer">
                 <Image
-                  src="/assets/logo-black.png"
+                  src="/assets/logo-black-square.png"
                   alt="TravelFun.Biz Logo"
-                  width={300}
-                  height={110}
-                  className="h-auto w-full max-w-[300px]"
+                  width={340}
+                  height={140}
+                  className="h-auto w-full max-w-[340px]"
                   unoptimized
                 />
               </a>
