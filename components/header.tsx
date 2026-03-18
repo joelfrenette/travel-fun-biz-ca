@@ -65,17 +65,16 @@ export function Header({ language, currency }: HeaderProps) {
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
         <a href="https://www.travelfunbiz.ca" className="flex items-center">
-          {mounted && (
-            <Image
-              src={logoSrc}
-              alt="TravelFunBiz.CA"
-              width={280}
-              height={112}
-              className="h-16 w-auto sm:h-18"
-              priority
-              unoptimized
-            />
-          )}
+          <Image
+            src={logoSrc}
+            alt="TravelFunBiz.CA"
+            width={280}
+            height={112}
+            className="h-16 w-auto sm:h-18"
+            priority
+            unoptimized
+            suppressHydrationWarning
+          />
         </a>
 
         {/* Desktop Navigation */}
