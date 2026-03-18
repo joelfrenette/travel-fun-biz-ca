@@ -69,7 +69,10 @@ export function HeroSection({ language }: HeroSectionProps) {
               size="lg"
               className="w-full bg-primary text-white hover:bg-primary/90 sm:w-auto"
             >
-              <Link href="/#contact">{translate(language, 'Plan My Trip')}</Link>
+              <Link href="/#contact">
+                {translate(language, 'Plan My Trip')}
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
             </Button>
           </div>
 
