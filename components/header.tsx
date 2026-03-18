@@ -54,12 +54,12 @@ export function Header({ language, currency }: HeaderProps) {
     setMounted(true)
   }, [])
 
-  // Show black logo on light theme and white logo on dark theme (correct mapping)
+  // Show white logo on light theme and black logo on dark theme
   const logoSrc = !mounted
-    ? "/assets/logo-black-trim.png"
-    : resolvedTheme === "dark"
     ? "/assets/logo-white-trim.png"
-    : "/assets/logo-black-trim.png"
+    : resolvedTheme === "dark"
+    ? "/assets/logo-black-trim.png"
+    : "/assets/logo-white-trim.png"
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
