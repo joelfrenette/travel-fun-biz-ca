@@ -712,7 +712,6 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
     setPackages([])
     setAdapter(null)
     setStatus("Connecting to scraping service...")
-    setSelectedIndexes(new Set())
 
     const token = localStorage.getItem("adminToken")
     if (!token) {
@@ -1093,6 +1092,8 @@ export default function PackagesAdminPage() {
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [filterCategory, setFilterCategory] = useState<string>("all")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkActionLoading, setBulkActionLoading] = useState(false)
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem("adminToken")
@@ -1179,6 +1180,59 @@ export default function PackagesAdminPage() {
     catch (error) { console.error("Failed to delete package:", error) }
   }
 
+  // ─── Bulk Actions ───────────────────────────────────────────────
+  async function handleBulkPublish() {
+    const token = localStorage.getItem("adminToken")
+    setBulkActionLoading(true)
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/admin/packages/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ status: "published" }) })
+        )
+      )
+      setSelectedIds(new Set())
+      fetchPackages()
+    } catch (error) { console.error("Bulk publish failed:", error) }
+    finally { setBulkActionLoading(false) }
+  }
+
+  async function handleBulkFeature() {
+    const token = localStorage.getItem("adminToken")
+    setBulkActionLoading(true)
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/admin/packages/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ featured: true }) })
+        )
+      )
+      setSelectedIds(new Set())
+      fetchPackages()
+    } catch (error) { console.error("Bulk feature failed:", error) }
+    finally { setBulkActionLoading(false) }
+  }
+
+  async function handleBulkDelete() {
+    const token = localStorage.getItem("adminToken")
+    setBulkActionLoading(true)
+    setShowBulkDeleteConfirm(false)
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/admin/packages/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
+        )
+      )
+      setSelectedIds(new Set())
+      fetchPackages()
+    } catch (error) { console.error("Bulk delete failed:", error) }
+    finally { setBulkActionLoading(false) }
+  }
+
+  function handleBulkEdit() {
+    const firstId = Array.from(selectedIds)[0]
+    const pkg = packages.find((p) => p.id === firstId)
+    if (pkg) { setEditingPackage(pkg); setView("manual") }
+  }
+
   function handleEdit(pkg: DbPackage) { setEditingPackage(pkg); setView("manual") }
   function handleAIAction(action: string, pkg: DbPackage) { alert(`AI ${action} for "${pkg.name}" coming soon!`) }
   function handleSelectToggle(id: string) { setSelectedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next }) }
@@ -1221,6 +1275,56 @@ export default function PackagesAdminPage() {
               {categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
+
+          {/* Bulk Actions — shown when items are selected */}
+          {selectedIds.size > 0 && (
+            <>
+              <div className="h-6 w-px bg-border" />
+              <span className="text-sm font-medium text-muted-foreground">
+                {selectedIds.size} selected
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkEdit}
+                disabled={bulkActionLoading}
+                title="Edit first selected package"
+              >
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkPublish}
+                disabled={bulkActionLoading}
+                className="border-green-500/50 text-green-600 hover:bg-green-50 hover:text-green-700 dark:hover:bg-green-950"
+              >
+                {bulkActionLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Eye className="mr-1.5 h-3.5 w-3.5" />}
+                Publish
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkFeature}
+                disabled={bulkActionLoading}
+                className="border-yellow-500/50 text-yellow-600 hover:bg-yellow-50 hover:text-yellow-700 dark:hover:bg-yellow-950"
+              >
+                {bulkActionLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Star className="mr-1.5 h-3.5 w-3.5" />}
+                Feature
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={bulkActionLoading}
+                className="border-destructive/50 text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Delete
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1231,6 +1335,25 @@ export default function PackagesAdminPage() {
       </main>
 
       <AddMethodModal open={showAddModal} onClose={() => setShowAddModal(false)} onSelect={handleAddMethodSelect} />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} package{selectedIds.size !== 1 ? "s" : ""}?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete {selectedIds.size} selected package{selectedIds.size !== 1 ? "s" : ""}. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleBulkDelete}>
+              <Trash2 className="mr-1.5 h-4 w-4" />
+              Delete {selectedIds.size} package{selectedIds.size !== 1 ? "s" : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
