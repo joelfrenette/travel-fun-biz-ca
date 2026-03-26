@@ -222,7 +222,20 @@ function extractFromBlock($: CheerioAPI, block: ReturnType<CheerioAPI>, sourceUr
   const imgs = block.find('img')
   imgs.each((_, img) => {
     if (imageUrl) return
-    const src = $(img).attr('src') || $(img).attr('data-src') || $(img).attr('data-lazy-src')
+    const el = $(img)
+    // Check all common lazy-load and standard src attributes
+    const src =
+      el.attr('src') ||
+      el.attr('data-src') ||
+      el.attr('data-lazy-src') ||
+      el.attr('data-lazy') ||
+      el.attr('data-original') ||
+      el.attr('data-full-url') ||
+      el.attr('data-img-url') ||
+      // srcset: grab the first URL
+      (el.attr('srcset') || '').split(',')[0]?.trim().split(' ')[0] ||
+      (el.attr('data-srcset') || '').split(',')[0]?.trim().split(' ')[0]
+
     if (src && !/spacer|pixel|blank|logo|icon|avatar/i.test(src)) {
       try {
         imageUrl = new URL(src, sourceUrl).href
@@ -231,6 +244,22 @@ function extractFromBlock($: CheerioAPI, block: ReturnType<CheerioAPI>, sourceUr
       }
     }
   })
+
+  // Fallback: check for background-image in style attributes on block children
+  if (!imageUrl) {
+    block.find('[style]').each((_, el) => {
+      if (imageUrl) return
+      const style = $(el).attr('style') || ''
+      const bgMatch = style.match(/background-image\s*:\s*url\(['"]?([^'")\s]+)['"]?\)/i)
+      if (bgMatch && bgMatch[1]) {
+        try {
+          imageUrl = new URL(bgMatch[1], sourceUrl).href
+        } catch {
+          imageUrl = bgMatch[1]
+        }
+      }
+    })
+  }
 
   // ── Booking URL ───────────────────────────────────────────────────
   let bookingUrl: string | undefined
@@ -278,7 +307,7 @@ function extractFromBlock($: CheerioAPI, block: ReturnType<CheerioAPI>, sourceUr
   )
   if (sameMonthMatch) {
     const month = sameMonthMatch[1].match(/(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)/i)?.[0] || ''
-    startDate = `${sameMonthMatch[1]}, ${sameMonthMatch[3]}`
+    startDate = `${sameMonthMatch[1]}, ${sameMonthMatch[3]}` 
     endDate = `${month} ${sameMonthMatch[2]}, ${sameMonthMatch[3]}`
     console.log('[travelfunbiz] Parsed same-month date range:', startDate, '-', endDate)
   }

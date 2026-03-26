@@ -2,7 +2,6 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { MapPin, Calendar, Users, Star } from "lucide-react"
-import Image from "next/image"
 import Link from "next/link"
 import type { TravelPackage } from "@/types/travel"
 import type { Language } from "@/lib/preferences"
@@ -25,12 +24,11 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
     <Card className="group overflow-hidden border-border bg-card transition-all hover:border-primary hover:shadow-xl hover:shadow-primary/20">
       <CardHeader className="p-0">
         <div className="relative h-48 w-full overflow-hidden">
-          <Image
+          <img
             src={pkg.image || "/placeholder.svg"}
             alt={pkg.name}
-            fill
-            className="object-cover transition-transform duration-300 group-hover:scale-110"
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
+            onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg" }}
           />
           <Badge className="absolute right-3 top-3 bg-primary text-primary-foreground font-bold uppercase">
             {translate(language, pkg.category)}

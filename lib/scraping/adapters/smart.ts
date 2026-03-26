@@ -166,11 +166,34 @@ function extractPackage($: CheerioAPI, block: ReturnType<CheerioAPI>, sourceUrl:
   let imageUrl: string | undefined
   block.find('img').each((_, img) => {
     if (imageUrl) return
-    const src = $(img).attr('src') || $(img).attr('data-src') || $(img).attr('data-lazy-src')
+    const el = $(img)
+    const src =
+      el.attr('src') ||
+      el.attr('data-src') ||
+      el.attr('data-lazy-src') ||
+      el.attr('data-lazy') ||
+      el.attr('data-original') ||
+      el.attr('data-full-url') ||
+      el.attr('data-img-url') ||
+      (el.attr('srcset') || '').split(',')[0]?.trim().split(' ')[0] ||
+      (el.attr('data-srcset') || '').split(',')[0]?.trim().split(' ')[0]
+
     if (src && !/spacer|pixel|blank/i.test(src)) {
       try { imageUrl = new URL(src, sourceUrl).href } catch { imageUrl = src }
     }
   })
+
+  // Fallback: background-image in style attributes
+  if (!imageUrl) {
+    block.find('[style]').each((_, el) => {
+      if (imageUrl) return
+      const style = $(el).attr('style') || ''
+      const bgMatch = style.match(/background-image\s*:\s*url\(['"]?([^'")\s]+)['"]?\)/i)
+      if (bgMatch && bgMatch[1]) {
+        try { imageUrl = new URL(bgMatch[1], sourceUrl).href } catch { imageUrl = bgMatch[1] }
+      }
+    })
+  }
 
   // ── Booking URL ───────────────────────────────────────────────────
   let bookingUrl: string | undefined
