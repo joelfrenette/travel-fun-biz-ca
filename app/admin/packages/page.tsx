@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -32,7 +31,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import {
-  ArrowLeft, Plus, Pencil, Trash2, Eye, EyeOff, Star, Sparkles,
+  Plus, Pencil, Trash2, Eye, EyeOff, Star, Sparkles,
   ChevronRight, Check, Loader2, Upload, Globe, MessageSquare,
   ArrowUpDown, ArrowUp, ArrowDown, Filter, MoreHorizontal,
   FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download
@@ -1079,7 +1078,6 @@ function PackageTable({
 
 // ─── Main Packages Admin Page ───────────────────────────────────────
 export default function PackagesAdminPage() {
-  const router = useRouter()
   const [packages, setPackages] = useState<DbPackage[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<"list" | "interview" | "manual" | "scrape" | "upload">("list")
@@ -1096,8 +1094,6 @@ export default function PackagesAdminPage() {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
 
   useEffect(() => {
-    const token = localStorage.getItem("adminToken")
-    if (!token) { router.push("/admin"); return }
     fetchPackages()
   }, [])
 
@@ -1239,22 +1235,19 @@ export default function PackagesAdminPage() {
   function handleSelectAll() { if (selectedIds.size === filteredPackages.length) setSelectedIds(new Set()); else setSelectedIds(new Set(filteredPackages.map((p) => p.id))) }
   function handleAddMethodSelect(method: string) { setShowAddModal(false); setEditingPackage(null); setView(method as any) }
 
-  if (view === "interview") return <div className="min-h-screen bg-background p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
-  if (view === "manual") return <div className="min-h-screen bg-background p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null) }} initialData={editingPackage || undefined} /></div>
-  if (view === "scrape") return <div className="min-h-screen bg-background p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImportedBatch={() => { fetchPackages(); setView("list") }} /></div>
-  if (view === "upload") return <div className="min-h-screen bg-background p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
+  if (view === "interview") return <div className="p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
+  if (view === "manual") return <div className="p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null) }} initialData={editingPackage || undefined} /></div>
+  if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImportedBatch={() => { fetchPackages(); setView("list") }} /></div>
+  if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card/50">
+    <div>
+      <div className="border-b bg-card/30">
         <div className="container mx-auto flex items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => router.push("/admin")}><ArrowLeft className="h-4 w-4" /></Button>
-            <div><p className="text-xs uppercase tracking-wider text-muted-foreground">Admin</p><h1 className="text-xl font-bold">Travel Packages</h1></div>
-          </div>
+          <h1 className="text-xl font-bold">Travel Packages</h1>
           <Button onClick={() => setShowAddModal(true)}><Plus className="mr-1 h-4 w-4" />Add Package</Button>
         </div>
-      </header>
+      </div>
 
       <div className="border-b bg-card/30">
         <div className="container mx-auto flex flex-wrap items-center gap-3 px-4 py-3">
