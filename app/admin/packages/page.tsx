@@ -37,6 +37,8 @@ import {
   FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download
 } from "lucide-react"
 import type { DbPackage } from "@/lib/packages"
+import type { ScrapedPackage } from "@/types/scrape"
+import { generateSlug } from "@/lib/utils"
 
 const categories = [
   "Adventure",
@@ -678,11 +680,37 @@ const presetSites = [
   { name: "Transat - All Inclusive", url: "https://www.transat.com/en-CA/book/type-accomodation/all-inclusive-vacation?search=package" },
 ]
 
-function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: (data: any) => void; onCancel: () => void; onImportedBatch?: () => void }) {
+// Never invent data the source page didn't have: a made-up price or category ends up on the public card.
+function scrapedToPayload(pkg: ScrapedPackage) {
+  return {
+    name: pkg.name,
+    destination: pkg.destination,
+    duration: pkg.duration,
+    duration_days: pkg.durationDays,
+    available_from: pkg.startDate,
+    available_to: pkg.endDate,
+    price_display: pkg.price || 'Contact for pricing',
+    price_value: pkg.priceValue,
+    short_description: pkg.description,
+    image_url: pkg.imageUrl,
+    booking_url: pkg.bookingUrl,
+    supplier: pkg.supplier,
+    category: pkg.category,
+    highlights: pkg.highlights,
+    status: 'draft',
+  }
+}
+
+function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch, existingSlugs }: { onComplete: (data: any) => void; onCancel: () => void; onImportedBatch?: () => void; existingSlugs: Set<string> }) {
   const [url, setUrl] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [packages, setPackages] = useState<any[]>([])
+  const [packages, setPackages] = useState<ScrapedPackage[]>([])
+  const [importedSlugs, setImportedSlugs] = useState<Set<string>>(new Set())
+  const isImported = (pkg: ScrapedPackage) => {
+    const slug = generateSlug(pkg.name)
+    return existingSlugs.has(slug) || importedSlugs.has(slug)
+  }
   const [adapter, setAdapter] = useState<string | null>(null)
   const [selectedPreset, setSelectedPreset] = useState<string>("")
   const [status, setStatus] = useState<string>("")
@@ -751,23 +779,8 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
     }
   }
 
-  function handleUseData(pkg: any) {
-    onComplete({
-      name: pkg.name,
-      destination: pkg.destination,
-      duration: pkg.duration,
-      available_from: pkg.startDate || '',
-      available_to: pkg.endDate || '',
-      price_display: pkg.price || pkg.price_display || 'From $1,000',
-      price_value: pkg.priceValue,
-      short_description: pkg.description,
-      image_url: pkg.imageUrl,
-      booking_url: pkg.bookingUrl,
-      supplier: pkg.supplier,
-      category: pkg.category || 'Adventure',
-      highlights: pkg.highlights,
-      status: 'draft',
-    })
+  function handleUseData(pkg: ScrapedPackage) {
+    onComplete(scrapedToPayload(pkg))
   }
 
   function toggleSelect(idx: number) {
@@ -780,7 +793,7 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
   }
 
   function selectAll() {
-    setSelectedIndexes(new Set(packages.map((_, i) => i)))
+    setSelectedIndexes(new Set(packages.map((pkg, i) => (isImported(pkg) ? -1 : i)).filter((i) => i >= 0)))
   }
 
   function clearSelection() {
@@ -797,49 +810,38 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
 
     const selectedList = Array.from(selectedIndexes).map(i => packages[i])
     setImporting(true)
+    setError("")
     setImportProgress({ done: 0, total: selectedList.length })
 
-    try {
-      for (let i = 0; i < selectedList.length; i++) {
-        const pkg = selectedList[i]
-        const payload = {
-          name: pkg.name,
-          destination: pkg.destination,
-          duration: pkg.duration,
-          available_from: pkg.startDate || '',
-          available_to: pkg.endDate || '',
-          price_display: pkg.price || pkg.price_display || 'From $1,000',
-          price_value: pkg.priceValue,
-          short_description: pkg.description,
-          image_url: pkg.imageUrl,
-          booking_url: pkg.bookingUrl,
-          supplier: pkg.supplier,
-          category: pkg.category || 'Adventure',
-          highlights: pkg.highlights,
-          status: 'draft',
-        }
-
+    // One bad package must not abort the batch; import the rest and report each failure by name.
+    const failures: string[] = []
+    for (const pkg of selectedList) {
+      try {
         const res = await fetch('/api/admin/packages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(scrapedToPayload(pkg)),
         })
-
-        if (!res.ok) {
-          throw new Error(`Failed to import package: ${res.status}`)
+        if (res.ok) {
+          setImportedSlugs((prev) => new Set(prev).add(generateSlug(pkg.name)))
+        } else {
+          const data = await res.json().catch(() => ({}))
+          failures.push(`${pkg.name}: ${data.error || `HTTP ${res.status}`}`)
         }
-
-        setImportProgress((p) => ({ ...p, done: p.done + 1 }))
+      } catch {
+        failures.push(`${pkg.name}: network error`)
       }
+      setImportProgress((p) => ({ ...p, done: p.done + 1 }))
+    }
 
-      setStatus(`Imported ${selectedList.length} package(s) successfully.`)
+    const imported = selectedList.length - failures.length
+    setImporting(false)
+    setSelectedIndexes(new Set())
+    setStatus(`Imported ${imported} of ${selectedList.length} package(s) as drafts.`)
+    if (failures.length > 0) setError(`Not imported:\n${failures.join('\n')}`)
+    if (imported > 0 && failures.length === 0) {
       if (onImportedBatch) onImportedBatch()
       else onCancel()
-    } catch (err: any) {
-      setError(err.message || 'Import failed')
-    } finally {
-      setImporting(false)
-      setSelectedIndexes(new Set())
     }
   }
 
@@ -897,7 +899,7 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
             {error && (
               <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
                 <p className="font-medium">Error:</p>
-                <p className="mt-1">{error}</p>
+                <p className="mt-1 whitespace-pre-line">{error}</p>
               </div>
             )}
           </div>
@@ -918,12 +920,16 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
               {packages.map((pkg, idx) => (
-                <Card key={idx} className="border-primary/20">
+                <Card key={idx} className={isImported(pkg) ? "border-muted opacity-60" : "border-primary/20"}>
                   <CardHeader className="pb-3 flex flex-row items-start gap-3">
-                    <Checkbox checked={selectedIndexes.has(idx)} onCheckedChange={() => toggleSelect(idx)} className="mt-1" />
+                    <Checkbox checked={selectedIndexes.has(idx)} onCheckedChange={() => toggleSelect(idx)} className="mt-1" disabled={isImported(pkg)} />
                     <div className="flex-1">
-                      <CardTitle className="text-base">{pkg.name || `Package ${idx + 1}`}</CardTitle>
-                      {pkg.destination && <p className="text-xs text-muted-foreground">{pkg.destination}</p>}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CardTitle className="text-base">{pkg.name || `Package ${idx + 1}`}</CardTitle>
+                        {isImported(pkg) && <Badge variant="secondary" className="text-[10px]">Already imported</Badge>}
+                        {!pkg.destination && <Badge variant="outline" className="text-[10px] text-destructive">Needs destination</Badge>}
+                      </div>
+                      {pkg.destination && <p className="text-xs text-muted-foreground">{pkg.destination}{pkg.category ? ` · ${pkg.category}` : ''}</p>}
                       {(pkg.startDate || pkg.endDate) && (
                         <p className="text-xs text-muted-foreground mt-1">
                           {pkg.startDate && `Start: ${pkg.startDate}`}
@@ -947,7 +953,7 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch }: { onComplete: 
                     </div>
                     {pkg.description && <p className="text-sm text-muted-foreground line-clamp-2">{pkg.description}</p>}
                     <div className="flex justify-end">
-                      <Button size="sm" onClick={() => handleUseData(pkg)}>
+                      <Button size="sm" onClick={() => handleUseData(pkg)} disabled={isImported(pkg)}>
                         <Check className="mr-1 h-4 w-4" />Import
                       </Button>
                     </div>
@@ -1141,7 +1147,8 @@ export default function PackagesAdminPage() {
     try {
       const res = await fetch("/api/admin/packages", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ ...data, status: "draft" }) })
       if (res.ok) { setView("list"); fetchPackages() }
-    } catch (error) { console.error("Failed to create package:", error) }
+      else { const body = await res.json().catch(() => ({})); alert(body.error || `Failed to create package (HTTP ${res.status})`) }
+    } catch (error) { console.error("Failed to create package:", error); alert("Network error while creating package") }
     finally { setSaving(false) }
   }
 
@@ -1237,7 +1244,7 @@ export default function PackagesAdminPage() {
 
   if (view === "interview") return <div className="p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
   if (view === "manual") return <div className="p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null) }} initialData={editingPackage || undefined} /></div>
-  if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImportedBatch={() => { fetchPackages(); setView("list") }} /></div>
+  if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImportedBatch={() => { fetchPackages(); setView("list") }} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
   if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
 
   return (

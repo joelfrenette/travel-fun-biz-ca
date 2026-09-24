@@ -68,9 +68,13 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
           </div>
         )}
         <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold text-foreground">{priceDisplay}</span>
-          <span className="text-sm text-muted-foreground uppercase">{currency.toUpperCase()}</span>
-          <span className="text-sm text-muted-foreground">{translate(language, 'per person')}</span>
+          <span className={priceValue ? "text-2xl font-bold text-foreground" : "text-base font-semibold text-foreground"}>{priceDisplay}</span>
+          {!!priceValue && (
+            <>
+              <span className="text-sm text-muted-foreground uppercase">{currency.toUpperCase()}</span>
+              <span className="text-sm text-muted-foreground">{translate(language, 'per person')}</span>
+            </>
+          )}
         </div>
       </CardContent>
       <CardFooter className="p-6 pt-0">

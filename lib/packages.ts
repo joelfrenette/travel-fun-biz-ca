@@ -135,7 +135,9 @@ export async function getPackageById(id: string): Promise<DbPackage | null> {
 /**
  * Create a new package
  */
-export async function createPackage(pkg: Partial<DbPackage>): Promise<DbPackage | null> {
+export async function createPackage(
+  pkg: Partial<DbPackage>,
+): Promise<{ pkg: DbPackage | null; error: { code?: string; message: string } | null }> {
   const { data, error } = await supabaseAdmin
     .from('travel_packages')
     .insert(pkg)
@@ -144,10 +146,10 @@ export async function createPackage(pkg: Partial<DbPackage>): Promise<DbPackage 
 
   if (error) {
     console.error('Failed to create package:', error)
-    return null
+    return { pkg: null, error: { code: error.code, message: error.message } }
   }
 
-  return data
+  return { pkg: data, error: null }
 }
 
 /**
@@ -184,14 +186,4 @@ export async function deletePackage(id: string): Promise<boolean> {
   }
 
   return true
-}
-
-/**
- * Generate a URL-friendly slug from a name
- */
-export function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
 }

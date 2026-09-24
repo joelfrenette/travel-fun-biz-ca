@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { validateToken } from '@/lib/admin-auth'
-import { getAllPackagesAdmin, createPackage, generateSlug } from '@/lib/packages'
+import { getAllPackagesAdmin, createPackage } from '@/lib/packages'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { generateSlug } from '@/lib/utils'
+
+const REQUIRED_FIELDS = ['name', 'destination', 'duration', 'price_display'] as const
 
 // GET all packages (admin)
 export async function GET(request: Request) {
@@ -117,11 +120,25 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     console.log('[packages-api] Creating package:', body.name)
-    console.log('[packages-api] image_url from scraper:', body.image_url || '(none)')
-    
-    // Generate slug if not provided
-    if (!body.slug && body.name) {
-      body.slug = generateSlug(body.name)
+
+    // Postgres rejects '' for date columns and NULL for the NOT NULL text columns;
+    // catch both here so the admin gets a readable reason instead of a bare 500.
+    for (const key of ['available_from', 'available_to', 'image_url', 'booking_url']) {
+      if (body[key] === '') body[key] = null
+    }
+    const missing = REQUIRED_FIELDS.filter((key) => typeof body[key] !== 'string' || !body[key].trim())
+    if (missing.length > 0) {
+      return NextResponse.json({ error: `Missing required field(s): ${missing.join(', ')}` }, { status: 400 })
+    }
+
+    if (!body.slug) body.slug = generateSlug(body.name)
+    if (body.price_value == null) {
+      const m = String(body.price_display).match(/\d[\d,]*/)
+      if (m) body.price_value = parseFloat(m[0].replace(/,/g, ''))
+    }
+    if (body.duration_days == null) {
+      const m = String(body.duration).match(/(\d+)\s*(day|night)/i)
+      if (m) body.duration_days = parseInt(m[1], 10) + (/night/i.test(m[2]) ? 1 : 0)
     }
 
     // If an external image_url is provided, try uploading it to Supabase storage
@@ -139,10 +156,16 @@ export async function POST(request: Request) {
       console.log('[packages-api] No external image URL to upload')
     }
 
-    const pkg = await createPackage(body)
-    
-    if (!pkg) {
-      return NextResponse.json({ error: 'Failed to create package' }, { status: 500 })
+    const { pkg, error } = await createPackage(body)
+
+    if (error || !pkg) {
+      if (error?.code === '23505') {
+        return NextResponse.json({ error: `Already imported: a package named "${body.name}" exists` }, { status: 409 })
+      }
+      if (error?.code === '23502' || error?.code === '22007' || error?.code === '23514') {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+      return NextResponse.json({ error: error?.message || 'Failed to create package' }, { status: 500 })
     }
 
     console.log('[packages-api] ✓ Package created:', pkg.id, '| image_url:', pkg.image_url || '(none)')
