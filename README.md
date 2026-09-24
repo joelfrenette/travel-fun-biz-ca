@@ -1,4 +1,4 @@
-# TravelFunBiz.CA Travel Website
+# TravelFunBiz.ca Travel Website
 
 A high-performance, SEO-optimized travel website built with Next.js 15 for generating leads and showcasing travel packages.
 

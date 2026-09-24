@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Cookie, Milestone,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -10,7 +10,6 @@ export interface AdminNavItem {
   icon: LucideIcon
   href: string | null
   status: "Active" | "Coming Soon"
-  external?: boolean
 }
 
 // Single source of truth for admin modules — used by both the sidebar nav
@@ -33,11 +32,10 @@ const unsortedTools: AdminNavItem[] = [
   },
   {
     title: "Project Tracker",
-    description: "Roadmap (Gantt), epics with features, and the use-case backlog for the .ca rebuild.",
+    description: "Roadmap (Gantt), epics with features, and the use-case backlog for the .ca rebuild. Add ideas by voice or text.",
     icon: Milestone,
     status: "Active",
-    href: "https://claude.ai/artifact/6PtefREyG1mewwcAqyJXAq",
-    external: true,
+    href: "/admin/tracker",
   },
   {
     title: "Affiliate Code Manager",
@@ -64,13 +62,6 @@ const unsortedTools: AdminNavItem[] = [
     title: "Branchup Email Importer",
     description: "Auto-post Branchup.com email content and promotions to the blog.",
     icon: BarChart3,
-    status: "Coming Soon",
-    href: null,
-  },
-  {
-    title: "Cookie Lead Collector",
-    description: "Auto-collect visitor names, emails, phone numbers, and referrer info via a cookie consent banner on the main site.",
-    icon: Cookie,
     status: "Coming Soon",
     href: null,
   },

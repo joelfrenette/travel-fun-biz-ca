@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Search, Globe, Cookie, Users } from "lucide-react"
+import { Search, Globe, Users } from "lucide-react"
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from "recharts"
@@ -100,7 +100,6 @@ const quickStats = [
   { label: "Total Visitors (14d)", value: "1,247", icon: Users, change: "+12%" },
   { label: "Google Clicks", value: "902", icon: Search, change: "+8%" },
   { label: "Social Referrals", value: "289", icon: Globe, change: "+23%" },
-  { label: "Cookie Leads", value: "56", icon: Cookie, change: "+15%" },
 ]
 
 // ─── Admin Dashboard ────────────────────────────────────────────────
@@ -118,7 +117,7 @@ export default function AdminPage() {
       </div>
 
       {/* Quick Stats */}
-      <div className="mb-6 grid gap-4 grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-4 grid-cols-1 sm:grid-cols-3">
         {quickStats.map((stat) => (
           <Card key={stat.label}>
             <CardContent className="flex items-center gap-3 p-4">
@@ -152,11 +151,7 @@ export default function AdminPage() {
           <Card
             key={tool.title}
             className={`group relative overflow-hidden transition-shadow hover:shadow-lg ${tool.href ? "cursor-pointer" : ""}`}
-            onClick={() => {
-              if (!tool.href) return
-              if (tool.external) window.open(tool.href, "_blank", "noopener,noreferrer")
-              else router.push(tool.href)
-            }}
+            onClick={() => tool.href && router.push(tool.href)}
           >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">

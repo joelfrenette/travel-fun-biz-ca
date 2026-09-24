@@ -41,7 +41,7 @@ const translations: Record<Language, Record<string, string>> = {
     'Featured Travel Packages': 'Forfaits voyage vedettes',
     'Discover handpicked destinations and experiences tailored for unforgettable adventures.':
       'Découvrez des destinations triées sur le volet pour des aventures inoubliables.',
-    'Why Choose TravelFunBiz.CA': 'Pourquoi choisir TravelFunBiz.CA',
+    'Why Choose TravelFunBiz.ca': 'Pourquoi choisir TravelFunBiz.ca',
     'Get Your Free Travel Concierge': 'Obtenez votre concierge voyage gratuit',
     'Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.':
       'Prêt à explorer le monde? Remplissez le formulaire ci-dessous et planifions ensemble votre voyage de rêve.',
@@ -170,7 +170,7 @@ const translations: Record<Language, Record<string, string>> = {
     'Featured Travel Packages': 'Paquetes de viaje destacados',
     'Discover handpicked destinations and experiences tailored for unforgettable adventures.':
       'Descubre destinos seleccionados y experiencias diseñadas para aventuras inolvidables.',
-    'Why Choose TravelFunBiz.CA': 'Por qué elegir TravelFunBiz.CA',
+    'Why Choose TravelFunBiz.ca': 'Por qué elegir TravelFunBiz.ca',
     'Get Your Free Travel Concierge': 'Obtén tu conserje de viajes gratis',
     'Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.':
       '¿Listo para explorar el mundo? Completa el formulario a continuación y permítenos ayudarte a planear tus vacaciones soñadas.',

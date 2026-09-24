@@ -67,7 +67,7 @@ export function Header({ language, currency }: HeaderProps) {
         <a href="https://www.travelfunbiz.ca" className="flex items-center">
           <Image
             src={logoSrc}
-            alt="TravelFunBiz.CA"
+            alt="TravelFunBiz.ca"
             width={280}
             height={112}
             className="h-16 w-auto py-2 sm:h-18"

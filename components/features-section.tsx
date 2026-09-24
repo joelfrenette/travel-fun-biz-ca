@@ -13,7 +13,7 @@ export function FeaturesSection({ language }: FeaturesSectionProps) {
     <section className="py-20 md:py-32">
       <div className="container mx-auto px-4">
         <SectionHeading
-          title={translate(language, 'Why Choose TravelFunBiz.CA')}
+          title={translate(language, 'Why Choose TravelFunBiz.ca')}
           subtitle={translate(
             language,
             "When you work with us, you save time, you save stress, you save money. We take care of all the hard work with a FREE dedicated experience concierge. That's right—you don't pay more! We meet or beat what you can get on your own. We get paid by the suppliers for bringing them millions in business, and we get group rates and exclusive offers that we pass on to YOU.",

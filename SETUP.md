@@ -1,4 +1,4 @@
-# TravelFunBiz.CA Setup Guide
+# TravelFunBiz.ca Setup Guide
 
 ## Overview
 This is a high-performance, SEO-optimized travel website built with Next.js 15, designed to generate leads for travel packages.
