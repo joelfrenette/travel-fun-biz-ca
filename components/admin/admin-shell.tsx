@@ -112,18 +112,25 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           )
         }
 
+        const className = cn(
+          "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+          isActive
+            ? "bg-primary/10 text-primary"
+            : "text-foreground/80 hover:bg-muted hover:text-foreground",
+        )
+
+        if (item.external) {
+          return (
+            <a key={item.title} href={item.href!} target="_blank" rel="noopener noreferrer" onClick={onNavigate} className={className}>
+              <item.icon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{item.title}</span>
+              <ExternalLink className="ml-auto h-3 w-3 shrink-0 opacity-50" />
+            </a>
+          )
+        }
+
         return (
-          <Link
-            key={item.title}
-            href={item.href!}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              isActive
-                ? "bg-primary/10 text-primary"
-                : "text-foreground/80 hover:bg-muted hover:text-foreground",
-            )}
-          >
+          <Link key={item.title} href={item.href!} onClick={onNavigate} className={className}>
             <item.icon className="h-4 w-4 shrink-0" />
             <span className="truncate">{item.title}</span>
           </Link>

@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Cookie,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Cookie, Milestone,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -10,6 +10,7 @@ export interface AdminNavItem {
   icon: LucideIcon
   href: string | null
   status: "Active" | "Coming Soon"
+  external?: boolean
 }
 
 // Single source of truth for admin modules — used by both the sidebar nav
@@ -29,6 +30,14 @@ const unsortedTools: AdminNavItem[] = [
     icon: Package,
     status: "Active",
     href: "/admin/packages",
+  },
+  {
+    title: "Project Tracker",
+    description: "Roadmap (Gantt), epics with features, and the use-case backlog for the .ca rebuild.",
+    icon: Milestone,
+    status: "Active",
+    href: "https://claude.ai/artifact/6PtefREyG1mewwcAqyJXAq",
+    external: true,
   },
   {
     title: "Affiliate Code Manager",

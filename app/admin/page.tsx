@@ -152,7 +152,11 @@ export default function AdminPage() {
           <Card
             key={tool.title}
             className={`group relative overflow-hidden transition-shadow hover:shadow-lg ${tool.href ? "cursor-pointer" : ""}`}
-            onClick={() => tool.href && router.push(tool.href)}
+            onClick={() => {
+              if (!tool.href) return
+              if (tool.external) window.open(tool.href, "_blank", "noopener,noreferrer")
+              else router.push(tool.href)
+            }}
           >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
