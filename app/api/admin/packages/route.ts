@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server'
 import { validateToken } from '@/lib/admin-auth'
 import { getAllPackagesAdmin, createPackage, generateSlug } from '@/lib/packages'
-import { createClient } from '@supabase/supabase-js'
-
-// Create a Supabase client with service role for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ldwmbwsxrktpcisqaxrb.supabase.co'
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 // GET all packages (admin)
 export async function GET(request: Request) {
@@ -25,15 +21,11 @@ async function uploadImageToSupabase(externalUrl: string, slugBase = 'package'):
   console.log('[packages-api] Source URL:', externalUrl)
   
   // Check if we have the service role key
-  if (!supabaseServiceKey) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     console.log('[packages-api] ⚠ No SUPABASE_SERVICE_ROLE_KEY configured, skipping upload')
     console.log('[packages-api] Will keep original external URL instead')
     return null
   }
-
-  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: { persistSession: false }
-  })
 
   try {
     console.log('[packages-api] Fetching external image...')

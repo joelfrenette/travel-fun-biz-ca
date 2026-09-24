@@ -9,7 +9,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
     }
 
-    if (!checkCredentials(email, password)) {
+    if (!(await checkCredentials(email, password))) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 

@@ -2,19 +2,25 @@
 // Uses signed tokens that don't require server-side storage
 
 import { createHmac, randomBytes } from 'crypto'
+import bcrypt from 'bcryptjs'
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
-const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || '').trim()
-const TOKEN_SECRET = process.env.SESSION_SECRET || process.env.ADMIN_PASSWORD || 'fallback-secret-change-me'
+const ADMIN_PASSWORD_HASH = (process.env.ADMIN_PASSWORD_HASH || '').trim()
 
 const TOKEN_TTL = 1000 * 60 * 60 * 24 // 24 hours
 
-export function checkCredentials(email: string, password: string): boolean {
-  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return false
-  return (
-    email.trim().toLowerCase() === ADMIN_EMAIL &&
-    password.trim() === ADMIN_PASSWORD
-  )
+function getSessionSecret(): string {
+  const secret = process.env.SESSION_SECRET
+  if (!secret) {
+    throw new Error('SESSION_SECRET is not set — cannot sign or verify admin session tokens')
+  }
+  return secret
+}
+
+export async function checkCredentials(email: string, password: string): Promise<boolean> {
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD_HASH) return false
+  if (email.trim().toLowerCase() !== ADMIN_EMAIL) return false
+  return bcrypt.compare(password.trim(), ADMIN_PASSWORD_HASH)
 }
 
 /**
@@ -27,10 +33,10 @@ export function createToken(email: string): string {
     exp: Date.now() + TOKEN_TTL,
     nonce: randomBytes(8).toString('hex'),
   }
-  
+
   const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url')
-  const signature = createHmac('sha256', TOKEN_SECRET).update(payloadStr).digest('hex')
-  
+  const signature = createHmac('sha256', getSessionSecret()).update(payloadStr).digest('hex')
+
   return `${payloadStr}.${signature}`
 }
 
@@ -39,39 +45,47 @@ export function createToken(email: string): string {
  */
 export function validateToken(token: string): string | null {
   if (!token || typeof token !== 'string') return null
-  
+
   const parts = token.split('.')
   if (parts.length !== 2) return null
-  
+
   const [payloadStr, signature] = parts
-  
+
+  let secret: string
+  try {
+    secret = getSessionSecret()
+  } catch (e) {
+    console.error('[admin-auth]', e instanceof Error ? e.message : e)
+    return null
+  }
+
   // Verify signature
-  const expectedSig = createHmac('sha256', TOKEN_SECRET).update(payloadStr).digest('hex')
+  const expectedSig = createHmac('sha256', secret).update(payloadStr).digest('hex')
   if (signature !== expectedSig) {
     console.log('[admin-auth] Invalid signature')
     return null
   }
-  
+
   // Decode and check expiry
   try {
     const payload = JSON.parse(Buffer.from(payloadStr, 'base64url').toString('utf8'))
-    
+
     if (!payload.email || !payload.exp) {
       console.log('[admin-auth] Invalid payload structure')
       return null
     }
-    
+
     if (payload.exp < Date.now()) {
       console.log('[admin-auth] Token expired')
       return null
     }
-    
+
     // Verify email matches admin
     if (payload.email !== ADMIN_EMAIL) {
       console.log('[admin-auth] Email mismatch')
       return null
     }
-    
+
     return payload.email
   } catch (e) {
     console.log('[admin-auth] Failed to parse token:', e)
@@ -79,8 +93,8 @@ export function validateToken(token: string): string | null {
   }
 }
 
-export function revokeToken(token: string): void {
-  // With signed tokens, we can't truly revoke without a blocklist
-  // For simplicity, we just let them expire naturally
-  // In production, you'd add the token to a Redis blocklist
+export function revokeToken(_token: string): void {
+  // Tokens are stateless HMAC-signed and expire on their own after TOKEN_TTL.
+  // True revocation would need a server-side blocklist (e.g. Redis), which
+  // this single-admin app doesn't need yet.
 }

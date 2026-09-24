@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { samplePackages } from '@/content/packages'
 import type { TravelPackage } from '@/types/travel'
 
@@ -100,7 +101,7 @@ export async function getPackages(): Promise<TravelPackage[]> {
  * Get all packages (including drafts) for admin
  */
 export async function getAllPackagesAdmin(): Promise<DbPackage[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('travel_packages')
     .select('*')
     .order('created_at', { ascending: false })
@@ -117,7 +118,7 @@ export async function getAllPackagesAdmin(): Promise<DbPackage[]> {
  * Get a single package by ID
  */
 export async function getPackageById(id: string): Promise<DbPackage | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('travel_packages')
     .select('*')
     .eq('id', id)
@@ -135,7 +136,7 @@ export async function getPackageById(id: string): Promise<DbPackage | null> {
  * Create a new package
  */
 export async function createPackage(pkg: Partial<DbPackage>): Promise<DbPackage | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('travel_packages')
     .insert(pkg)
     .select()
@@ -153,7 +154,7 @@ export async function createPackage(pkg: Partial<DbPackage>): Promise<DbPackage 
  * Update a package
  */
 export async function updatePackage(id: string, updates: Partial<DbPackage>): Promise<DbPackage | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('travel_packages')
     .update(updates)
     .eq('id', id)
@@ -172,7 +173,7 @@ export async function updatePackage(id: string, updates: Partial<DbPackage>): Pr
  * Delete a package
  */
 export async function deletePackage(id: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('travel_packages')
     .delete()
     .eq('id', id)
