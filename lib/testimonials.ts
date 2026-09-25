@@ -32,6 +32,22 @@ export async function getPublishedTestimonials(): Promise<Testimonial[]> {
   return data || []
 }
 
+/** Published testimonials tagged to one trip (shown on that trip's own page, in addition to the
+ * homepage, which shows every published testimonial regardless of package_id). */
+export async function getPublishedTestimonialsForPackage(packageId: string): Promise<Testimonial[]> {
+  const { data, error } = await supabase
+    .from('testimonials')
+    .select('*')
+    .eq('status', 'published')
+    .eq('package_id', packageId)
+    .order('sort_order', { ascending: true })
+  if (error) {
+    console.error('Failed to load trip testimonials:', error.message)
+    return []
+  }
+  return data || []
+}
+
 export async function listTestimonials(): Promise<Testimonial[]> {
   const { data, error } = await getSupabaseAdmin().from('testimonials').select('*').order('sort_order', { ascending: true })
   if (error) throw new Error(error.message)

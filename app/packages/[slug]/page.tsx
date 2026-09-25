@@ -9,12 +9,14 @@ import { BookNowButton } from "@/components/book-now-button"
 import { StickyCta } from "@/components/sticky-cta"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { getPackages, getPublishedPackageBySlug, type DbPackage } from "@/lib/packages"
+import { getPackages, getPublishedPackageBySlug, getNextUpcomingPackageInCategory, type DbPackage } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { formatPrice } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates } from "@/lib/site"
+import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
+import { TripTestimonials } from "@/components/trip-testimonials"
 
 export const revalidate = 300
 
@@ -53,7 +55,13 @@ export default async function PackagePage({ params }: Props) {
   if (!pkg) notFound()
 
   const { language, currency } = getVisitorPreferences()
-  const [allPackages, usdToTargetRate] = await Promise.all([getPackages(), getUsdToRate(currency)])
+  const isPastTrip = !!pkg.available_to && pkg.available_to < new Date().toISOString().slice(0, 10)
+  const [allPackages, usdToTargetRate, tripTestimonials, nextTrip] = await Promise.all([
+    getPackages(),
+    getUsdToRate(currency),
+    getPublishedTestimonialsForPackage(pkg.id),
+    isPastTrip ? getNextUpcomingPackageInCategory(pkg.category, pkg.id) : Promise.resolve(null),
+  ])
 
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
   const priceDisplay = pkg.price_value ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
@@ -106,7 +114,10 @@ export default async function PackagePage({ params }: Props) {
           </div>
           <div className="container mx-auto px-4">
             <div className="-mt-24 relative z-10 max-w-4xl rounded-xl border bg-card p-6 shadow-lg sm:p-8">
-              <Badge className="mb-3 bg-primary text-primary-foreground font-bold uppercase">{translate(language, pkg.category)}</Badge>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Badge className="bg-primary text-primary-foreground font-bold uppercase">{translate(language, pkg.category)}</Badge>
+                {isPastTrip && <Badge variant="outline" className="font-bold uppercase">{translate(language, "Past Trip Recap")}</Badge>}
+              </div>
               <h1 className="text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{pkg.name}</h1>
               <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" />{pkg.destination}</span>
@@ -123,10 +134,16 @@ export default async function PackagePage({ params }: Props) {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button asChild size="lg" className="bg-primary font-bold uppercase text-primary-foreground hover:bg-primary/90">
-                    <a href="#enquire">{translate(language, "Request Info")}</a>
-                  </Button>
-                  {pkg.booking_url && (
+                  {isPastTrip && nextTrip ? (
+                    <Button asChild size="lg" className="bg-primary font-bold uppercase text-primary-foreground hover:bg-primary/90">
+                      <a href={`/packages/${nextTrip.slug}`}>{translate(language, "Join the Next Trip")}</a>
+                    </Button>
+                  ) : (
+                    <Button asChild size="lg" className="bg-primary font-bold uppercase text-primary-foreground hover:bg-primary/90">
+                      <a href="#enquire">{translate(language, isPastTrip ? "Ask About a Similar Trip" : "Request Info")}</a>
+                    </Button>
+                  )}
+                  {!isPastTrip && pkg.booking_url && (
                     <BookNowButton href={pkg.booking_url} label={pkg.call_to_action || translate(language, "Book Now")} packageName={pkg.name} />
                   )}
                 </div>
@@ -197,11 +214,19 @@ export default async function PackagePage({ params }: Props) {
           </aside>
         </section>
 
+        {tripTestimonials.length > 0 && (
+          <section className="container mx-auto px-4 pb-12">
+            <TripTestimonials testimonials={tripTestimonials} language={language} />
+          </section>
+        )}
+
         {/* Lead form */}
         <section id="enquire" className="bg-muted/30 py-16">
           <div className="container mx-auto px-4">
             <div className="mb-8 text-center">
-              <h2 className="text-balance text-3xl font-bold text-foreground">{translate(language, "Request info about")} {pkg.name}</h2>
+              <h2 className="text-balance text-3xl font-bold text-foreground">
+                {isPastTrip ? translate(language, "Interested in a trip like this?") : `${translate(language, "Request info about")} ${pkg.name}`}
+              </h2>
               <p className="mx-auto mt-3 max-w-2xl text-pretty text-muted-foreground">{translate(language, "No obligation. We reply within one business day.")}</p>
             </div>
             <Suspense fallback={null}>
@@ -210,7 +235,7 @@ export default async function PackagePage({ params }: Props) {
           </div>
         </section>
       </main>
-      <StickyCta packageName={pkg.name} requestLabel={translate(language, "Request Info")} bookingUrl={pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} />
+      <StickyCta packageName={pkg.name} requestLabel={translate(language, "Request Info")} bookingUrl={isPastTrip ? null : pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} />
       <Footer language={language} />
     </div>
   )

@@ -101,6 +101,28 @@ export async function getPackages(): Promise<TravelPackage[]> {
 }
 
 /** A published package by slug, through the anon client so RLS keeps drafts private. */
+/** The next upcoming published trip in the same category (for a recap page's "Join the next
+ * trip" button) - a trip whose start date hasn't happened yet, closest one first, excluding
+ * itself. Null when there's no such trip yet. */
+export async function getNextUpcomingPackageInCategory(category: string, excludeId: string): Promise<DbPackage | null> {
+  const today = new Date().toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from('travel_packages')
+    .select('*')
+    .eq('status', 'published')
+    .eq('category', category)
+    .neq('id', excludeId)
+    .gte('available_from', today)
+    .order('available_from', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    console.error('Failed to fetch next upcoming package:', error)
+    return null
+  }
+  return data
+}
+
 export async function getPublishedPackageBySlug(slug: string): Promise<DbPackage | null> {
   const { data, error } = await supabase
     .from('travel_packages')

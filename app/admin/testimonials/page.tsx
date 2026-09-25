@@ -9,15 +9,18 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, Plus, Trash2, Star } from "lucide-react"
 import type { Testimonial, TestimonialInput } from "@/lib/testimonials"
+import type { DbPackage } from "@/lib/packages"
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
 }
 
-const emptyForm: TestimonialInput = { author: "", location: "", trip_name: "", rating: 5, text: "", source: "", status: "published", featured: false }
+const NO_TRIP = "__none__"
+const emptyForm: TestimonialInput = { author: "", location: "", trip_name: "", package_id: null, rating: 5, text: "", source: "", status: "published", featured: false }
 
 export default function TestimonialsAdminPage() {
   const [rows, setRows] = useState<Testimonial[]>([])
+  const [packages, setPackages] = useState<Pick<DbPackage, "id" | "name" | "slug">[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [form, setForm] = useState<TestimonialInput>(emptyForm)
@@ -26,17 +29,29 @@ export default function TestimonialsAdminPage() {
 
   function load() {
     setLoading(true)
-    fetch("/api/admin/testimonials", { headers: authHeaders() })
-      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
-      .then(({ ok, data }) => {
-        if (!ok) throw new Error(data.error || "Could not load")
-        setRows(data.testimonials || [])
+    Promise.all([
+      fetch("/api/admin/testimonials", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
+      fetch("/api/admin/packages", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
+    ])
+      .then(([tm, pk]) => {
+        if (!tm.ok) throw new Error(tm.data.error || "Could not load")
+        setRows(tm.data.testimonials || [])
+        if (pk.ok) setPackages(pk.data.packages || [])
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
   }
 
   useEffect(load, [])
+
+  function packageName(id: string | null) {
+    return id ? packages.find((p) => p.id === id)?.name : null
+  }
+
+  function attachTrip(id: string | null, apply: (patch: TestimonialInput) => void) {
+    const pkg = id ? packages.find((p) => p.id === id) : null
+    apply({ package_id: id, trip_name: pkg ? pkg.name : null })
+  }
 
   async function add() {
     setSaving(true); setError("")
@@ -90,7 +105,17 @@ export default function TestimonialsAdminPage() {
           <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1.5"><Label>Author</Label><Input value={form.author} onChange={(e) => setForm({ ...form, author: e.target.value })} placeholder="Jane Smith" /></div>
             <div className="space-y-1.5"><Label>Source</Label><Input value={form.source ?? ""} onChange={(e) => setForm({ ...form, source: e.target.value })} placeholder="Google Review" /></div>
-            <div className="space-y-1.5"><Label>Trip</Label><Input value={form.trip_name ?? ""} onChange={(e) => setForm({ ...form, trip_name: e.target.value })} placeholder="Croatia Coastline Yacht Cruise" /></div>
+            <div className="space-y-1.5">
+              <Label>Trip (optional)</Label>
+              <Select value={form.package_id || NO_TRIP} onValueChange={(v) => attachTrip(v === NO_TRIP ? null : v, (patch) => setForm((f) => ({ ...f, ...patch })))}>
+                <SelectTrigger><SelectValue placeholder="Homepage only" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_TRIP}>Homepage only</SelectItem>
+                  {packages.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Shows on that trip's own page too, still shows on the homepage.</p>
+            </div>
             <div className="space-y-1.5">
               <Label>Rating</Label>
               <Select value={String(form.rating ?? 5)} onValueChange={(v) => setForm({ ...form, rating: Number(v) })}>
@@ -123,6 +148,13 @@ export default function TestimonialsAdminPage() {
                     <p className="mt-2 text-sm text-muted-foreground">{row.text}</p>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Select value={row.package_id || NO_TRIP} onValueChange={(v) => attachTrip(v === NO_TRIP ? null : v, (changes) => patch(row, changes))} disabled={!!rowSaving[row.id]}>
+                      <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue placeholder="Homepage only" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_TRIP}>Homepage only</SelectItem>
+                        {packages.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                     <Select value={row.status} onValueChange={(v) => patch(row, { status: v as "draft" | "published" })} disabled={!!rowSaving[row.id]}>
                       <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
