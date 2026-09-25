@@ -1,9 +1,7 @@
-import { createSign } from 'crypto'
+import { getGoogleAccessToken, isGoogleServiceAccountConfigured } from '@/lib/google-auth'
 
-// GA4 Data API, read through a Google Cloud service account. No SDK: a service-account
-// JWT is signed with node's crypto, exchanged for an access token, and one runReport call
-// is made. The report is cached in memory for an hour so the dashboard never hammers the quota.
-const TOKEN_URL = 'https://oauth2.googleapis.com/token'
+// GA4 Data API, read through the shared service account. One runReport call, cached in
+// memory for an hour so the dashboard never hammers the quota.
 const SCOPE = 'https://www.googleapis.com/auth/analytics.readonly'
 const CACHE_MS = 60 * 60 * 1000
 
@@ -31,46 +29,10 @@ export interface Ga4Report {
   fetchedAt: string
 }
 
-interface ServiceAccount {
-  client_email: string
-  private_key: string
-}
-
 let cache: { report: Ga4Report; at: number } | null = null
 
 export function isGa4Configured(): boolean {
-  return !!(process.env.GA4_PROPERTY_ID && process.env.GOOGLE_SERVICE_ACCOUNT_KEY)
-}
-
-function serviceAccount(): ServiceAccount {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || ''
-  const json = raw.trim().startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8')
-  const parsed = JSON.parse(json)
-  if (!parsed.client_email || !parsed.private_key) throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY is missing client_email or private_key')
-  return parsed
-}
-
-function base64url(input: Buffer | string): string {
-  return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-}
-
-async function accessToken(sa: ServiceAccount): Promise<string> {
-  const now = Math.floor(Date.now() / 1000)
-  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
-  const claims = base64url(JSON.stringify({ iss: sa.client_email, scope: SCOPE, aud: TOKEN_URL, iat: now, exp: now + 3600 }))
-  const signer = createSign('RSA-SHA256')
-  signer.update(`${header}.${claims}`)
-  const assertion = `${header}.${claims}.${base64url(signer.sign(sa.private_key))}`
-
-  const res = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }),
-    cache: 'no-store',
-  })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok || !body.access_token) throw new Error(`Google token exchange failed: ${body.error_description || body.error || res.status}`)
-  return body.access_token
+  return !!process.env.GA4_PROPERTY_ID && isGoogleServiceAccountConfigured()
 }
 
 function channelOf(group: string): Ga4Channel {
@@ -82,7 +44,7 @@ export async function getGa4Report(days = 14): Promise<Ga4Report> {
 
   const propertyId = process.env.GA4_PROPERTY_ID
   if (!propertyId) throw new Error('GA4_PROPERTY_ID is not set')
-  const token = await accessToken(serviceAccount())
+  const token = await getGoogleAccessToken(SCOPE)
 
   const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runReport`, {
     method: 'POST',

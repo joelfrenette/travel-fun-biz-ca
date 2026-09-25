@@ -21,8 +21,28 @@ export interface KeywordRow {
   target_path: string | null
   note: string | null
   fetched_at: string
+  gsc_clicks: number | null
+  gsc_impressions: number | null
+  gsc_position: number | null
+  gsc_fetched_at: string | null
+  bing_impressions: number | null
+  bing_fetched_at: string | null
   created_at: string
   updated_at: string
+}
+
+/** Track a phrase without spending a Keywords Everywhere credit (e.g. one found in Search Console). */
+export async function trackKeyword(keyword: string, country: KeywordCountry): Promise<KeywordRow> {
+  const { data, error } = await getSupabaseAdmin()
+    .from('keyword_research')
+    .upsert({ keyword, country, fetched_at: new Date(0).toISOString(), updated_at: new Date().toISOString() }, { onConflict: 'keyword,country', ignoreDuplicates: true })
+    .select()
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (data) return data
+  const { data: existing, error: readError } = await getSupabaseAdmin().from('keyword_research').select('*').eq('keyword', keyword).eq('country', country).single()
+  if (readError) throw new Error(readError.message)
+  return existing
 }
 
 export interface LookupResult {
