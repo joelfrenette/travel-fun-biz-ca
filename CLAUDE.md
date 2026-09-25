@@ -18,10 +18,12 @@ replica (US company), never a code fork.
 5. **Models**: main session stays on Sonnet 5 for faster work (Joel's explicit call, 2026-09-25,
    overriding the earlier Fable-5.1-orchestrator default). Any sub-agent spawned with the Agent
    tool also runs on Sonnet 5 (`model: "sonnet"`), never a heavier model, unless Joel says otherwise.
-6. **Token line in the ASCII board**: one line showing real numbers, never estimated or invented:
-   tokens used this turn (prior turn's `<total_tokens>` remaining minus this turn's, from the
-   system reminders) and RTK's cumulative savings from `rtk gain` (commands run, tokens saved,
-   %). If a number isn't available (no prior turn, rtk not installed), say so instead of guessing.
+6. **Token line INSIDE the ASCII board itself** (a row inside the box borders, not a separate
+   paragraph after it): real numbers only, never estimated or invented: tokens used this turn
+   (prior turn's `<total_tokens>` remaining minus this turn's, from the system reminders) and
+   RTK's cumulative savings from `rtk gain` (commands run, tokens saved, %). If a number isn't
+   available (no prior turn, rtk not installed, counter reset on a session resume), say so
+   inside the box instead of guessing.
 
 ## Working conventions
 
@@ -39,6 +41,11 @@ replica (US company), never a code fork.
 - Never invent data on import (no default prices or categories); leave fields empty and surface it.
 - Every API key or credit-costing call is admin-triggered and cached (see `lib/keywords.ts`).
 - All env vars are documented in `.env.example`; add new ones there in the same change.
+- The setup checklist Joel follows along on lives at https://claude.ai/artifact/PN6caspQe9V6RUUsJ2vNcw
+  (grade-5-reading-level steps for every env var/account, plus one-off tasks). It uses the
+  Artifact tool's `artifact` runtime capability so checks are shared and Claude-writable, not
+  per-browser localStorage: update it (read, then republish) whenever a step gets verified by
+  testing, not just when Joel says so.
 
 ## Roadmap and triage
 
