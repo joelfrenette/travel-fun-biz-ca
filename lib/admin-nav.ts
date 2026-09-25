@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -29,6 +29,13 @@ const unsortedTools: AdminNavItem[] = [
     icon: Package,
     status: "Active",
     href: "/admin/packages",
+  },
+  {
+    title: "Keyword Research",
+    description: "Look up search volume, CPC and trend from Keywords Everywhere and assign each phrase the page it should rank for.",
+    icon: Tags,
+    status: "Active",
+    href: "/admin/keywords",
   },
   {
     title: "Project Tracker",
