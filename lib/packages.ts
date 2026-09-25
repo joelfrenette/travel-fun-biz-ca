@@ -45,6 +45,8 @@ export interface DbPackage {
   status: 'draft' | 'published' | 'archived'
   featured: boolean
   sort_order: number
+  not_included: string | null
+  keywords: string[]
   created_at: string
   updated_at: string
 }
@@ -55,6 +57,7 @@ export interface DbPackage {
 export function dbPackageToTravelPackage(pkg: DbPackage): TravelPackage {
   return {
     id: pkg.id,
+    slug: pkg.slug,
     name: pkg.name,
     destination: pkg.destination,
     duration: pkg.duration,
@@ -95,6 +98,34 @@ export async function getPackages(): Promise<TravelPackage[]> {
     console.error('Failed to fetch packages:', error)
     return samplePackages
   }
+}
+
+/** A published package by slug, through the anon client so RLS keeps drafts private. */
+export async function getPublishedPackageBySlug(slug: string): Promise<DbPackage | null> {
+  const { data, error } = await supabase
+    .from('travel_packages')
+    .select('*')
+    .eq('slug', slug)
+    .eq('status', 'published')
+    .maybeSingle()
+  if (error) {
+    console.error('Failed to fetch package by slug:', error)
+    return null
+  }
+  return data
+}
+
+/** Published slugs with their last update, for the sitemap. */
+export async function getPublishedPackageSlugs(): Promise<{ slug: string; updated_at: string }[]> {
+  const { data, error } = await supabase
+    .from('travel_packages')
+    .select('slug, updated_at')
+    .eq('status', 'published')
+  if (error) {
+    console.error('Failed to fetch package slugs:', error)
+    return []
+  }
+  return data || []
 }
 
 /**

@@ -34,7 +34,7 @@ import {
   Plus, Pencil, Trash2, Eye, EyeOff, Star, Sparkles,
   ChevronRight, Check, Loader2, Upload, Globe, MessageSquare,
   ArrowUpDown, ArrowUp, ArrowDown, Filter, MoreHorizontal,
-  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download
+  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download, ExternalLink
 } from "lucide-react"
 import type { DbPackage } from "@/lib/packages"
 import type { ScrapedPackage } from "@/types/scrape"
@@ -637,6 +637,30 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
             <Textarea value={formData.not_included || ""} onChange={(e) => handleChange("not_included", e.target.value)} rows={3} placeholder="e.g., Flights, Travel insurance, Personal expenses..." />
           </div>
 
+          {/* SEO */}
+          <div className="rounded-lg border p-4 space-y-4">
+            <div>
+              <h3 className="font-medium">Search & sharing</h3>
+              <p className="text-sm text-muted-foreground">How this trip's page appears in Google and when the link is shared. Leave blank to use the name and short description.</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Page title (meta title)</Label>
+                <Input value={formData.meta_title || ""} onChange={(e) => handleChange("meta_title", e.target.value)} maxLength={70} placeholder={`${formData.name || "Trip name"} | ${formData.destination || "Destination"} | TravelFunBiz.ca`} />
+                <p className="text-xs text-muted-foreground">{(formData.meta_title || "").length}/70 · put the target phrase first</p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Meta description</Label>
+                <Textarea value={formData.meta_description || ""} onChange={(e) => handleChange("meta_description", e.target.value)} rows={2} maxLength={160} />
+                <p className="text-xs text-muted-foreground">{(formData.meta_description || "").length}/160</p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Share image URL (OG image)</Label>
+                <Input value={formData.og_image_url || ""} onChange={(e) => handleChange("og_image_url", e.target.value)} placeholder="Defaults to the package image" />
+              </div>
+            </div>
+          </div>
+
           {/* FAQ Section */}
           <div className="rounded-lg border p-4 space-y-4">
             <div className="flex items-center justify-between">
@@ -1066,6 +1090,9 @@ function PackageTable({
                   <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => onEdit(pkg)}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+                    <DropdownMenuItem disabled={pkg.status !== "published"} onClick={() => window.open(`/packages/${pkg.slug}`, "_blank", "noopener,noreferrer")}>
+                      <ExternalLink className="mr-2 h-4 w-4" />{pkg.status === "published" ? "View page" : "View page (publish first)"}
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onToggleStatus(pkg)}>{pkg.status === "published" ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}{pkg.status === "published" ? "Unpublish" : "Publish"}</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onToggleFeatured(pkg)}><Star className="mr-2 h-4 w-4" />{pkg.featured ? "Unfeature" : "Feature"}</DropdownMenuItem>
                     <DropdownMenuSeparator />

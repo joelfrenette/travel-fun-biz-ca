@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { Header } from "@/components/header"
 import { HeroSection } from "@/components/hero-section"
 import { FeaturesSection } from "@/components/features-section"
@@ -9,6 +10,26 @@ import { getPackages } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 import { getUsdToRate } from "@/lib/fx"
+import { officeInfo, socialPromos } from "@/content/footer"
+import { SITE_NAME, absoluteUrl } from "@/lib/site"
+
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "TravelAgency",
+  name: SITE_NAME,
+  url: absoluteUrl("/"),
+  logo: absoluteUrl("/logo.png"),
+  telephone: officeInfo.phone,
+  address: {
+    "@type": "PostalAddress",
+    streetAddress: officeInfo.addressLines[0],
+    addressLocality: "Toronto",
+    addressRegion: "ON",
+    postalCode: "M5G 2J5",
+    addressCountry: "CA",
+  },
+  sameAs: socialPromos.map((s) => s.href),
+}
 
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
@@ -20,6 +41,7 @@ export default async function HomePage() {
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }} />
         <HeroSection language={language} />
         <PackagesSection
           packages={packages}
@@ -44,7 +66,9 @@ export default async function HomePage() {
                 )}
               </p>
             </div>
-            <ContactForm packageOptions={packageNames} language={language} />
+            <Suspense fallback={null}>
+              <ContactForm packageOptions={packageNames} language={language} />
+            </Suspense>
           </div>
         </section>
       </main>

@@ -3,11 +3,11 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import Script from "next/script"
-import { Suspense } from "react"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { cookies } from 'next/headers'
 import { normalizeLanguage } from '@/lib/preferences'
+import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE } from '@/lib/site'
 
 const inter = Inter({
   subsets: ["latin"],
@@ -15,29 +15,35 @@ const inter = Inter({
   variable: "--font-sans",
 })
 
+const DEFAULT_TITLE = `${SITE_NAME} | Group Trips, Cruises & Singles Travel`
+const DEFAULT_DESCRIPTION =
+  "Hosted group trips, river and ocean cruises, and singles getaways with real travel advisors. See upcoming departures and request info in one click."
+
 export const metadata: Metadata = {
-  title: "TravelFunBiz.ca | Discover Your Next Adventure",
-  description:
-    "Explore curated travel packages to the world's most breathtaking destinations. Find your perfect getaway with exclusive deals and personalized travel experiences.",
-  keywords:
-    "travel packages, vacation deals, holiday packages, travel destinations, adventure travel, luxury travel, TravelFunBiz",
-  authors: [{ name: "TravelFunBiz.ca" }],
+  metadataBase: new URL(SITE_URL),
+  title: { default: DEFAULT_TITLE, template: `%s` },
+  description: DEFAULT_DESCRIPTION,
+  alternates: { canonical: '/' },
+  authors: [{ name: SITE_NAME }],
   openGraph: {
-    title: "TravelFunBiz.ca | Discover Your Next Adventure",
-    description: "Explore curated travel packages to the world's most breathtaking destinations.",
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
     type: "website",
-    locale: "en_US",
+    locale: SITE_LOCALE,
+    siteName: SITE_NAME,
+    url: '/',
+    images: [{ url: DEFAULT_OG_IMAGE, alt: SITE_NAME }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "TravelFunBiz.ca | Discover Your Next Adventure",
-    description: "Explore curated travel packages to the world's most breathtaking destinations.",
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    images: [DEFAULT_OG_IMAGE],
   },
   robots: {
     index: true,
     follow: true,
   },
-    generator: 'v0.app'
 }
 
 export default function RootLayout({
@@ -53,7 +59,7 @@ export default function RootLayout({
     <html lang={lang} suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <Suspense fallback={null}>{children}</Suspense>
+          {children}
           <Analytics />
         </ThemeProvider>
         {gaId && (

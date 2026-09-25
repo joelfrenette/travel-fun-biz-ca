@@ -1,5 +1,6 @@
 export interface TravelPackage {
   id: string
+  slug?: string
   name: string
   destination: string
   duration: string

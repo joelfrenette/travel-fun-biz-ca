@@ -79,7 +79,7 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
       </CardContent>
       <CardFooter className="p-6 pt-0">
         <Button asChild className="w-full bg-primary text-primary-foreground font-bold uppercase hover:bg-primary/90">
-          <Link href={`/#contact?package=${encodeURIComponent(pkg.name)}`}>
+          <Link href={pkg.slug ? `/packages/${pkg.slug}` : `/#contact?package=${encodeURIComponent(pkg.name)}`}>
             {translate(language, 'More Info')}
           </Link>
         </Button>
