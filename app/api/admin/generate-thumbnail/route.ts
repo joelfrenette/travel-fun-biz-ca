@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { validateToken } from '@/lib/admin-auth'
-import { supabase } from '@/integrations/supabase/client'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
 // Simple AI thumbnail generator endpoint (placeholder implementation)
 // This endpoint should call an image generation API (OpenAI, Stability, etc.).
@@ -43,12 +43,12 @@ export async function POST(request: Request) {
         const safeName = (name || 'ai-thumb').replace(/[^a-z0-9\-]/gi, '_').toLowerCase()
         const filename = `${safeName}-${timestamp}.jpg`
 
-        const { error: uploadError } = await supabase.storage
+        const { error: uploadError } = await getSupabaseAdmin().storage
           .from('package-images')
           .upload(filename, buffer, { contentType: 'image/jpeg' })
 
         if (!uploadError) {
-          const { data: urlData } = supabase.storage.from('package-images').getPublicUrl(filename)
+          const { data: urlData } = getSupabaseAdmin().storage.from('package-images').getPublicUrl(filename)
           if (urlData && urlData.publicUrl) {
             return NextResponse.json({ url: urlData.publicUrl })
           }

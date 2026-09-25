@@ -701,7 +701,7 @@ function scrapedToPayload(pkg: ScrapedPackage) {
   }
 }
 
-function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch, existingSlugs }: { onComplete: (data: any) => void; onCancel: () => void; onImportedBatch?: () => void; existingSlugs: Set<string> }) {
+function ScrapeUrlForm({ onComplete, onCancel, onImported, existingSlugs }: { onComplete: (data: any) => void; onCancel: () => void; onImported: () => void; existingSlugs: Set<string> }) {
   const [url, setUrl] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -839,10 +839,10 @@ function ScrapeUrlForm({ onComplete, onCancel, onImportedBatch, existingSlugs }:
     setSelectedIndexes(new Set())
     setStatus(`Imported ${imported} of ${selectedList.length} package(s) as drafts.`)
     if (failures.length > 0) setError(`Not imported:\n${failures.join('\n')}`)
-    if (imported > 0 && failures.length === 0) {
-      if (onImportedBatch) onImportedBatch()
-      else onCancel()
-    }
+    // Refresh the list whenever anything landed; only leave this screen when nothing failed,
+    // so the failure list stays readable.
+    if (imported > 0) onImported()
+    if (imported > 0 && failures.length === 0) onCancel()
   }
 
   return (
@@ -1244,7 +1244,7 @@ export default function PackagesAdminPage() {
 
   if (view === "interview") return <div className="p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
   if (view === "manual") return <div className="p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null) }} initialData={editingPackage || undefined} /></div>
-  if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImportedBatch={() => { fetchPackages(); setView("list") }} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
+  if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
   if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
 
   return (

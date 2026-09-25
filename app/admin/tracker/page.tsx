@@ -10,10 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ChevronDown, ChevronRight, Loader2, Mic, MicOff, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { Roadmap, RoadmapEpic, RoadmapUseCase, UseCaseStatus } from "@/types/roadmap"
+import { PLAN_START, PLAN_WEEKS, type Roadmap, type RoadmapEpic, type RoadmapUseCase, type UseCaseStatus } from "@/types/roadmap"
 
-const PLAN_START = "2026-09-28"
-const PLAN_WEEKS = 16
 const STATUSES: UseCaseStatus[] = ["backlog", "in_progress", "done"]
 const STATUS_LABEL: Record<UseCaseStatus, string> = { backlog: "Backlog", in_progress: "In progress", done: "Done" }
 const STATUS_CLASS: Record<UseCaseStatus, string> = {

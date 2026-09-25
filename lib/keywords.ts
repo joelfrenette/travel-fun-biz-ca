@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/supabase-admin'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
 // Keywords Everywhere API. Every keyword returned costs one credit, so results are
 // cached in keyword_research and only re-fetched when older than CACHE_DAYS or forced.
@@ -65,7 +65,7 @@ export async function getCreditBalance(): Promise<number | null> {
 }
 
 export async function listKeywords(): Promise<KeywordRow[]> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('keyword_research')
     .select('*')
     .order('volume', { ascending: false, nullsFirst: false })
@@ -75,7 +75,7 @@ export async function listKeywords(): Promise<KeywordRow[]> {
 }
 
 export async function lookupKeywords(keywords: string[], country: KeywordCountry, force = false): Promise<LookupResult> {
-  const { data: existing, error } = await supabaseAdmin
+  const { data: existing, error } = await getSupabaseAdmin()
     .from('keyword_research')
     .select('*')
     .eq('country', country)
@@ -111,8 +111,11 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
     creditsConsumed += Number(body.credits_consumed) || 0
     if (typeof body.credits === 'number') credits = body.credits
 
-    const upserts = (body.data || []).map((d: any) => ({
-      keyword: String(d.keyword).trim().toLowerCase(),
+    const items = (Array.isArray(body.data) ? body.data : []).filter(
+      (d: any) => typeof d?.keyword === 'string' && d.keyword.trim().length > 0,
+    )
+    const upserts = items.map((d: any) => ({
+      keyword: d.keyword.trim().toLowerCase(),
       country,
       volume: Number.isFinite(Number(d.vol)) ? Number(d.vol) : null,
       cpc: d.cpc?.value != null && Number.isFinite(Number(d.cpc.value)) ? Number(d.cpc.value) : null,
@@ -124,7 +127,7 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
       updated_at: new Date().toISOString(),
     }))
     if (upserts.length > 0) {
-      const { data: saved, error: upsertError } = await supabaseAdmin
+      const { data: saved, error: upsertError } = await getSupabaseAdmin()
         .from('keyword_research')
         .upsert(upserts, { onConflict: 'keyword,country' })
         .select()
@@ -144,7 +147,7 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
 }
 
 export async function updateKeyword(id: string, patch: { target_path?: string | null; note?: string | null }): Promise<KeywordRow> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('keyword_research')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -155,6 +158,6 @@ export async function updateKeyword(id: string, patch: { target_path?: string | 
 }
 
 export async function deleteKeyword(id: string): Promise<void> {
-  const { error } = await supabaseAdmin.from('keyword_research').delete().eq('id', id)
+  const { error } = await getSupabaseAdmin().from('keyword_research').delete().eq('id', id)
   if (error) throw new Error(error.message)
 }

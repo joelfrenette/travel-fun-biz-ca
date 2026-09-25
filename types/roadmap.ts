@@ -1,3 +1,7 @@
+// The Gantt's week 1 starts on this Monday; shared by server and client code.
+export const PLAN_START = '2026-09-28'
+export const PLAN_WEEKS = 16
+
 export type UseCaseStatus = 'backlog' | 'in_progress' | 'done'
 export type UseCasePriority = 'P1' | 'P2' | 'P3'
 

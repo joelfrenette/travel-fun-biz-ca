@@ -181,11 +181,13 @@ function parseDateRange(text: string): { start: string; end: string; raw: string
   const m = text.match(DATE_RANGE)
   if (!m) return undefined
   const [raw, m1, d1, y1, m2, d2, y2] = m
-  const toIso = (month: string, day: string, year: string) =>
-    `${year}-${MONTH_NUM[month.slice(0, 3).toLowerCase()]}-${day.padStart(2, '0')}`
+  const monthNum = (month: string) => MONTH_NUM[month.slice(0, 3).toLowerCase()]
+  const toIso = (month: string, day: string, year: string) => `${year}-${monthNum(month)}-${day.padStart(2, '0')}`
+  // "Dec 27 – Jan 3, 2027" carries only the end year; the start is then the year before.
+  const startYear = y1 || (m2 && monthNum(m2) < monthNum(m1) ? String(Number(y2) - 1) : y2)
   return {
     raw,
-    start: toIso(m1, d1, y1 || y2),
+    start: toIso(m1, d1, startYear),
     end: toIso(m2 || m1, d2, y2),
   }
 }

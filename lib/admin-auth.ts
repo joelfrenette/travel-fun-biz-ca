@@ -1,7 +1,7 @@
 // Simple admin authentication — single user
 // Uses signed tokens that don't require server-side storage
 
-import { createHmac, randomBytes } from 'crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import bcrypt from 'bcryptjs'
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
@@ -59,9 +59,11 @@ export function validateToken(token: string): string | null {
     return null
   }
 
-  // Verify signature
+  // Verify signature in constant time so a forged token can't be probed byte by byte
   const expectedSig = createHmac('sha256', secret).update(payloadStr).digest('hex')
-  if (signature !== expectedSig) {
+  const given = Buffer.from(signature, 'hex')
+  const expected = Buffer.from(expectedSig, 'hex')
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
     console.log('[admin-auth] Invalid signature')
     return null
   }
@@ -91,6 +93,12 @@ export function validateToken(token: string): string | null {
     console.log('[admin-auth] Failed to parse token:', e)
     return null
   }
+}
+
+/** True when the request carries a valid admin bearer token. */
+export function isAuthorized(request: Request): boolean {
+  const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
+  return !!validateToken(token)
 }
 
 export function revokeToken(_token: string): void {

@@ -1,11 +1,6 @@
 import { NextResponse } from 'next/server'
-import { validateToken } from '@/lib/admin-auth'
+import { isAuthorized } from '@/lib/admin-auth'
 import { getCreditBalance, listKeywords, lookupKeywords, normalizeKeywords } from '@/lib/keywords'
-
-function isAuthorized(request: Request): boolean {
-  const token = request.headers.get('authorization')?.replace('Bearer ', '') || ''
-  return !!validateToken(token)
-}
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { validateToken } from '@/lib/admin-auth'
 import { getAllPackagesAdmin, createPackage } from '@/lib/packages'
-import { supabaseAdmin } from '@/lib/supabase-admin'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { generateSlug } from '@/lib/utils'
 
 const REQUIRED_FIELDS = ['name', 'destination', 'duration', 'price_display'] as const
@@ -78,7 +78,7 @@ async function uploadImageToSupabase(externalUrl: string, slugBase = 'package'):
 
     // Upload to Supabase storage bucket 'package-images'
     console.log('[packages-api] Uploading to Supabase storage as:', filename)
-    const { data, error: uploadError } = await supabaseAdmin.storage
+    const { data, error: uploadError } = await getSupabaseAdmin().storage
       .from('package-images')
       .upload(filename, buffer, { 
         contentType,
@@ -93,7 +93,7 @@ async function uploadImageToSupabase(externalUrl: string, slugBase = 'package'):
     console.log('[packages-api] ✓ Upload successful:', data?.path)
 
     // Get the public URL
-    const { data: urlData } = supabaseAdmin.storage.from('package-images').getPublicUrl(filename)
+    const { data: urlData } = getSupabaseAdmin().storage.from('package-images').getPublicUrl(filename)
     if (urlData && urlData.publicUrl) {
       console.log('[packages-api] ✓ Public URL:', urlData.publicUrl)
       console.log('[packages-api] ── Image Upload Complete ──')
@@ -126,6 +126,8 @@ export async function POST(request: Request) {
     for (const key of ['available_from', 'available_to', 'image_url', 'booking_url']) {
       if (body[key] === '') body[key] = null
     }
+    // category is NOT NULL with a DB default; omit it so the default applies rather than sending null.
+    if (body.category == null || body.category === '') delete body.category
     const missing = REQUIRED_FIELDS.filter((key) => typeof body[key] !== 'string' || !body[key].trim())
     if (missing.length > 0) {
       return NextResponse.json({ error: `Missing required field(s): ${missing.join(', ')}` }, { status: 400 })
