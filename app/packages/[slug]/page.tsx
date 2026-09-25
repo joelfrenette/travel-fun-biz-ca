@@ -1,10 +1,11 @@
 import type { Metadata } from "next"
 import { Suspense } from "react"
 import { notFound } from "next/navigation"
-import { Calendar, Clock, ExternalLink, MapPin, Star } from "lucide-react"
+import { Calendar, Clock, MapPin, Star } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { ContactForm } from "@/components/contact-form"
+import { BookNowButton } from "@/components/book-now-button"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { getPackages, getPublishedPackageBySlug, type DbPackage } from "@/lib/packages"
@@ -125,11 +126,7 @@ export default async function PackagePage({ params }: Props) {
                     <a href="#enquire">{translate(language, "Request Info")}</a>
                   </Button>
                   {pkg.booking_url && (
-                    <Button asChild size="lg" variant="outline" className="font-bold uppercase">
-                      <a href={pkg.booking_url} target="_blank" rel="noopener noreferrer nofollow">
-                        {pkg.call_to_action || translate(language, "Book Now")}<ExternalLink className="ml-2 h-4 w-4" />
-                      </a>
-                    </Button>
+                    <BookNowButton href={pkg.booking_url} label={pkg.call_to_action || translate(language, "Book Now")} packageName={pkg.name} />
                   )}
                 </div>
               </div>

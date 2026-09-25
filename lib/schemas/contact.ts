@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { attributionSchema } from '@/lib/attribution'
 
 export const contactFormSchema = z.object({
   name: z.string().min(1, 'Full name is required'),
@@ -11,3 +12,10 @@ export const contactFormSchema = z.object({
 })
 
 export type ContactFormValues = z.infer<typeof contactFormSchema>
+
+export const contactSubmissionSchema = contactFormSchema.extend({
+  submittedAt: z.string().optional(),
+  attribution: attributionSchema.optional(),
+})
+
+export type ContactSubmission = z.infer<typeof contactSubmissionSchema>

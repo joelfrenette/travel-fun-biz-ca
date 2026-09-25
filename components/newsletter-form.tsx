@@ -10,6 +10,8 @@ import { newsletterDealOptions } from '@/content/footer'
 import { useState } from 'react'
 import type { Language } from '@/lib/preferences'
 import { translate } from '@/lib/i18n'
+import { getAttribution } from '@/lib/attribution'
+import { track } from '@/lib/analytics-client'
 
 interface NewsletterFormProps {
   className?: string
@@ -35,13 +37,14 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
       const response = await fetch('/api/newsletter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, attribution: getAttribution() }),
       })
 
       if (!response.ok) {
         throw new Error('Failed to subscribe')
       }
 
+      track('newsletter_signup', { page_path: window.location.pathname, deals: values.deals.join(',') })
       toast({
         title: translate(language, "Success! We'll keep you posted with the latest travel deals."),
         description: translate(language, 'Thank You!'),
@@ -62,11 +65,11 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
     <form onSubmit={handleSubmit(onSubmit)} className={className}>
       <div className="space-y-4">
         <div>
-          <label htmlFor="fullName" className="mb-1 block text-sm font-medium">
+          <label htmlFor="newsletter-fullName" className="mb-1 block text-sm font-medium">
             {translate(language, 'What is Your Full Name *')}
           </label>
           <Input
-            id="fullName"
+            id="newsletter-fullName"
             placeholder={translate(language, 'Full Name')}
             autoComplete="name"
             {...register('fullName')}
@@ -76,11 +79,11 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
         </div>
 
         <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium">
+          <label htmlFor="newsletter-email" className="mb-1 block text-sm font-medium">
             {translate(language, 'Enter Your Email *')}
           </label>
           <Input
-            id="email"
+            id="newsletter-email"
             type="email"
             placeholder={translate(language, 'Email Address')}
             autoComplete="email"
@@ -91,11 +94,11 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
         </div>
 
         <div>
-          <label htmlFor="phone" className="mb-1 block text-sm font-medium">
+          <label htmlFor="newsletter-phone" className="mb-1 block text-sm font-medium">
             {translate(language, 'Mobile Phone *')}
           </label>
           <Input
-            id="phone"
+            id="newsletter-phone"
             type="tel"
             placeholder={translate(language, 'Phone Number')}
             autoComplete="tel"
@@ -106,11 +109,11 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
         </div>
 
         <div>
-          <label htmlFor="deals" className="mb-1 block text-sm font-medium">
+          <label htmlFor="newsletter-deals" className="mb-1 block text-sm font-medium">
             {translate(language, 'Which deals you like? (multi-select) *')}
           </label>
           <select
-            id="deals"
+            id="newsletter-deals"
             multiple
             className="w-full rounded-md border border-gray-300 bg-gray-100 p-2 text-sm"
             {...register('deals')}

@@ -14,6 +14,8 @@ import { useToast } from "@/hooks/use-toast"
 import { Loader2, CheckCircle2 } from "lucide-react"
 import { contactFormSchema, type ContactFormValues } from "@/lib/schemas/contact"
 import { samplePackages } from "@/content/packages"
+import { getAttribution } from "@/lib/attribution"
+import { track } from "@/lib/analytics-client"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 
@@ -83,13 +85,14 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
       const response = await fetch("/api/submit-lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, submittedAt: new Date().toISOString() }),
+        body: JSON.stringify({ ...values, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
       })
 
       if (!response.ok) {
         throw new Error("Failed to submit form")
       }
 
+      track("generate_lead", { package_name: values.package, page_path: window.location.pathname, method: "contact_form" })
       setIsSuccess(true)
       toast({
         title: translate(language, "Success!"),

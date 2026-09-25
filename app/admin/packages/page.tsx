@@ -34,11 +34,12 @@ import {
   Plus, Pencil, Trash2, Eye, EyeOff, Star, Sparkles,
   ChevronRight, Check, Loader2, Upload, Globe, MessageSquare,
   ArrowUpDown, ArrowUp, ArrowDown, Filter, MoreHorizontal,
-  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download, ExternalLink
+  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download, ExternalLink, RefreshCw
 } from "lucide-react"
 import type { DbPackage } from "@/lib/packages"
 import type { ScrapedPackage } from "@/types/scrape"
 import { generateSlug } from "@/lib/utils"
+import { scrapedToPackage as scrapedToPayload } from "@/lib/scraping/to-package"
 
 const categories = [
   "Adventure",
@@ -704,27 +705,6 @@ const presetSites = [
   { name: "Transat - All Inclusive", url: "https://www.transat.com/en-CA/book/type-accomodation/all-inclusive-vacation?search=package" },
 ]
 
-// Never invent data the source page didn't have: a made-up price or category ends up on the public card.
-function scrapedToPayload(pkg: ScrapedPackage) {
-  return {
-    name: pkg.name,
-    destination: pkg.destination,
-    duration: pkg.duration,
-    duration_days: pkg.durationDays,
-    available_from: pkg.startDate,
-    available_to: pkg.endDate,
-    price_display: pkg.price || 'Contact for pricing',
-    price_value: pkg.priceValue,
-    short_description: pkg.description,
-    image_url: pkg.imageUrl,
-    booking_url: pkg.bookingUrl,
-    supplier: pkg.supplier,
-    category: pkg.category,
-    highlights: pkg.highlights,
-    status: 'draft',
-  }
-}
-
 function ScrapeUrlForm({ onComplete, onCancel, onImported, existingSlugs }: { onComplete: (data: any) => void; onCancel: () => void; onImported: () => void; existingSlugs: Set<string> }) {
   const [url, setUrl] = useState("")
   const [loading, setLoading] = useState(false)
@@ -1125,10 +1105,26 @@ export default function PackagesAdminPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ found?: number; created?: string[]; skipped?: string[]; failed?: { name: string; error: string }[]; error?: string } | null>(null)
 
   useEffect(() => {
     fetchPackages()
   }, [])
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      const res = await fetch("/api/admin/sync/travelfunbiz", { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("adminToken")}` } })
+      const data = await res.json().catch(() => ({}))
+      setSyncResult(res.ok ? data : { error: data.error || `HTTP ${res.status}` })
+      if (res.ok && data.created?.length) fetchPackages()
+    } catch {
+      setSyncResult({ error: "Network error while syncing" })
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   async function fetchPackages() {
     const token = localStorage.getItem("adminToken")
@@ -1279,7 +1275,13 @@ export default function PackagesAdminPage() {
       <div className="border-b bg-card/30">
         <div className="container mx-auto flex items-center justify-between px-4 py-4">
           <h1 className="text-xl font-bold">Travel Packages</h1>
-          <Button onClick={() => setShowAddModal(true)}><Plus className="mr-1 h-4 w-4" />Add Package</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={handleSync} disabled={syncing} title="Import any new trips from travelfunbiz.com as drafts">
+              {syncing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
+              {syncing ? "Syncing…" : "Sync from TravelFunBiz.com"}
+            </Button>
+            <Button onClick={() => setShowAddModal(true)}><Plus className="mr-1 h-4 w-4" />Add Package</Button>
+          </div>
         </div>
       </div>
 
@@ -1362,6 +1364,43 @@ export default function PackagesAdminPage() {
       </main>
 
       <AddMethodModal open={showAddModal} onClose={() => setShowAddModal(false)} onSelect={handleAddMethodSelect} />
+
+      {/* Sync summary */}
+      <Dialog open={!!syncResult} onOpenChange={(open) => !open && setSyncResult(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{syncResult?.error ? "Sync failed" : "Sync from TravelFunBiz.com"}</DialogTitle>
+            <DialogDescription>
+              {syncResult?.error
+                ? syncResult.error
+                : `Found ${syncResult?.found ?? 0} trip(s) on travelfunbiz.com. New trips are imported as drafts; publish them from the list when ready.`}
+            </DialogDescription>
+          </DialogHeader>
+          {!syncResult?.error && (
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="font-medium text-green-700 dark:text-green-400">Imported ({syncResult?.created?.length ?? 0})</p>
+                {syncResult?.created?.length ? <ul className="ml-4 list-disc text-muted-foreground">{syncResult.created.map((n) => <li key={n}>{n}</li>)}</ul> : <p className="text-muted-foreground">Nothing new.</p>}
+              </div>
+              {!!syncResult?.skipped?.length && (
+                <div>
+                  <p className="font-medium">Already here ({syncResult.skipped.length})</p>
+                  <p className="text-muted-foreground">{syncResult.skipped.join(" · ")}</p>
+                </div>
+              )}
+              {!!syncResult?.failed?.length && (
+                <div>
+                  <p className="font-medium text-destructive">Not imported ({syncResult.failed.length})</p>
+                  <ul className="ml-4 list-disc text-muted-foreground">{syncResult.failed.map((f) => <li key={f.name}>{f.name}: {f.error}</li>)}</ul>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setSyncResult(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk Delete Confirmation Dialog */}
       <Dialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>

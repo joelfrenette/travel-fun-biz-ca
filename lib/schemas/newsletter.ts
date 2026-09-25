@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { attributionSchema } from '@/lib/attribution'
 
 export const newsletterSchema = z.object({
   fullName: z.string().min(1, 'Full name is required'),
@@ -8,3 +9,9 @@ export const newsletterSchema = z.object({
 })
 
 export type NewsletterValues = z.infer<typeof newsletterSchema>
+
+export const newsletterSubmissionSchema = newsletterSchema.extend({
+  attribution: attributionSchema.optional(),
+})
+
+export type NewsletterSubmission = z.infer<typeof newsletterSubmissionSchema>
