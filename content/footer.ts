@@ -1,20 +1,20 @@
+import { site } from '@/lib/site'
+
+// Office identity lives in lib/site.ts (one profile per deployment); this only shapes it for the footer.
 export const officeInfo = {
-  addressLines: ['375 University Avenue, Suite 1072', 'Toronto, ON M5G 2J5'],
-  phone: '(365) 800-6363',
-  disclaimers: [
-    'By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP".',
-  ],
-  registrations: [
-    'Florida Seller of Travel # ST42324',
-    'California Seller of Travel # 2154919-50',
-  ],
+  addressLines: site.addressLines,
+  phone: site.phone,
+  disclaimers: site.phone
+    ? [`By calling or texting ${site.phone}, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP".`]
+    : [],
+  registrations: site.registrations,
 }
 
 export const legalLinks = [
-  { label: 'Privacy Policy', href: 'https://www.travelfunbiz.com/privacy-policy/' },
-  { label: 'Terms & Conditions', href: 'https://www.travelfunbiz.com/terms-conditions/' },
-  { label: 'Earnings Disclaimer', href: 'https://www.travelfunbiz.com/earnings-disclaimer/' },
-  { label: 'Affiliate Agreement', href: 'https://travelfunbiz.com/affiliate-agreement/' },
+  { label: 'Privacy Policy', href: `${site.legalBaseUrl}/privacy-policy/` },
+  { label: 'Terms & Conditions', href: `${site.legalBaseUrl}/terms-conditions/` },
+  { label: 'Earnings Disclaimer', href: `${site.legalBaseUrl}/earnings-disclaimer/` },
+  { label: 'Affiliate Agreement', href: `${site.legalBaseUrl}/affiliate-agreement/` },
 ]
 
 export const recognitionBadges = [

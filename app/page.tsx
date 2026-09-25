@@ -11,7 +11,7 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 import { getUsdToRate } from "@/lib/fx"
 import { officeInfo, socialPromos } from "@/content/footer"
-import { SITE_NAME, absoluteUrl } from "@/lib/site"
+import { SITE_NAME, absoluteUrl, site } from "@/lib/site"
 
 const organizationJsonLd = {
   "@context": "https://schema.org",
@@ -19,14 +19,14 @@ const organizationJsonLd = {
   name: SITE_NAME,
   url: absoluteUrl("/"),
   logo: absoluteUrl("/logo.png"),
-  telephone: officeInfo.phone,
+  ...(officeInfo.phone ? { telephone: officeInfo.phone } : {}),
   address: {
     "@type": "PostalAddress",
-    streetAddress: officeInfo.addressLines[0],
-    addressLocality: "Toronto",
-    addressRegion: "ON",
-    postalCode: "M5G 2J5",
-    addressCountry: "CA",
+    ...(officeInfo.addressLines[0] ? { streetAddress: officeInfo.addressLines[0] } : {}),
+    addressLocality: site.address.locality,
+    addressRegion: site.address.region,
+    ...(site.address.postalCode ? { postalCode: site.address.postalCode } : {}),
+    addressCountry: site.country,
   },
   sameAs: socialPromos.map((s) => s.href),
 }

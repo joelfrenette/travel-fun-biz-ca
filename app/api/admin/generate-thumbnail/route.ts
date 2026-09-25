@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { validateToken } from '@/lib/admin-auth'
+import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
 // Simple AI thumbnail generator endpoint (placeholder implementation)
@@ -8,12 +8,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 // service: https://dummyimage.com (or you can plug your preferred service).
 
 export async function POST(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  const token = authHeader?.replace('Bearer ', '')
-  
-  if (!validateToken(token || '')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
     const body = await request.json()

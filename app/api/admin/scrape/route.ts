@@ -1,22 +1,12 @@
 import { NextResponse } from 'next/server'
-import { validateToken } from '@/lib/admin-auth'
+import { isAuthorized } from '@/lib/admin-auth'
 import { parsePackagesFromHtml } from '@/lib/scraping'
 
 const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY
 
 export async function POST(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  const token = authHeader?.replace('Bearer ', '')
-
+  if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   console.log('[scrape-api] ===== SCRAPE REQUEST STARTED =====')
-  console.log('[scrape-api] Request received')
-  console.log('[scrape-api] Token exists:', !!token)
-  
-  const email = validateToken(token || '')
-  if (!email) {
-    console.log('[scrape-api] Unauthorized - invalid token')
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
 
   if (!SCRAPINGBEE_API_KEY) {
     console.log('[scrape-api] API key not configured')

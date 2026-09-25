@@ -1,6 +1,7 @@
 // preferences.ts - read/write visitor language & currency preferences
 import { cookies } from 'next/headers'
 import type { Currency } from '@/lib/currency'
+import { site } from '@/lib/site'
 
 export type Language = 'en' | 'fr' | 'es'
 
@@ -21,11 +22,11 @@ export function normalizeLanguage(value?: string | null): Language {
 }
 
 export function normalizeCurrency(value?: string | null): Currency {
-  // Accept known currency codes and default to 'usd'
-  if (!value) return 'usd'
+  // Accept known currency codes; a first-time visitor gets the site's own currency.
+  if (!value) return site.defaultCurrency
   const v = value.toLowerCase()
   if (v === 'cad' || v === 'aud' || v === 'eur' || v === 'usd') return v as Currency
-  return 'usd'
+  return site.defaultCurrency
 }
 
 export function getVisitorPreferences() {

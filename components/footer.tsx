@@ -16,7 +16,7 @@ export function Footer({ language }: FooterProps) {
         <div className="grid gap-8 lg:grid-cols-4">
           <div className="space-y-4">
             <div className="mb-6">
-              <a href="https://www.travelfunbiz.ca" target="_blank" rel="noopener noreferrer">
+              <Link href="/">
                 <Image
                   src="/assets/logo-black-square.png"
                   alt="TravelFun.Biz Logo"
@@ -25,14 +25,14 @@ export function Footer({ language }: FooterProps) {
                   className="h-auto w-full max-w-[340px]"
                   unoptimized
                 />
-              </a>
+              </Link>
             </div>
 
             <div className="space-y-2 text-sm text-gray-300">
               {officeInfo.addressLines.map((line) => (
                 <p key={line}>{line}</p>
               ))}
-              <p className="pt-2">{officeInfo.phone}</p>
+              {officeInfo.phone && <p className="pt-2">{officeInfo.phone}</p>}
 
               {/* Login link opens in a new tab to avoid embedded preview authentication issues */}
               <div>

@@ -3,6 +3,7 @@ import { featureItems } from "@/content/features"
 import { SectionHeading } from "@/components/section-heading"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
+import { SITE_NAME } from "@/lib/site"
 
 interface FeaturesSectionProps {
   language: Language
@@ -13,7 +14,7 @@ export function FeaturesSection({ language }: FeaturesSectionProps) {
     <section className="py-20 md:py-32">
       <div className="container mx-auto px-4">
         <SectionHeading
-          title={translate(language, 'Why Choose TravelFunBiz.ca')}
+          title={`${translate(language, 'Why Choose')} ${SITE_NAME}`}
           subtitle={translate(
             language,
             "When you work with us, you save time, you save stress, you save money. We take care of all the hard work with a FREE dedicated experience concierge. That's right—you don't pay more! We meet or beat what you can get on your own. We get paid by the suppliers for bringing them millions in business, and we get group rates and exclusive offers that we pass on to YOU.",

@@ -12,6 +12,7 @@ import { LanguageToggle } from "@/components/language-toggle"
 import { CurrencyToggle } from "@/components/currency-toggle"
 import type { Language } from "@/lib/preferences"
 import type { Currency } from "@/lib/currency"
+import { SITE_NAME } from "@/lib/site"
 import { translate } from "@/lib/i18n"
 
 const linkClassName =
@@ -64,10 +65,10 @@ export function Header({ language, currency }: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
-        <a href="https://www.travelfunbiz.ca" className="flex items-center">
+        <a href="/" className="flex items-center">
           <Image
             src={logoSrc}
-            alt="TravelFunBiz.ca"
+            alt={SITE_NAME}
             width={280}
             height={112}
             className="h-16 w-auto py-2 sm:h-18"

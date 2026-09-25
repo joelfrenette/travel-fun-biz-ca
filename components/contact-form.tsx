@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useEffect, useMemo } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@/components/ui/button"
@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, CheckCircle2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { contactFormSchema, type ContactFormValues } from "@/lib/schemas/contact"
 import { samplePackages } from "@/content/packages"
 import { getAttribution } from "@/lib/attribution"
@@ -36,7 +36,7 @@ const travelerOptions = [
 export function ContactForm({ preselectedPackage, packageOptions, language }: ContactFormProps) {
   const { toast } = useToast()
   const searchParams = useSearchParams()
-  const [isSuccess, setIsSuccess] = useState(false)
+  const router = useRouter()
 
   const fallbackPackageOptions = useMemo(
     () => Array.from(new Set(samplePackages.map((pkg) => pkg.name))),
@@ -93,12 +93,9 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
       }
 
       track("generate_lead", { package_name: values.package, page_path: window.location.pathname, method: "contact_form" })
-      setIsSuccess(true)
-      toast({
-        title: translate(language, "Success!"),
-        description: translate(language, "We've received your inquiry and will contact you soon."),
-      })
       reset(baseDefaultValues)
+      // One URL for every conversion, so GA4 and ad platforms can count it without custom events.
+      router.push(`/thank-you?package=${encodeURIComponent(values.package)}`)
     } catch (error) {
       toast({
         title: translate(language, "Error"),
@@ -106,23 +103,6 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
         variant: "destructive",
       })
     }
-  }
-
-  if (isSuccess) {
-    return (
-      <Card className="mx-auto max-w-2xl">
-        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <CheckCircle2 className="mb-4 h-16 w-16 text-green-600" />
-          <h3 className="mb-2 text-2xl font-bold text-foreground">{translate(language, 'Thank You!')}</h3>
-          <p className="text-muted-foreground">
-            {translate(language, "We've received your inquiry and will contact you soon.")}
-          </p>
-          <Button onClick={() => setIsSuccess(false)} variant="outline" className="mt-6">
-            {translate(language, 'Submit Another Inquiry')}
-          </Button>
-        </CardContent>
-      </Card>
-    )
   }
 
   return (

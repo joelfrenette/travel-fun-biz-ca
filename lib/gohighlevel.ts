@@ -2,6 +2,7 @@
 import type { ContactSubmission } from '@/lib/schemas/contact'
 import type { NewsletterSubmission } from '@/lib/schemas/newsletter'
 import type { Attribution } from '@/lib/attribution'
+import { SITE_ID } from '@/lib/site'
 
 const API = 'https://rest.gohighlevel.com/v1'
 
@@ -72,7 +73,7 @@ export async function submitLeadToGoHighLevel(lead: ContactSubmission): Promise<
       email: lead.email,
       phone: lead.phone || '',
       source: 'Website Contact Form',
-      tags: ['travel-lead', tagSafe(lead.package), ...attributionTags(lead.attribution)],
+      tags: ['travel-lead', `site-${SITE_ID}`, tagSafe(lead.package), ...attributionTags(lead.attribution)],
       customFields: [
         { key: 'package_interest', value: lead.package },
         { key: 'travel_date', value: lead.travelDate || '' },
@@ -116,7 +117,7 @@ export async function subscribeNewsletterToGoHighLevel(values: NewsletterSubmiss
       email: values.email,
       phone: values.phone,
       source: 'Website Newsletter',
-      tags: ['newsletter', ...values.deals.map((d) => `deals-${tagSafe(d)}`), ...attributionTags(values.attribution)],
+      tags: ['newsletter', `site-${SITE_ID}`, ...values.deals.map((d) => `deals-${tagSafe(d)}`), ...attributionTags(values.attribution)],
       customFields: [
         { key: 'deal_interests', value: values.deals.join(', ') },
         { key: 'lead_source', value: 'Website Newsletter' },

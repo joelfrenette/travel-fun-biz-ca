@@ -6,6 +6,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { ContactForm } from "@/components/contact-form"
 import { BookNowButton } from "@/components/book-now-button"
+import { StickyCta } from "@/components/sticky-cta"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { getPackages, getPublishedPackageBySlug, type DbPackage } from "@/lib/packages"
@@ -93,7 +94,7 @@ export default async function PackagePage({ params }: Props) {
   return (
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
-      <main className="flex-1">
+      <main className="flex-1 pb-20 lg:pb-0">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
         {/* Hero */}
@@ -209,6 +210,7 @@ export default async function PackagePage({ params }: Props) {
           </div>
         </section>
       </main>
+      <StickyCta packageName={pkg.name} requestLabel={translate(language, "Request Info")} bookingUrl={pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} />
       <Footer language={language} />
     </div>
   )
