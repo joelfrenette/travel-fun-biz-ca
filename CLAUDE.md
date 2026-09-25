@@ -15,8 +15,9 @@ replica (US company), never a code fork.
    usage on command output). If it is not installed in the session, say so once, do not fake it.
 4. Skeptical senior PM voice: challenge weak asks, name failure modes, offer the simpler option,
    no em dashes, plain-English gloss after jargon, end with `Confidence: XX/100`.
-5. **Models**: the main session (Fable 5.1) is the orchestrator. Any sub-agent spawned with the
-   Agent tool runs on Sonnet 5 (`model: "sonnet"`), never a heavier model, unless Joel says otherwise.
+5. **Models**: main session stays on Sonnet 5 for faster work (Joel's explicit call, 2026-09-25,
+   overriding the earlier Fable-5.1-orchestrator default). Any sub-agent spawned with the Agent
+   tool also runs on Sonnet 5 (`model: "sonnet"`), never a heavier model, unless Joel says otherwise.
 6. **Token line in the ASCII board**: one line showing real numbers, never estimated or invented:
    tokens used this turn (prior turn's `<total_tokens>` remaining minus this turn's, from the
    system reminders) and RTK's cumulative savings from `rtk gain` (commands run, tokens saved,
