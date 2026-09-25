@@ -8,7 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { AttributionCapture } from "@/components/attribution-capture"
 import { cookies } from 'next/headers'
 import { normalizeLanguage } from '@/lib/preferences'
-import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE } from '@/lib/site'
+import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, hreflangAlternates } from '@/lib/site'
 
 const inter = Inter({
   subsets: ["latin"],
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: DEFAULT_TITLE, template: `%s` },
   description: DEFAULT_DESCRIPTION,
-  alternates: { canonical: '/' },
+  alternates: { canonical: '/', languages: hreflangAlternates('/') },
   authors: [{ name: SITE_NAME }],
   openGraph: {
     title: DEFAULT_TITLE,

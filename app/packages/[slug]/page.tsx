@@ -14,7 +14,7 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { formatPrice } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
-import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
+import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates } from "@/lib/site"
 
 export const revalidate = 300
 
@@ -42,7 +42,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title,
     description,
-    alternates: { canonical: url },
+    alternates: { canonical: url, languages: hreflangAlternates(`/packages/${pkg.slug}`) },
     openGraph: { title, description, url, type: "website", locale: SITE_LOCALE, siteName: SITE_NAME, images: [{ url: image, alt: pkg.name }] },
     twitter: { card: "summary_large_image", title, description, images: [image] },
   }

@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -43,6 +43,13 @@ const unsortedTools: AdminNavItem[] = [
     icon: Milestone,
     status: "Active",
     href: "/admin/tracker",
+  },
+  {
+    title: "Testimonials",
+    description: "Curate reviews shown on the homepage, and later on trip pages and recap pages. Draft rows stay hidden.",
+    icon: Quote,
+    status: "Active",
+    href: "/admin/testimonials",
   },
   {
     title: "Affiliate Code Manager",

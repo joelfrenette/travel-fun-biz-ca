@@ -66,6 +66,12 @@ function resolveSite(): SiteProfile {
   }
 }
 
+// The other company's live URL, once it runs this same codebase (config-driven, not a fork).
+// Unset until that .com replica exists — do not point this at the current WordPress travelfunbiz.com,
+// which has a different URL structure and is not a page-for-page match.
+export const SIBLING_SITE_URL = (process.env.NEXT_PUBLIC_SIBLING_SITE_URL || '').replace(/\/$/, '') || null
+const SIBLING_LOCALE = process.env.NEXT_PUBLIC_SITE_ID === 'us' ? 'en-CA' : 'en-US'
+
 export const site: SiteProfile = resolveSite()
 
 export const SITE_ID = site.id
@@ -98,4 +104,20 @@ export function formatDateRange(from: string | null, to: string | null): string 
     return `${fmt(a, { month: 'short', day: 'numeric', year: 'numeric' })} – ${fmt(b, { month: 'short', day: 'numeric', year: 'numeric' })}`
   }
   return fmt((a || b) as Date, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/**
+ * hreflang alternates for a path shared by both sites (same slug on each). Returns null until
+ * NEXT_PUBLIC_SIBLING_SITE_URL is set, so we never tell Google about a counterpart page that
+ * doesn't exist yet. Once the .com replica is live, set that env var on both deployments.
+ */
+export function hreflangAlternates(path: string): Record<string, string> | undefined {
+  if (!SIBLING_SITE_URL) return undefined
+  const here = SITE_LOCALE.startsWith('en_CA') || SITE_ID === 'ca' ? 'en-CA' : 'en-US'
+  const clean = path.startsWith('/') ? path : `/${path}`
+  return {
+    [here]: absoluteUrl(clean),
+    [SIBLING_LOCALE]: `${SIBLING_SITE_URL}${clean}`,
+    'x-default': absoluteUrl(clean),
+  }
 }

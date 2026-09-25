@@ -7,6 +7,7 @@ import { ContactForm } from "@/components/contact-form"
 import { Footer } from "@/components/footer"
 import { TestimonialsSection } from "@/components/testimonials-section"
 import { getPackages } from "@/lib/packages"
+import { getPublishedTestimonials } from "@/lib/testimonials"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 import { getUsdToRate } from "@/lib/fx"
@@ -34,7 +35,7 @@ const organizationJsonLd = {
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
   const { language, currency } = preferences
-  const [packages, usdToTargetRate] = await Promise.all([getPackages(), getUsdToRate(currency)])
+  const [packages, usdToTargetRate, testimonials] = await Promise.all([getPackages(), getUsdToRate(currency), getPublishedTestimonials()])
   const packageNames = packages.map((pkg) => pkg.name)
 
   return (
@@ -51,7 +52,7 @@ export default async function HomePage() {
         />
         <FeaturesSection language={language} />
 
-        <TestimonialsSection language={language} />
+        <TestimonialsSection language={language} testimonials={testimonials} />
 
         <section id="contact" className="bg-muted/30 py-20">
           <div className="container mx-auto px-4">

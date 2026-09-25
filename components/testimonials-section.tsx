@@ -1,16 +1,30 @@
 import { Star } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
-import { testimonials } from "@/content/testimonials"
+import { testimonials as fallbackTestimonials } from "@/content/testimonials"
 import Image from "next/image"
 import { SectionHeading } from "@/components/section-heading"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
+import type { Testimonial } from "@/lib/testimonials"
 
 interface TestimonialsSectionProps {
   language: Language
+  testimonials?: Testimonial[]
 }
 
-export function TestimonialsSection({ language }: TestimonialsSectionProps) {
+// Normalizes the DB shape and the static fallback (content/testimonials.ts, used only if the
+// testimonials table is empty) to the same display shape.
+function toDisplay(t: Testimonial | (typeof fallbackTestimonials)[number]) {
+  if ("author" in t) {
+    return { id: t.id, name: t.author, location: t.source || t.trip_name || "", rating: t.rating, text: t.text, image: t.image_url || "/placeholder.svg" }
+  }
+  return { id: String(t.id), name: t.name, location: t.location, rating: t.rating, text: t.text, image: t.image || "/placeholder.svg" }
+}
+
+export function TestimonialsSection({ language, testimonials }: TestimonialsSectionProps) {
+  const items = (testimonials && testimonials.length > 0 ? testimonials : fallbackTestimonials).map(toDisplay)
+  if (items.length === 0) return null
+
   return (
     <section id="testimonials" className="py-20">
       <div className="container mx-auto px-4">
@@ -23,12 +37,12 @@ export function TestimonialsSection({ language }: TestimonialsSectionProps) {
         />
 
         <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {testimonials.map((testimonial) => (
+          {items.map((testimonial) => (
             <Card key={testimonial.id} className="border-border/50 bg-card">
               <CardContent className="p-6">
                 <div className="mb-4 flex items-center gap-4">
                   <Image
-                    src={testimonial.image || "/placeholder.svg"}
+                    src={testimonial.image}
                     alt={testimonial.name}
                     width={64}
                     height={64}
