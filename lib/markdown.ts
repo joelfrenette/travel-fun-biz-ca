@@ -8,13 +8,24 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+// Factory Phase 1 hardening (matches Nomad's safe-markdown.ts rule): a link or image may only
+// point somewhere a reader could safely go. Today's blog body is admin-typed, but the moment
+// Phase 3's AI composer or a guest submission writes one, `javascript:`/`data:` etc. in a
+// markdown link becomes a real vector, and defense in depth costs nothing even before then.
+function safeHref(href: string): string {
+  return /^(https?:\/\/|\/|#|mailto:)/i.test(href) ? href : '#'
+}
+function safeSrc(src: string): string {
+  return /^(https?:\/\/|\/)/i.test(src) ? src : ''
+}
+
 function inline(text: string): string {
   let out = escapeHtml(text)
   out = out.replace(/`([^`]+)`/g, '<code>$1</code>')
   out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_m, alt, src, title) =>
-    `<img src="${src}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy">`)
+    `<img src="${safeSrc(src)}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy">`)
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_m, label, href, title) =>
-    `<a href="${href}"${title ? ` title="${title}"` : ''} target="_blank" rel="noopener noreferrer">${label}</a>`)
+    `<a href="${safeHref(href)}"${title ? ` title="${title}"` : ''} target="_blank" rel="noopener noreferrer">${label}</a>`)
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   out = out.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>')
   return out

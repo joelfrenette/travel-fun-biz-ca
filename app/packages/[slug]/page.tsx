@@ -15,6 +15,7 @@ import { getUsdToRate } from "@/lib/fx"
 import { formatPrice } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates } from "@/lib/site"
+import { jsonLdHtml } from "@/lib/jsonld"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
 import { TripTestimonials } from "@/components/trip-testimonials"
 
@@ -103,7 +104,7 @@ export default async function PackagePage({ params }: Props) {
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1 pb-20 lg:pb-0">
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
 
         {/* Hero */}
         <section className="relative">

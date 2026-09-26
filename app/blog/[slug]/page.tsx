@@ -9,6 +9,7 @@ import { getPublishedPostBySlug } from "@/lib/posts"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { renderMarkdown, readingTimeMinutes, excerptFromMarkdown } from "@/lib/markdown"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
+import { jsonLdHtml } from "@/lib/jsonld"
 
 export const revalidate = 300
 
@@ -59,7 +60,7 @@ export default async function BlogPostPage({ params }: Props) {
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
 
         <article className="container mx-auto max-w-3xl px-4 py-12">
           <Link href="/blog" className="text-sm text-muted-foreground hover:underline">&larr; All stories</Link>
