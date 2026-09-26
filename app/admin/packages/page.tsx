@@ -332,6 +332,7 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
   const [generatingField, setGeneratingField] = useState<string | null>(null)
   const [generatingFaqs, setGeneratingFaqs] = useState(false)
   const [generatingVariants, setGeneratingVariants] = useState(false)
+  const [generatingAiImage, setGeneratingAiImage] = useState(false)
   const [variantsError, setVariantsError] = useState<string | null>(null)
   const [photoCredit, setPhotoCredit] = useState<{ photographer: string; photographerUrl: string } | null>(null)
 
@@ -397,11 +398,47 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
       handleChange('image_url_square', data.package.image_url_square)
       handleChange('image_url_portrait', data.package.image_url_portrait)
       handleChange('image_url_banner', data.package.image_url_banner)
+      handleChange('image_source', data.package.image_source)
       if (data.photoCredit) setPhotoCredit(data.photoCredit)
     } catch (err) {
       setVariantsError('Could not generate image formats')
     } finally {
       setGeneratingVariants(false)
+    }
+  }
+
+  // Real per-image cost (OpenAI) — a deliberate, separate action, never an automatic fallback
+  // when Pexels comes up empty. Only for a package with no real photo and no Pexels match.
+  async function handleGenerateAiImage() {
+    if (!initialData?.id) {
+      setVariantsError('Save the package first, then generate an AI image.')
+      return
+    }
+    if (!confirm('Generate an AI illustration for this package? This calls OpenAI and costs real money per image. Use this only when there is no real photo and Pexels has no match.')) return
+    setGeneratingAiImage(true)
+    setVariantsError(null)
+    setPhotoCredit(null)
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch(`/api/admin/packages/${initialData.id}/generate-image-variants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ useAi: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setVariantsError(data.error || 'Could not generate an AI image')
+        return
+      }
+      handleChange('image_url', data.package.image_url)
+      handleChange('image_url_square', data.package.image_url_square)
+      handleChange('image_url_portrait', data.package.image_url_portrait)
+      handleChange('image_url_banner', data.package.image_url_banner)
+      handleChange('image_source', data.package.image_source)
+    } catch (err) {
+      setVariantsError('Could not generate an AI image')
+    } finally {
+      setGeneratingAiImage(false)
     }
   }
 
@@ -583,16 +620,28 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
                 them. No source image yet? This looks up a real photo of the destination on Pexels instead.
               </p>
             </div>
-            <Button type="button" size="sm" variant="outline" onClick={handleGenerateImageVariants} disabled={generatingVariants}>
-              {generatingVariants ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
-              {generatingVariants ? "Generating..." : "Generate formats"}
-            </Button>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={handleGenerateImageVariants} disabled={generatingVariants}>
+                {generatingVariants ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
+                {generatingVariants ? "Generating..." : "Generate formats"}
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={handleGenerateAiImage} disabled={generatingAiImage} title="Real per-image cost via OpenAI — only for a package with no real photo and no Pexels match">
+                {generatingAiImage ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Wand2 className="mr-1 h-4 w-4" />}
+                {generatingAiImage ? "Generating..." : "Generate AI image ($)"}
+              </Button>
+            </div>
           </div>
           {variantsError && <p className="mt-2 text-xs text-destructive">{variantsError}</p>}
           {photoCredit && (
             <p className="mt-2 text-xs text-muted-foreground">
               Photo via Pexels, by{" "}
               <a href={photoCredit.photographerUrl} target="_blank" rel="noreferrer" className="underline">{photoCredit.photographer}</a>.
+            </p>
+          )}
+          {formData.image_source && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Current image source: <Badge variant={formData.image_source === "ai_generated" ? "destructive" : "secondary"}>{formData.image_source.replace("_", " ")}</Badge>
+              {formData.image_source === "ai_generated" && " — an illustration, not a real photo of this destination."}
             </p>
           )}
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -51,17 +51,13 @@ export interface PackageImageUrls {
 
 const EMPTY_IMAGE_URLS: PackageImageUrls = { image_url: null, image_url_square: null, image_url_portrait: null, image_url_banner: null }
 
-/** Fetches an external photo once and generates every format the site and social media need
- * (image-formats.ts) from that single source, instead of copying the raw photo in as-is and
- * letting the site force-fit it into every shape at render time — that force-fit is what made
- * copied-over images look blurry/low-quality once zoomed into a banner or cropped to a square
- * post. Falls back to storing just the raw copy as image_url if sharp processing fails for any
- * reason (a bad/corrupt source image must never block importing the package). */
-export async function uploadImagePackageVariants(externalUrl: string, slugBase = 'package'): Promise<PackageImageUrls> {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return EMPTY_IMAGE_URLS
-  const source = await fetchExternalImage(externalUrl)
-  if (!source) return EMPTY_IMAGE_URLS
-
+/** Generates every format the site and social media need (image-formats.ts) from one photo
+ * already in hand, uploads each, and returns their URLs. Shared by both
+ * uploadImagePackageVariants (fetches the source from a URL first) and
+ * uploadGeneratedImageVariants (the source is already an in-memory buffer, e.g. AI-generated).
+ * Falls back to storing just the raw source as image_url if sharp processing fails for any reason
+ * (a bad/corrupt source image must never block importing or generating a package's image). */
+async function processAndUploadVariants(source: Buffer, slugBase: string): Promise<PackageImageUrls> {
   const safeName = (slugBase || 'package').replace(/[^a-z0-9\-]/gi, '_').toLowerCase()
   const ts = Date.now()
 
@@ -82,6 +78,24 @@ export async function uploadImagePackageVariants(externalUrl: string, slugBase =
     const raw = await fetchAndUploadOne(source, 'image/jpeg', `${safeName}-${ts}.jpg`)
     return { ...EMPTY_IMAGE_URLS, image_url: raw }
   }
+}
+
+/** Fetches an external photo once and generates every format the site and social media need
+ * from that single source, instead of copying the raw photo in as-is and letting the site
+ * force-fit it into every shape at render time — that force-fit is what made copied-over images
+ * look blurry/low-quality once zoomed into a banner or cropped to a square post. */
+export async function uploadImagePackageVariants(externalUrl: string, slugBase = 'package'): Promise<PackageImageUrls> {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return EMPTY_IMAGE_URLS
+  const source = await fetchExternalImage(externalUrl)
+  if (!source) return EMPTY_IMAGE_URLS
+  return processAndUploadVariants(source, slugBase)
+}
+
+/** Same as uploadImagePackageVariants, but for a photo that's already an in-memory buffer (an
+ * AI-generated image, in practice — see lib/image-ai-gen.ts) rather than something to fetch. */
+export async function uploadGeneratedImageVariants(source: Buffer, slugBase = 'package'): Promise<PackageImageUrls> {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return EMPTY_IMAGE_URLS
+  return processAndUploadVariants(source, slugBase)
 }
 
 /**

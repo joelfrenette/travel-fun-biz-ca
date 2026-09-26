@@ -29,6 +29,7 @@ export interface DbPackage {
   image_url_square: string | null
   image_url_portrait: string | null
   image_url_banner: string | null
+  image_source: 'upload' | 'pexels' | 'ai_generated' | null
   gallery_urls: string[]
   video_url: string | null
   rating: number | null
