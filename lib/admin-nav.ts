@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -57,6 +57,13 @@ const unsortedTools: AdminNavItem[] = [
     icon: FileText,
     status: "Active",
     href: "/admin/blog",
+  },
+  {
+    title: "Orders",
+    description: "Purchases GoHighLevel has reported, with a running total collected. Test purchases and refunds are shown but never counted.",
+    icon: Receipt,
+    status: "Active",
+    href: "/admin/orders",
   },
   {
     title: "Search Rankings",
