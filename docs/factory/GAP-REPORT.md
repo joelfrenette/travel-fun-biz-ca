@@ -122,6 +122,9 @@ New, pixels (optional, needs consent work first): `NEXT_PUBLIC_META_PIXEL_ID`, `
 
 ## 9. Decisions needed from Joel before Phase 1 can start
 
+**All 9 resolved 2026-09-26 — see `ADOPTION-LOG.md` for the answers and rationale.** Kept below
+as the original audit record.
+
 1. **Migration numbering.** Adopt a numbered-migration-file convention in this repo (so Nomad's "next number" instruction has something to attach to), or keep applying schema changes ad hoc by name and track "the order things landed in" a different way (e.g. this same ADOPTION-LOG)? My recommendation: adopt sequential numbered files under `supabase/migrations/`, matching how the Supabase CLI itself expects them — it's boring, standard, and makes "Nomad's migration 067 became our migration 004" traceable. Confirm before Phase 8.
 2. **Admin auth shim.** Confirm: no new Postgres `current_is_admin()` RPC is needed. Every new factory admin route reuses the existing `isAuthorized(request)` check (HMAC token, service-role writes) exactly like every other admin route in this project. Flag if you disagree.
 3. **Funnel stage titles and travel-specific definitions** (my draft, needs your correction): 1 Awareness, 2 Visits, 3 Leads (trip inquiry / newsletter), 4 Nurture, 5 Quote Started (a real advisor conversation opened — no in-house checkout to key off), 6 Booked (a supplier confirms the booking — this is *before* commission is paid), 7 Loyalty (repeat bookings, referrals, reviews). Separately define **"collected"** (commission actually received, often weeks/months after Booked) as its own tracked event, since Nomad's `collectedBaseCents()` rule ("commission on money collected, never list price") assumes a gap like this exists.
