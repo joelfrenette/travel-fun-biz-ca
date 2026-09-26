@@ -45,3 +45,62 @@ export function trackedPathOf(pageUrl: string): string | null {
   path = path.replace(/\/+$/, '')
   return /^\/(blog|packages)\/[^/]+$/.test(path) ? path : null
 }
+
+export interface RankPoint {
+  day: string
+  position: number
+}
+
+/** A tracked page or keyword compared between its first and latest snapshot. */
+export interface Mover {
+  key: string
+  first: number
+  latest: number
+  /** Positive = moved up (the position number fell). */
+  change: number
+  clicks: number
+  impressions: number
+  series: RankPoint[]
+}
+
+/** Group snapshot rows by key and compare each key's first day with its latest. Biggest change first. */
+export function buildMovers(rows: RankRow[]): Mover[] {
+  const byKey = new Map<string, RankRow[]>()
+  for (const r of rows) {
+    const list = byKey.get(r.key)
+    if (list) list.push(r)
+    else byKey.set(r.key, [r])
+  }
+  const movers: Mover[] = []
+  for (const [key, list] of byKey) {
+    list.sort((a, b) => a.day.localeCompare(b.day))
+    const first = list[0]
+    const latest = list[list.length - 1]
+    movers.push({
+      key,
+      first: first.position,
+      latest: latest.position,
+      change: Math.round((first.position - latest.position) * 10) / 10,
+      clicks: latest.clicks,
+      impressions: latest.impressions,
+      series: list.map((r) => ({ day: r.day, position: r.position })),
+    })
+  }
+  return movers.sort((a, b) => Math.abs(b.change) - Math.abs(a.change) || b.impressions - a.impressions)
+}
+
+/** SVG polyline points for a series, best position at the top. Empty for fewer than two points. */
+export function sparkPoints(series: RankPoint[], width: number, height: number): string {
+  if (series.length < 2) return ''
+  const values = series.map((p) => p.position)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const span = max - min || 1
+  return series
+    .map((p, i) => {
+      const x = (i / (series.length - 1)) * width
+      const y = ((p.position - min) / span) * (height - 2) + 1
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+}
