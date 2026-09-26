@@ -5,13 +5,12 @@ import { dueApprovedTopics, pickOneTopic, setTopicStatus, type TopicIdea } from 
 import { composeFullPost, autoPublishBlockers } from '@/lib/blog-composer'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { enrollIfDue } from '@/lib/distribution'
+import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 
 // Ported from Nomad Escape Plan's modules/marketing/autoblog-run.ts (Factory Phase 2:
 // blog/autoblog), adapted to this project's posts table (lib/posts.ts) and app_settings helper
-// (lib/app-settings.ts). Dropped: the Autopilot "posts per week" dial and weekday scheduling
-// (Nomad's own admin feature, not part of this port) - a scheduled run here still self-limits to
-// one post per day, just without a configurable weekly cadence. That cadence dial is a genuine
-// follow-up if Joel wants finer control than "at most one a day", not something to invent here.
+// (lib/app-settings.ts). The Autopilot "posts per week" dial (Nomad's own admin feature) was
+// deferred out of that first port and ships now, in lib/autoblog-cadence.ts.
 export type AutoblogMode = 'off' | 'draft' | 'publish'
 export const AUTOBLOG_MODE_KEY = 'autoblog_mode'
 
@@ -42,6 +41,10 @@ export async function runAutoblog(opts: { scheduled: boolean }): Promise<Autoblo
   const existingPosts = await listPostsAdmin()
 
   if (opts.scheduled) {
+    const postsPerWeek = await getAutoblogPostsPerWeek(admin)
+    if (!isPublishDayDue(postsPerWeek, currentWeekday())) {
+      return { ran: false, mode, note: `not a publish day at ${postsPerWeek}/week` }
+    }
     const today = new Date().toISOString().slice(0, 10)
     if (existingPosts.some((p) => p.created_at?.slice(0, 10) === today)) {
       return { ran: false, mode, note: 'already wrote a post today' }

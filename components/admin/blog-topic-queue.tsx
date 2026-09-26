@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Sparkles, Check, X, Trash2, Play } from "lucide-react"
 import type { BlogTopicQueueRow } from "@/lib/blog-topics"
 import type { AutoblogMode } from "@/lib/autoblog-run"
+import { PUBLISH_DAYS } from "@/lib/autoblog-cadence"
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -19,9 +20,21 @@ const MODE_LABEL: Record<AutoblogMode, string> = {
   publish: "Publish — auto-publishes when the quality gate passes",
 }
 
+const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+/** Same source as the real gate (lib/autoblog-cadence.ts's PUBLISH_DAYS) — never hand-duplicated,
+ * so this label can't silently drift out of sync with what scheduled runs actually check. */
+function cadenceLabel(n: number): string {
+  const days = PUBLISH_DAYS[n] ?? []
+  if (n === 0) return "0/week — never (scheduled runs skip every day)"
+  const suffix = n === 3 ? " (default)" : ""
+  return `${n}/week — ${days.map((d) => WEEKDAY_ABBR[d]).join("/")}${suffix}`
+}
+
 export default function BlogTopicQueue() {
   const [topics, setTopics] = useState<BlogTopicQueueRow[]>([])
   const [mode, setMode] = useState<AutoblogMode>("off")
+  const [postsPerWeek, setPostsPerWeek] = useState(3)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -35,6 +48,7 @@ export default function BlogTopicQueue() {
         if (!ok) throw new Error(data.error || "Could not load")
         setTopics(data.topics || [])
         setMode(data.mode || "off")
+        setPostsPerWeek(typeof data.postsPerWeek === "number" ? data.postsPerWeek : 3)
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -78,6 +92,13 @@ export default function BlogTopicQueue() {
     else setError((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
   }
 
+  async function changePostsPerWeek(next: number) {
+    setError("")
+    const res = await fetch("/api/admin/blog/autoblog-cadence", { method: "POST", headers: authHeaders(), body: JSON.stringify({ postsPerWeek: next }) })
+    if (res.ok) setPostsPerWeek(next)
+    else setError((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
+  }
+
   async function runNow() {
     setBusy(true)
     setRunNote("")
@@ -116,6 +137,14 @@ export default function BlogTopicQueue() {
             <SelectContent>
               {(["off", "draft", "publish"] as AutoblogMode[]).map((m) => (
                 <SelectItem key={m} value={m}>{MODE_LABEL[m]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={String(postsPerWeek)} onValueChange={(v) => changePostsPerWeek(Number(v))}>
+            <SelectTrigger className="w-[260px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {[0, 1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <SelectItem key={n} value={String(n)}>{cadenceLabel(n)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
