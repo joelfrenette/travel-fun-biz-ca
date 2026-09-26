@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -57,6 +57,13 @@ const unsortedTools: AdminNavItem[] = [
     icon: FileText,
     status: "Active",
     href: "/admin/blog",
+  },
+  {
+    title: "Leads",
+    description: "Every contact-form submission, saved as a backup whether or not it reached GoHighLevel - so a GHL outage never loses one for good.",
+    icon: Users,
+    status: "Active",
+    href: "/admin/leads",
   },
   {
     title: "Orders",
