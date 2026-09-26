@@ -52,6 +52,13 @@ const unsortedTools: AdminNavItem[] = [
     href: "/admin/testimonials",
   },
   {
+    title: "Blog",
+    description: "Write articles and trip recaps in Markdown, with a live preview and image upload. Drafts stay hidden until published.",
+    icon: FileText,
+    status: "Active",
+    href: "/admin/blog",
+  },
+  {
     title: "Affiliate Code Manager",
     description: "Set affiliate codes and auto-convert keywords to affiliate hyperlinks across the site.",
     icon: Link2,
@@ -67,8 +74,8 @@ const unsortedTools: AdminNavItem[] = [
   },
   {
     title: "Blog Auto-Writer",
-    description: "Auto-generate and publish blog articles from trends, news, emails, and curated content.",
-    icon: FileText,
+    description: "Auto-generate draft articles from trends, news, emails, and curated content, into the same Blog tool for review.",
+    icon: Bot,
     status: "Coming Soon",
     href: null,
   },
