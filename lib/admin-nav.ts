@@ -87,11 +87,11 @@ const unsortedTools: AdminNavItem[] = [
     href: "/admin/system-health",
   },
   {
-    title: "Affiliate Code Manager",
-    description: "Set affiliate codes and auto-convert keywords to affiliate hyperlinks across the site.",
+    title: "Affiliate Links",
+    description: "Create /go short links for affiliate and merchant URLs, edit the destination without republishing anything, and see clicks per link.",
     icon: Link2,
-    status: "Coming Soon",
-    href: null,
+    status: "Active",
+    href: "/admin/affiliate-links",
   },
   {
     title: "AI Voice & Chat Agent",
