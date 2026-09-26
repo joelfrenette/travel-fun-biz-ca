@@ -21,6 +21,30 @@ export interface SiteProfile {
   registrations: string[]
   /** Where privacy, terms and the other legal pages live. */
   legalBaseUrl: string
+  /** One sentence: what this site is for. Reuses the existing metadata description
+   * (app/layout.tsx) rather than a second, possibly-drifting copy of the same idea. */
+  tagline: string
+  /** The IANA zone every schedule (the autoblog/social posting window, admin timestamps) runs on
+   * — never UTC. A reasonable operational default from each profile's own city above, not a
+   * legal fact; trivial to correct if wrong. */
+  timeZone: string
+  timeZoneLabel: string
+  /**
+   * Left blank on purpose, like `phone`/`addressLines` on the US profile above: the registered
+   * legal entity name and the jurisdiction whose law governs the terms are compliance facts
+   * (factory decision 8), not something to infer from a city name. Set them once Joel supplies
+   * the real values; every consumer must treat '' as "not yet supplied," never render a blank
+   * legal page as if it were complete.
+   */
+  legalEntity: string
+  governingLaw: string
+  /**
+   * Nomad's SITE.handle assumes one bare handle used on every platform. TravelFunBiz's real
+   * accounts don't share one (see content/footer.ts socialPromos: MostPartiesMostFun on Facebook,
+   * solotravelexpert on Instagram, travelfunjoel on TikTok) — so this stays '' rather than picking
+   * one and calling it "the" handle. Read the real per-platform links from socialPromos instead.
+   */
+  handle: string
 }
 
 const PROFILES: Record<SiteId, SiteProfile> = {
@@ -36,6 +60,12 @@ const PROFILES: Record<SiteId, SiteProfile> = {
     address: { locality: 'Toronto', region: 'ON', postalCode: 'M5G 2J5' },
     registrations: ['Florida Seller of Travel # ST42324', 'California Seller of Travel # 2154919-50'],
     legalBaseUrl: 'https://www.travelfunbiz.com',
+    tagline: 'Hosted group trips, river and ocean cruises, and singles getaways with real travel advisors.',
+    timeZone: 'America/Toronto',
+    timeZoneLabel: 'ET',
+    legalEntity: '',
+    governingLaw: '',
+    handle: '',
   },
   us: {
     // US company profile. Phone and street address are intentionally blank until Joel supplies
@@ -51,6 +81,12 @@ const PROFILES: Record<SiteId, SiteProfile> = {
     address: { locality: 'Boca Raton', region: 'FL', postalCode: '' },
     registrations: ['Florida Seller of Travel # ST42324', 'California Seller of Travel # 2154919-50'],
     legalBaseUrl: 'https://www.travelfunbiz.com',
+    tagline: 'Hosted group trips, river and ocean cruises, and singles getaways with real travel advisors.',
+    timeZone: 'America/New_York',
+    timeZoneLabel: 'ET',
+    legalEntity: '',
+    governingLaw: '',
+    handle: '',
   },
 }
 

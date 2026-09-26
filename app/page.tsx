@@ -13,6 +13,7 @@ import { translate } from "@/lib/i18n"
 import { getUsdToRate } from "@/lib/fx"
 import { officeInfo, socialPromos } from "@/content/footer"
 import { SITE_NAME, absoluteUrl, site } from "@/lib/site"
+import { jsonLdHtml } from "@/lib/jsonld"
 
 const organizationJsonLd = {
   "@context": "https://schema.org",
@@ -42,7 +43,7 @@ export default async function HomePage() {
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(organizationJsonLd) }} />
         <HeroSection language={language} />
         <PackagesSection
           packages={packages}
