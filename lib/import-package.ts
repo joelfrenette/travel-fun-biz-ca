@@ -1,15 +1,26 @@
 import { createPackage, type DbPackage } from '@/lib/packages'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { generateSlug } from '@/lib/utils'
+import { generateImageVariants } from '@/lib/image-pipeline'
 
 const REQUIRED_FIELDS = ['name', 'destination', 'duration', 'price_display'] as const
 
 export type ImportError = { status: number; message: string }
 export type ImportResult = { pkg: DbPackage; error: null } | { pkg: null; error: ImportError }
 
-/** Copy an external image into the package-images bucket; null when it cannot be stored. */
-export async function uploadImageToSupabase(externalUrl: string, slugBase = 'package'): Promise<string | null> {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null
+/** Fetches an external image and uploads one JPEG to the package-images bucket, returning its
+ * public URL — the original behavior, kept for callers that just want one file stored. */
+async function fetchAndUploadOne(buffer: Buffer, contentType: string, filename: string): Promise<string | null> {
+  const storage = getSupabaseAdmin().storage.from('package-images')
+  const { error } = await storage.upload(filename, buffer, { contentType, upsert: true })
+  if (error) {
+    console.error('[import] image upload failed:', error.message)
+    return null
+  }
+  return storage.getPublicUrl(filename).data.publicUrl || null
+}
+
+async function fetchExternalImage(externalUrl: string): Promise<Buffer | null> {
   try {
     const res = await fetch(externalUrl, {
       headers: {
@@ -20,31 +31,56 @@ export async function uploadImageToSupabase(externalUrl: string, slugBase = 'pac
       redirect: 'follow',
     })
     if (!res.ok) return null
-
-    const contentType = res.headers.get('content-type') || 'image/jpeg'
+    const contentType = res.headers.get('content-type') || ''
     if (!contentType.startsWith('image/') && !contentType.includes('octet-stream')) return null
-
-    const ext = contentType.includes('png') ? '.png'
-      : contentType.includes('webp') ? '.webp'
-      : contentType.includes('gif') ? '.gif'
-      : contentType.includes('svg') ? '.svg'
-      : '.jpg'
-    const safeName = (slugBase || 'package').replace(/[^a-z0-9\-]/gi, '_').toLowerCase()
-    const filename = `${safeName}-${Date.now()}${ext}`
-
     const buffer = Buffer.from(await res.arrayBuffer())
     if (buffer.length < 1000) return null // tracking pixel or error page, not a photo
-
-    const storage = getSupabaseAdmin().storage.from('package-images')
-    const { error } = await storage.upload(filename, buffer, { contentType, upsert: true })
-    if (error) {
-      console.error('[import] image upload failed:', error.message)
-      return null
-    }
-    return storage.getPublicUrl(filename).data.publicUrl || null
+    return buffer
   } catch (err) {
-    console.error('[import] image upload error:', err instanceof Error ? err.message : err)
+    console.error('[import] image fetch error:', err instanceof Error ? err.message : err)
     return null
+  }
+}
+
+export interface PackageImageUrls {
+  image_url: string | null
+  image_url_square: string | null
+  image_url_portrait: string | null
+  image_url_banner: string | null
+}
+
+const EMPTY_IMAGE_URLS: PackageImageUrls = { image_url: null, image_url_square: null, image_url_portrait: null, image_url_banner: null }
+
+/** Fetches an external photo once and generates every format the site and social media need
+ * (image-formats.ts) from that single source, instead of copying the raw photo in as-is and
+ * letting the site force-fit it into every shape at render time — that force-fit is what made
+ * copied-over images look blurry/low-quality once zoomed into a banner or cropped to a square
+ * post. Falls back to storing just the raw copy as image_url if sharp processing fails for any
+ * reason (a bad/corrupt source image must never block importing the package). */
+export async function uploadImagePackageVariants(externalUrl: string, slugBase = 'package'): Promise<PackageImageUrls> {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return EMPTY_IMAGE_URLS
+  const source = await fetchExternalImage(externalUrl)
+  if (!source) return EMPTY_IMAGE_URLS
+
+  const safeName = (slugBase || 'package').replace(/[^a-z0-9\-]/gi, '_').toLowerCase()
+  const ts = Date.now()
+
+  try {
+    const variants = await generateImageVariants(source)
+    const urls: Record<string, string | null> = {}
+    for (const variant of variants) {
+      urls[variant.key] = await fetchAndUploadOne(variant.buffer, variant.contentType, `${safeName}-${ts}-${variant.key}.jpg`)
+    }
+    return {
+      image_url: urls.horizontal ?? null,
+      image_url_square: urls.square ?? null,
+      image_url_portrait: urls.portrait ?? null,
+      image_url_banner: urls.banner ?? null,
+    }
+  } catch (err) {
+    console.error('[import] image variant generation failed, falling back to raw copy:', err instanceof Error ? err.message : err)
+    const raw = await fetchAndUploadOne(source, 'image/jpeg', `${safeName}-${ts}.jpg`)
+    return { ...EMPTY_IMAGE_URLS, image_url: raw }
   }
 }
 
@@ -77,8 +113,13 @@ export async function importPackage(input: Record<string, any>): Promise<ImportR
   }
 
   if (typeof body.image_url === 'string' && /^https?:\/\//i.test(body.image_url)) {
-    const stored = await uploadImageToSupabase(body.image_url, body.slug)
-    if (stored) body.image_url = stored
+    const stored = await uploadImagePackageVariants(body.image_url, body.slug)
+    if (stored.image_url) {
+      body.image_url = stored.image_url
+      body.image_url_square = stored.image_url_square
+      body.image_url_portrait = stored.image_url_portrait
+      body.image_url_banner = stored.image_url_banner
+    }
   }
 
   const { pkg, error } = await createPackage(body)

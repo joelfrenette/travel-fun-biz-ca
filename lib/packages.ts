@@ -26,6 +26,9 @@ export interface DbPackage {
   highlights: string[] | null
   itinerary: any | null
   image_url: string | null
+  image_url_square: string | null
+  image_url_portrait: string | null
+  image_url_banner: string | null
   gallery_urls: string[]
   video_url: string | null
   rating: number | null

@@ -331,6 +331,9 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
   const [aiImageUrl, setAiImageUrl] = useState<string | null>(null)
   const [generatingField, setGeneratingField] = useState<string | null>(null)
   const [generatingFaqs, setGeneratingFaqs] = useState(false)
+  const [generatingVariants, setGeneratingVariants] = useState(false)
+  const [variantsError, setVariantsError] = useState<string | null>(null)
+  const [photoCredit, setPhotoCredit] = useState<{ photographer: string; photographerUrl: string } | null>(null)
 
   function handleChange(field: string, value: any) {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -363,6 +366,42 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
       alert('Failed to generate AI thumbnail')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  // Image format pipeline: smart-crops the source image (or, if there is none, a real Pexels
+  // photo of the destination) into every shape the site and social media need. Only callable
+  // once the package has an id — a brand-new, unsaved package has nothing yet to attach the
+  // generated images to.
+  async function handleGenerateImageVariants() {
+    if (!initialData?.id) {
+      setVariantsError('Save the package first, then generate formats.')
+      return
+    }
+    setGeneratingVariants(true)
+    setVariantsError(null)
+    setPhotoCredit(null)
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch(`/api/admin/packages/${initialData.id}/generate-image-variants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sourceUrl: formData.image_url || undefined }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setVariantsError(data.error || 'Could not generate image formats')
+        return
+      }
+      handleChange('image_url', data.package.image_url)
+      handleChange('image_url_square', data.package.image_url_square)
+      handleChange('image_url_portrait', data.package.image_url_portrait)
+      handleChange('image_url_banner', data.package.image_url_banner)
+      if (data.photoCredit) setPhotoCredit(data.photoCredit)
+    } catch (err) {
+      setVariantsError('Could not generate image formats')
+    } finally {
+      setGeneratingVariants(false)
     }
   }
 
@@ -532,6 +571,46 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-lg border bg-card/50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-medium">Image formats (horizontal / square / portrait / banner)</h3>
+              <p className="text-xs text-muted-foreground">
+                Smart-crops the source image above into every shape the site and social posts need, instead of stretching one photo into all of
+                them. No source image yet? This looks up a real photo of the destination on Pexels instead.
+              </p>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={handleGenerateImageVariants} disabled={generatingVariants}>
+              {generatingVariants ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
+              {generatingVariants ? "Generating..." : "Generate formats"}
+            </Button>
+          </div>
+          {variantsError && <p className="mt-2 text-xs text-destructive">{variantsError}</p>}
+          {photoCredit && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Photo via Pexels, by{" "}
+              <a href={photoCredit.photographerUrl} target="_blank" rel="noreferrer" className="underline">{photoCredit.photographer}</a>.
+            </p>
+          )}
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { key: "image_url", label: "Horizontal" },
+              { key: "image_url_square", label: "Square" },
+              { key: "image_url_portrait", label: "Portrait" },
+              { key: "image_url_banner", label: "Banner" },
+            ].map(({ key, label }) => (
+              <div key={key} className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                {formData[key] ? (
+                  <img src={formData[key]} alt={label} className="h-20 w-full rounded border object-cover" />
+                ) : (
+                  <div className="flex h-20 w-full items-center justify-center rounded border bg-muted text-[10px] text-muted-foreground">Not generated</div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </div>
