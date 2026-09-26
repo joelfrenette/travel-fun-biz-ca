@@ -61,6 +61,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
       travelDate: "",
       travelers: "",
       message: "",
+      company_website: "",
     }),
     [packageFromQuery, preselectedPackage],
   )
@@ -115,6 +116,12 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          {/* Honeypot: invisible to a real visitor, filled in by form-filling bots. */}
+          <div className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+            <Label htmlFor="company_website">Company Website</Label>
+            <Input id="company_website" tabIndex={-1} autoComplete="off" {...register("company_website")} />
+          </div>
+
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="name">
