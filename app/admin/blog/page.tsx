@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, Plus, Trash2, FileText } from "lucide-react"
 import type { Post } from "@/lib/posts"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import BlogTopicQueue from "@/components/admin/blog-topic-queue"
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -55,32 +57,43 @@ export default function BlogAdminPage() {
       <div className="container mx-auto space-y-3 px-4 py-4">
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
-        {loading ? (
-          <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-        ) : posts.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
-            <FileText className="h-8 w-8" />
-            <p>No posts yet. Write your first one.</p>
-          </div>
-        ) : (
-          posts.map((post) => (
-            <Card key={post.id}>
-              <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div className="min-w-[220px] flex-1">
-                  <Link href={`/admin/blog/${post.id}`} className="font-medium hover:underline">{post.title}</Link>
-                  <p className="text-xs text-muted-foreground">
-                    /blog/{post.slug}{post.publish_date ? ` · ${new Date(post.publish_date).toLocaleDateString("en-CA")}` : ""}
-                    {post.tags.length > 0 ? ` · ${post.tags.join(", ")}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={post.status === "published" ? "default" : "secondary"}>{post.status}</Badge>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => remove(post)} title="Delete"><Trash2 className="h-4 w-4" /></Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
+        <Tabs defaultValue="posts">
+          <TabsList>
+            <TabsTrigger value="posts">Posts</TabsTrigger>
+            <TabsTrigger value="autoblog">Topics &amp; Autoblog</TabsTrigger>
+          </TabsList>
+          <TabsContent value="posts" className="space-y-3 pt-3">
+            {loading ? (
+              <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+            ) : posts.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+                <FileText className="h-8 w-8" />
+                <p>No posts yet. Write your first one.</p>
+              </div>
+            ) : (
+              posts.map((post) => (
+                <Card key={post.id}>
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div className="min-w-[220px] flex-1">
+                      <Link href={`/admin/blog/${post.id}`} className="font-medium hover:underline">{post.title}</Link>
+                      <p className="text-xs text-muted-foreground">
+                        /blog/{post.slug}{post.publish_date ? ` · ${new Date(post.publish_date).toLocaleDateString("en-CA")}` : ""}
+                        {post.tags.length > 0 ? ` · ${post.tags.join(", ")}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={post.status === "published" ? "default" : "secondary"}>{post.status}</Badge>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => remove(post)} title="Delete"><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </TabsContent>
+          <TabsContent value="autoblog" className="pt-3">
+            <BlogTopicQueue />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )
