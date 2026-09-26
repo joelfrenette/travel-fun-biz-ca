@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { updatePost, deletePost } from '@/lib/posts'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { enrollIfDue } from '@/lib/distribution'
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const body = await request.json()
     const post = await updatePost(params.id, body)
+    if (post.status === 'published') await enrollIfDue(getSupabaseAdmin(), post.slug, post.title)
     return NextResponse.json({ post })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Server error'

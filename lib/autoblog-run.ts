@@ -4,6 +4,7 @@ import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, pickOneTopic, setTopicStatus, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, autoPublishBlockers } from '@/lib/blog-composer'
 import { findDuplicate } from '@/lib/content-dedupe'
+import { enrollIfDue } from '@/lib/distribution'
 
 // Ported from Nomad Escape Plan's modules/marketing/autoblog-run.ts (Factory Phase 2:
 // blog/autoblog), adapted to this project's posts table (lib/posts.ts) and app_settings helper
@@ -83,6 +84,7 @@ export async function runAutoblog(opts: { scheduled: boolean }): Promise<Autoblo
   })
 
   if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', { used_slug: post.slug })
+  if (publishing) await enrollIfDue(admin, post.slug, post.title)
 
   return {
     ran: true,

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { listPostsAdmin, createPost } from '@/lib/posts'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { enrollIfDue } from '@/lib/distribution'
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -16,6 +18,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const post = await createPost(body)
+    if (post.status === 'published') await enrollIfDue(getSupabaseAdmin(), post.slug, post.title)
     return NextResponse.json({ post })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Server error'

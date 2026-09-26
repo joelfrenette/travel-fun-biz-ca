@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -85,6 +85,13 @@ const unsortedTools: AdminNavItem[] = [
     icon: Activity,
     status: "Active",
     href: "/admin/system-health",
+  },
+  {
+    title: "Post Distribution",
+    description: "Enrollment ledger for social auto-posting (off by default). No posting provider is wired in yet — this only tracks which published posts are enrolled.",
+    icon: Share2,
+    status: "Active",
+    href: "/admin/distribution",
   },
   {
     title: "Affiliate Links",
