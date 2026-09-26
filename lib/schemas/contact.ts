@@ -9,6 +9,9 @@ export const contactFormSchema = z.object({
   travelDate: z.string().optional(),
   travelers: z.string().optional(),
   message: z.string().optional(),
+  // Honeypot (Factory Phase 10, lib/abuse-guard.ts): real visitors never see or fill this field.
+  // A form-filling bot fills every field, so a filled honeypot marks the submission as spam.
+  company_website: z.string().optional(),
 })
 
 export type ContactFormValues = z.infer<typeof contactFormSchema>
