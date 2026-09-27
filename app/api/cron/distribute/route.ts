@@ -5,9 +5,10 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { runDistribution } from '@/lib/distribution'
 
 // Factory Phase 6/16.24 (distribution): dormant by three independent switches - CRON_SECRET must
-// be set, app_settings.distribution_mode must be 'auto' (runDistribution no-ops on 'off'/
-// 'prepare'), and UPLOAD_POST_API_KEY must be set. Scheduling this in vercel.json is safe before
-// any of those are on - an unconfigured server just costs a 503, not a real post.
+// be set, app_settings.distribution_mode must not be 'off' (runDistribution no-ops on 'off'; both
+// 'prepare' and 'auto' let an already-queued row post - see lib/distribution.ts), and
+// UPLOAD_POST_API_KEY must be set. Scheduling this in vercel.json is safe before any of those are
+// on - an unconfigured server just costs a 503, not a real post.
 export const dynamic = 'force-dynamic'
 
 export const GET = withCronHeartbeat('distribute', async (request: Request) => {

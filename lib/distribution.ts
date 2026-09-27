@@ -103,15 +103,18 @@ export async function setDistributionStage(admin: SupabaseClient, slug: string, 
 
 /** Posts every queued row via Upload-Post, oldest first, up to 5 per run (a small business's
  * daily blog output never queues more than that; a hard cap here is boring insurance, not a
- * real limit). No separate approval gate — a post already cleared the autoblog's quality gate
- * before it published, and the mode switch (auto vs. prepare) plus the kill switch are the real
- * controls. A network Upload-Post didn't confirm counts as a failure, retried up to MAX_ATTEMPTS
- * times across future runs, then left as `failed` for a human to look at. Never throws - a
- * distribution failure must never break the cron for the next queued post. */
+ * real limit). The approval gate is the enrollment stage, not this function: "prepare" mode
+ * enrolls a new post into `held`, and it only becomes `queued` (postable) once an admin clicks
+ * Approve; "auto" mode skips that click by enrolling straight into `queued`. Either way, a
+ * `queued` row is one that's cleared to post - only "off" (nothing enrolled, and this never
+ * runs) or the kill switch stop it. A network Upload-Post didn't confirm counts as a failure,
+ * retried up to MAX_ATTEMPTS times across future runs, then left as `failed` for a human to
+ * look at. Never throws - a distribution failure must never break the cron for the next queued
+ * post. */
 export async function runDistribution(admin: SupabaseClient): Promise<string> {
   if (await isAutomationPaused(admin)) return 'automation is paused'
   const mode = await getDistributionMode(admin)
-  if (mode !== 'auto') return `distribution mode is "${mode}", not auto`
+  if (mode === 'off') return 'distribution mode is off'
   if (!uploadPostConfigured()) return 'UPLOAD_POST_API_KEY is not set'
 
   const [accounts, platforms] = await Promise.all([getDistributionAccounts(admin), getDistributionPlatforms(admin)])

@@ -116,8 +116,8 @@ export default function DistributionPage() {
           <p className="text-sm text-muted-foreground">
             Provider: Upload-Post (Joel's pick, 2026-09-27). {providerConfigured
               ? "UPLOAD_POST_API_KEY is set."
-              : "UPLOAD_POST_API_KEY is not set yet — nothing can post until it is."} Mode stays "off" by default, and even in "auto" mode
-            nothing posts unless a profile and at least one platform are set below.
+              : "UPLOAD_POST_API_KEY is not set yet — nothing can post until it is."} Mode stays "off" by default (nothing gets enrolled, nothing
+            posts), and even in "Prepare" or "Auto" mode nothing posts unless a profile and at least one platform are set below.
           </p>
         </div>
       </div>
@@ -133,8 +133,8 @@ export default function DistributionPage() {
                 <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="off">Off (default) — nothing gets enrolled</SelectItem>
-                  <SelectItem value="prepare">Prepare — enroll new posts, held for manual approval</SelectItem>
-                  <SelectItem value="auto">Auto — enroll new posts, queued automatically</SelectItem>
+                  <SelectItem value="prepare">Prepare — enroll new posts held; posts once you click Approve below</SelectItem>
+                  <SelectItem value="auto">Auto — enroll new posts queued; posts with no approval click</SelectItem>
                 </SelectContent>
               </Select>
             </div>
