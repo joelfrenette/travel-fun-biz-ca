@@ -25,10 +25,17 @@ export const dashboardNavItem: AdminNavItem = {
 const unsortedTools: AdminNavItem[] = [
   {
     title: "Travel Packages",
-    description: "Manage all travel packages: add via AI interview, scrape URLs, upload Excel, or enter manually. Full CRUD with sorting and filtering.",
+    description: "Manage all travel packages: add via AI interview, scrape URLs, paste source material, upload CSV, or enter manually. Full CRUD with sorting and filtering.",
     icon: Package,
     status: "Active",
     href: "/admin/packages",
+  },
+  {
+    title: "Destinations",
+    description: "A short editorial blurb for each destination, shown on its /destinations page above the trip listings. AI-assisted, admin-reviewed.",
+    icon: Globe,
+    status: "Active",
+    href: "/admin/destinations",
   },
   {
     title: "Keyword Research",

@@ -6,6 +6,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
 import { getDestinationPage } from "@/lib/destinations"
+import { getPublicBlurb } from "@/lib/destination-blurbs"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
@@ -39,6 +40,7 @@ export default async function DestinationPage({ params }: Props) {
   const { language, currency } = getVisitorPreferences()
   const usdToTargetRate = await getUsdToRate(currency)
   const pageUrl = absoluteUrl(`/destinations/${params.slug}`)
+  const blurb = await getPublicBlurb(params.slug)
 
   // A CollectionPage listing the real upcoming trips and past-trip recaps for this destination -
   // the audit script (scripts/audit-live-seo.mjs) flagged every destination page as having no
@@ -76,6 +78,7 @@ export default async function DestinationPage({ params }: Props) {
           <div className="container mx-auto px-4 py-10">
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Destination</p>
             <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{page.destination} Trips</h1>
+            {blurb && <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">{blurb.blurb}</p>}
           </div>
         </div>
 
