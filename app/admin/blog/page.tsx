@@ -82,7 +82,11 @@ export default function BlogAdminPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={post.status === "published" ? "default" : "secondary"}>{post.status}</Badge>
+                      {post.status === "published" && post.publish_date && post.publish_date > new Date().toISOString().slice(0, 10) ? (
+                        <Badge variant="outline">scheduled {new Date(post.publish_date).toLocaleDateString("en-CA")}</Badge>
+                      ) : (
+                        <Badge variant={post.status === "published" ? "default" : "secondary"}>{post.status}</Badge>
+                      )}
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => remove(post)} title="Delete"><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
