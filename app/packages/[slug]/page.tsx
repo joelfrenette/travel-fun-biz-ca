@@ -18,6 +18,8 @@ import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange,
 import { jsonLdHtml } from "@/lib/jsonld"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
 import { TripTestimonials } from "@/components/trip-testimonials"
+import { TripGallery } from "@/components/trip-gallery"
+import { TripVideo } from "@/components/trip-video"
 
 export const revalidate = 300
 
@@ -218,6 +220,20 @@ export default async function PackagePage({ params }: Props) {
         {tripTestimonials.length > 0 && (
           <section className="container mx-auto px-4 pb-12">
             <TripTestimonials testimonials={tripTestimonials} language={language} />
+          </section>
+        )}
+
+        {isPastTrip && pkg.video_url && (
+          <section className="container mx-auto px-4 pb-12">
+            <h2 className="mb-4 text-2xl font-bold">{translate(language, "Trip Video")}</h2>
+            <TripVideo url={pkg.video_url} title={pkg.name} />
+          </section>
+        )}
+
+        {isPastTrip && pkg.gallery_urls?.length > 0 && (
+          <section className="container mx-auto px-4 pb-12">
+            <h2 className="mb-4 text-2xl font-bold">{translate(language, "Trip Photos")}</h2>
+            <TripGallery images={pkg.gallery_urls} alt={pkg.name} />
           </section>
         )}
 

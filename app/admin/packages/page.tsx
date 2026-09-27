@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -331,6 +331,8 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
   const [aiImageUrl, setAiImageUrl] = useState<string | null>(null)
   const [generatingField, setGeneratingField] = useState<string | null>(null)
   const [generatingFaqs, setGeneratingFaqs] = useState(false)
+  const galleryFileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingGalleryPhoto, setUploadingGalleryPhoto] = useState(false)
   const [generatingVariants, setGeneratingVariants] = useState(false)
   const [generatingAiImage, setGeneratingAiImage] = useState(false)
   const [variantsError, setVariantsError] = useState<string | null>(null)
@@ -442,6 +444,27 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
     }
   }
 
+  async function handleUploadGalleryPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setUploadingGalleryPhoto(true)
+    try {
+      const token = localStorage.getItem("adminToken")
+      const body = new FormData()
+      body.append("file", file)
+      const res = await fetch("/api/admin/upload-image", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Upload failed")
+      const existing = Array.isArray(formData.gallery_urls) ? formData.gallery_urls.join("\n") : formData.gallery_urls || ""
+      handleChange("gallery_urls", existing ? `${existing}\n${data.url}` : data.url)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Upload failed")
+    } finally {
+      setUploadingGalleryPhoto(false)
+    }
+  }
+
   async function handleGenerateField(field: string) {
     setGeneratingField(field)
     try {
@@ -541,6 +564,11 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
     // Convert highlights to array
     if (data.highlights && typeof data.highlights === "string") {
       data.highlights = data.highlights.split("\n").filter((h: string) => h.trim())
+    }
+
+    // Convert gallery URLs to array
+    if (typeof data.gallery_urls === "string") {
+      data.gallery_urls = data.gallery_urls.split("\n").map((u: string) => u.trim()).filter(Boolean)
     }
     
     // Convert categories array to single category (for DB compatibility)
@@ -764,6 +792,36 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
               <AIFieldButton onClick={() => handleGenerateField('not_included')} loading={generatingField === 'not_included'} />
             </div>
             <Textarea value={formData.not_included || ""} onChange={(e) => handleChange("not_included", e.target.value)} rows={3} placeholder="e.g., Flights, Travel insurance, Personal expenses..." />
+          </div>
+
+          {/* Recap gallery & video */}
+          <div className="rounded-lg border p-4 space-y-4">
+            <div>
+              <h3 className="font-medium">Recap photos &amp; video</h3>
+              <p className="text-sm text-muted-foreground">Shown on the public page once this trip's dates are in the past (the recap layout switches automatically).</p>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Gallery photo URLs (one per line)</Label>
+                <div>
+                  <input ref={galleryFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleUploadGalleryPhoto} />
+                  <Button type="button" size="sm" variant="outline" onClick={() => galleryFileInputRef.current?.click()} disabled={uploadingGalleryPhoto}>
+                    {uploadingGalleryPhoto ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
+                    Upload a photo
+                  </Button>
+                </div>
+              </div>
+              <Textarea
+                value={Array.isArray(formData.gallery_urls) ? formData.gallery_urls.join("\n") : formData.gallery_urls || ""}
+                onChange={(e) => handleChange("gallery_urls", e.target.value)}
+                rows={4}
+                placeholder="https://.../photo1.jpg&#10;https://.../photo2.jpg"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Video URL</Label>
+              <Input value={formData.video_url || ""} onChange={(e) => handleChange("video_url", e.target.value)} placeholder="YouTube, Vimeo, or a direct video file link" />
+            </div>
           </div>
 
           {/* SEO */}
