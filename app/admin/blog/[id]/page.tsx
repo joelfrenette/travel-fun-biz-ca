@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
-import { Loader2, Save, Upload, ExternalLink } from "lucide-react"
+import { Loader2, Save, Upload, ExternalLink, Search } from "lucide-react"
 import type { Post, PostInput } from "@/lib/posts"
 import { generateSlug } from "@/lib/utils"
 import { renderMarkdown, readingTimeMinutes } from "@/lib/markdown"
@@ -32,6 +32,8 @@ export default function BlogEditPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [uploading, setUploading] = useState(false)
+  const [pexelsQuery, setPexelsQuery] = useState("")
+  const [searchingPexels, setSearchingPexels] = useState(false)
 
   useEffect(() => {
     if (isNew) return
@@ -85,6 +87,26 @@ export default function BlogEditPage() {
       setError(e instanceof Error ? e.message : "Upload failed")
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function searchPexels() {
+    const query = pexelsQuery.trim() || form.title || ""
+    if (!query.trim()) { setError("Type a search term (or a title) first."); return }
+    setSearchingPexels(true); setError("")
+    try {
+      const res = await fetch("/api/admin/blog/pexels-photo", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ query, slug: form.slug || "post" }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setForm((f) => ({ ...f, cover_image_url: data.cover_image_url, alt_text: data.alt_text }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Pexels search failed")
+    } finally {
+      setSearchingPexels(false)
     }
   }
 
@@ -157,6 +179,18 @@ export default function BlogEditPage() {
                   Upload
                   <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" disabled={uploading} onChange={(e) => e.target.files?.[0] && uploadCover(e.target.files[0])} />
                 </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  className="max-w-sm"
+                  value={pexelsQuery}
+                  onChange={(e) => setPexelsQuery(e.target.value)}
+                  placeholder="Search a free Pexels photo (e.g. a destination) - blank uses the title"
+                />
+                <Button type="button" size="sm" variant="outline" onClick={searchPexels} disabled={searchingPexels}>
+                  {searchingPexels ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Search className="mr-1 h-4 w-4" />}
+                  {searchingPexels ? "Searching..." : "Search Pexels"}
+                </Button>
               </div>
               <Input
                 className="max-w-sm"
