@@ -27,6 +27,8 @@ export default function DistributionPage() {
   const { toast } = useToast()
   const [mode, setMode] = useState<string>("off")
   const [accountsText, setAccountsText] = useState("")
+  const [platformsText, setPlatformsText] = useState("")
+  const [providerConfigured, setProviderConfigured] = useState(false)
   const [queue, setQueue] = useState<DistributionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -40,6 +42,8 @@ export default function DistributionPage() {
         if (!ok) throw new Error(data.error || "Could not load")
         setMode(data.mode || "off")
         setAccountsText((data.accounts || []).join(", "))
+        setPlatformsText((data.platforms || []).join(", "))
+        setProviderConfigured(!!data.providerConfigured)
         setQueue(data.queue || [])
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
@@ -70,7 +74,22 @@ export default function DistributionPage() {
       const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ accounts }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Could not save")
-      toast({ title: "Accounts list saved" })
+      toast({ title: "Upload-Post profile saved" })
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Could not save", variant: "destructive" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function savePlatforms() {
+    setSaving(true)
+    try {
+      const platforms = platformsText.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+      const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ platforms }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Could not save")
+      toast({ title: "Platforms saved" })
     } catch (e) {
       toast({ title: "Error", description: e instanceof Error ? e.message : "Could not save", variant: "destructive" })
     } finally {
@@ -95,9 +114,10 @@ export default function DistributionPage() {
         <div className="container mx-auto px-4 py-4">
           <h1 className="text-xl font-bold">Post Distribution</h1>
           <p className="text-sm text-muted-foreground">
-            This is the enrollment ledger only — no posting provider is wired in yet (that needs a real choice between GHL Social Planner,
-            Ayrshare and Upload-Post, plus a Shotstack decision for video). Mode stays "off" by default; nothing here posts anything until
-            that decision is made and built.
+            Provider: Upload-Post (Joel's pick, 2026-09-27). {providerConfigured
+              ? "UPLOAD_POST_API_KEY is set."
+              : "UPLOAD_POST_API_KEY is not set yet — nothing can post until it is."} Mode stays "off" by default, and even in "auto" mode
+            nothing posts unless a profile and at least one platform are set below.
           </p>
         </div>
       </div>
@@ -119,9 +139,14 @@ export default function DistributionPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Allowed accounts (comma-separated, provider-agnostic placeholder)</Label>
-              <Textarea value={accountsText} onChange={(e) => setAccountsText(e.target.value)} placeholder="Nothing can post until a real provider is chosen and this is filled in." rows={2} />
-              <Button size="sm" variant="outline" onClick={saveAccounts} disabled={saving}>Save accounts</Button>
+              <Label>Upload-Post profile (the "username" from your Upload-Post account)</Label>
+              <Textarea value={accountsText} onChange={(e) => setAccountsText(e.target.value)} placeholder="e.g. joel" rows={1} />
+              <Button size="sm" variant="outline" onClick={saveAccounts} disabled={saving}>Save profile</Button>
+            </div>
+            <div className="space-y-2">
+              <Label>Platforms to post to (comma-separated, must match accounts connected on that profile)</Label>
+              <Textarea value={platformsText} onChange={(e) => setPlatformsText(e.target.value)} placeholder="e.g. instagram, facebook, tiktok" rows={1} />
+              <Button size="sm" variant="outline" onClick={savePlatforms} disabled={saving}>Save platforms</Button>
             </div>
           </CardContent>
         </Card>
