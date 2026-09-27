@@ -2,6 +2,7 @@ import { createPackage, type DbPackage } from '@/lib/packages'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { generateSlug } from '@/lib/utils'
 import { generateImageVariants } from '@/lib/image-pipeline'
+import { findDestinationPhoto, isPexelsConfigured } from '@/lib/pexels'
 
 const REQUIRED_FIELDS = ['name', 'destination', 'duration', 'price_display'] as const
 
@@ -126,13 +127,33 @@ export async function importPackage(input: Record<string, any>): Promise<ImportR
     if (m) body.duration_days = parseInt(m[1], 10) + (/night/i.test(m[2]) ? 1 : 0)
   }
 
-  if (typeof body.image_url === 'string' && /^https?:\/\//i.test(body.image_url)) {
+  const hadSourceUrl = typeof body.image_url === 'string' && /^https?:\/\//i.test(body.image_url)
+  if (hadSourceUrl) {
     const stored = await uploadImagePackageVariants(body.image_url, body.slug)
     if (stored.image_url) {
       body.image_url = stored.image_url
       body.image_url_square = stored.image_url_square
       body.image_url_portrait = stored.image_url_portrait
       body.image_url_banner = stored.image_url_banner
+      body.image_source = 'upload'
+    }
+  }
+
+  // A genuine no-photo gap at creation/sync time (never when a supplied photo just failed to
+  // fetch/process - hadSourceUrl covers that) gets a real Pexels destination photo automatically.
+  // Pexels' free tier costs nothing per call, unlike the AI generator, so this is safe to run
+  // without an admin click - AI generation stays a deliberate, separate, admin-triggered action.
+  if (!hadSourceUrl && isPexelsConfigured()) {
+    const photo = await findDestinationPhoto(body.destination || body.name || '')
+    if (photo) {
+      const stored = await uploadImagePackageVariants(photo.url, body.slug)
+      if (stored.image_url) {
+        body.image_url = stored.image_url
+        body.image_url_square = stored.image_url_square
+        body.image_url_portrait = stored.image_url_portrait
+        body.image_url_banner = stored.image_url_banner
+        body.image_source = 'pexels'
+      }
     }
   }
 
