@@ -40,6 +40,7 @@ import type { DbPackage } from "@/lib/packages"
 import type { ScrapedPackage } from "@/types/scrape"
 import { generateSlug } from "@/lib/utils"
 import { scrapedToPackage as scrapedToPayload } from "@/lib/scraping/to-package"
+import { parsePackagesCsv, csvTemplate, type CsvRow } from "@/lib/import-csv"
 
 const categories = [
   "Adventure",
@@ -175,7 +176,7 @@ function AddMethodModal({ open, onClose, onSelect }: { open: boolean; onClose: (
     { id: "interview", title: "AI Interview", description: "Answer questions and let AI help create the package", icon: Sparkles },
     { id: "manual", title: "Add Manually", description: "Fill out all fields yourself in a form", icon: Pencil },
     { id: "scrape", title: "Scrape URL", description: "Enter a URL and extract package details automatically", icon: Globe },
-    { id: "upload", title: "Upload Excel", description: "Bulk import packages from a spreadsheet", icon: FileSpreadsheet },
+    { id: "upload", title: "Upload CSV", description: "Bulk import packages from a CSV file (save your spreadsheet as CSV first)", icon: FileSpreadsheet },
   ]
 
   return (
@@ -1326,33 +1327,157 @@ function ScrapeUrlForm({ onComplete, onCancel, onImported, existingSlugs }: { on
 }
 
 // ─── Upload Excel Component ─────────────────────────────────────────
-function UploadExcelForm({ onComplete, onCancel }: { onComplete: (data: any) => void; onCancel: () => void }) {
-  const [file, setFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState(false)
+// Real CSV bulk import (roadmap 6989b62b). Was previously a fake spinner + "coming soon" alert.
+// Scoped to CSV, not .xlsx/.xls - see lib/import-csv.ts's header comment for why. Parses the file
+// entirely client-side (lib/import-csv.ts), shows every row with its errors before anything is
+// sent anywhere, and imports selected rows the same way ScrapeUrlForm does: one POST per package
+// through the existing create endpoint, so image lookup and validation stay identical either way.
+function UploadExcelForm({ onComplete, onCancel, onImported, existingSlugs }: { onComplete: (data: any) => void; onCancel: () => void; onImported: () => void; existingSlugs: Set<string> }) {
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [rows, setRows] = useState<CsvRow[]>([])
+  const [unknownHeaders, setUnknownHeaders] = useState<string[]>([])
+  const [error, setError] = useState("")
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [importedSlugs, setImportedSlugs] = useState<Set<string>>(new Set())
+  const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 })
+  const [status, setStatus] = useState("")
 
-  async function handleUpload() {
-    if (!file) return
-    setLoading(true)
-    setTimeout(() => {
-      setLoading(false)
-      alert("Excel upload coming soon!")
-      onCancel()
-    }, 1500)
+  function isImported(row: CsvRow) {
+    const slug = generateSlug(String(row.data.name || ""))
+    return existingSlugs.has(slug) || importedSlugs.has(slug)
   }
 
+  function handleDownloadTemplate() {
+    const blob = new Blob([csvTemplate()], { type: "text/csv" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "package-import-template.csv"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setFileName(file.name)
+    setError("")
+    setRows([])
+    setSelected(new Set())
+    const text = await file.text()
+    const result = parsePackagesCsv(text)
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+    setRows(result.rows)
+    setUnknownHeaders(result.unknownHeaders)
+    setSelected(new Set(result.rows.filter((r) => r.errors.length === 0).map((r) => r.rowNumber)))
+  }
+
+  function toggle(rowNumber: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowNumber)) next.delete(rowNumber)
+      else next.add(rowNumber)
+      return next
+    })
+  }
+
+  async function handleImportSelected() {
+    const token = localStorage.getItem("adminToken")
+    if (!token) { setError("You must be logged in as admin."); return }
+    const toImport = rows.filter((r) => selected.has(r.rowNumber) && r.errors.length === 0)
+    if (toImport.length === 0) return
+
+    setImporting(true)
+    setImportProgress({ done: 0, total: toImport.length })
+    const failures: string[] = []
+    for (const row of toImport) {
+      try {
+        const res = await fetch("/api/admin/packages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ ...row.data, status: "draft" }),
+        })
+        if (res.ok) {
+          setImportedSlugs((prev) => new Set(prev).add(generateSlug(String(row.data.name))))
+        } else {
+          const data = await res.json().catch(() => ({}))
+          failures.push(`Row ${row.rowNumber} (${row.data.name}): ${data.error || `HTTP ${res.status}`}`)
+        }
+      } catch {
+        failures.push(`Row ${row.rowNumber} (${row.data.name}): network error`)
+      }
+      setImportProgress((p) => ({ ...p, done: p.done + 1 }))
+    }
+    const imported = toImport.length - failures.length
+    setImporting(false)
+    setSelected(new Set())
+    setStatus(`Imported ${imported} of ${toImport.length} package(s) as drafts.`)
+    if (failures.length > 0) setError(`Not imported:\n${failures.join("\n")}`)
+    if (imported > 0) onImported()
+    if (imported > 0 && failures.length === 0) onCancel()
+  }
+
+  const validCount = rows.filter((r) => r.errors.length === 0).length
+
   return (
-    <Card className="mx-auto max-w-xl">
+    <Card className="mx-auto max-w-4xl">
       <CardHeader>
-        <CardTitle>Bulk import packages</CardTitle>
-        <CardDescription>Upload an Excel file with package data</CardDescription>
+        <CardTitle>Bulk import packages from a CSV</CardTitle>
+        <CardDescription>
+          Not an Excel file directly - in Excel, Numbers or Google Sheets, use "Save as" / "Export" and pick CSV first. Every row is checked before
+          anything is imported, and everything imports as a draft.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button onClick={handleUpload} disabled={loading || !file}>
-            {loading ? "Uploading..." : "Upload & Import"}
+        <div className="flex flex-wrap items-center gap-2">
+          <Input type="file" accept=".csv,text/csv" onChange={handleFile} className="max-w-xs" />
+          <Button type="button" variant="outline" size="sm" onClick={handleDownloadTemplate}>
+            <Download className="mr-1 h-4 w-4" />Download CSV template
           </Button>
+          {fileName && <span className="text-sm text-muted-foreground">{fileName}</span>}
+        </div>
+
+        {error && <div className="whitespace-pre-line rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+        {status && !error && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">{status}</div>}
+        {unknownHeaders.length > 0 && (
+          <p className="text-xs text-muted-foreground">Ignored unrecognized column(s): {unknownHeaders.join(", ")}. Download the template to see the exact column names.</p>
+        )}
+
+        {rows.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold">
+                {rows.length} row(s) read, {validCount} ready to import{validCount < rows.length ? `, ${rows.length - validCount} with errors` : ""}
+              </h4>
+              <Button type="button" onClick={handleImportSelected} disabled={importing || selected.size === 0}>
+                {importing ? `Importing ${importProgress.done}/${importProgress.total}...` : `Import ${selected.size} selected`}
+              </Button>
+            </div>
+            <div className="max-h-[28rem] overflow-y-auto rounded-lg border divide-y">
+              {rows.map((row) => (
+                <div key={row.rowNumber} className={`flex items-start gap-3 p-3 text-sm ${isImported(row) ? "opacity-60" : ""}`}>
+                  <Checkbox checked={selected.has(row.rowNumber)} onCheckedChange={() => toggle(row.rowNumber)} disabled={row.errors.length > 0 || isImported(row)} className="mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">Row {row.rowNumber}: {String(row.data.name || "(no name)")}</span>
+                      {isImported(row) && <Badge variant="secondary">Already imported</Badge>}
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground">{String(row.data.destination ?? "")} · {String(row.data.duration ?? "")} · {String(row.data.price_display ?? "")}</p>
+                    {row.errors.length > 0 && <p className="mt-1 text-xs text-destructive">{row.errors.join("; ")}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
         </div>
       </CardContent>
     </Card>
@@ -1620,7 +1745,7 @@ export default function PackagesAdminPage() {
   if (view === "paste") return <div className="p-6"><PasteSourceForm onDraft={(data) => { setSeedData(data as Partial<DbPackage>); setEditingPackage(null); setView("manual") }} onCancel={() => setView("list")} /></div>
   if (view === "manual") return <div className="p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>
   if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
-  if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
+  if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
 
   return (
     <div>
