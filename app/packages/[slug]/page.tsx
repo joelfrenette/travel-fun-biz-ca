@@ -1,6 +1,8 @@
 import type { Metadata } from "next"
 import { Suspense } from "react"
 import { notFound } from "next/navigation"
+import Link from "next/link"
+import { generateSlug } from "@/lib/utils"
 import { Calendar, Clock, MapPin, Star } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
@@ -150,7 +152,7 @@ export default async function PackagePage({ params }: Props) {
               </div>
               <h1 className="text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{pkg.name}</h1>
               <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" />{pkg.destination}</span>
+                <Link href={`/destinations/${generateSlug(pkg.destination)}`} className="flex items-center gap-1.5 hover:text-foreground hover:underline"><MapPin className="h-4 w-4" />{pkg.destination}</Link>
                 {dates && <span className="flex items-center gap-1.5"><Calendar className="h-4 w-4" />{dates}</span>}
                 <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" />{pkg.duration}</span>
                 {pkg.rating && <span className="flex items-center gap-1.5"><Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />{pkg.rating}/5</span>}

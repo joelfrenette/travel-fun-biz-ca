@@ -1,12 +1,13 @@
 import type { MetadataRoute } from 'next'
 import { getPublishedPackageSlugs } from '@/lib/packages'
 import { getPublishedPosts } from '@/lib/posts'
+import { getDestinationSlugs } from '@/lib/destinations'
 import { absoluteUrl } from '@/lib/site'
 
 export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [packages, posts] = await Promise.all([getPublishedPackageSlugs(), getPublishedPosts()])
+  const [packages, posts, destinations] = await Promise.all([getPublishedPackageSlugs(), getPublishedPosts(), getDestinationSlugs()])
   return [
     { url: absoluteUrl('/'), lastModified: new Date(), changeFrequency: 'weekly', priority: 1 },
     ...packages.map((p) => ({
@@ -14,6 +15,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: new Date(p.updated_at),
       changeFrequency: 'weekly' as const,
       priority: 0.8,
+    })),
+    ...destinations.map((d) => ({
+      url: absoluteUrl(`/destinations/${d.slug}`),
+      lastModified: new Date(),
+      changeFrequency: 'weekly' as const,
+      priority: 0.7,
     })),
     { url: absoluteUrl('/blog'), lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
     ...posts.map((post) => ({
