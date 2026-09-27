@@ -6,6 +6,7 @@ import { composeFullPost, autoPublishBlockers } from '@/lib/blog-composer'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { enrollIfDue } from '@/lib/distribution'
 import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
+import { isAutomationPaused } from '@/lib/automation-kill-switch'
 
 // Ported from Nomad Escape Plan's modules/marketing/autoblog-run.ts (Factory Phase 2:
 // blog/autoblog), adapted to this project's posts table (lib/posts.ts) and app_settings helper
@@ -38,6 +39,10 @@ export async function runAutoblog(opts: { scheduled: boolean }): Promise<Autoblo
   if (mode === 'off') return { ran: false, mode, note: 'autoblog is off' }
 
   const admin = getSupabaseAdmin()
+  // The master kill switch overrides autoblog_mode without touching it - flip the switch back
+  // off and whatever mode was set (draft/publish) resumes exactly as it was.
+  if (await isAutomationPaused(admin)) return { ran: false, mode, note: 'automation is paused (kill switch)' }
+
   const existingPosts = await listPostsAdmin()
 
   if (opts.scheduled) {

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Activity } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Loader2, Activity, Pause, Play } from "lucide-react"
 
 interface CronStatus {
   name: string
@@ -29,22 +30,43 @@ const LIGHT_LABEL: Record<CronStatus["light"], string> = {
 
 export default function SystemHealthPage() {
   const [crons, setCrons] = useState<CronStatus[]>([])
+  const [paused, setPaused] = useState(false)
+  const [pauseBusy, setPauseBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
   function load() {
     setLoading(true)
-    fetch("/api/admin/cron-health", { headers: authHeaders() })
-      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
-      .then(({ ok, data }) => {
-        if (!ok) throw new Error(data.error || "Could not load")
-        setCrons(data.crons || [])
+    Promise.all([
+      fetch("/api/admin/cron-health", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
+      fetch("/api/admin/automation-kill-switch", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
+    ])
+      .then(([cronRes, pauseRes]) => {
+        if (!cronRes.ok) throw new Error(cronRes.data.error || "Could not load")
+        setCrons(cronRes.data.crons || [])
+        if (pauseRes.ok) setPaused(!!pauseRes.data.paused)
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
   }
 
   useEffect(load, [])
+
+  async function toggleAutomation() {
+    const next = !paused
+    if (!next && !confirm("Resume automated publishing and posting? Autoblog and distribution will go back to whatever mode each was already set to.")) return
+    setPauseBusy(true)
+    try {
+      const res = await fetch("/api/admin/automation-kill-switch", { method: "POST", headers: authHeaders(), body: JSON.stringify({ paused: next }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Could not update")
+      setPaused(next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update")
+    } finally {
+      setPauseBusy(false)
+    }
+  }
 
   return (
     <div>
@@ -59,6 +81,21 @@ export default function SystemHealthPage() {
 
       <div className="container mx-auto space-y-3 px-4 py-4">
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+
+        <Card className={paused ? "border-destructive" : undefined}>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <p className="font-medium">{paused ? "Automation is paused" : "Automation is running normally"}</p>
+              <p className="text-sm text-muted-foreground">
+                One switch for both autoblog and social distribution. It overrides them without changing their individual settings — flip it back and each resumes whatever mode it already had.
+              </p>
+            </div>
+            <Button variant={paused ? "default" : "destructive"} onClick={toggleAutomation} disabled={loading || pauseBusy}>
+              {pauseBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : paused ? <Play className="mr-1.5 h-4 w-4" /> : <Pause className="mr-1.5 h-4 w-4" />}
+              {paused ? "Resume automation" : "Pause all automation"}
+            </Button>
+          </CardContent>
+        </Card>
 
         {loading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>

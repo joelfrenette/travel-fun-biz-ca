@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { isAutomationPaused } from '@/lib/automation-kill-switch'
 
 // Factory Phase 12: the dormant distribution ledger + mode gate. See migration 0011 for why the
 // provider-specific columns (video, per-network post ids, captions) are deliberately not here yet
@@ -59,6 +60,7 @@ export async function enrollIfDue(admin: SupabaseClient, slug: string, title: st
   try {
     const mode = await getDistributionMode(admin)
     if (mode === 'off') return
+    if (await isAutomationPaused(admin)) return
     const { data: existing } = await admin.from('post_distribution').select('slug').eq('content_type', 'post').eq('slug', slug).maybeSingle()
     if (existing) return
     await admin.from('post_distribution').insert({ content_type: 'post', slug, title, stage: mode === 'prepare' ? 'held' : 'queued' })
