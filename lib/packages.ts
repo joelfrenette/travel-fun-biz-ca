@@ -127,6 +127,38 @@ export async function getNextUpcomingPackageInCategory(category: string, exclude
   return data
 }
 
+/** Upcoming published trips to show on a blog post, so reading leads to enquiring instead of
+ * dead-ending. The post's own related_package_id (if set) is featured first; the rest fill in
+ * from whatever's soonest to depart. Never invents a package - an empty list means show nothing. */
+export async function getRelatedPackages(relatedPackageId: string | null, limit = 3): Promise<TravelPackage[]> {
+  const results: DbPackage[] = []
+
+  if (relatedPackageId) {
+    const { data } = await supabase.from('travel_packages').select('*').eq('id', relatedPackageId).eq('status', 'published').maybeSingle()
+    if (data) results.push(data)
+  }
+
+  if (results.length < limit) {
+    const { data, error } = await supabase
+      .from('travel_packages')
+      .select('*')
+      .eq('status', 'published')
+      .neq('id', relatedPackageId ?? '')
+      .order('available_from', { ascending: true, nullsFirst: false })
+      .limit(limit)
+    if (error) {
+      console.error('Failed to fetch related packages:', error)
+    } else {
+      for (const p of data ?? []) {
+        if (results.length >= limit) break
+        results.push(p)
+      }
+    }
+  }
+
+  return results.slice(0, limit).map(dbPackageToTravelPackage)
+}
+
 export async function getPublishedPackageBySlug(slug: string): Promise<DbPackage | null> {
   const { data, error } = await supabase
     .from('travel_packages')

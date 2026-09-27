@@ -6,10 +6,13 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Badge } from "@/components/ui/badge"
 import { getPublishedPostBySlug } from "@/lib/posts"
+import { getRelatedPackages } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
+import { getUsdToRate } from "@/lib/fx"
 import { renderMarkdown, readingTimeMinutes, excerptFromMarkdown } from "@/lib/markdown"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 import { jsonLdHtml } from "@/lib/jsonld"
+import { PackageCard } from "@/components/package-card"
 
 export const revalidate = 300
 
@@ -41,6 +44,10 @@ export default async function BlogPostPage({ params }: Props) {
   const pageUrl = absoluteUrl(`/blog/${post.slug}`)
   const image = post.cover_image_url || DEFAULT_OG_IMAGE
   const bodyHtml = renderMarkdown(post.body)
+  const [relatedPackages, usdToTargetRate] = await Promise.all([
+    getRelatedPackages(post.related_package_id),
+    getUsdToRate(currency),
+  ])
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -87,10 +94,21 @@ export default async function BlogPostPage({ params }: Props) {
 
           <div className="markdown-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
 
-          <div className="mt-12 rounded-xl border bg-muted/30 p-6 text-center">
-            <p className="text-lg font-semibold text-foreground">Ready for your own trip?</p>
-            <Link href="/#contact" className="mt-3 inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Browse Upcoming Trips</Link>
-          </div>
+          {relatedPackages.length > 0 ? (
+            <div className="mt-12">
+              <p className="mb-4 text-lg font-semibold text-foreground">Ready for your own trip?</p>
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {relatedPackages.map((pkg) => (
+                  <PackageCard key={pkg.id} package={pkg} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-12 rounded-xl border bg-muted/30 p-6 text-center">
+              <p className="text-lg font-semibold text-foreground">Ready for your own trip?</p>
+              <Link href="/#contact" className="mt-3 inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Browse Upcoming Trips</Link>
+            </div>
+          )}
         </article>
       </main>
       <Footer language={language} />
