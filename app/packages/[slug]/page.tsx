@@ -76,24 +76,51 @@ export default async function PackagePage({ params }: Props) {
   const pageUrl = absoluteUrl(`/packages/${pkg.slug}`)
   const image = pkg.image_url || DEFAULT_OG_IMAGE
 
-  const jsonLd: Record<string, unknown>[] = [
-    {
-      "@context": "https://schema.org",
-      "@type": "TouristTrip",
-      name: pkg.name,
-      description: pkg.short_description || description,
-      url: pageUrl,
-      image,
-      touristType: pkg.category,
-      itinerary: { "@type": "Place", name: pkg.destination },
-      ...(pkg.available_from ? { startDate: pkg.available_from } : {}),
-      ...(pkg.available_to ? { endDate: pkg.available_to } : {}),
-      provider: { "@type": "TravelAgency", name: SITE_NAME, url: absoluteUrl("/") },
-      ...(pkg.price_value
-        ? { offers: { "@type": "Offer", price: pkg.price_value, priceCurrency: "USD", url: pageUrl, availability: "https://schema.org/InStock" } }
-        : {}),
-    },
-  ]
+  // Recap pages (a trip that already happened) describe a write-up, not a bookable offer, so they
+  // get Article + Review structured data instead of TouristTrip + Offer - same canonical pageUrl
+  // either way, just a more accurate schema for content Google shouldn't treat as still for sale.
+  const jsonLd: Record<string, unknown>[] = isPastTrip
+    ? [
+        {
+          "@context": "https://schema.org",
+          "@type": "Article",
+          headline: pkg.name,
+          description: pkg.short_description || description,
+          image,
+          url: pageUrl,
+          mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
+          ...(pkg.available_to ? { datePublished: pkg.available_to } : {}),
+          dateModified: pkg.updated_at,
+          author: { "@type": "Organization", name: SITE_NAME },
+          publisher: { "@type": "Organization", name: SITE_NAME, logo: { "@type": "ImageObject", url: absoluteUrl("/logo.png") } },
+        },
+        ...tripTestimonials.map((t) => ({
+          "@context": "https://schema.org",
+          "@type": "Review",
+          itemReviewed: { "@type": "TouristTrip", name: pkg.name },
+          reviewRating: { "@type": "Rating", ratingValue: t.rating, bestRating: 5 },
+          author: { "@type": "Person", name: t.author },
+          reviewBody: t.text,
+        })),
+      ]
+    : [
+        {
+          "@context": "https://schema.org",
+          "@type": "TouristTrip",
+          name: pkg.name,
+          description: pkg.short_description || description,
+          url: pageUrl,
+          image,
+          touristType: pkg.category,
+          itinerary: { "@type": "Place", name: pkg.destination },
+          ...(pkg.available_from ? { startDate: pkg.available_from } : {}),
+          ...(pkg.available_to ? { endDate: pkg.available_to } : {}),
+          provider: { "@type": "TravelAgency", name: SITE_NAME, url: absoluteUrl("/") },
+          ...(pkg.price_value
+            ? { offers: { "@type": "Offer", price: pkg.price_value, priceCurrency: "USD", url: pageUrl, availability: "https://schema.org/InStock" } }
+            : {}),
+        },
+      ]
   if (faqs.length > 0) {
     jsonLd.push({
       "@context": "https://schema.org",
