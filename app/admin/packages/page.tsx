@@ -34,7 +34,7 @@ import {
   Plus, Pencil, Trash2, Eye, EyeOff, Star, Sparkles,
   ChevronRight, Check, Loader2, Upload, Globe, MessageSquare,
   ArrowUpDown, ArrowUp, ArrowDown, Filter, MoreHorizontal,
-  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download, ExternalLink, RefreshCw
+  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download, ExternalLink, RefreshCw, ClipboardPaste, AlertTriangle
 } from "lucide-react"
 import type { DbPackage } from "@/lib/packages"
 import type { ScrapedPackage } from "@/types/scrape"
@@ -171,6 +171,7 @@ const interviewQuestions = [
 // ─── Add Method Selection Modal ─────────────────────────────────────
 function AddMethodModal({ open, onClose, onSelect }: { open: boolean; onClose: () => void; onSelect: (method: string) => void }) {
   const methods = [
+    { id: "paste", title: "Paste source material", description: "Paste a supplier email, flyer text or a link; AI extracts only the facts it finds and builds a draft for you to review", icon: ClipboardPaste },
     { id: "interview", title: "AI Interview", description: "Answer questions and let AI help create the package", icon: Sparkles },
     { id: "manual", title: "Add Manually", description: "Fill out all fields yourself in a form", icon: Pencil },
     { id: "scrape", title: "Scrape URL", description: "Enter a URL and extract package details automatically", icon: Globe },
@@ -301,6 +302,150 @@ function AIInterview({ onComplete, onCancel }: { onComplete: (data: any) => void
             {isLastQuestion ? <><Check className="mr-1 h-4 w-4" />Create Package</> : <>Next<ChevronRight className="ml-1 h-4 w-4" /></>}
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Paste Source Material (AI draft builder) ───────────────────────
+// Roadmap use case 09dd2acd. The server (lib/package-extract.ts) only keeps facts it can find
+// in the pasted text; anything else lands in "dropped" with a reason, and the admin finishes the
+// draft in the normal form. Nothing is saved until they press Save there, always as a draft.
+const FIELD_LABELS: Record<string, string> = {
+  name: "Package name", destination: "Destination", country: "Country", region: "Region", supplier: "Supplier",
+  duration: "Duration", duration_days: "Days", price_display: "Price", price_value: "Price (number)", currency: "Currency",
+  available_from: "Starts", available_to: "Ends", departure_dates: "Departure dates", highlights: "Highlights",
+  price_includes: "Included", not_included: "Not included", max_people: "Max people", booking_url: "Booking link",
+  more_info_url: "More info link", category: "Category", short_description: "Short description",
+  full_description: "Full description", meta_title: "SEO title", meta_description: "SEO description", keywords: "Keywords",
+}
+const REQUIRED_FOR_SAVE = ["name", "destination", "duration", "price_display"]
+
+interface ExtractResponse {
+  draft: { fields: Record<string, unknown>; evidence: Record<string, string>; missing: string[]; dropped: { field: string; value: string; reason: string }[]; model: string }
+  formData: Record<string, unknown>
+  source: { chars: number; fetched: boolean; url: string | null }
+}
+
+function PasteSourceForm({ onDraft, onCancel }: { onDraft: (formData: Record<string, unknown>) => void; onCancel: () => void }) {
+  const [text, setText] = useState("")
+  const [url, setUrl] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [result, setResult] = useState<ExtractResponse | null>(null)
+
+  async function handleExtract() {
+    if (!text.trim() && !url.trim()) { setError("Paste some source material, or give a link."); return }
+    setLoading(true); setError(""); setResult(null)
+    try {
+      const token = localStorage.getItem("adminToken")
+      const res = await fetch("/api/admin/packages/extract-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text, url: url.trim() || undefined }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || `Extraction failed (HTTP ${res.status})`); return }
+      setResult(data as ExtractResponse)
+    } catch {
+      setError("Network error while extracting")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fieldEntries = result ? Object.entries(result.draft.fields).filter(([, v]) => v != null && v !== "") : []
+  const missingRequired = result ? REQUIRED_FOR_SAVE.filter((f) => result.draft.fields[f] == null || result.draft.fields[f] === "") : []
+  const fmt = (v: unknown) => (Array.isArray(v) ? v.join(" · ") : String(v))
+
+  return (
+    <Card className="mx-auto max-w-4xl">
+      <CardHeader>
+        <CardTitle>Paste source material</CardTitle>
+        <CardDescription>
+          A supplier email, a flyer's text, a post, a brochure page. The AI copies out only the facts it can find; it never fills in a
+          price, date or detail the source doesn't state. You review everything in the form before saving, and it saves as a draft.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label>Source text</Label>
+          <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={12} placeholder="Paste the trip details here..." disabled={loading} />
+          <p className="text-xs text-muted-foreground">{text.length.toLocaleString()} characters</p>
+        </div>
+        <div className="space-y-2">
+          <Label>Or a public link (used only when the text box is empty)</Label>
+          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://supplier.example.com/trip" disabled={loading} />
+          <p className="text-xs text-muted-foreground">Facebook and Instagram posts need a login to read, so copy their text into the box above instead.</p>
+        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex gap-2">
+          <Button type="button" onClick={handleExtract} disabled={loading}>
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+            {loading ? "Extracting (up to a minute)..." : result ? "Extract again" : "Extract a draft"}
+          </Button>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>Cancel</Button>
+        </div>
+
+        {result && (
+          <div className="space-y-4 rounded-lg border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-medium">What the AI found ({fieldEntries.length} fields)</h3>
+              <p className="text-xs text-muted-foreground">
+                {result.source.fetched ? `Read ${result.source.chars.toLocaleString()} characters from the link` : `${result.source.chars.toLocaleString()} characters of pasted text`} · {result.draft.model}
+              </p>
+            </div>
+
+            {fieldEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nothing usable was found. If this came from a link, the page probably needed a login; copy its text and paste it instead.</p>
+            ) : (
+              <div className="divide-y rounded-md border">
+                {fieldEntries.map(([field, value]) => (
+                  <div key={field} className="grid gap-1 p-3 text-sm sm:grid-cols-[160px_1fr]">
+                    <div className="font-medium">{FIELD_LABELS[field] || field}</div>
+                    <div>
+                      <div className="whitespace-pre-wrap break-words">{fmt(value)}</div>
+                      {result.draft.evidence[field] && (
+                        <div className="mt-1 text-xs text-muted-foreground">Source: &ldquo;{result.draft.evidence[field]}&rdquo;</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {result.draft.dropped.length > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/40">
+                <p className="flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4" />Removed because the source doesn't back it up</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {result.draft.dropped.map((d, i) => (
+                    <li key={i}><span className="font-medium">{FIELD_LABELS[d.field] || d.field}:</span> &ldquo;{d.value.length > 140 ? d.value.slice(0, 140) + "…" : d.value}&rdquo; <span className="text-muted-foreground">({d.reason})</span></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {result.draft.missing.length > 0 && (
+              <div className="text-sm">
+                <p className="font-medium">Not in the source (fill in yourself if you know it):</p>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {result.draft.missing.map((f) => (
+                    <Badge key={f} variant={REQUIRED_FOR_SAVE.includes(f) ? "destructive" : "secondary"}>{FIELD_LABELS[f] || f}{REQUIRED_FOR_SAVE.includes(f) ? " (required)" : ""}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" onClick={() => onDraft(result.formData)} disabled={fieldEntries.length === 0}>
+                <ChevronRight className="mr-1 h-4 w-4" />Review in the form
+              </Button>
+              {missingRequired.length > 0 && (
+                <p className="text-xs text-muted-foreground">You'll need to type in: {missingRequired.map((f) => FIELD_LABELS[f]).join(", ")}. The photo is picked up automatically (Pexels) when you save.</p>
+              )}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -446,8 +591,12 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
           destination: formData.destination || '',
           duration: formData.duration || '',
           price_display: formData.price_display || '',
+          supplier: formData.supplier || '',
           short_description: formData.short_description || '',
+          full_description: formData.full_description || '',
           highlights: formData.highlights || '',
+          price_includes: formData.price_includes || '',
+          not_included: formData.not_included || '',
           categories: formData.categories || [],
         }),
       })
@@ -561,8 +710,8 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
   return (
     <Card className="mx-auto max-w-4xl">
       <CardHeader>
-        <CardTitle>{initialData?.id ? "Edit Package" : "Add Package Manually"}</CardTitle>
-        <CardDescription>Fill out the package details below</CardDescription>
+        <CardTitle>{initialData?.id ? "Edit Package" : initialData ? "Review the AI draft" : "Add Package Manually"}</CardTitle>
+        <CardDescription>{initialData && !initialData.id ? "Everything below came from your source material or is blank. Check it, fill the blanks, then save; it stays a draft until you publish it." : "Fill out the package details below"}</CardDescription>
       </CardHeader>
 
       {/* Thumbnail card */}
@@ -1225,8 +1374,10 @@ function PackageTable({
 export default function PackagesAdminPage() {
   const [packages, setPackages] = useState<DbPackage[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<"list" | "interview" | "manual" | "scrape" | "upload">("list")
+  const [view, setView] = useState<"list" | "interview" | "manual" | "scrape" | "upload" | "paste">("list")
   const [editingPackage, setEditingPackage] = useState<DbPackage | null>(null)
+  // Prefill for a NEW package coming out of the paste-source AI draft builder (never an existing row).
+  const [seedData, setSeedData] = useState<Partial<DbPackage> | null>(null)
   const [saving, setSaving] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [sortField, setSortField] = useState<SortField>("created_at")
@@ -1301,7 +1452,7 @@ export default function PackagesAdminPage() {
     const token = localStorage.getItem("adminToken")
     try {
       const res = await fetch("/api/admin/packages", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ ...data, status: "draft" }) })
-      if (res.ok) { setView("list"); fetchPackages() }
+      if (res.ok) { setView("list"); setSeedData(null); fetchPackages() }
       else { const body = await res.json().catch(() => ({})); alert(body.error || `Failed to create package (HTTP ${res.status})`) }
     } catch (error) { console.error("Failed to create package:", error); alert("Network error while creating package") }
     finally { setSaving(false) }
@@ -1395,10 +1546,11 @@ export default function PackagesAdminPage() {
   function handleAIAction(action: string, pkg: DbPackage) { alert(`AI ${action} for "${pkg.name}" coming soon!`) }
   function handleSelectToggle(id: string) { setSelectedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next }) }
   function handleSelectAll() { if (selectedIds.size === filteredPackages.length) setSelectedIds(new Set()); else setSelectedIds(new Set(filteredPackages.map((p) => p.id))) }
-  function handleAddMethodSelect(method: string) { setShowAddModal(false); setEditingPackage(null); setView(method as any) }
+  function handleAddMethodSelect(method: string) { setShowAddModal(false); setEditingPackage(null); setSeedData(null); setView(method as any) }
 
   if (view === "interview") return <div className="p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
-  if (view === "manual") return <div className="p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null) }} initialData={editingPackage || undefined} /></div>
+  if (view === "paste") return <div className="p-6"><PasteSourceForm onDraft={(data) => { setSeedData(data as Partial<DbPackage>); setEditingPackage(null); setView("manual") }} onCancel={() => setView("list")} /></div>
+  if (view === "manual") return <div className="p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>
   if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
   if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
 

@@ -43,3 +43,6 @@ next-env.d.ts
 # turbo
 .turbo
 .dyad/
+
+# Serena (code-navigation MCP) cache
+.serena/
