@@ -26,7 +26,10 @@ import * as cheerio from 'cheerio'
 const args = process.argv.slice(2)
 const jsonFlagIndex = args.indexOf('--json')
 const jsonOutPath = jsonFlagIndex !== -1 ? args[jsonFlagIndex + 1] : null
-const positional = args.filter((a, i) => a !== '--json' && i !== jsonFlagIndex + 1)
+// Only drop the --json flag and the path right after it when --json was actually given -
+// jsonFlagIndex is -1 when it wasn't, and "i !== -1 + 1" (i.e. "i !== 0") would otherwise
+// silently swallow the first positional argument (the base URL) on every call without --json.
+const positional = args.filter((a, i) => a !== '--json' && (jsonFlagIndex === -1 || i !== jsonFlagIndex + 1))
 const baseUrl = (positional[0] || 'https://travelfunbiz.ca').replace(/\/$/, '')
 
 const TITLE_MIN = 10
@@ -78,8 +81,8 @@ async function getSitemapUrls() {
   return urls
 }
 
-/** @param {string} pageUrl @param {string} html */
-function auditPage(pageUrl, html) {
+/** @param {string} pageUrl @param {string} html @param {string} internalOrigin */
+function auditPage(pageUrl, html, internalOrigin) {
   const findings = []
   const $ = cheerio.load(html)
 
@@ -137,7 +140,7 @@ function auditPage(pageUrl, html) {
     if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return
     try {
       const abs = new URL(href, pageUrl)
-      if (abs.origin === new URL(baseUrl).origin) links.add(abs.toString())
+      if (abs.origin === internalOrigin) links.add(abs.toString())
     } catch { /* ignore unparsable hrefs */ }
   })
 
@@ -148,17 +151,29 @@ async function main() {
   console.log(`Auditing ${baseUrl} ...\n`)
   const pageUrls = await getSitemapUrls()
   console.log(`Sitemap lists ${pageUrls.length} page(s).\n`)
+  // The site that matters for "internal link" is whatever host the sitemap itself uses, not
+  // necessarily the exact host passed on the command line (http vs https, www vs bare domain,
+  // a redirect in between) — using the wrong one here used to make every link look external and
+  // silently report a clean site with 0 links checked.
+  const internalOrigin = new URL(pageUrls[0]).origin
+  if (internalOrigin !== new URL(baseUrl).origin) {
+    console.log(`Note: sitemap URLs are on ${internalOrigin}, auditing that host's links (you passed ${baseUrl}).\n`)
+  }
 
   const pageResults = await mapWithConcurrency(pageUrls, PAGE_FETCH_CONCURRENCY, async (url) => {
     const res = await fetchText(url)
     if (!res.ok) return { url, html: null, findings: [{ check: 'fetch', message: `HTTP ${res.status}${res.error ? ` (${res.error})` : ''}` }], links: [] }
-    return { url, html: res.body, ...auditPage(url, res.body) }
+    return { url, html: res.body, ...auditPage(url, res.body, internalOrigin) }
   })
 
   const allLinks = new Set()
   for (const r of pageResults) for (const l of r.links) allLinks.add(l)
   const linkList = [...allLinks]
-  console.log(`Checking ${linkList.length} unique internal link(s) for broken destinations...\n`)
+  if (linkList.length === 0) {
+    console.log(`WARNING: found 0 internal links across ${pageUrls.length} page(s) — that almost certainly means the pages fetched are near-empty or blocked (check for a bot-block or a redirect to a login page), not that the site truly has no internal links. The broken-link check below will report clean by default in that case; don't trust it.\n`)
+  } else {
+    console.log(`Checking ${linkList.length} unique internal link(s) for broken destinations...\n`)
+  }
   const linkStatuses = await mapWithConcurrency(linkList, LINK_CHECK_CONCURRENCY, async (url) => {
     const res = await fetchText(url, 'HEAD')
     // Some routes don't support HEAD; fall back to GET before calling it broken.
