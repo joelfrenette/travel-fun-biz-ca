@@ -7,6 +7,7 @@ import { getPublishedPosts } from "@/lib/posts"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { excerptFromMarkdown } from "@/lib/markdown"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
+import { jsonLdHtml } from "@/lib/jsonld"
 
 export const revalidate = 300
 
@@ -19,10 +20,36 @@ export const metadata: Metadata = {
 export default async function BlogIndexPage() {
   const [posts, { language, currency }] = await Promise.all([getPublishedPosts(), Promise.resolve(getVisitorPreferences())])
 
+  // The audit script (scripts/audit-live-seo.mjs) flagged /blog as having no structured data.
+  // A Blog listing its real published posts - no invented dates or authors, only what each post
+  // record actually has.
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Blog",
+      name: `Travel Stories & Trip Recaps | ${SITE_NAME}`,
+      description: "Trip recaps, travel tips and destination guides from real group departures.",
+      url: absoluteUrl("/blog"),
+      publisher: { "@type": "Organization", name: SITE_NAME },
+      ...(posts.length > 0
+        ? {
+            blogPost: posts.map((post) => ({
+              "@type": "BlogPosting",
+              headline: post.title,
+              url: absoluteUrl(`/blog/${post.slug}`),
+              image: post.cover_image_url || DEFAULT_OG_IMAGE,
+              ...(post.publish_date ? { datePublished: post.publish_date } : {}),
+            })),
+          }
+        : {}),
+    },
+  ]
+
   return (
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
         <section className="container mx-auto px-4 py-16">
           <div className="mb-10 text-center">
             <h1 className="text-balance text-4xl font-bold text-foreground">Travel Stories &amp; Trip Recaps</h1>

@@ -9,6 +9,7 @@ import { getDestinationPage } from "@/lib/destinations"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
+import { jsonLdHtml } from "@/lib/jsonld"
 
 export const revalidate = 300
 
@@ -37,11 +38,40 @@ export default async function DestinationPage({ params }: Props) {
 
   const { language, currency } = getVisitorPreferences()
   const usdToTargetRate = await getUsdToRate(currency)
+  const pageUrl = absoluteUrl(`/destinations/${params.slug}`)
+
+  // A CollectionPage listing the real upcoming trips and past-trip recaps for this destination -
+  // the audit script (scripts/audit-live-seo.mjs) flagged every destination page as having no
+  // structured data at all. Every item here is a real published/past package, nothing invented.
+  const allItems = [...page.upcoming, ...page.recaps]
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: `${page.destination} Trips | ${SITE_NAME}`,
+      description: `Upcoming group trips, cruises and singles getaways to ${page.destination}, plus real recaps from past trips there.`,
+      url: pageUrl,
+      ...(allItems.length > 0
+        ? {
+            mainEntity: {
+              "@type": "ItemList",
+              itemListElement: allItems.map((pkg, i) => ({
+                "@type": "ListItem",
+                position: i + 1,
+                url: absoluteUrl(`/packages/${pkg.slug}`),
+                name: pkg.name,
+              })),
+            },
+          }
+        : {}),
+    },
+  ]
 
   return (
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
         <div className="border-b bg-muted/30">
           <div className="container mx-auto px-4 py-10">
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Destination</p>
