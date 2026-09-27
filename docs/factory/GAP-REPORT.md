@@ -140,3 +140,46 @@ as the original audit record.
 
 No application code changed. No migrations applied. No branch other than this one (`factory-audit`)
 touched. Nothing merged. This file is the only change in this diff.
+
+## 11. v9 addendum (2026-09-27)
+
+Nomad's factory moved from tag `factory-v8` (the version this whole audit was originally run
+against) to `factory-v9`, confirmed for real via `git fetch --tags` against the actual
+`nomad-escape-plan` repo, not assumed. Re-read PARITY-SPEC.md section 16 items 20-30 (the new
+items added in v9) against this project's actual state.
+
+**Filename correction:** the requested `docs/factory/SIBLING-CATCHUP.md` does not exist in Nomad
+at v9. `docs/factory/TRAVELFUNBIZ-SUPERPROMPT.md` does exist, and its content is clearly the
+intended file (it names this project by name and matches the ask exactly).
+
+**Items that changed the plan (real, actionable):**
+- **Item 27** (scroll position not resetting on route change): real bug, confirmed on this site
+  with an actual Playwright check before touching anything, not assumed from Nomad's report.
+  Fixed with one client component (`components/scroll-to-top.tsx`) mounted once in
+  `app/layout.tsx`. Shipped to `main` (commit `da779f1`).
+- **Item 29** (Search Console's `clicks`/`impressions` are trailing 28-day rolling totals per row,
+  not daily deltas — summing multiple days 28x-overcounts): checked this project's actual
+  `lib/rankings-snapshot.ts` and its one consumer (`app/admin/rankings`) — no live bug found, this
+  code already reads one day's row at a time. Documented the trap directly in the source
+  (`lib/rankings-snapshot.ts` doc comment) so a future funnel/dashboard phase doesn't reintroduce
+  it. Shipped to `main`, same commit.
+
+**Backlog items, not urgent, no product decision blocking:**
+- **20** (syndication kit), **22** (boosted-posts tracker), **26** (live SEO audit script): already
+  filed as `e10` roadmap use cases, P3, before this addendum.
+- **25** (city-cost grounding in blog prompts): not previously filed — added this turn as a new
+  `e10` P3 use case, noting this site has no per-city cost data source yet, so the code is
+  pointless to port before that exists.
+- **28** (income/budget checker) and **30** (mid-article tool placement): already covered by one
+  existing `e8` P3 use case ("income/budget checker tool ... + a mid-article placement for it on
+  long posts") — no change needed.
+
+**Items that don't apply yet or are already gated (21, 23, 24):**
+- **21** (shareable result cards from a quiz): this site has no quiz today (checked — no `quiz`
+  code anywhere in the repo), so there is nothing for a share-card to attach to. Not a decision
+  blocker, just nothing to port yet.
+- **23** (reel hooks/purpose tuning) and **24** (Instagram trial reels via Upload-Post): both
+  already covered by the existing social-distribution-provider blocker (decision 4 in section 9)
+  — reels aren't live here yet either way, so nothing new to decide.
+
+No other application code changed as a result of this addendum beyond what's listed above.
