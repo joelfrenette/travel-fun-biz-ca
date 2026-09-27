@@ -327,8 +327,6 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
     return data
   })
   const [saving, setSaving] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [aiImageUrl, setAiImageUrl] = useState<string | null>(null)
   const [generatingField, setGeneratingField] = useState<string | null>(null)
   const [generatingFaqs, setGeneratingFaqs] = useState(false)
   const galleryFileInputRef = useRef<HTMLInputElement>(null)
@@ -340,36 +338,6 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
 
   function handleChange(field: string, value: any) {
     setFormData((prev) => ({ ...prev, [field]: value }))
-  }
-
-  async function handleGenerateAIThumbnail() {
-    const payload = {
-      name: formData.name || '',
-      destination: formData.destination || '',
-      short_description: formData.short_description || '',
-      highlights: Array.isArray(formData.highlights) ? formData.highlights : (typeof formData.highlights === 'string' ? formData.highlights.split('\n') : []),
-    }
-
-    setGenerating(true)
-    try {
-      const token = localStorage.getItem('adminToken')
-      const res = await fetch('/api/admin/generate-thumbnail', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payload),
-      })
-      const data = await res.json()
-      if (res.ok && data.url) {
-        setAiImageUrl(data.url)
-        handleChange('image_url', data.url)
-      } else {
-        alert(data.error || 'AI generation failed')
-      }
-    } catch (err) {
-      alert('Failed to generate AI thumbnail')
-    } finally {
-      setGenerating(false)
-    }
   }
 
   // Image format pipeline: smart-crops the source image (or, if there is none, a real Pexels
@@ -597,44 +565,22 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
         <CardDescription>Fill out the package details below</CardDescription>
       </CardHeader>
 
-      {/* Thumbnail cards */}
+      {/* Thumbnail card */}
       <div className="px-6 pb-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-lg border bg-card/50 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium">Current Thumbnail</h3>
-              <p className="text-xs text-muted-foreground">From source</p>
-            </div>
-            <div className="mt-3 flex items-center gap-4">
-              {formData.image_url ? (
-                <img src={formData.image_url} alt="thumbnail" className="h-28 w-44 rounded object-cover border" />
-              ) : (
-                <div className="h-28 w-44 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">No image</div>
-              )}
-              <div className="flex-1 text-sm text-muted-foreground">
-                <p className="font-medium">Source image</p>
-                <p className="truncate text-xs">{formData.image_url || 'No image URL'}</p>
-              </div>
-            </div>
+        <div className="rounded-lg border bg-card/50 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium">Current Thumbnail</h3>
+            <p className="text-xs text-muted-foreground">From source</p>
           </div>
-
-          <div className="rounded-lg border bg-card/50 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium">AI Thumbnail</h3>
-              <p className="text-xs text-muted-foreground">Generate promotional image</p>
-            </div>
-            <div className="mt-3 flex items-center gap-4">
-              {aiImageUrl ? (
-                <img src={aiImageUrl} alt="ai-thumb" className="h-28 w-44 rounded object-cover border" />
-              ) : (
-                <div className="h-28 w-44 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">AI preview</div>
-              )}
-              <div className="flex-1">
-                <Button size="sm" onClick={handleGenerateAIThumbnail} disabled={generating}>
-                  <Wand2 className="mr-1 h-4 w-4" />
-                  {generating ? 'Generating...' : 'Generate'}
-                </Button>
-              </div>
+          <div className="mt-3 flex items-center gap-4">
+            {formData.image_url ? (
+              <img src={formData.image_url} alt="thumbnail" className="h-28 w-44 rounded object-cover border" />
+            ) : (
+              <div className="h-28 w-44 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">No image</div>
+            )}
+            <div className="flex-1 text-sm text-muted-foreground">
+              <p className="font-medium">Source image</p>
+              <p className="truncate text-xs">{formData.image_url || 'No image URL'}</p>
             </div>
           </div>
         </div>
