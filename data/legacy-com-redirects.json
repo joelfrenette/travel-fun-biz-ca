@@ -1,1 +1,422 @@
-[]
+[
+  {
+    "source": "/temptation-sexy-singles/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/privacy-policy/",
+    "destination": "/privacy",
+    "permanent": true
+  },
+  {
+    "source": "/pos/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/paypal/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/luxury-sailing-with-chef-ben-on-the-sea-cloud-spirit/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/reviews/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/hh-social-club-spotlight-on-tuscany-with-scott-walker/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/travelfun-biz-wins-best-ai-based-travel-agent-training-program/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/about-us/",
+    "destination": "/about",
+    "permanent": true
+  },
+  {
+    "source": "/happy-hour-club-travelfun-memorial-day-week-at-club-med/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/happy-hour-club-greek-island-hopping-with-scott-walker/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/happy-hour-club-memorial-day-week-at-club-med-in-punta-cana-with-scott-walker/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/in-the-news/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/best-travel-agent-training-program/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/shelby-frenette-travelfun-biz-featured-on-rossen-reports-you-vs-travel-agents-who-will-get-the-better-deal/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/singles-events-near-me/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/sitemap/",
+    "destination": "/sitemap.xml",
+    "permanent": true
+  },
+  {
+    "source": "/travelfun-biz-nominated-for-best-travel-agent-training-program-in-the-2024-travel-weekly-magellan-awards/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/travelfun-biz-wins-best-boutique-host-agency/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/terms-conditions/",
+    "destination": "/terms",
+    "permanent": true
+  },
+  {
+    "source": "/northern-europe-singles-cruise/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/gutter-cruise-with-tony/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/israel-singles-cruise/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/halloween-singles-cruises-over-40/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/croatia-singles-vacation/",
+    "destination": "/destinations/croatia",
+    "permanent": true
+  },
+  {
+    "source": "/croatia-singles-cruise/",
+    "destination": "/destinations/croatia",
+    "permanent": true
+  },
+  {
+    "source": "/amsterdam-singles-cruises-over-40/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/albuquerque-balloon-fiesta-santa-fe/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/msc-singles-cruise/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/mediterranean-summer-single-cruise/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/temptation-singles-cruise/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/virgin-voyages-singles-cruise/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/singles-cruise-over-40/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/bon-dia-travel/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/thank-you/",
+    "destination": "/thank-you",
+    "permanent": true
+  },
+  {
+    "source": "/friends-family/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/solo-travel/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/singles-cruise/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/steve-fox-singles-sailing/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/singles-all-inclusive-resort/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/join-our-fb-group-meet-me-in-rome-reality-tv-show-casting/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/rianas-transformation-vacation-at-the-riu-in-cancun/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/all-inclusive-resort-fun-vacation/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/adults-only-all-inclusive-resorts/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/shabbat-at-sea/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/affiliate-agreement/",
+    "destination": "/terms",
+    "permanent": true
+  },
+  {
+    "source": "/fun-40s-singles-sailing/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/travel-agency-near-me/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/common-misconceptions-about-singles-trips/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/lets-get-connected/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/best-new-years-eve-singles-cruise/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/cruises-for-singles/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/join-our-fb-group-single-upscale-solo-travelers/",
+    "destination": "/",
+    "permanent": true
+  },
+  {
+    "source": "/earnings-disclaimer/",
+    "destination": "/terms",
+    "permanent": true
+  },
+  {
+    "source": "/blog/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/vip/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/giveaway/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-11-how-young-professionals-want-to-travel/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-10-a-first-time-single-sailors-perspective/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-8-cruise-director-supports-local-army-vet/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-9-how-wild-is-a-singles-sailing/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-7-my-security-guard-scare/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-6-getting-robbed-by-reality-tv/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-5-random-ridiculous-roommate-drama/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-4-when-4-guests-missed-the-boat/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-3-the-reality-of-reality-tv-show-interviews/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-2-how-i-became-the-the-solotravelexpert/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/episode-1-from-heartbreak-to-the-high-seas/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/a-sneak-peek-at-whats-ahead-on-cruise-director/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-9/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-8/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-6/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-7/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-5/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-4/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-3/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-2/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/tune-into-travel-talk-on-action-radio-for-singles-cruise-news/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/death-by-selfie/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/new-rules/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/crazy-cruise-ship-story-1/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/ambassador/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/ideas-for-a-fun-social-post/",
+    "destination": "/blog",
+    "permanent": true
+  },
+  {
+    "source": "/alone-in-quarantine/",
+    "destination": "/blog",
+    "permanent": true
+  }
+]
