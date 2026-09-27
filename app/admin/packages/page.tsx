@@ -927,12 +927,18 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
-                <Label>Page title (meta title)</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Page title (meta title)</Label>
+                  <AIFieldButton onClick={() => handleGenerateField('meta_title')} loading={generatingField === 'meta_title'} />
+                </div>
                 <Input value={formData.meta_title || ""} onChange={(e) => handleChange("meta_title", e.target.value)} maxLength={70} placeholder={`${formData.name || "Trip name"} | ${formData.destination || "Destination"} | TravelFunBiz.ca`} />
                 <p className="text-xs text-muted-foreground">{(formData.meta_title || "").length}/70 · put the target phrase first</p>
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label>Meta description</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Meta description</Label>
+                  <AIFieldButton onClick={() => handleGenerateField('meta_description')} loading={generatingField === 'meta_description'} />
+                </div>
                 <Textarea value={formData.meta_description || ""} onChange={(e) => handleChange("meta_description", e.target.value)} rows={2} maxLength={160} />
                 <p className="text-xs text-muted-foreground">{(formData.meta_description || "").length}/160</p>
               </div>

@@ -6,6 +6,7 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "next lint",
+    "seo:audit": "node scripts/audit-live-seo.mjs",
     "start": "next start"
   },
   "dependencies": {
