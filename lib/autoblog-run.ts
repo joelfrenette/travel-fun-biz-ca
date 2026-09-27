@@ -7,6 +7,7 @@ import { findDuplicate } from '@/lib/content-dedupe'
 import { enrollIfDue } from '@/lib/distribution'
 import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
+import { attachAutoblogCoverImage } from '@/lib/blog-image'
 
 // Ported from Nomad Escape Plan's modules/marketing/autoblog-run.ts (Factory Phase 2:
 // blog/autoblog), adapted to this project's posts table (lib/posts.ts) and app_settings helper
@@ -79,12 +80,15 @@ export async function runAutoblog(opts: { scheduled: boolean }): Promise<Autoblo
 
   const blockers = mode === 'publish' ? autoPublishBlockers(composed) : []
   const publishing = mode === 'publish' && blockers.length === 0
+  const image = await attachAutoblogCoverImage(admin, topic.keyword, composed.slug)
 
   const post = await createPost({
     title: composed.title,
     slug: composed.slug,
     body: composed.body,
     tags: composed.tags,
+    cover_image_url: image?.cover_image_url ?? null,
+    alt_text: image?.alt_text ?? null,
     status: publishing ? 'published' : 'draft',
     publish_date: publishing ? new Date().toISOString().slice(0, 10) : null,
     meta_title: composed.seo_title,

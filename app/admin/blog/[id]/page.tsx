@@ -19,7 +19,7 @@ function authHeaders(json = true): HeadersInit {
   return h
 }
 
-const emptyForm: PostInput = { title: "", slug: "", body: "", cover_image_url: "", tags: [], status: "draft", publish_date: null, meta_title: "", meta_description: "" }
+const emptyForm: PostInput = { title: "", slug: "", body: "", cover_image_url: "", alt_text: "", tags: [], status: "draft", publish_date: null, meta_title: "", meta_description: "" }
 
 export default function BlogEditPage() {
   const params = useParams<{ id: string }>()
@@ -158,6 +158,12 @@ export default function BlogEditPage() {
                   <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" disabled={uploading} onChange={(e) => e.target.files?.[0] && uploadCover(e.target.files[0])} />
                 </label>
               </div>
+              <Input
+                className="max-w-sm"
+                value={form.alt_text || ""}
+                onChange={(e) => setForm((f) => ({ ...f, alt_text: e.target.value }))}
+                placeholder="Alt text (describe the photo, not the post) - blank falls back to the title"
+              />
             </div>
           </CardContent>
         </Card>

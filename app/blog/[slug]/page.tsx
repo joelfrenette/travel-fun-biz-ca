@@ -89,7 +89,7 @@ export default async function BlogPostPage({ params }: Props) {
 
           {post.cover_image_url && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={post.cover_image_url} alt={post.title} className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
+            <img src={post.cover_image_url} alt={post.alt_text || post.title} className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
           )}
 
           <div className="markdown-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />

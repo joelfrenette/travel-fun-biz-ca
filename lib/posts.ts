@@ -9,6 +9,7 @@ export interface Post {
   slug: string
   body: string
   cover_image_url: string | null
+  alt_text: string | null
   tags: string[]
   related_package_id: string | null
   status: 'draft' | 'published'
@@ -60,6 +61,7 @@ export async function createPost(input: PostInput): Promise<Post> {
       slug: input.slug.trim(),
       body: input.body ?? '',
       cover_image_url: input.cover_image_url || null,
+      alt_text: input.alt_text || null,
       tags: input.tags ?? [],
       related_package_id: input.related_package_id || null,
       status: input.status === 'published' ? 'published' : 'draft',
