@@ -3,6 +3,15 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { samplePackages } from '@/content/packages'
 import type { TravelPackage } from '@/types/travel'
 
+// A dated traveler update on a trip ("where we went, what happened") - roadmap use case
+// 6aed9806. Admin-entered only; never AI-generated, since it's a first-person account of a real
+// day, not marketing copy.
+export interface JournalEntry {
+  date: string // YYYY-MM-DD
+  title: string
+  body: string
+}
+
 export interface DbPackage {
   id: string
   name: string
@@ -31,6 +40,7 @@ export interface DbPackage {
   image_url_banner: string | null
   image_source: 'upload' | 'pexels' | 'ai_generated' | null
   gallery_urls: string[]
+  journal_entries: JournalEntry[]
   video_url: string | null
   rating: number | null
   review_count: number

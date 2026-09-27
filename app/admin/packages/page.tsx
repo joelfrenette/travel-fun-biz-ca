@@ -307,6 +307,50 @@ function AIInterview({ onComplete, onCancel }: { onComplete: (data: any) => void
   )
 }
 
+// ─── Trip Journal Editor ─────────────────────────────────────────────
+// Dated traveler updates ("where we went, what happened") - roadmap use case 6aed9806. Admin
+// types these by hand; no AI button here, deliberately - this is a first-person account of a
+// real day, not marketing copy the AI tools are grounded to write.
+interface JournalEntryForm { date: string; title: string; body: string }
+
+function JournalEditor({ entries, onChange }: { entries: JournalEntryForm[]; onChange: (entries: JournalEntryForm[]) => void }) {
+  function update(idx: number, field: keyof JournalEntryForm, value: string) {
+    const updated = [...entries]
+    updated[idx] = { ...updated[idx], [field]: value }
+    onChange(updated)
+  }
+  function add() {
+    onChange([...entries, { date: "", title: "", body: "" }])
+  }
+  function remove(idx: number) {
+    onChange(entries.filter((_, i) => i !== idx))
+  }
+
+  return (
+    <div className="space-y-3">
+      {entries.map((entry, idx) => (
+        <div key={idx} className="rounded-lg border p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 space-y-2">
+              <div className="grid gap-2 sm:grid-cols-[160px_1fr]">
+                <Input type="date" value={entry.date} onChange={(e) => update(idx, "date", e.target.value)} />
+                <Input placeholder="Entry title (e.g. Day 3: Arrived in Split)" value={entry.title} onChange={(e) => update(idx, "title", e.target.value)} />
+              </div>
+              <Textarea placeholder="What happened this day..." value={entry.body} onChange={(e) => update(idx, "body", e.target.value)} rows={3} />
+            </div>
+            <Button type="button" variant="ghost" size="icon" onClick={() => remove(idx)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={add}>
+        <Plus className="mr-1 h-4 w-4" />Add journal entry
+      </Button>
+    </div>
+  )
+}
+
 // ─── Paste Source Material (AI draft builder) ───────────────────────
 // Roadmap use case 09dd2acd. The server (lib/package-extract.ts) only keeps facts it can find
 // in the pasted text; anything else lands in "dropped" with a reason, and the admin finishes the
@@ -469,6 +513,8 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
     } else {
       data.faqs = []
     }
+    // Parse journal entries
+    data.journal = Array.isArray(data.journal_entries) ? data.journal_entries : []
     return data
   })
   const [saving, setSaving] = useState(false)
@@ -698,7 +744,14 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
     if (data.faqs) {
       data.ai_faqs = data.faqs
     }
-    
+
+    // Store journal entries, sorted by date and dropping any still-blank rows, in journal_entries
+    if (Array.isArray(data.journal)) {
+      data.journal_entries = data.journal
+        .filter((e: JournalEntryForm) => e.date && e.title.trim())
+        .sort((a: JournalEntryForm, b: JournalEntryForm) => a.date.localeCompare(b.date))
+    }
+
     const priceMatch = data.price_display?.match(/[\d,]+/)
     if (priceMatch) data.price_value = parseFloat(priceMatch[0].replace(/,/g, ""))
     const durationMatch = data.duration?.match(/(\d+)\s*day/i)
@@ -967,6 +1020,15 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
               </div>
             </div>
             <FAQEditor faqs={formData.faqs || []} onChange={(faqs) => handleChange('faqs', faqs)} />
+          </div>
+
+          {/* Trip Journal Section */}
+          <div className="rounded-lg border p-4 space-y-4">
+            <div>
+              <h3 className="font-medium">Trip Journal</h3>
+              <p className="text-sm text-muted-foreground">Dated updates from the trip (where you went, what happened) that show up as a timeline on the package page. Written by hand - no AI button, this is your account of a real day.</p>
+            </div>
+            <JournalEditor entries={formData.journal || []} onChange={(journal) => handleChange('journal', journal)} />
           </div>
 
           {/* Submit */}

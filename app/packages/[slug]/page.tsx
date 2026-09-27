@@ -22,6 +22,7 @@ import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
 import { TripTestimonials } from "@/components/trip-testimonials"
 import { TripGallery } from "@/components/trip-gallery"
 import { TripVideo } from "@/components/trip-video"
+import { TripJournal } from "@/components/trip-journal"
 
 export const revalidate = 300
 
@@ -263,6 +264,12 @@ export default async function PackagePage({ params }: Props) {
           <section className="container mx-auto px-4 pb-12">
             <h2 className="mb-4 text-2xl font-bold">{translate(language, "Trip Photos")}</h2>
             <TripGallery images={pkg.gallery_urls} alt={pkg.name} />
+          </section>
+        )}
+
+        {pkg.journal_entries?.length > 0 && (
+          <section className="container mx-auto px-4 pb-12">
+            <TripJournal entries={pkg.journal_entries} language={language} />
           </section>
         )}
 
