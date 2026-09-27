@@ -1,14 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { findDuplicate } from '@/lib/content-dedupe'
+import { getNearMissKeywords } from '@/lib/search-console'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-topics.ts (Factory Phase 2:
-// blog/autoblog), trimmed to what this site's own blog needs: no GSC "near-miss keyword"
-// enrichment (that needs lib/keywords.ts's Search Console plumbing wired in on purpose, not as a
-// side effect of this port - a real follow-up, not scope creep here) and no visa/passport
-// material (100% Nomad's own domain). Kept: AI-suggested topics grounded in this site's actual
-// packages and posts, an admin approval queue, and a same-keyword dedupe so the strategist never
-// re-proposes something already live or already rejected.
+// blog/autoblog), trimmed to what this site's own blog needs: no visa/passport material (100%
+// Nomad's own domain). GSC "near-miss keyword" enrichment was deferred out of that first port on
+// purpose (roadmap sort_order 1020) and ships now, in lib/search-console.ts's getNearMissKeywords.
+// Kept: AI-suggested topics grounded in this site's actual packages and posts, an admin approval
+// queue, and a same-keyword dedupe so the strategist never re-proposes something already live or
+// already rejected.
 export interface TopicIdea {
   angle: string
   keyword: string
@@ -57,6 +58,18 @@ async function gatherTopicMaterial(admin: SupabaseClient): Promise<string> {
     lines.push(`Real packages we sell, by destination:\n${[...byDest.entries()].map(([dest, names]) => `- ${dest}: ${names.join(', ')}`).join('\n')}`)
   }
   if (queue?.length) lines.push(`Keywords already queued, used or rejected (never propose these again):\n${(queue as { keyword: string }[]).map((q) => q.keyword).join(', ')}`)
+
+  // Never blocks a run — Search Console being unconfigured, empty, or briefly failing just means
+  // this section is omitted, same as posts/packages/queue above when their table is empty.
+  const nearMiss = await getNearMissKeywords(28, 10)
+  if (nearMiss.length) {
+    lines.push(
+      `Already ranking 5-20 in Google (a focused post here is the fastest realistic win - favour at least one of these):\n${nearMiss
+        .map((r) => `- ${r.query} (position ${r.position.toFixed(1)}, ${r.impressions} impressions/28d)`)
+        .join('\n')}`,
+    )
+  }
+
   return lines.join('\n\n')
 }
 

@@ -67,6 +67,31 @@ async function dimensionReport(dimension: 'query' | 'page', days: number): Promi
   }))
 }
 
+/** Queries already ranking 5-20 (Nomad's own threshold: page 1-2, not yet a top-4 result) sorted
+ * by impressions descending — the fastest realistic SEO wins, since Google already shows this
+ * site for them and a focused post just needs to nudge position rather than rank from scratch.
+ * Pure and pre-filtered so it's covered by a real assertion, not just a type check. */
+export function nearMissQueries(rows: SearchConsoleRow[], limit = 10): SearchConsoleRow[] {
+  return rows
+    .filter((r) => r.position >= 5 && r.position <= 20)
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, limit)
+}
+
+/** Fetches the cached query report and returns its near-miss queries — the actual call
+ * lib/blog-topics.ts's topic suggester makes. Returns [] (never throws) when Search Console isn't
+ * configured or the request fails, same "never blocks the caller" pattern as every other
+ * optional-integration read in this project. */
+export async function getNearMissKeywords(days = 28, limit = 10): Promise<SearchConsoleRow[]> {
+  if (!isSearchConsoleConfigured()) return []
+  try {
+    return nearMissQueries(await getSearchConsoleQueries(days), limit)
+  } catch (err) {
+    console.error('[search-console] near-miss lookup failed:', err instanceof Error ? err.message : err)
+    return []
+  }
+}
+
 export interface RankingSnapshotData {
   queries: DimensionRow[]
   pages: DimensionRow[]
