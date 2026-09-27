@@ -9,6 +9,7 @@ import {
 } from "recharts"
 import { adminTools } from "@/lib/admin-nav"
 import type { Ga4Report } from "@/lib/ga4"
+import { FunnelPanel } from "@/components/admin/funnel-panel"
 
 // ─── Sample analytics data, shown until GA4 is connected ────────────
 const sampleChannels = ["google", "direct", "email", "facebook", "instagram", "tiktok", "twitter", "pinterest", "other"]
@@ -156,6 +157,10 @@ export default function AdminPage() {
 
       <div className="mb-8">
         <TrafficChart state={analytics} />
+      </div>
+
+      <div className="mb-8">
+        <FunnelPanel />
       </div>
 
       <div className="mb-4">
