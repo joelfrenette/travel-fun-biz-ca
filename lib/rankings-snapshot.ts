@@ -16,7 +16,13 @@ export const RANKINGS_TABLE = 'gsc_rankings'
 
 /** Take today's ranking snapshot: the keyword counts for the day, one row per tracked page and
  * one per busy keyword. Re-running the same day overwrites it. Returns a one-line note for the
- * cron heartbeat; throws on a real failure. */
+ * cron heartbeat; throws on a real failure.
+ *
+ * IMPORTANT for whoever reads gsc_ranking_days later: `clicks`/`impressions` on each day's row are
+ * a trailing 28-day total as of that day (Search Console's own API shape), NOT that day's own
+ * delta. Nomad hit this for real (docs/factory/PARITY-SPEC.md section 16 item 29, 2026-09-26):
+ * summing several days of an already-rolling total 28x-overcounts. Read one day's row at a time
+ * (as app/admin/rankings does today) - never sum multiple days' clicks/impressions from this table. */
 export async function takeRankingSnapshot(admin: SupabaseClient): Promise<string> {
   const snap = await getSearchConsoleRankingSnapshot()
   if (!snap) return "Search Console isn't configured"

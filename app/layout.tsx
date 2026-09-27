@@ -6,6 +6,7 @@ import Script from "next/script"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AttributionCapture } from "@/components/attribution-capture"
+import { ScrollToTop } from "@/components/scroll-to-top"
 import { cookies } from 'next/headers'
 import { normalizeLanguage } from '@/lib/preferences'
 import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, hreflangAlternates } from '@/lib/site'
@@ -61,6 +62,7 @@ export default function RootLayout({
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
+          <ScrollToTop />
           <AttributionCapture />
           <Analytics />
         </ThemeProvider>
