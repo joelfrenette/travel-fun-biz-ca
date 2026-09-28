@@ -35,7 +35,12 @@ function statusOf(list: RoadmapUseCase[]): UseCaseStatus {
 }
 
 // ─── Roadmap (Gantt) ────────────────────────────────────────────────
-function Gantt({ epics, usecases }: { epics: RoadmapEpic[]; usecases: RoadmapUseCase[] }) {
+function Gantt({ epics: allEpics, usecases }: { epics: RoadmapEpic[]; usecases: RoadmapUseCase[] }) {
+  // An epic with start_week=end_week=0 has never been scheduled (e.g. a raw idea-dump epic
+  // straight from grooming, before it gets a real week range) - drawing it as a 1-week bar at
+  // week 1 would misleadingly suggest it's already on the plan. It still shows in the Epics tab.
+  const epics = allEpics.filter((e) => e.start_week > 0 || e.end_week > 0)
+  const unscheduledCount = allEpics.length - epics.length
   const labelW = 220, weekW = 46, rowH = 40, headH = 46
   const width = labelW + PLAN_WEEKS * weekW + 16
   const height = headH + Math.max(epics.length, 1) * rowH + 12
@@ -87,6 +92,11 @@ function Gantt({ epics, usecases }: { epics: RoadmapEpic[]; usecases: RoadmapUse
           </g>
         )}
       </svg>
+      {unscheduledCount > 0 && (
+        <p className="border-t p-2 text-xs text-muted-foreground">
+          {unscheduledCount} epic{unscheduledCount === 1 ? "" : "s"} not yet scheduled (no week range set) - see the Epics tab.
+        </p>
+      )}
     </div>
   )
 }
