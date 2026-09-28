@@ -8,10 +8,11 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
-import { Loader2, Save, Upload, ExternalLink, Search } from "lucide-react"
+import { Loader2, Save, Upload, ExternalLink, Search, Copy, Check, Share2 } from "lucide-react"
 import type { Post, PostInput } from "@/lib/posts"
 import { generateSlug } from "@/lib/utils"
 import { renderMarkdown, readingTimeMinutes } from "@/lib/markdown"
+import { buildSyndicationKit } from "@/lib/syndication"
 
 function authHeaders(json = true): HeadersInit {
   const h: Record<string, string> = { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -20,6 +21,37 @@ function authHeaders(json = true): HeadersInit {
 }
 
 const emptyForm: PostInput = { title: "", slug: "", body: "", cover_image_url: "", alt_text: "", tags: [], status: "draft", publish_date: null, meta_title: "", meta_description: "" }
+
+// Syndication kit (roadmap 93f89574): a copy-paste-ready version of the already-published post
+// for LinkedIn, Substack and Medium. Nothing here calls an API or posts anything - it's the same
+// real published text, repackaged, so there's no fabrication risk to review beyond the post
+// itself already being correct.
+function CopyBlock({ label, text, hint }: { label: string; text: string; hint?: string }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard access can fail (permissions, non-secure context) - the textarea below is
+      // still selectable/copyable by hand either way.
+    }
+  }
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label>{label}</Label>
+        <Button type="button" size="sm" variant="outline" onClick={copy}>
+          {copied ? <Check className="mr-1 h-3.5 w-3.5" /> : <Copy className="mr-1 h-3.5 w-3.5" />}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      <Textarea readOnly value={text} rows={label === "LinkedIn post" ? 6 : 10} className="font-mono text-xs" />
+    </div>
+  )
+}
 
 export default function BlogEditPage() {
   const params = useParams<{ id: string }>()
@@ -238,6 +270,37 @@ export default function BlogEditPage() {
             </div>
           </CardContent>
         </Card>
+
+        {!isNew && form.status === "published" && form.slug && form.title && form.body && (
+          <Card>
+            <CardContent className="space-y-4 p-4">
+              <div className="flex items-center gap-2">
+                <Share2 className="h-4 w-4 text-muted-foreground" />
+                <h3 className="font-medium">Syndicate this post</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Ready-to-paste text for platforms that need a manual post. Nothing here posts automatically - copy, paste, and publish on each
+                platform yourself. It's the same text already live on the blog, just formatted for where it's going.
+              </p>
+              {(() => {
+                const kit = buildSyndicationKit({
+                  title: form.title!,
+                  slug: form.slug!,
+                  body: form.body!,
+                  tags: form.tags || [],
+                  meta_description: form.meta_description,
+                })
+                return (
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <CopyBlock label="LinkedIn post" text={kit.linkedin} hint="Paste directly into a LinkedIn post." />
+                    <CopyBlock label="Substack" text={kit.substack} hint="Paste into a new Substack post (its editor reads Markdown)." />
+                    <CopyBlock label="Medium" text={kit.medium} hint={`Use Medium's "Import a story" and set the canonical URL to ${kit.postUrl} to avoid a duplicate-content SEO hit.`} />
+                  </div>
+                )
+              })()}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )
