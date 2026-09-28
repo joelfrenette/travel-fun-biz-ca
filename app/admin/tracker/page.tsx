@@ -247,9 +247,10 @@ function AddUseCaseDialog({ open, onClose, roadmap, onCreated }: { open: boolean
               <Select value={priority} onValueChange={setPriority}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="P1">P1 · must have</SelectItem>
+                  <SelectItem value="P0">P0 · immediate</SelectItem>
+                  <SelectItem value="P1">P1 · high</SelectItem>
                   <SelectItem value="P2">P2 · should have</SelectItem>
-                  <SelectItem value="P3">P3 · nice to have</SelectItem>
+                  <SelectItem value="P3">P3 · keep pushing out</SelectItem>
                 </SelectContent>
               </Select>
             </div>

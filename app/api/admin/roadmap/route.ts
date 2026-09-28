@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       note: typeof body.note === 'string' && body.note.trim() ? body.note.trim() : null,
       epic_id: typeof body.epic_id === 'string' && body.epic_id ? body.epic_id : null,
       feature_id: typeof body.feature_id === 'string' && body.feature_id ? body.feature_id : null,
-      priority: ['P1', 'P2', 'P3'].includes(body.priority) ? body.priority : 'P2',
+      priority: ['P0', 'P1', 'P2', 'P3'].includes(body.priority) ? body.priority : 'P2',
       status: 'backlog',
       source: 'admin',
     })

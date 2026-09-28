@@ -4,7 +4,7 @@ import { updateUseCase, deleteUseCase } from '@/lib/roadmap'
 import type { RoadmapUseCase } from '@/types/roadmap'
 
 const STATUSES = ['backlog', 'in_progress', 'done']
-const PRIORITIES = ['P1', 'P2', 'P3']
+const PRIORITIES = ['P0', 'P1', 'P2', 'P3']
 
 function buildPatch(body: unknown): { patch: Partial<RoadmapUseCase>; error?: string } {
   if (!body || typeof body !== 'object') return { patch: {}, error: 'Body must be a JSON object' }

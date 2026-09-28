@@ -3,7 +3,8 @@ export const PLAN_START = '2026-09-28'
 export const PLAN_WEEKS = 16
 
 export type UseCaseStatus = 'backlog' | 'in_progress' | 'done'
-export type UseCasePriority = 'P1' | 'P2' | 'P3'
+// P0 = immediate (added 2026-09-28 for backlog grooming); P1 = high ... P3 = keep pushing out / maybe never.
+export type UseCasePriority = 'P0' | 'P1' | 'P2' | 'P3'
 
 export interface RoadmapEpic {
   id: string
