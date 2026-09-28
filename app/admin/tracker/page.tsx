@@ -10,9 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ChevronDown, ChevronRight, Loader2, Mic, MicOff, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { PLAN_START, PLAN_WEEKS, type Roadmap, type RoadmapEpic, type RoadmapUseCase, type UseCaseStatus } from "@/types/roadmap"
+import { PLAN_START, PLAN_WEEKS, type Roadmap, type RoadmapEpic, type RoadmapUseCase, type UseCaseStatus, type UseCasePriority } from "@/types/roadmap"
 
 const STATUSES: UseCaseStatus[] = ["backlog", "in_progress", "done"]
+const PRIORITIES: UseCasePriority[] = ["P0", "P1", "P2", "P3"]
+const PRIORITY_LABEL: Record<UseCasePriority, string> = { P0: "P0 · immediate", P1: "P1 · high", P2: "P2 · should have", P3: "P3 · keep pushing out" }
 const STATUS_LABEL: Record<UseCaseStatus, string> = { backlog: "Backlog", in_progress: "In progress", done: "Done" }
 const STATUS_CLASS: Record<UseCaseStatus, string> = {
   backlog: "bg-muted text-muted-foreground",
@@ -123,13 +125,30 @@ function StatusChips({ usecase, onChange, busy }: { usecase: RoadmapUseCase; onC
   )
 }
 
-function UseCaseRow({ usecase, onChange, busy }: { usecase: RoadmapUseCase; onChange: (id: string, status: UseCaseStatus) => void; busy: boolean }) {
+// A compact native <select> rather than the shadcn Select here - this renders inside dense list
+// rows (sometimes dozens per page after the 2026-09-27 idea-dump import) where the shadcn
+// popover's extra DOM weight and click-outside handling isn't worth it for a single value.
+function PrioritySelect({ usecase, onChange, busy }: { usecase: RoadmapUseCase; onChange: (id: string, priority: UseCasePriority) => void; busy: boolean }) {
+  return (
+    <select
+      value={usecase.priority}
+      disabled={busy}
+      onChange={(e) => onChange(usecase.id, e.target.value as UseCasePriority)}
+      className="h-6 rounded-full border bg-card px-2 text-xs font-semibold text-foreground disabled:opacity-60"
+      aria-label="Priority"
+    >
+      {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+    </select>
+  )
+}
+
+function UseCaseRow({ usecase, onChange, onPriorityChange, busy }: { usecase: RoadmapUseCase; onChange: (id: string, status: UseCaseStatus) => void; onPriorityChange: (id: string, priority: UseCasePriority) => void; busy: boolean }) {
   return (
     <li className="grid gap-2 rounded-md bg-muted/50 px-3 py-2 sm:grid-cols-[1fr_auto] sm:items-center">
       <div>
         <p className="text-sm">{usecase.title}</p>
-        <p className="text-xs text-muted-foreground">
-          <span className="font-semibold">{usecase.priority}</span>
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <PrioritySelect usecase={usecase} onChange={onPriorityChange} busy={busy} />
           {usecase.source === "admin" && <span> · added from the admin</span>}
           {usecase.note && <span> · {usecase.note}</span>}
         </p>
@@ -257,10 +276,7 @@ function AddUseCaseDialog({ open, onClose, roadmap, onCreated }: { open: boolean
               <Select value={priority} onValueChange={setPriority}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="P0">P0 · immediate</SelectItem>
-                  <SelectItem value="P1">P1 · high</SelectItem>
-                  <SelectItem value="P2">P2 · should have</SelectItem>
-                  <SelectItem value="P3">P3 · keep pushing out</SelectItem>
+                  {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{PRIORITY_LABEL[p]}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -330,6 +346,26 @@ export default function TrackerPage() {
     }
   }
 
+  // Added 2026-09-28: grooming an ungroomed backlog (the 2026-09-27 idea-dump import left 49 use
+  // cases at a placeholder P3) was otherwise only possible via direct SQL - there was no priority
+  // control anywhere except the "add new use case" dialog. Same optimistic-update/rollback shape
+  // as changeStatus above.
+  async function changePriority(id: string, priority: UseCasePriority) {
+    if (!roadmap) return
+    const previous = roadmap.usecases.find((u) => u.id === id)?.priority
+    setBusy((b) => ({ ...b, [id]: true }))
+    setRoadmap({ ...roadmap, usecases: roadmap.usecases.map((u) => (u.id === id ? { ...u, priority } : u)) })
+    try {
+      const res = await fetch(`/api/admin/roadmap/${id}`, { method: "PATCH", headers: authHeaders(), body: JSON.stringify({ priority }) })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
+    } catch (e) {
+      setRoadmap((r) => r && { ...r, usecases: r.usecases.map((u) => (u.id === id && previous ? { ...u, priority: previous } : u)) })
+      alert(e instanceof Error ? e.message : "Could not save the change")
+    } finally {
+      setBusy((b) => ({ ...b, [id]: false }))
+    }
+  }
+
   if (error) return <div className="p-6 text-destructive">{error}</div>
   if (!roadmap) return <div className="flex items-center justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
 
@@ -371,7 +407,7 @@ export default function TrackerPage() {
                 <CardContent className="p-4">
                   <h2 className="font-semibold">Waiting for triage</h2>
                   <p className="mb-3 text-sm text-muted-foreground">Ideas added from the admin that Claude has not filed under an epic yet.</p>
-                  <ul className="space-y-2">{unsorted.map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} busy={!!busy[u.id]} />)}</ul>
+                  <ul className="space-y-2">{unsorted.map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} busy={!!busy[u.id]} />)}</ul>
                 </CardContent>
               </Card>
             )}
@@ -404,14 +440,14 @@ export default function TrackerPage() {
                               <h3 className="font-medium">{f.title}</h3>
                             </div>
                             {f.note && <p className="ml-5 text-xs text-muted-foreground">{f.note}</p>}
-                            <ul className="mt-2 space-y-1.5">{list.map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} busy={!!busy[u.id]} />)}</ul>
+                            <ul className="mt-2 space-y-1.5">{list.map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} busy={!!busy[u.id]} />)}</ul>
                           </div>
                         )
                       })}
                       {all.filter((u) => !u.feature_id).length > 0 && (
                         <div className="border-t py-3">
                           <h3 className="font-medium">Not assigned to a feature</h3>
-                          <ul className="mt-2 space-y-1.5">{all.filter((u) => !u.feature_id).map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} busy={!!busy[u.id]} />)}</ul>
+                          <ul className="mt-2 space-y-1.5">{all.filter((u) => !u.feature_id).map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} busy={!!busy[u.id]} />)}</ul>
                         </div>
                       )}
                     </CardContent>
@@ -435,7 +471,7 @@ export default function TrackerPage() {
                         const e = roadmap.epics.find((x) => x.id === u.epic_id)
                         return (
                           <div key={u.id} className="space-y-1.5 rounded-md bg-muted/50 p-3">
-                            <div className="flex items-center justify-between gap-2"><Badge variant="outline" className="text-[10px]">{e ? `${e.code} · ${e.title}` : "Unsorted"}</Badge><span className="text-xs font-semibold text-muted-foreground">{u.priority}</span></div>
+                            <div className="flex items-center justify-between gap-2"><Badge variant="outline" className="text-[10px]">{e ? `${e.code} · ${e.title}` : "Unsorted"}</Badge><PrioritySelect usecase={u} onChange={changePriority} busy={!!busy[u.id]} /></div>
                             <p className="text-sm">{u.title}</p>
                             <StatusChips usecase={u} onChange={changeStatus} busy={!!busy[u.id]} />
                           </div>
