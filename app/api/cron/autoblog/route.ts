@@ -17,6 +17,7 @@ export const GET = withCronHeartbeat('autoblog', async (request: Request) => {
     const result = await runAutoblog({ scheduled: true })
     return NextResponse.json(result)
   } catch (error) {
+    console.error('[cron:autoblog]', error)
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
 })

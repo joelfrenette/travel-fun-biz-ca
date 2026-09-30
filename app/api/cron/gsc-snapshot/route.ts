@@ -17,6 +17,10 @@ async function handle(request: Request) {
     const note = await takeRankingSnapshot(getSupabaseAdmin())
     return NextResponse.json({ ok: true, result: note })
   } catch (error) {
+    // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
+    // Vercel's own caller - the Logs tab showed the request but no error text at all (found
+    // 2026-09-28 debugging a real gsc-snapshot failure with nothing to go on but a 500).
+    console.error('[cron:gsc-snapshot]', error)
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
 }

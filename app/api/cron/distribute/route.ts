@@ -18,6 +18,7 @@ export const GET = withCronHeartbeat('distribute', async (request: Request) => {
     const note = await runDistribution(getSupabaseAdmin())
     return NextResponse.json({ note })
   } catch (error) {
+    console.error('[cron:distribute]', error)
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
 })
