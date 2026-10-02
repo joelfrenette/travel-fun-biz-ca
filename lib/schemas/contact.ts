@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { attributionSchema } from '@/lib/attribution'
 
 export const contactFormSchema = z.object({
-  name: z.string().min(1, 'Full name is required'),
+  name: z.string().trim().min(1, 'Full name is required'),
   email: z.string().email('Please enter a valid email address'),
   phone: z.string().optional(),
   package: z.string().min(1, 'Please select a package'),

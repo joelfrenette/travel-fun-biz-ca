@@ -44,8 +44,10 @@ function attributionFields(a: Attribution | undefined): { key: string; value: st
 
 function attributionTags(a: Attribution | undefined): string[] {
   const tags: string[] = []
-  if (a?.utm_source) tags.push(`src-${tagSafe(a.utm_source)}`)
-  if (a?.utm_campaign) tags.push(`campaign-${tagSafe(a.utm_campaign)}`)
+  const src = a?.utm_source ? tagSafe(a.utm_source) : ''
+  const campaign = a?.utm_campaign ? tagSafe(a.utm_campaign) : ''
+  if (src) tags.push(`src-${src}`)
+  if (campaign) tags.push(`campaign-${campaign}`)
   return tags
 }
 
@@ -57,7 +59,9 @@ async function upsertContact(cfg: NonNullable<ReturnType<typeof config>>, payloa
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    console.error('[gohighlevel] contact error:', res.status, body)
+    // Log only a safe subset: GHL validation/duplicate-contact errors can echo the submitted
+    // email or other PII back in the message body, so never log the raw body verbatim.
+    console.error('[gohighlevel] contact error:', res.status, body?.message || body?.msg || '(no message)')
     return { ok: false, error: body?.message || body?.msg || `GoHighLevel responded ${res.status}` }
   }
   return { ok: true, contactId: body.contact?.id }
@@ -98,7 +102,16 @@ export async function submitLeadToGoHighLevel(lead: ContactSubmission): Promise<
           source: lead.attribution?.utm_source || 'Website',
         }),
       })
-      if (!res.ok) console.error('[gohighlevel] opportunity error:', res.status, await res.text().catch(() => ''))
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}) as Record<string, unknown>)
+        console.error(
+          '[gohighlevel] opportunity error:',
+          res.status,
+          (errBody as { message?: string; msg?: string })?.message ||
+            (errBody as { message?: string; msg?: string })?.msg ||
+            '(no message)'
+        )
+      }
     }
     return result
   } catch (error) {
