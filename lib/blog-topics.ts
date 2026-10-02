@@ -45,17 +45,28 @@ const TOPIC_CLUSTERS: TopicIdea[] = [
 async function gatherTopicMaterial(admin: SupabaseClient): Promise<string> {
   const [{ data: posts }, { data: packages }, { data: queue }] = await Promise.all([
     admin.from('posts').select('title').order('created_at', { ascending: false }).limit(40),
-    admin.from('travel_packages').select('name, destination, category').eq('status', 'published').limit(60),
+    admin.from('travel_packages').select('name, destination, category, short_description, available_from, available_to').eq('status', 'published').limit(60),
     admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved', 'used', 'rejected']).limit(200),
   ])
   const lines: string[] = []
   if (posts?.length) lines.push(`Existing blog post titles (do not repeat these angles):\n${posts.map((p: { title: string }) => `- ${p.title}`).join('\n')}`)
   if (packages?.length) {
-    const byDest = new Map<string, string[]>()
-    for (const p of packages as { name: string; destination: string; category: string }[]) {
-      byDest.set(p.destination, [...(byDest.get(p.destination) ?? []), `${p.name} (${p.category})`])
+    // short_description and dates are included so the AI grounds an angle in what's actually sold
+    // (e.g. a sailing-yacht cruise, not a generic "overwater bungalow" cliche for the destination)
+    // and in the real travel year - without these the model only sees name/destination/category and
+    // fills the gap with plausible-sounding but wrong detail.
+    const describe = (p: { name: string; category: string; short_description: string | null; available_from: string | null; available_to: string | null }) => {
+      const bits = [`${p.name} (${p.category})`]
+      if (p.short_description) bits.push(p.short_description)
+      const year = p.available_from?.slice(0, 4) || p.available_to?.slice(0, 4)
+      if (year) bits.push(`travels in ${year}`)
+      return bits.join(' - ')
     }
-    lines.push(`Real packages we sell, by destination:\n${[...byDest.entries()].map(([dest, names]) => `- ${dest}: ${names.join(', ')}`).join('\n')}`)
+    const byDest = new Map<string, string[]>()
+    for (const p of packages as { name: string; destination: string; category: string; short_description: string | null; available_from: string | null; available_to: string | null }[]) {
+      byDest.set(p.destination, [...(byDest.get(p.destination) ?? []), describe(p)])
+    }
+    lines.push(`Real packages we sell, by destination (use these details - never invent a detail that contradicts them):\n${[...byDest.entries()].map(([dest, names]) => `- ${dest}:\n  ${names.join('\n  ')}`).join('\n')}`)
   }
   if (queue?.length) lines.push(`Keywords already queued, used or rejected (never propose these again):\n${(queue as { keyword: string }[]).map((q) => q.keyword).join(', ')}`)
 
@@ -89,23 +100,31 @@ Return ONLY minified JSON of this exact shape, nothing else:
 
   try {
     const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000 })
-    if (!r || !r.res.ok) return []
+    if (!r || !r.res.ok) {
+      const body = r ? await r.res.text().catch(() => '') : ''
+      console.error('[blog-topics] suggestTopics: Anthropic call failed', r ? `status ${r.res.status}` : '(no response)', body.slice(0, 500))
+      return []
+    }
     const data = await r.res.json()
     const parsed = parseModelJson<{ ideas?: TopicIdea[] }>(anthropicText(data))
+    if (!parsed) console.error('[blog-topics] suggestTopics: model reply was not valid JSON of the expected shape')
     const ideas = Array.isArray(parsed?.ideas) ? parsed!.ideas : []
     return ideas.filter((i) => typeof i?.angle === 'string' && typeof i?.keyword === 'string' && i.angle && i.keyword)
-  } catch {
+  } catch (err) {
+    console.error('[blog-topics] suggestTopics threw:', err instanceof Error ? err.message : err)
     return []
   }
 }
 
-/** Insert ideas into the queue, skipping any whose keyword is already live (suggested/approved) -
- * the unique index would also reject it, but checking first avoids a noisy partial-insert error. */
+/** Insert ideas into the queue, skipping any whose keyword is already queued/approved OR already
+ * used/rejected - the unique index only backs the queued/approved half, so without checking the
+ * used/rejected statuses too a model slip could silently re-insert a keyword that was already
+ * decided on. */
 export async function queueIdeas(admin: SupabaseClient, ideas: TopicIdea[], status: 'suggested' | 'approved' = 'suggested'): Promise<{ queued: number }> {
   if (ideas.length === 0) return { queued: 0 }
-  const { data: live } = await admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved'])
-  const liveKeywords = new Set((live ?? []).map((r: { keyword: string }) => r.keyword.toLowerCase()))
-  const rows = ideas.filter((i) => !liveKeywords.has(i.keyword.toLowerCase())).map((i) => ({ ...i, status }))
+  const { data: taken } = await admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved', 'used', 'rejected'])
+  const takenKeywords = new Set((taken ?? []).map((r: { keyword: string }) => r.keyword.toLowerCase()))
+  const rows = ideas.filter((i) => !takenKeywords.has(i.keyword.toLowerCase())).map((i) => ({ ...i, status }))
   if (rows.length === 0) return { queued: 0 }
   const { error } = await admin.from('blog_topic_queue').insert(rows)
   if (error) throw new Error(error.message)

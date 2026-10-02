@@ -46,6 +46,12 @@ replica (US company), never a code fork.
   Artifact tool's `artifact` runtime capability so checks are shared and Claude-writable, not
   per-browser localStorage: update it (read, then republish) whenever a step gets verified by
   testing, not just when Joel says so.
+- Blog topic suggestions have a real admin approval queue, not just a static fallback: the
+  "Topics & Autoblog" tab in `app/admin/blog/page.tsx` (`components/admin/blog-topic-queue.tsx`,
+  API routes under `app/api/admin/blog/topics/`) lists AI-suggested topics so Joel can
+  approve/reject/schedule them, and `lib/autoblog-run.ts` genuinely prefers a due, approved queue
+  row (`dueApprovedTopics()`) over the AI-freeform/static fallback (`pickOneTopic()`) - approving a
+  row in the admin UI changes what the next autoblog run writes about.
 
 ## Roadmap and triage
 
