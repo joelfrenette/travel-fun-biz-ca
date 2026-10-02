@@ -61,6 +61,29 @@ export async function setDistributionAccounts(admin: SupabaseClient, accounts: s
 export const DISTRIBUTION_PLATFORMS_KEY = 'distribution_platforms'
 const MAX_ATTEMPTS = 3
 
+// Same pattern as autoblog's acquireRunLock/releaseRunLock (lib/autoblog-run.ts): there's no admin
+// "run now" button wired to runDistribution today (only app/api/cron/distribute/route.ts calls
+// it), so the live blast radius is narrower than autoblog's - but a retried/overlapping cron
+// invocation, or anyone hitting the cron URL twice with a valid CRON_SECRET, could otherwise
+// select and send the same queued rows twice and double-post to live social accounts. Added now
+// so this is already in place before distribution_mode is ever flipped to "auto".
+const DISTRIBUTION_RUN_LOCK_KEY = 'distribution_run_lock'
+const DISTRIBUTION_RUN_LOCK_STALE_MS = 10 * 60 * 1000
+
+async function acquireDistributionLock(admin: SupabaseClient): Promise<boolean> {
+  const existing = await getSetting(admin, DISTRIBUTION_RUN_LOCK_KEY)
+  if (existing) {
+    const since = Date.parse(existing)
+    if (!Number.isNaN(since) && Date.now() - since < DISTRIBUTION_RUN_LOCK_STALE_MS) return false
+  }
+  await setSetting(admin, DISTRIBUTION_RUN_LOCK_KEY, new Date().toISOString())
+  return true
+}
+
+async function releaseDistributionLock(admin: SupabaseClient): Promise<void> {
+  await setSetting(admin, DISTRIBUTION_RUN_LOCK_KEY, '')
+}
+
 export async function getDistributionPlatforms(admin: SupabaseClient): Promise<string[]> {
   return parseAccountsCsv(await getSetting(admin, DISTRIBUTION_PLATFORMS_KEY))
 }
@@ -122,6 +145,15 @@ export async function runDistribution(admin: SupabaseClient): Promise<string> {
   if (!user) return 'no Upload-Post profile set (distribution_accounts)'
   if (!platforms.length) return 'no platforms set (distribution_platforms)'
 
+  if (!(await acquireDistributionLock(admin))) return 'another distribution run is already in progress'
+  try {
+    return await runDistributionLocked(admin, user, platforms)
+  } finally {
+    await releaseDistributionLock(admin)
+  }
+}
+
+async function runDistributionLocked(admin: SupabaseClient, user: string, platforms: string[]): Promise<string> {
   const { data: rows, error } = await admin
     .from('post_distribution')
     .select('*')
@@ -134,6 +166,7 @@ export async function runDistribution(admin: SupabaseClient): Promise<string> {
 
   let posted = 0
   let failed = 0
+  let needsReview = 0
   for (const row of rows as DistributionRow[]) {
     try {
       const { data: post } = await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
@@ -143,16 +176,35 @@ export async function runDistribution(admin: SupabaseClient): Promise<string> {
         ? await uploadPostSendPhotos({ user, platforms, text: caption, imageUrls: [post.cover_image_url] })
         : await uploadPostSendText({ user, platforms, text: caption })
 
-      if (result.ok) {
+      if (result.ok && result.confirmed === false) {
+        // Upload-Post accepted the request (202 / job_id / scheduled) but hasn't confirmed it
+        // posted yet. There's no poller wired up to resolve this later (uploadPostGetStatus has
+        // no caller), so don't mark it "done" - route it to "held" so an admin sees it in the
+        // queue and can verify manually instead of it silently vanishing as if confirmed.
+        needsReview++
+        await admin
+          .from('post_distribution')
+          .update({
+            stage: 'held',
+            last_error: 'Upload-Post accepted this but has not confirmed it posted yet - verify manually, then re-queue or leave held.',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('content_type', 'post')
+          .eq('slug', row.slug)
+      } else if (result.ok) {
         await admin.from('post_distribution').update({ stage: 'done', updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
         posted++
       } else {
         failed++
         const attempts = row.attempts + 1
+        // A non-retryable failure (permanent validation error, or a timeout that may have already
+        // posted) must not be re-queued for another attempt - it either can never self-resolve or
+        // retrying risks a duplicate post. Send it straight to "failed" for a human to look at.
+        const retryable = result.retryable !== false
         await admin
           .from('post_distribution')
           .update({
-            stage: attempts >= MAX_ATTEMPTS ? 'failed' : 'queued',
+            stage: retryable && attempts < MAX_ATTEMPTS ? 'queued' : 'failed',
             attempts,
             last_error: (result.error || 'Upload-Post did not confirm every network posted').slice(0, 300),
             updated_at: new Date().toISOString(),
@@ -175,5 +227,5 @@ export async function runDistribution(admin: SupabaseClient): Promise<string> {
         .eq('slug', row.slug)
     }
   }
-  return `${posted} posted, ${failed} failed, ${rows.length} attempted`
+  return `${posted} posted, ${failed} failed, ${needsReview} needs review, ${rows.length} attempted`
 }

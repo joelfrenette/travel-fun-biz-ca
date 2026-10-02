@@ -83,6 +83,14 @@ export interface UploadPostSendResult {
   usage?: { count: number; limit: number }
   error?: string
   dormant?: boolean
+  /** false means "confirmed not posted, safe to retry" is NOT guaranteed — either the failure is
+   * permanent (bad input, can never self-resolve) or the request may have already been accepted
+   * by Upload-Post (a timeout after send). Callers must not blindly re-queue these. Omitted/true
+   * means an ordinary transient failure that's safe to retry. */
+  retryable?: boolean
+  /** false means Upload-Post accepted the request (202 / job_id / scheduled / processing / queued)
+   * but no per-network result exists yet — ok:true here does NOT mean the post actually completed. */
+  confirmed?: boolean
 }
 
 /**
@@ -115,9 +123,12 @@ export function parseUploadPostSend(json: Record<string, unknown>): UploadPostSe
   }
 }
 
-/** A scheduled or async post answers with a job_id / request_id and no per-network results yet: accepted, not failed. */
+/** A scheduled or async post answers with a job_id / request_id and no per-network results yet: accepted, not failed —
+ * but also not confirmed posted. `confirmed: false` tells the caller not to treat this the same as a verified success. */
 export function settleUploadPostSend(status: number, ok: boolean, parsed: UploadPostSendResult): UploadPostSendResult {
-  if (status === 202 || (ok && (parsed.jobId || parsed.status === 'scheduled' || parsed.status === 'processing' || parsed.status === 'queued'))) return { ...parsed, ok: true }
+  if (status === 202 || (ok && (parsed.jobId || parsed.status === 'scheduled' || parsed.status === 'processing' || parsed.status === 'queued'))) {
+    return { ...parsed, ok: true, confirmed: false }
+  }
   if (!ok) return { ...parsed, ok: false, error: parsed.error || `Upload-Post returned ${status}` }
   return parsed
 }
@@ -133,7 +144,9 @@ export async function uploadPostSendText(input: {
 }): Promise<UploadPostSendResult> {
   const key = process.env.UPLOAD_POST_API_KEY?.trim()
   if (!key) return { ok: false, dormant: true }
-  if (!input.user || !input.platforms.length || !input.text.trim()) return { ok: false, error: 'Needs a profile, a network and text.' }
+  if (!input.user || !input.platforms.length || !input.text.trim()) {
+    return { ok: false, retryable: false, error: 'Needs a profile, a network and text.' }
+  }
   const form = new FormData()
   form.set('user', input.user)
   for (const p of input.platforms) form.append('platform[]', p)
@@ -146,11 +159,33 @@ export async function uploadPostSendText(input: {
       body: form,
       signal: AbortSignal.timeout(30_000),
     })
-    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    const json = await readJsonOrNote(res)
     return settleUploadPostSend(res.status, res.ok, parseUploadPostSend(json))
   } catch {
-    return { ok: false, error: 'Could not reach Upload-Post (the post may or may not have been created).' }
+    // Never retried: a timeout here may still have created the post - the distribute cron must
+    // treat this as needing a human look, not an ordinary retryable failure.
+    return { ok: false, retryable: false, error: 'Could not reach Upload-Post (the post may or may not have been created).' }
   }
+}
+
+/** Parses a response body as JSON; when the body isn't JSON (e.g. an HTML 5xx/gateway page), returns
+ * an object carrying the real status text instead of silently discarding it. */
+async function readJsonOrNote(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text().catch(() => '')
+  if (!text) return { error: res.statusText || undefined }
+  try {
+    return JSON.parse(text) as Record<string, unknown>
+  } catch {
+    return { error: `${res.status} ${res.statusText || ''}: ${text.slice(0, 200)}`.trim() }
+  }
+}
+
+/** Maps a content-type subtype to a safe file extension; unrecognized/compound subtypes (e.g.
+ * "svg+xml") fall back to a generic image extension instead of producing a nonsensical one. */
+function extensionForImageType(type: string): string {
+  const subtype = type.split('/')[1]?.toLowerCase() ?? ''
+  const known: Record<string, string> = { jpeg: 'jpg', jpg: 'jpg', png: 'png', gif: 'gif', webp: 'webp', heic: 'heic', bmp: 'bmp' }
+  return known[subtype] || 'jpg'
 }
 
 const PHOTO_MAX_BYTES = 8 * 1024 * 1024
@@ -169,9 +204,10 @@ export async function uploadPostSendPhotos(input: {
 }): Promise<UploadPostSendResult> {
   const key = process.env.UPLOAD_POST_API_KEY?.trim()
   if (!key) return { ok: false, dormant: true }
-  if (!input.user || !input.platforms.length) return { ok: false, error: 'Needs a profile and a network.' }
+  if (!input.user || !input.platforms.length) return { ok: false, retryable: false, error: 'Needs a profile and a network.' }
   const urls = input.imageUrls.filter((u) => /^https:\/\//i.test(u)).slice(0, PHOTO_MAX_COUNT)
-  if (!urls.length) return { ok: false, error: 'Needs at least one https image URL.' }
+  // No network call made yet - this can never self-resolve on retry, so it must not burn the retry budget.
+  if (!urls.length) return { ok: false, retryable: false, error: 'Needs at least one https image URL.' }
 
   const form = new FormData()
   form.set('user', input.user)
@@ -183,13 +219,24 @@ export async function uploadPostSendPhotos(input: {
     try {
       const src = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
       const type = (src.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
-      if (!src.ok || !type.startsWith('image/')) return { ok: false, error: `Could not use image ${n + 1} (${src.status}, ${type || 'no type'}).` }
+      if (!src.ok || !type.startsWith('image/')) {
+        return { ok: false, retryable: false, error: `Could not use image ${n + 1} (${src.status}, ${type || 'no type'}).` }
+      }
+      // Reject on declared size before downloading the body, so an oversized file isn't fully
+      // fetched just to be thrown away.
+      const declaredLength = Number(src.headers.get('content-length') ?? '')
+      if (Number.isFinite(declaredLength) && declaredLength > PHOTO_MAX_BYTES) {
+        return { ok: false, retryable: false, error: `Image ${n + 1} is over 8 MB.` }
+      }
       const buf = await src.arrayBuffer()
-      if (buf.byteLength === 0 || buf.byteLength > PHOTO_MAX_BYTES) return { ok: false, error: `Image ${n + 1} is empty or over 8 MB.` }
+      if (buf.byteLength === 0 || buf.byteLength > PHOTO_MAX_BYTES) {
+        return { ok: false, retryable: false, error: `Image ${n + 1} is empty or over 8 MB.` }
+      }
       n++
-      form.append('photos[]', new Blob([buf], { type }), `image-${n}.${type.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg'}`)
+      form.append('photos[]', new Blob([buf], { type }), `image-${n}.${extensionForImageType(type)}`)
     } catch {
-      return { ok: false, error: `Could not download image ${n + 1}.` }
+      // Permanent for this URL (bad host, bad cert, etc.) - retrying the same URL won't help.
+      return { ok: false, retryable: false, error: `Could not download image ${n + 1}.` }
     }
   }
   try {
@@ -199,10 +246,12 @@ export async function uploadPostSendPhotos(input: {
       body: form,
       signal: AbortSignal.timeout(60_000),
     })
-    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    const json = await readJsonOrNote(res)
     return settleUploadPostSend(res.status, res.ok, parseUploadPostSend(json))
   } catch {
-    return { ok: false, error: 'Could not reach Upload-Post (the post may or may not have been created).' }
+    // Never retried: a timeout here may still have created the post - the distribute cron must
+    // treat this as needing a human look, not an ordinary retryable failure.
+    return { ok: false, retryable: false, error: 'Could not reach Upload-Post (the post may or may not have been created).' }
   }
 }
 
