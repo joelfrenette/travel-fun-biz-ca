@@ -8,6 +8,7 @@ import { enrollIfDue } from '@/lib/distribution'
 import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { attachAutoblogCoverImage } from '@/lib/blog-image'
+import { pingIndexNow } from '@/lib/indexnow'
 
 // Ported from Nomad Escape Plan's modules/marketing/autoblog-run.ts (Factory Phase 2:
 // blog/autoblog), adapted to this project's posts table (lib/posts.ts) and app_settings helper
@@ -141,7 +142,11 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   })
 
   if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', { used_slug: post.slug })
-  if (publishing) await enrollIfDue(admin, post.slug, post.title)
+  if (publishing) {
+    await enrollIfDue(admin, post.slug, post.title)
+    // Tell Bing a new public blog page appeared. Never blocks or fails the post above.
+    await pingIndexNow([`/blog/${post.slug}`, '/blog', '/'])
+  }
 
   return {
     ran: true,
