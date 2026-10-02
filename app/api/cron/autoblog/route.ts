@@ -9,6 +9,10 @@ import { runAutoblog } from '@/lib/autoblog-run'
 // before either switch is on - Vercel calling an unconfigured route just costs a 503, not an
 // AI call, a DB write, or anything public.
 export const dynamic = 'force-dynamic'
+// blog-composer.ts's own per-step timeouts allow up to ~290s of sequential Anthropic calls
+// (40s + 40s + 170s + 40s) plus the cover-image fetch/upload on top - give it headroom, matching
+// the pattern already used by extract-draft/generate-field/destinations-generate routes.
+export const maxDuration = 300
 
 export const GET = withCronHeartbeat('autoblog', async (request: Request) => {
   const denied = cronUnauthorized(request)

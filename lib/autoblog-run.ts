@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { getSetting } from '@/lib/app-settings'
+import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, pickOneTopic, setTopicStatus, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, autoPublishBlockers } from '@/lib/blog-composer'
@@ -33,6 +33,30 @@ export interface AutoblogResult {
   published?: boolean
 }
 
+const RUN_LOCK_KEY = 'autoblog_run_lock'
+// Generous vs. the composer's own ~290s worst case - a lock older than this is treated as
+// abandoned (a crashed run) rather than still in progress, so a stuck lock can't wedge autoblog
+// forever.
+const RUN_LOCK_STALE_MS = 10 * 60 * 1000
+
+/** Best-effort lock so the admin "run now" button and the daily cron can't both create a post in
+ * the same narrow window. Not a real distributed lock (no compare-and-swap), just enough to close
+ * the realistic race of two near-simultaneous triggers - acceptable since a double-post here is a
+ * content-quality annoyance, not a data-integrity issue. */
+async function acquireRunLock(admin: ReturnType<typeof getSupabaseAdmin>): Promise<boolean> {
+  const existing = await getSetting(admin, RUN_LOCK_KEY)
+  if (existing) {
+    const since = Date.parse(existing)
+    if (!Number.isNaN(since) && Date.now() - since < RUN_LOCK_STALE_MS) return false
+  }
+  await setSetting(admin, RUN_LOCK_KEY, new Date().toISOString())
+  return true
+}
+
+async function releaseRunLock(admin: ReturnType<typeof getSupabaseAdmin>): Promise<void> {
+  await setSetting(admin, RUN_LOCK_KEY, '')
+}
+
 /** One post per call, at most. `scheduled: true` (the cron) also caps at one post per calendar
  * day; `scheduled: false` (the admin "run now" button) bypasses that daily cap. */
 export async function runAutoblog(opts: { scheduled: boolean }): Promise<AutoblogResult> {
@@ -44,6 +68,17 @@ export async function runAutoblog(opts: { scheduled: boolean }): Promise<Autoblo
   // off and whatever mode was set (draft/publish) resumes exactly as it was.
   if (await isAutomationPaused(admin)) return { ran: false, mode, note: 'automation is paused (kill switch)' }
 
+  if (!(await acquireRunLock(admin))) {
+    return { ran: false, mode, note: 'another autoblog run is already in progress' }
+  }
+  try {
+    return await runAutoblogLocked(admin, mode, opts)
+  } finally {
+    await releaseRunLock(admin)
+  }
+}
+
+async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mode: AutoblogMode, opts: { scheduled: boolean }): Promise<AutoblogResult> {
   const existingPosts = await listPostsAdmin()
 
   if (opts.scheduled) {
@@ -74,13 +109,23 @@ export async function runAutoblog(opts: { scheduled: boolean }): Promise<Autoblo
   const composed = await composeFullPost(topic.angle, topic.keyword)
   if (!composed) return { ran: false, mode, note: 'composer failed or AI unconfigured' }
 
+  // Pre-compose dedupe only checked the topic's angle, but the AI's 'idea'/'title' steps are free
+  // to land on a title that duplicates an existing post by content even when the angle didn't.
+  // Renaming the slug alone still wrote a second, functionally-duplicate post - skip creation
+  // instead and let the next scheduled/admin-triggered run pick a different topic.
   if (findDuplicate(composed.title, existingPosts)) {
-    composed.slug = `${composed.slug}-${Date.now().toString(36)}`
+    if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', {})
+    return { ran: false, mode, note: `skipped - duplicate of an existing post: "${composed.title}"` }
   }
 
   const blockers = mode === 'publish' ? autoPublishBlockers(composed) : []
   const publishing = mode === 'publish' && blockers.length === 0
-  const image = await attachAutoblogCoverImage(admin, topic.keyword, composed.slug)
+  // Use the composed post's own tags (derived from its actual keywords) rather than the
+  // pre-composition topic.keyword - the composer's 'idea' step can land on an article that
+  // diverges from the seed angle/keyword, so searching the cover image on the stale seed keyword
+  // can return a photo (and Pexels alt text) unrelated to what was actually written.
+  const imageSearchTerm = composed.tags[0] || composed.title
+  const image = await attachAutoblogCoverImage(admin, imageSearchTerm, composed.slug)
 
   const post = await createPost({
     title: composed.title,

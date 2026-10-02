@@ -18,7 +18,12 @@ export function googleServiceAccount(): ServiceAccount {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || ''
   if (!raw) throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY is not set')
   const json = raw.trim().startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8')
-  const parsed = JSON.parse(json)
+  let parsed: ServiceAccount
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY is not valid base64/JSON - re-copy/re-base64 it from the service account JSON')
+  }
   if (!parsed.client_email || !parsed.private_key) throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY is missing client_email or private_key')
   return parsed
 }

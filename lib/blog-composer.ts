@@ -17,7 +17,6 @@ export interface ComposedPost {
   title: string
   slug: string
   body: string
-  excerpt: string
   seo_title: string
   seo_description: string
   tags: string[]
@@ -43,7 +42,7 @@ function composerPrompt(step: Step, ctx: ComposerContext): string {
     case 'body':
       return `Write a blog post of roughly 700-900 words, in markdown, for a travel agency's blog.\n\nIdea: ${ctx.idea}\nDescription: ${ctx.description}\nTarget keywords (work them in naturally, don't stuff): ${ctx.keywords.join(', ')}\n\n${NO_FABRICATION}\n\nFormat rules: start with a one-paragraph hook (no heading before it), use 3-5 "##" section headings, use a short bullet list somewhere it helps scanability, write in a warm and practical tone, and do not include a title heading (the title is generated separately) or a call-to-action link (the site adds its own). Output raw markdown only, no commentary before or after it.`
     case 'title':
-      return `Idea: ${ctx.idea}\nDescription: ${ctx.description}\n\nWrite: a punchy post title (under 65 characters), an SEO title (under 60 characters, can equal the title), an SEO meta description (under 155 characters), and a one-sentence excerpt for a blog card. Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"...","excerpt":"..."}`
+      return `Idea: ${ctx.idea}\nDescription: ${ctx.description}\n\nWrite: a punchy post title (under 65 characters), an SEO title (under 60 characters, can equal the title), and an SEO meta description (under 155 characters). Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"..."}`
   }
 }
 
@@ -81,14 +80,13 @@ export async function composeFullPost(angle: string, seedKeyword?: string): Prom
   const body = await runComposerStep<never>('body', ctx)
   if (!body || typeof body !== 'string') return null
 
-  const titleResult = await runComposerStep<{ title?: string; seo_title?: string; seo_description?: string; excerpt?: string }>('title', ctx)
+  const titleResult = await runComposerStep<{ title?: string; seo_title?: string; seo_description?: string }>('title', ctx)
   if (!titleResult || typeof titleResult !== 'object' || !titleResult.title) return null
 
   return {
     title: titleResult.title,
     slug: slugify(titleResult.title),
     body,
-    excerpt: titleResult.excerpt ?? '',
     seo_title: titleResult.seo_title ?? titleResult.title,
     seo_description: titleResult.seo_description ?? '',
     tags: ctx.keywords.slice(0, 5),
