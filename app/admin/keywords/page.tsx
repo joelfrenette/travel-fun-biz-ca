@@ -141,7 +141,7 @@ export default function KeywordsPage() {
       const res = await fetch("/api/admin/keywords/suggest", { method: "POST", headers: authHeaders(), body: JSON.stringify({ seed: seedInput.trim(), country }) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      const already = new Set(rows.map((r) => r.keyword))
+      const already = new Set(rows.filter((r) => r.country === country).map((r) => r.keyword))
       setSuggestions((data.suggestions || []).filter((s: KeywordSuggestion) => !already.has(s.keyword)))
       setSuggestStatus(`${data.suggestions?.length || 0} ideas ($${(data.costUsd ?? 0).toFixed(4)}).`)
     } catch (e) {

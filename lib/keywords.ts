@@ -185,12 +185,13 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
     })
 
     const task = body.tasks?.[0]
+    if (!task) throw new Error('DataForSEO returned no task in response')
     costUsd += Number((task as { cost?: number } | undefined)?.cost) || 0
-    if (task?.status_code != null && task.status_code !== 20000) {
+    if (task.status_code != null && task.status_code !== 20000) {
       throw new Error(`DataForSEO task error: ${task.status_message || `status ${task.status_code}`}`)
     }
 
-    const items = (Array.isArray(task?.result) ? task!.result : []).filter(
+    const items = (Array.isArray(task.result) ? task.result : []).filter(
       (d): d is SearchVolumeResult & { keyword: string } => typeof d?.keyword === 'string' && d.keyword.trim().length > 0,
     )
     const now = new Date().toISOString()
@@ -280,24 +281,35 @@ interface SuggestionResult {
 
 const MAX_SUGGESTIONS = 50 // keeps a single "get ideas" click to a few cents, not a few dollars
 
+// In-memory only (not keyword_research - these are ideas, not confirmed research rows), so a
+// repeat "Get ideas" click on the same seed within SUGGESTION_CACHE_MS doesn't re-bill DataForSEO.
+// Resets on deploy/cold start, same tradeoff as ga4.ts's report cache.
+const SUGGESTION_CACHE_MS = 24 * 60 * 60 * 1000
+const suggestionCache = new Map<string, { result: { suggestions: KeywordSuggestion[]; costUsd: number }; at: number }>()
+
 /** Real related-keyword ideas for a seed phrase, from DataForSEO Labs - genuinely new
  * opportunities, not a lookup of phrases you already typed. Never saved automatically: the admin
  * picks which ones are worth tracking (via trackKeyword/lookupKeywords), so a seed that returns 50
  * loosely-related phrases doesn't silently bloat the research list with noise.
  * Docs: https://docs.dataforseo.com/v3/dataforseo_labs-keyword_suggestions-live/ */
 export async function suggestKeywords(seed: string, country: KeywordCountry, limit = MAX_SUGGESTIONS): Promise<{ suggestions: KeywordSuggestion[]; costUsd: number }> {
+  const cacheKey = `${country}:${seed.trim().toLowerCase()}:${limit}`
+  const cached = suggestionCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < SUGGESTION_CACHE_MS) return { ...cached.result, costUsd: 0 }
+
   const body = await dataForSeoRequest<SuggestionResult>('/dataforseo_labs/google/keyword_suggestions/live', {
     method: 'POST',
     body: [{ keyword: seed, location_code: LOCATION_CODE[country], language_code: LANGUAGE_CODE, limit: Math.min(limit, MAX_SUGGESTIONS) }],
   })
 
   const task = body.tasks?.[0]
+  if (!task) throw new Error('DataForSEO returned no task in response')
   const costUsd = Number((task as { cost?: number } | undefined)?.cost) || 0
-  if (task?.status_code != null && task.status_code !== 20000) {
+  if (task.status_code != null && task.status_code !== 20000) {
     throw new Error(`DataForSEO task error: ${task.status_message || `status ${task.status_code}`}`)
   }
 
-  const items = Array.isArray(task?.result) ? (task!.result[0]?.items ?? []) : []
+  const items = Array.isArray(task.result) ? (task.result[0]?.items ?? []) : []
   const suggestions = items
     .filter((item): item is SuggestionItem & { keyword: string } => typeof item?.keyword === 'string' && item.keyword.trim().length > 0)
     .map((item) => {
@@ -319,7 +331,9 @@ export async function suggestKeywords(seed: string, country: KeywordCountry, lim
       }
     })
 
-  return { suggestions, costUsd: Math.round(costUsd * 1e6) / 1e6 }
+  const result = { suggestions, costUsd: Math.round(costUsd * 1e6) / 1e6 }
+  suggestionCache.set(cacheKey, { result, at: Date.now() })
+  return result
 }
 
 /** Save a suggestion the admin picked straight into the research list, using the data this

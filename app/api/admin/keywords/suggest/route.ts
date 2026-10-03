@@ -24,10 +24,20 @@ export async function PATCH(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const body = await request.json()
-    const suggestion = body.suggestion as KeywordSuggestion | undefined
-    if (!suggestion || typeof suggestion.keyword !== 'string' || !suggestion.keyword.trim()) {
+    const raw = body.suggestion
+    const isNumOrNull = (v: unknown) => v === null || typeof v === 'number'
+    if (
+      !raw ||
+      typeof raw.keyword !== 'string' ||
+      !raw.keyword.trim() ||
+      !isNumOrNull(raw.volume) ||
+      !isNumOrNull(raw.cpc) ||
+      !isNumOrNull(raw.competition) ||
+      !Array.isArray(raw.trend)
+    ) {
       return NextResponse.json({ error: 'A valid suggestion is required' }, { status: 400 })
     }
+    const suggestion: KeywordSuggestion = { keyword: raw.keyword, volume: raw.volume, cpc: raw.cpc, competition: raw.competition, trend: raw.trend }
     const country = body.country === 'us' ? 'us' : 'ca'
     const row = await saveSuggestedKeyword(suggestion, country)
     return NextResponse.json({ row })
