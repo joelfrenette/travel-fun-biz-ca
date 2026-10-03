@@ -7,33 +7,26 @@ import { setSetting } from '@/lib/app-settings'
 // heartbeat write must never itself become the error that breaks a cron, so it's called only
 // inside the try/catch below, never by the caller.
 
-// Ported from Nomad Escape Plan (Factory Phase 1: foundation). CRON_NAMES is trimmed to the 11
-// crons this program's own spec calls for (GAP-REPORT.md §7) — Nomad's country-fact-checking
-// jobs (refresh, import-jobs, check-links, fetch-photos) aren't part of a travel site's engine.
-// No route calls this yet: it's the shared plumbing every cron added in a later phase wires up to.
 /**
  * CRON HEARTBEATS — proof that a scheduled job actually ran.
  *
  * A cron that never fires (a bad deploy, a missing secret, a schedule dropped from vercel.json)
  * looks exactly like one that ran and had nothing to do. So each cron writes when it last ran
- * into app_settings, as `cron_last_run:<name>` = {"at", "ok", "note"}, and a later phase's
- * engine-health check turns amber when one goes quiet.
+ * into app_settings, as `cron_last_run:<name>` = {"at", "ok", "note"}, and System Health
+ * (lib/cron-health.ts) turns amber when one goes quiet.
  *
  * A heartbeat is a side note: writing one never throws and never fails the cron.
+ *
+ * Found 2026-10-03: this originally listed 11 names ported from Nomad's own spec
+ * (docs/factory/GAP-REPORT.md §7), but only 3 ever got a real route (app/api/cron/*) or a
+ * vercel.json schedule - the other 8 (post-health, email-engagement, weekly-digest,
+ * social-library, nurture, indexnow, community, shotstack-cleanup) had no code path at all, so
+ * they sat in System Health as permanent "Never run since this was added" gray rows forever -
+ * indistinguishable from a real dormant feature waiting on a setup step. Trimmed to the 3 that
+ * actually exist; same rule lib/cron-health.ts already states for judgement logic - add a name
+ * back here only once its route and vercel.json entry exist, never as a placeholder.
  */
-export const CRON_NAMES = [
-  'autoblog',
-  'distribute',
-  'post-health',
-  'email-engagement',
-  'weekly-digest',
-  'social-library',
-  'nurture',
-  'gsc-snapshot',
-  'indexnow',
-  'community',
-  'shotstack-cleanup',
-] as const
+export const CRON_NAMES = ['autoblog', 'distribute', 'gsc-snapshot'] as const
 export type CronName = (typeof CRON_NAMES)[number]
 
 export interface CronRun {
