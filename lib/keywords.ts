@@ -256,6 +256,100 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
   }
 }
 
+export interface KeywordSuggestion {
+  keyword: string
+  volume: number | null
+  cpc: number | null
+  /** 0-100 scale, normalized - see the comment on the mapping below for why. */
+  competition: number | null
+  trend: { month: string; year: number; value: number }[]
+}
+
+interface SuggestionItem {
+  keyword?: string
+  keyword_info?: {
+    search_volume?: number | null
+    cpc?: number | null
+    competition?: number | null
+    monthly_searches?: { year?: number; month?: number; search_volume?: number }[]
+  }
+}
+interface SuggestionResult {
+  items?: SuggestionItem[] | null
+}
+
+const MAX_SUGGESTIONS = 50 // keeps a single "get ideas" click to a few cents, not a few dollars
+
+/** Real related-keyword ideas for a seed phrase, from DataForSEO Labs - genuinely new
+ * opportunities, not a lookup of phrases you already typed. Never saved automatically: the admin
+ * picks which ones are worth tracking (via trackKeyword/lookupKeywords), so a seed that returns 50
+ * loosely-related phrases doesn't silently bloat the research list with noise.
+ * Docs: https://docs.dataforseo.com/v3/dataforseo_labs-keyword_suggestions-live/ */
+export async function suggestKeywords(seed: string, country: KeywordCountry, limit = MAX_SUGGESTIONS): Promise<{ suggestions: KeywordSuggestion[]; costUsd: number }> {
+  const body = await dataForSeoRequest<SuggestionResult>('/dataforseo_labs/google/keyword_suggestions/live', {
+    method: 'POST',
+    body: [{ keyword: seed, location_code: LOCATION_CODE[country], language_code: LANGUAGE_CODE, limit: Math.min(limit, MAX_SUGGESTIONS) }],
+  })
+
+  const task = body.tasks?.[0]
+  const costUsd = Number((task as { cost?: number } | undefined)?.cost) || 0
+  if (task?.status_code != null && task.status_code !== 20000) {
+    throw new Error(`DataForSEO task error: ${task.status_message || `status ${task.status_code}`}`)
+  }
+
+  const items = Array.isArray(task?.result) ? (task!.result[0]?.items ?? []) : []
+  const suggestions = items
+    .filter((item): item is SuggestionItem & { keyword: string } => typeof item?.keyword === 'string' && item.keyword.trim().length > 0)
+    .map((item) => {
+      const info = item.keyword_info
+      return {
+        keyword: item.keyword.trim().toLowerCase(),
+        volume: Number.isFinite(Number(info?.search_volume)) ? Number(info!.search_volume) : null,
+        cpc: Number.isFinite(Number(info?.cpc)) ? Number(info!.cpc) : null,
+        // This endpoint's `competition` is a 0-1 float (old AdWords-style ratio), unlike
+        // search_volume/live's `competition_index` (a 0-100 int) - scaled up to ×100 so the
+        // shared `competition` column stays comparable regardless of which endpoint wrote it.
+        // https://dataforseo.com/help-center/what-is-competition
+        competition: Number.isFinite(Number(info?.competition)) ? Math.round(Number(info!.competition) * 100) : null,
+        trend: Array.isArray(info?.monthly_searches)
+          ? info!.monthly_searches!
+              .filter((m) => typeof m.year === 'number' && typeof m.month === 'number' && m.month! >= 1 && m.month! <= 12)
+              .map((m) => ({ year: m.year as number, month: MONTH_NAMES[(m.month as number) - 1], value: Number(m.search_volume) || 0 }))
+          : [],
+      }
+    })
+
+  return { suggestions, costUsd: Math.round(costUsd * 1e6) / 1e6 }
+}
+
+/** Save a suggestion the admin picked straight into the research list, using the data this
+ * endpoint already returned - avoids a second, redundant (and separately billed) search_volume
+ * call for data already in hand. */
+export async function saveSuggestedKeyword(suggestion: KeywordSuggestion, country: KeywordCountry): Promise<KeywordRow> {
+  const now = new Date().toISOString()
+  const { data, error } = await getSupabaseAdmin()
+    .from('keyword_research')
+    .upsert(
+      {
+        keyword: suggestion.keyword,
+        country,
+        volume: suggestion.volume,
+        cpc: suggestion.cpc,
+        cpc_currency: suggestion.cpc != null ? 'usd' : null,
+        competition: suggestion.competition,
+        trend: suggestion.trend,
+        data_source: 'dataforseo_suggestion',
+        fetched_at: now,
+        updated_at: now,
+      },
+      { onConflict: 'keyword,country' },
+    )
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
 export async function updateKeyword(id: string, patch: { target_path?: string | null; note?: string | null }): Promise<KeywordRow> {
   const { data, error } = await getSupabaseAdmin()
     .from('keyword_research')

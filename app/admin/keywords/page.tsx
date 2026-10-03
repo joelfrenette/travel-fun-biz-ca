@@ -7,8 +7,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, Search, Trash2, ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, Plus } from "lucide-react"
-import type { KeywordRow, LookupResult } from "@/lib/keywords"
+import { Loader2, Search, Trash2, ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, Plus, Sparkles } from "lucide-react"
+import type { KeywordRow, KeywordSuggestion, LookupResult } from "@/lib/keywords"
 import type { DbPackage } from "@/lib/packages"
 
 const NO_TARGET = "__none__"
@@ -56,6 +56,14 @@ export default function KeywordsPage() {
   const [searchError, setSearchError] = useState("")
   const [refreshing, setRefreshing] = useState(false)
   const [tracking, setTracking] = useState<Record<string, boolean>>({})
+  // Keyword ideas: real suggestions from a seed phrase (DataForSEO Labs), never auto-saved -
+  // the admin picks which ones are worth tracking.
+  const [seedInput, setSeedInput] = useState("")
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestions, setSuggestions] = useState<KeywordSuggestion[]>([])
+  const [suggestError, setSuggestError] = useState("")
+  const [suggestStatus, setSuggestStatus] = useState("")
+  const [savingSuggestion, setSavingSuggestion] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     Promise.all([
@@ -123,6 +131,42 @@ export default function KeywordsPage() {
       setError(e instanceof Error ? e.message : "Lookup failed")
     } finally {
       setLooking(false)
+    }
+  }
+
+  async function getSuggestions() {
+    if (seedInput.trim().length < 2) return
+    setSuggesting(true); setSuggestError(""); setSuggestStatus(""); setSuggestions([])
+    try {
+      const res = await fetch("/api/admin/keywords/suggest", { method: "POST", headers: authHeaders(), body: JSON.stringify({ seed: seedInput.trim(), country }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      const already = new Set(rows.map((r) => r.keyword))
+      setSuggestions((data.suggestions || []).filter((s: KeywordSuggestion) => !already.has(s.keyword)))
+      setSuggestStatus(`${data.suggestions?.length || 0} ideas ($${(data.costUsd ?? 0).toFixed(4)}).`)
+    } catch (e) {
+      setSuggestError(e instanceof Error ? e.message : "Could not get suggestions")
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
+  async function addSuggestion(s: KeywordSuggestion) {
+    setSavingSuggestion((m) => ({ ...m, [s.keyword]: true }))
+    try {
+      const res = await fetch("/api/admin/keywords/suggest", { method: "PATCH", headers: authHeaders(), body: JSON.stringify({ suggestion: s, country }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setRows((rs) => {
+        const byKey = new Map(rs.map((r) => [r.id, r]))
+        byKey.set(data.row.id, data.row)
+        return Array.from(byKey.values())
+      })
+      setSuggestions((list) => list.filter((x) => x.keyword !== s.keyword))
+    } catch (e) {
+      setSuggestError(e instanceof Error ? e.message : "Could not save")
+    } finally {
+      setSavingSuggestion((m) => ({ ...m, [s.keyword]: false }))
     }
   }
 
@@ -266,6 +310,60 @@ export default function KeywordsPage() {
               </Button>
               {status && <p className="text-xs text-muted-foreground">{status}</p>}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div>
+              <h2 className="font-semibold">Get keyword ideas</h2>
+              <p className="text-xs text-muted-foreground">Type one real phrase (a destination, a package type) and get real related phrases with real search volume - things you haven&apos;t thought of yet, not just a lookup of what you already typed.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                value={seedInput}
+                onChange={(e) => setSeedInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") getSuggestions() }}
+                placeholder="e.g. river cruise for singles"
+                className="h-9 flex-1 rounded-md border bg-background px-3 text-sm"
+              />
+              <Button onClick={getSuggestions} disabled={suggesting || seedInput.trim().length < 2 || !configured}>
+                {suggesting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1 h-4 w-4" />}Get ideas
+              </Button>
+            </div>
+            {suggestStatus && <p className="text-xs text-muted-foreground">{suggestStatus}</p>}
+            {suggestError && <p className="text-sm text-destructive">{suggestError}</p>}
+            {suggestions.length > 0 && (
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-xs uppercase">
+                    <tr>
+                      <th className="p-2 text-left">Phrase</th>
+                      <th className="p-2 text-right">Volume / mo</th>
+                      <th className="p-2 text-right">CPC</th>
+                      <th className="p-2 text-right">Competition</th>
+                      <th className="w-20 p-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {suggestions.map((s) => (
+                      <tr key={s.keyword}>
+                        <td className="p-2 font-medium">{s.keyword}</td>
+                        <td className="p-2 text-right tabular-nums">{s.volume == null ? "—" : s.volume.toLocaleString()}</td>
+                        <td className="p-2 text-right tabular-nums">{s.cpc == null ? "—" : `$${s.cpc.toFixed(2)}`}</td>
+                        <td className="p-2 text-right tabular-nums">{s.competition == null ? "—" : s.competition}</td>
+                        <td className="p-2 text-right">
+                          <Button variant="outline" size="sm" className="h-7" onClick={() => addSuggestion(s)} disabled={!!savingSuggestion[s.keyword]}>
+                            {savingSuggestion[s.keyword] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 
