@@ -70,16 +70,50 @@ export function normalizeKeywords(input: string | string[]): string[] {
   return Array.from(seen)
 }
 
+/** Pulls a credit count out of whichever shape the real response turns out to use - Keywords
+ * Everywhere's docs show a bare `[500]`, but an API response reshaping itself over time to
+ * `[{credits_available: 500}]` or `{credits: 500}` is exactly the kind of thing that used to
+ * come back here as a silent `null`, indistinguishable from the call having actually failed. */
+function parseCreditBalance(body: unknown): number | null {
+  if (Array.isArray(body)) {
+    const first = body[0]
+    if (typeof first === 'number') return first
+    if (first && typeof first === 'object') {
+      for (const key of ['credits_available', 'credits', 'balance']) {
+        const v = (first as Record<string, unknown>)[key]
+        if (typeof v === 'number') return v
+      }
+    }
+    return null
+  }
+  if (body && typeof body === 'object') {
+    for (const key of ['credits_available', 'credits', 'balance']) {
+      const v = (body as Record<string, unknown>)[key]
+      if (typeof v === 'number') return v
+    }
+  }
+  return null
+}
+
 export async function getCreditBalance(): Promise<number | null> {
   try {
     const res = await fetch(`${API_BASE}/account/credits`, {
       headers: { Authorization: `Bearer ${apiKey()}`, Accept: 'application/json' },
       cache: 'no-store',
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      console.warn('[keywords] getCreditBalance: HTTP', res.status)
+      return null
+    }
     const body = await res.json()
-    return Array.isArray(body) && typeof body[0] === 'number' ? body[0] : null
-  } catch {
+    const parsed = parseCreditBalance(body)
+    // Distinguishes "the call worked but the response shape changed" from "the call failed" -
+    // both used to collapse to the same silent null, which made a real API-shape change
+    // invisible until someone noticed the credits display was permanently blank.
+    if (parsed === null) console.warn('[keywords] getCreditBalance: unrecognized response shape', JSON.stringify(body).slice(0, 300))
+    return parsed
+  } catch (err) {
+    console.warn('[keywords] getCreditBalance: fetch failed', err instanceof Error ? err.message : err)
     return null
   }
 }
@@ -134,6 +168,7 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
     const items = (Array.isArray(body.data) ? body.data : []).filter(
       (d: any) => typeof d?.keyword === 'string' && d.keyword.trim().length > 0,
     )
+    const now = new Date().toISOString()
     const upserts = items.map((d: any) => ({
       keyword: d.keyword.trim().toLowerCase(),
       country,
@@ -143,13 +178,37 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
       competition: Number.isFinite(Number(d.competition)) ? Number(d.competition) : null,
       trend: Array.isArray(d.trend) ? d.trend : [],
       data_source: 'gkp',
-      fetched_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      fetched_at: now,
+      updated_at: now,
     }))
-    if (upserts.length > 0) {
+
+    // Keywords Everywhere bills for every requested keyword in the chunk (creditsConsumed above),
+    // but its response can simply omit one with no data available (an unsupported phrase, a typo,
+    // etc.). Without a row for it, it's never "fresh" and lands back in toFetch on every future
+    // call - a keyword with genuinely no data gets re-billed forever. A sentinel row (no volume
+    // data, but a real fetched_at) makes "looked up, nothing there" cacheable like everything
+    // else, respecting the same CACHE_DAYS TTL - `force` still re-checks it like any other row.
+    const returnedKeywords = new Set(upserts.map((u: { keyword: string }) => u.keyword))
+    const sentinels = chunk
+      .filter((kw) => !returnedKeywords.has(kw))
+      .map((kw) => ({
+        keyword: kw,
+        country,
+        volume: null,
+        cpc: null,
+        cpc_currency: null,
+        competition: null,
+        trend: [],
+        data_source: 'gkp',
+        fetched_at: now,
+        updated_at: now,
+      }))
+
+    const rowsToSave = [...upserts, ...sentinels]
+    if (rowsToSave.length > 0) {
       const { data: saved, error: upsertError } = await getSupabaseAdmin()
         .from('keyword_research')
-        .upsert(upserts, { onConflict: 'keyword,country' })
+        .upsert(rowsToSave, { onConflict: 'keyword,country' })
         .select()
       if (upsertError) throw new Error(upsertError.message)
       fetchedRows.push(...(saved || []))
