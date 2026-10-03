@@ -2,12 +2,18 @@ import type { MetadataRoute } from 'next'
 import { getPublishedPackageSlugs } from '@/lib/packages'
 import { getPublishedPosts } from '@/lib/posts'
 import { getDestinationSlugs } from '@/lib/destinations'
+import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { absoluteUrl } from '@/lib/site'
 
 export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [packages, posts, destinations] = await Promise.all([getPublishedPackageSlugs(), getPublishedPosts(), getDestinationSlugs()])
+  const [packages, posts, destinations, bestTimeToVisit] = await Promise.all([
+    getPublishedPackageSlugs(),
+    getPublishedPosts(),
+    getDestinationSlugs(),
+    getBestTimeToVisitSlugs(),
+  ])
   return [
     { url: absoluteUrl('/'), lastModified: new Date(), changeFrequency: 'weekly', priority: 1 },
     ...packages.map((p) => ({
@@ -21,6 +27,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: new Date(),
       changeFrequency: 'weekly' as const,
       priority: 0.7,
+    })),
+    ...bestTimeToVisit.map((d) => ({
+      url: absoluteUrl(`/best-time-to-visit/${d.slug}`),
+      lastModified: new Date(),
+      changeFrequency: 'weekly' as const,
+      priority: 0.6,
     })),
     { url: absoluteUrl('/blog'), lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
     ...posts.map((post) => ({
