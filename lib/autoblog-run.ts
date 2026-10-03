@@ -9,6 +9,21 @@ import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { attachAutoblogCoverImage } from '@/lib/blog-image'
 import { pingIndexNow } from '@/lib/indexnow'
+import type { PackageGrounding } from '@/lib/blog-topics'
+
+// Found 2026-10-03: lib/blog-composer.ts's body prompt explicitly tells the AI "do not include a
+// call-to-action link (the site adds its own)" - but nothing ever did. Every autoblog post ended
+// with no link back to a package, a destination, or the contact form at all: a real funnel leak
+// (a visitor who reads the post has nowhere to go next). Grounded the same way the rest of
+// autoblog's composition already is - a real matched package's slug when one exists, a generic
+// link to the trip listing otherwise. Never invents a destination or package the post isn't
+// actually about.
+function appendCta(body: string, pkg: PackageGrounding | null): string {
+  const cta = pkg
+    ? `Ready to see the real dates and details? [Check out the ${pkg.name} trip](/packages/${pkg.slug}).`
+    : `Ready to start planning? [Browse our trips](/) or [get in touch](/#contact) and we'll help you find the right one.`
+  return `${body.trimEnd()}\n\n---\n\n${cta}`
+}
 
 // Ported from Nomad Escape Plan's modules/marketing/autoblog-run.ts (Factory Phase 2:
 // blog/autoblog), adapted to this project's posts table (lib/posts.ts) and app_settings helper
@@ -181,7 +196,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   const post = await createPost({
     title: composed.title,
     slug: composed.slug,
-    body: composed.body,
+    body: appendCta(composed.body, groundingPackage),
     tags: composed.tags,
     cover_image_url: image?.cover_image_url ?? null,
     alt_text: image?.alt_text ?? null,

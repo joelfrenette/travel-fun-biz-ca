@@ -172,6 +172,7 @@ export async function dueApprovedTopics(admin: SupabaseClient): Promise<BlogTopi
 
 export interface PackageGrounding {
   name: string
+  slug: string
   destination: string
   short_description: string | null
   full_description: string | null
@@ -187,7 +188,7 @@ export interface PackageGrounding {
 export async function findGroundingPackage(admin: SupabaseClient, topic: Pick<TopicIdea, 'angle' | 'keyword'>): Promise<PackageGrounding | null> {
   const { data, error } = await admin
     .from('travel_packages')
-    .select('name, destination, short_description, full_description, highlights, available_from, available_to')
+    .select('name, slug, destination, short_description, full_description, highlights, available_from, available_to')
     .eq('status', 'published')
     .limit(200)
   if (error || !data) return null
