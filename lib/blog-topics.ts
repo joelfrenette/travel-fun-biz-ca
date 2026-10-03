@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { getNearMissKeywords } from '@/lib/search-console'
+import { SITE_ID } from '@/lib/site'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-topics.ts (Factory Phase 2:
 // blog/autoblog), trimmed to what this site's own blog needs: no visa/passport material (100%
@@ -69,6 +70,29 @@ async function gatherTopicMaterial(admin: SupabaseClient): Promise<string> {
     lines.push(`Real packages we sell, by destination (use these details - never invent a detail that contradicts them):\n${[...byDest.entries()].map(([dest, names]) => `- ${dest}:\n  ${names.join('\n  ')}`).join('\n')}`)
   }
   if (queue?.length) lines.push(`Keywords already queued, used or rejected (never propose these again):\n${(queue as { keyword: string }[]).map((q) => q.keyword).join(', ')}`)
+
+  // Found 2026-10-03: the admin's Keyword Research tool (real Keywords Everywhere search-volume
+  // data, paid for with real credits) never fed into topic suggestions at all - Joel could look up
+  // and "assign" a high-volume keyword to a page, but nothing downstream ever used that data to
+  // decide what to write next. Surfacing the highest-volume keywords that have no real page
+  // assigned yet (target_path IS NULL) gives the strategist validated search demand instead of
+  // pure guesswork, the same spirit as the GSC near-miss signal below. Only ever a real recorded
+  // `volume` number - never invented.
+  const { data: researchedKeywords } = await admin
+    .from('keyword_research')
+    .select('keyword, volume')
+    .eq('country', SITE_ID)
+    .is('target_path', null)
+    .not('volume', 'is', null)
+    .order('volume', { ascending: false })
+    .limit(10)
+  if (researchedKeywords?.length) {
+    lines.push(
+      `Real search-volume data from Keywords Everywhere, not yet assigned to any page (favour one of these when it fits a real angle - never invent a volume number, only use what's listed):\n${(researchedKeywords as { keyword: string; volume: number }[])
+        .map((r) => `- ${r.keyword} (${r.volume}/mo search volume)`)
+        .join('\n')}`,
+    )
+  }
 
   // Never blocks a run — Search Console being unconfigured, empty, or briefly failing just means
   // this section is omitted, same as posts/packages/queue above when their table is empty.
