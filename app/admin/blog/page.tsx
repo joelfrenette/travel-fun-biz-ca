@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,6 +16,10 @@ function authHeaders(): HeadersInit {
 }
 
 export default function BlogAdminPage() {
+  // Lets the admin-nav sidebar link straight to the autoblog tab (/admin/blog?tab=autoblog)
+  // instead of landing on Posts and leaving the visitor to find the tab themselves.
+  const searchParams = useSearchParams()
+  const initialTab = searchParams.get("tab") === "autoblog" ? "autoblog" : "posts"
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -57,7 +62,7 @@ export default function BlogAdminPage() {
       <div className="container mx-auto space-y-3 px-4 py-4">
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
-        <Tabs defaultValue="posts">
+        <Tabs defaultValue={initialTab}>
           <TabsList>
             <TabsTrigger value="posts">Posts</TabsTrigger>
             <TabsTrigger value="autoblog">Topics &amp; Autoblog</TabsTrigger>

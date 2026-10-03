@@ -116,10 +116,10 @@ const unsortedTools: AdminNavItem[] = [
   },
   {
     title: "Blog Auto-Writer",
-    description: "Auto-generate draft articles from trends, news, emails, and curated content, into the same Blog tool for review.",
+    description: "AI-suggested blog topics queued for your approval, then auto-written into draft posts on schedule. Lives in the Blog tool's \"Topics & Autoblog\" tab.",
     icon: Bot,
-    status: "Coming Soon",
-    href: null,
+    status: "Active",
+    href: "/admin/blog?tab=autoblog",
   },
   {
     title: "Branchup Email Importer",
