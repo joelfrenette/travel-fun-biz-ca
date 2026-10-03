@@ -39,7 +39,7 @@ const unsortedTools: AdminNavItem[] = [
   },
   {
     title: "Keyword Research",
-    description: "Look up search volume, CPC and trend from Keywords Everywhere and assign each phrase the page it should rank for.",
+    description: "Look up search volume, CPC and trend from DataForSEO and assign each phrase the page it should rank for.",
     icon: Tags,
     status: "Active",
     href: "/admin/keywords",

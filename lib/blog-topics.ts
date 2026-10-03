@@ -71,13 +71,13 @@ async function gatherTopicMaterial(admin: SupabaseClient): Promise<string> {
   }
   if (queue?.length) lines.push(`Keywords already queued, used or rejected (never propose these again):\n${(queue as { keyword: string }[]).map((q) => q.keyword).join(', ')}`)
 
-  // Found 2026-10-03: the admin's Keyword Research tool (real Keywords Everywhere search-volume
-  // data, paid for with real credits) never fed into topic suggestions at all - Joel could look up
-  // and "assign" a high-volume keyword to a page, but nothing downstream ever used that data to
-  // decide what to write next. Surfacing the highest-volume keywords that have no real page
-  // assigned yet (target_path IS NULL) gives the strategist validated search demand instead of
-  // pure guesswork, the same spirit as the GSC near-miss signal below. Only ever a real recorded
-  // `volume` number - never invented.
+  // Found 2026-10-03: the admin's Keyword Research tool (real DataForSEO search-volume data, paid
+  // for with real money) never fed into topic suggestions at all - Joel could look up and "assign"
+  // a high-volume keyword to a page, but nothing downstream ever used that data to decide what to
+  // write next. Surfacing the highest-volume keywords that have no real page assigned yet
+  // (target_path IS NULL) gives the strategist validated search demand instead of pure guesswork,
+  // the same spirit as the GSC near-miss signal below. Only ever a real recorded `volume` number -
+  // never invented.
   const { data: researchedKeywords } = await admin
     .from('keyword_research')
     .select('keyword, volume')
@@ -88,7 +88,7 @@ async function gatherTopicMaterial(admin: SupabaseClient): Promise<string> {
     .limit(10)
   if (researchedKeywords?.length) {
     lines.push(
-      `Real search-volume data from Keywords Everywhere, not yet assigned to any page (favour one of these when it fits a real angle - never invent a volume number, only use what's listed):\n${(researchedKeywords as { keyword: string; volume: number }[])
+      `Real search-volume data from DataForSEO, not yet assigned to any page (favour one of these when it fits a real angle - never invent a volume number, only use what's listed):\n${(researchedKeywords as { keyword: string; volume: number }[])
         .map((r) => `- ${r.keyword} (${r.volume}/mo search volume)`)
         .join('\n')}`,
     )

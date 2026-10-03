@@ -37,7 +37,7 @@ function Sparkline({ trend }: { trend: KeywordRow["trend"] }) {
 
 export default function KeywordsPage() {
   const [rows, setRows] = useState<KeywordRow[]>([])
-  const [credits, setCredits] = useState<number | null>(null)
+  const [balanceUsd, setBalanceUsd] = useState<number | null>(null)
   const [configured, setConfigured] = useState(true)
   const [packages, setPackages] = useState<Pick<DbPackage, "id" | "name" | "slug" | "status">[]>([])
   const [loading, setLoading] = useState(true)
@@ -65,7 +65,7 @@ export default function KeywordsPage() {
       .then(([kw, pk]) => {
         if (!kw.ok) throw new Error(kw.data.error || "Could not load keywords")
         setRows(kw.data.keywords || [])
-        setCredits(kw.data.credits ?? null)
+        setBalanceUsd(kw.data.balanceUsd ?? null)
         setConfigured(kw.data.configured !== false)
         if (pk.ok) setPackages(pk.data.packages || [])
       })
@@ -116,8 +116,8 @@ export default function KeywordsPage() {
       const byKey = new Map(rows.map((r) => [r.id, r]))
       data.rows.forEach((r) => byKey.set(r.id, r))
       setRows(Array.from(byKey.values()))
-      if (data.credits != null) setCredits(data.credits)
-      setStatus(`${data.fetched} looked up (${data.creditsConsumed} credit${data.creditsConsumed === 1 ? "" : "s"}), ${data.cached} served from cache.`)
+      if (data.balanceUsd != null) setBalanceUsd(data.balanceUsd)
+      setStatus(`${data.fetched} looked up ($${data.costUsd.toFixed(4)}), ${data.cached} served from cache.`)
       setInput("")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lookup failed")
@@ -145,7 +145,7 @@ export default function KeywordsPage() {
     }
   }
 
-  // Add a Search Console phrase to the list without spending a Keywords Everywhere credit.
+  // Add a Search Console phrase to the list without spending anything.
   async function track(q: UntrackedQuery) {
     setTracking((t) => ({ ...t, [q.query]: true }))
     try {
@@ -208,14 +208,14 @@ export default function KeywordsPage() {
         <div className="container mx-auto flex flex-wrap items-center justify-between gap-3 px-4 py-4">
           <div>
             <h1 className="text-xl font-bold">Keyword Research</h1>
-            <p className="text-sm text-muted-foreground">Search volume from Keywords Everywhere, your real Google and Bing numbers, and the page each phrase should rank for.</p>
+            <p className="text-sm text-muted-foreground">Search volume from DataForSEO, your real Google and Bing numbers, and the page each phrase should rank for.</p>
           </div>
           <div className="flex items-center gap-3 text-sm">
             <Button variant="outline" size="sm" onClick={refreshSearchData} disabled={refreshing || !searchDataAvailable || rows.length === 0} title={searchDataAvailable ? "Pull the last 28 days from Search Console and Bing" : "Set up Search Console or Bing first"}>
               {refreshing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}Refresh search data
             </Button>
-            <span className="text-muted-foreground">Credits</span>
-            <Badge variant="outline" className="font-mono">{credits == null ? "—" : credits.toLocaleString()}</Badge>
+            <span className="text-muted-foreground">Balance</span>
+            <Badge variant="outline" className="font-mono">{balanceUsd == null ? "—" : `$${balanceUsd.toFixed(2)}`}</Badge>
           </div>
         </div>
       </div>
@@ -223,7 +223,7 @@ export default function KeywordsPage() {
       <div className="container mx-auto space-y-4 px-4 py-4">
         {!configured && (
           <Card className="border-destructive/50"><CardContent className="p-4 text-sm">
-            <span className="font-medium">KEYWORD_DATA_API_KEY is not set in Vercel.</span> Add your Keywords Everywhere API key and redeploy; the cached list below still works.
+            <span className="font-medium">DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD are not set in Vercel.</span> Add your DataForSEO login and password and redeploy; the cached list below still works.
           </CardContent></Card>
         )}
         {searchConfigured && !searchConfigured.searchConsole && (
@@ -243,7 +243,7 @@ export default function KeywordsPage() {
               <Label htmlFor="kw-input">Phrases to look up (one per line)</Label>
               <Textarea id="kw-input" rows={5} value={input} onChange={(e) => setInput(e.target.value)} placeholder={"group travel for singles over 50\ncroatia yacht cruise 2027\nrhine river cruise from canada"} />
               <p className="text-xs text-muted-foreground">
-                {pendingCount} phrase{pendingCount === 1 ? "" : "s"} · costs at most {pendingCount} credit{pendingCount === 1 ? "" : "s"}; phrases looked up in the last 30 days are free.
+                {pendingCount} phrase{pendingCount === 1 ? "" : "s"} · real money, a small fraction of a cent per phrase; phrases looked up in the last 30 days are free (served from cache).
               </p>
             </div>
             <div className="space-y-3">
@@ -259,7 +259,7 @@ export default function KeywordsPage() {
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
-                Refresh even if cached (spends credits)
+                Refresh even if cached (spends real money)
               </label>
               <Button className="w-full" onClick={lookup} disabled={looking || pendingCount === 0 || !configured}>
                 {looking ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Search className="mr-1 h-4 w-4" />}Look up
@@ -275,7 +275,7 @@ export default function KeywordsPage() {
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="font-semibold">Phrases Google already shows you for</h2>
-                  <p className="text-xs text-muted-foreground">Top Search Console queries from the last 28 days that are not on your list yet. Track costs no credits; look up later to add volume.</p>
+                  <p className="text-xs text-muted-foreground">Top Search Console queries from the last 28 days that are not on your list yet. Track costs nothing; look up later to add volume.</p>
                 </div>
                 <Badge variant="outline">{untracked.length}</Badge>
               </div>

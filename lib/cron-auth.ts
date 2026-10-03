@@ -20,8 +20,5 @@ export function cronUnauthorized(request: Request): NextResponse | null {
   const header = request.headers.get('authorization') ?? ''
   const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : ''
   const ok = secretMatches(token, secret)
-  // TEMPORARY (2026-09-30, remove once the live gsc-snapshot 401 is resolved): lengths only,
-  // never the values, logged only on a mismatch so a normal Vercel-triggered run stays silent.
-  if (!ok) console.error('[cron-auth-debug] mismatch - server secret length:', secret.length, 'presented token length:', token.length)
   return ok ? null : NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 }

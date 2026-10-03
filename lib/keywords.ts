@@ -1,12 +1,25 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
-// Keywords Everywhere API. Every keyword returned costs one credit, so results are
-// cached in keyword_research and only re-fetched when older than CACHE_DAYS or forced.
-const API_BASE = 'https://api.keywordseverywhere.com/v1'
+// DataForSEO Keywords Data API (Google Ads search volume). Switched from Keywords Everywhere on
+// 2026-10-03 (Joel's call) - this is a genuinely different provider, not a drop-in: auth is HTTP
+// Basic (a login + password pair, not a single bearer key), billing is a real dollar cost per
+// call (not a flat per-keyword credit count), and the request/response shapes are unrelated.
+// Docs: https://docs.dataforseo.com/v3/keywords_data/google_ads/search_volume/live/
+//
+// Every lookup costs real money, so results are cached in keyword_research and only re-fetched
+// when older than CACHE_DAYS or forced.
+const API_BASE = 'https://api.dataforseo.com/v3'
 const CACHE_DAYS = 30
-const MAX_PER_REQUEST = 100
+const MAX_PER_REQUEST = 1000 // DataForSEO's own per-task keyword limit
 
 export type KeywordCountry = 'ca' | 'us'
+
+// Google Ads geo-target IDs (stable, documented at
+// https://developers.google.com/google-ads/api/docs/targeting/location-targeting and mirrored by
+// DataForSEO's own /v3/keywords_data/google_ads/locations - never invented).
+const LOCATION_CODE: Record<KeywordCountry, number> = { ca: 2124, us: 2840 }
+const LANGUAGE_CODE = 'en'
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 export interface KeywordRow {
   id: string
@@ -31,7 +44,7 @@ export interface KeywordRow {
   updated_at: string
 }
 
-/** Track a phrase without spending a Keywords Everywhere credit (e.g. one found in Search Console). */
+/** Track a phrase without spending anything (e.g. one found in Search Console). */
 export async function trackKeyword(keyword: string, country: KeywordCountry): Promise<KeywordRow> {
   const { data, error } = await getSupabaseAdmin()
     .from('keyword_research')
@@ -50,14 +63,21 @@ export interface LookupResult {
   requested: number
   fetched: number
   cached: number
-  creditsConsumed: number
-  credits: number | null
+  /** Real dollars spent on this lookup (DataForSEO bills per call, not a flat per-keyword credit). */
+  costUsd: number
+  /** Real account balance in USD after this call, or null if it couldn't be read. */
+  balanceUsd: number | null
 }
 
-function apiKey(): string {
-  const key = process.env.KEYWORD_DATA_API_KEY
-  if (!key) throw new Error('KEYWORD_DATA_API_KEY is not set')
-  return key
+export function isKeywordDataConfigured(): boolean {
+  return !!process.env.DATAFORSEO_LOGIN && !!process.env.DATAFORSEO_PASSWORD
+}
+
+function authHeader(): string {
+  const login = process.env.DATAFORSEO_LOGIN
+  const password = process.env.DATAFORSEO_PASSWORD
+  if (!login || !password) throw new Error('DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD are not set')
+  return `Basic ${Buffer.from(`${login}:${password}`).toString('base64')}`
 }
 
 export function normalizeKeywords(input: string | string[]): string[] {
@@ -70,50 +90,52 @@ export function normalizeKeywords(input: string | string[]): string[] {
   return Array.from(seen)
 }
 
-/** Pulls a credit count out of whichever shape the real response turns out to use - Keywords
- * Everywhere's docs show a bare `[500]`, but an API response reshaping itself over time to
- * `[{credits_available: 500}]` or `{credits: 500}` is exactly the kind of thing that used to
- * come back here as a silent `null`, indistinguishable from the call having actually failed. */
-function parseCreditBalance(body: unknown): number | null {
-  if (Array.isArray(body)) {
-    const first = body[0]
-    if (typeof first === 'number') return first
-    if (first && typeof first === 'object') {
-      for (const key of ['credits_available', 'credits', 'balance']) {
-        const v = (first as Record<string, unknown>)[key]
-        if (typeof v === 'number') return v
-      }
-    }
-    return null
-  }
-  if (body && typeof body === 'object') {
-    for (const key of ['credits_available', 'credits', 'balance']) {
-      const v = (body as Record<string, unknown>)[key]
-      if (typeof v === 'number') return v
-    }
-  }
-  return null
+interface DataForSeoEnvelope<T> {
+  status_code?: number
+  status_message?: string
+  tasks?: { status_code?: number; status_message?: string; result?: T[] | null }[]
 }
 
-export async function getCreditBalance(): Promise<number | null> {
+async function dataForSeoRequest<T>(path: string, init: { method: 'GET' | 'POST'; body?: unknown }): Promise<DataForSeoEnvelope<T>> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: init.method,
+    headers: {
+      Authorization: authHeader(),
+      Accept: 'application/json',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+    cache: 'no-store',
+  })
+  const body = (await res.json().catch(() => ({}))) as DataForSeoEnvelope<T>
+  // DataForSEO returns HTTP 200 for most request-level errors (bad field, empty body) and only
+  // uses the HTTP status for auth (401) and billing (402) failures - the real result always has
+  // to be read from status_code in the JSON body, never assumed from a 200. See
+  // https://docs.dataforseo.com/v3/appendix/errors/
+  if (res.status === 401) throw new Error('DataForSEO rejected the login/password')
+  if (res.status === 402) throw new Error('DataForSEO: insufficient balance')
+  if (!res.ok) throw new Error(`DataForSEO error: HTTP ${res.status}${body.status_message ? ` - ${body.status_message}` : ''}`)
+  if (body.status_code != null && body.status_code !== 20000) {
+    throw new Error(`DataForSEO error: ${body.status_message || `status ${body.status_code}`}`)
+  }
+  return body
+}
+
+interface UserDataResult {
+  money?: { balance?: number }
+}
+
+export async function getAccountBalance(): Promise<number | null> {
   try {
-    const res = await fetch(`${API_BASE}/account/credits`, {
-      headers: { Authorization: `Bearer ${apiKey()}`, Accept: 'application/json' },
-      cache: 'no-store',
-    })
-    if (!res.ok) {
-      console.warn('[keywords] getCreditBalance: HTTP', res.status)
+    const body = await dataForSeoRequest<UserDataResult>('/appendix/user_data', { method: 'GET' })
+    const balance = body.tasks?.[0]?.result?.[0]?.money?.balance
+    if (typeof balance !== 'number') {
+      console.warn('[keywords] getAccountBalance: unrecognized response shape', JSON.stringify(body).slice(0, 300))
       return null
     }
-    const body = await res.json()
-    const parsed = parseCreditBalance(body)
-    // Distinguishes "the call worked but the response shape changed" from "the call failed" -
-    // both used to collapse to the same silent null, which made a real API-shape change
-    // invisible until someone noticed the credits display was permanently blank.
-    if (parsed === null) console.warn('[keywords] getCreditBalance: unrecognized response shape', JSON.stringify(body).slice(0, 300))
-    return parsed
+    return balance
   } catch (err) {
-    console.warn('[keywords] getCreditBalance: fetch failed', err instanceof Error ? err.message : err)
+    console.warn('[keywords] getAccountBalance: failed', err instanceof Error ? err.message : err)
     return null
   }
 }
@@ -126,6 +148,14 @@ export async function listKeywords(): Promise<KeywordRow[]> {
     .order('keyword')
   if (error) throw new Error(error.message)
   return data || []
+}
+
+interface SearchVolumeResult {
+  keyword?: string
+  search_volume?: number | null
+  cpc?: number | null
+  competition_index?: number | null
+  monthly_searches?: { year?: number; month?: number; search_volume?: number }[]
 }
 
 export async function lookupKeywords(keywords: string[], country: KeywordCountry, force = false): Promise<LookupResult> {
@@ -143,51 +173,50 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
   }
   const toFetch = keywords.filter((kw) => !fresh.has(kw))
 
-  let creditsConsumed = 0
-  let credits: number | null = null
+  let costUsd = 0
+  let balanceUsd: number | null = null
   const fetchedRows: KeywordRow[] = []
 
   for (let i = 0; i < toFetch.length; i += MAX_PER_REQUEST) {
     const chunk = toFetch.slice(i, i + MAX_PER_REQUEST)
-    const res = await fetch(`${API_BASE}/get_keyword_data`, {
+    const body = await dataForSeoRequest<SearchVolumeResult>('/keywords_data/google_ads/search_volume/live', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey()}`, Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kw: chunk, country, currency: country === 'ca' ? 'cad' : 'usd', dataSource: 'gkp' }),
-      cache: 'no-store',
+      body: [{ keywords: chunk, location_code: LOCATION_CODE[country], language_code: LANGUAGE_CODE }],
     })
-    const body = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const reason = body?.message || `HTTP ${res.status}`
-      if (res.status === 402) throw new Error(`Keywords Everywhere: out of credits (${reason})`)
-      if (res.status === 401) throw new Error('Keywords Everywhere rejected the API key')
-      throw new Error(`Keywords Everywhere error: ${reason}`)
-    }
-    creditsConsumed += Number(body.credits_consumed) || 0
-    if (typeof body.credits === 'number') credits = body.credits
 
-    const items = (Array.isArray(body.data) ? body.data : []).filter(
-      (d: any) => typeof d?.keyword === 'string' && d.keyword.trim().length > 0,
+    const task = body.tasks?.[0]
+    costUsd += Number((task as { cost?: number } | undefined)?.cost) || 0
+    if (task?.status_code != null && task.status_code !== 20000) {
+      throw new Error(`DataForSEO task error: ${task.status_message || `status ${task.status_code}`}`)
+    }
+
+    const items = (Array.isArray(task?.result) ? task!.result : []).filter(
+      (d): d is SearchVolumeResult & { keyword: string } => typeof d?.keyword === 'string' && d.keyword.trim().length > 0,
     )
     const now = new Date().toISOString()
-    const upserts = items.map((d: any) => ({
+    const upserts = items.map((d) => ({
       keyword: d.keyword.trim().toLowerCase(),
       country,
-      volume: Number.isFinite(Number(d.vol)) ? Number(d.vol) : null,
-      cpc: d.cpc?.value != null && Number.isFinite(Number(d.cpc.value)) ? Number(d.cpc.value) : null,
-      cpc_currency: d.cpc?.currency || null,
-      competition: Number.isFinite(Number(d.competition)) ? Number(d.competition) : null,
-      trend: Array.isArray(d.trend) ? d.trend : [],
-      data_source: 'gkp',
+      volume: Number.isFinite(Number(d.search_volume)) ? Number(d.search_volume) : null,
+      // DataForSEO's Google Ads cpc is always USD regardless of location - see
+      // https://docs.dataforseo.com/v3/keywords_data/google_ads/search_volume/live/
+      cpc: Number.isFinite(Number(d.cpc)) ? Number(d.cpc) : null,
+      cpc_currency: d.cpc != null ? 'usd' : null,
+      competition: Number.isFinite(Number(d.competition_index)) ? Number(d.competition_index) : null,
+      trend: Array.isArray(d.monthly_searches)
+        ? d.monthly_searches
+            .filter((m) => typeof m.year === 'number' && typeof m.month === 'number' && m.month! >= 1 && m.month! <= 12)
+            .map((m) => ({ year: m.year as number, month: MONTH_NAMES[(m.month as number) - 1], value: Number(m.search_volume) || 0 }))
+        : [],
+      data_source: 'dataforseo',
       fetched_at: now,
       updated_at: now,
     }))
 
-    // Keywords Everywhere bills for every requested keyword in the chunk (creditsConsumed above),
-    // but its response can simply omit one with no data available (an unsupported phrase, a typo,
-    // etc.). Without a row for it, it's never "fresh" and lands back in toFetch on every future
-    // call - a keyword with genuinely no data gets re-billed forever. A sentinel row (no volume
-    // data, but a real fetched_at) makes "looked up, nothing there" cacheable like everything
-    // else, respecting the same CACHE_DAYS TTL - `force` still re-checks it like any other row.
+    // Billed keywords can still come back with no result row (an unsupported phrase, a typo).
+    // Without a row for it, it's never "fresh" and lands back in toFetch on every future call - a
+    // keyword with genuinely no data gets re-billed forever. A sentinel row (no volume data, but
+    // a real fetched_at) makes "looked up, nothing there" cacheable like everything else.
     const returnedKeywords = new Set(upserts.map((u: { keyword: string }) => u.keyword))
     const sentinels = chunk
       .filter((kw) => !returnedKeywords.has(kw))
@@ -199,7 +228,7 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
         cpc_currency: null,
         competition: null,
         trend: [],
-        data_source: 'gkp',
+        data_source: 'dataforseo',
         fetched_at: now,
         updated_at: now,
       }))
@@ -215,13 +244,15 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
     }
   }
 
+  if (toFetch.length > 0) balanceUsd = await getAccountBalance()
+
   return {
     rows: [...fresh.values(), ...fetchedRows],
     requested: keywords.length,
     fetched: fetchedRows.length,
     cached: fresh.size,
-    creditsConsumed,
-    credits,
+    costUsd: Math.round(costUsd * 1e6) / 1e6,
+    balanceUsd,
   }
 }
 
