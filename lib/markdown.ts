@@ -19,6 +19,18 @@ function safeSrc(src: string): string {
   return /^(https?:\/\/|\/)/i.test(src) ? src : ''
 }
 
+// Found 2026-10-03: unlike every other value this file interpolates into HTML, the code-fence
+// language tag (the text after ``` on the opening line) was inserted into `class="language-X"`
+// with NO escaping at all - a fence like ```"><script>alert(1)</script> breaks out of the
+// attribute and injects a real, executing <script> tag into every visitor who views that post.
+// A language tag is conventionally a short alphanumeric token (js, python, c++, c#, objective-c),
+// so this allowlists that charset outright rather than only escaping quotes/brackets - stricter
+// than the minimum fix, consistent with safeHref/safeSrc's allowlist-over-blocklist approach
+// elsewhere in this file.
+function safeLangClass(lang: string): string {
+  return lang.replace(/[^a-zA-Z0-9+#.-]/g, '').slice(0, 40)
+}
+
 function inline(text: string): string {
   let out = escapeHtml(text)
   out = out.replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -60,7 +72,8 @@ export function renderMarkdown(markdown: string): string {
       const codeLines: string[] = []
       i++
       while (i < lines.length && !/^```/.test(lines[i])) { codeLines.push(lines[i]); i++ }
-      html.push(`<pre><code${fenceLang ? ` class="language-${fenceLang}"` : ''}>${escapeHtml(codeLines.join('\n'))}</code></pre>`)
+      const safeLang = safeLangClass(fenceLang)
+      html.push(`<pre><code${safeLang ? ` class="language-${safeLang}"` : ''}>${escapeHtml(codeLines.join('\n'))}</code></pre>`)
       i++
       continue
     }
