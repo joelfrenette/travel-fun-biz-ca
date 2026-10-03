@@ -72,7 +72,22 @@ export function withCronHeartbeat(name: CronName, handler: (request: Request) =>
       throw e
     }
     if (res.status !== 401 && res.status !== 503) {
-      await recordCronRun(name, { ok: res.status < 500 })
+      // Found 2026-10-03: a route that catches its own error and returns a JSON 500 (rather than
+      // throwing, like gsc-snapshot's handler) never hit the catch block above, so its actual
+      // error message was silently dropped - System Health showed "reported a problem" with zero
+      // detail, the exact gap that made the GOOGLE_SERVICE_ACCOUNT_KEY failure invisible outside
+      // Vercel's own logs. Clone the response (its body can only be read once) and pull the same
+      // `error` string the route already sends back, so the real reason reaches the admin UI.
+      let note: string | undefined
+      if (res.status >= 500) {
+        try {
+          const body = (await res.clone().json()) as { error?: unknown } | null
+          if (typeof body?.error === 'string') note = body.error
+        } catch {
+          // Non-JSON error body - no detail to add, ok:false alone still shows up as amber.
+        }
+      }
+      await recordCronRun(name, { ok: res.status < 500, ...(note ? { note } : {}) })
     }
     return res
   }
