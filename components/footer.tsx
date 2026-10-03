@@ -1,6 +1,6 @@
 import Link from "next/link"
 import Image from "next/image"
-import { legalLinks, officeInfo, recognitionBadges, socialPromos } from "@/content/footer"
+import { aboutLinks, legalLinks, officeInfo, recognitionBadges, socialPromos } from "@/content/footer"
 import { NewsletterForm } from "@/components/newsletter-form"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
@@ -43,6 +43,11 @@ export function Footer({ language }: FooterProps) {
             </div>
 
             <div className="space-y-2 text-xs text-gray-400">
+              {aboutLinks.map((link) => (
+                <Link key={link.href} href={link.href} className="block hover:text-white">
+                  {translate(language, link.label)}
+                </Link>
+              ))}
               {legalLinks.map((link) => (
                 <Link key={link.href} href={link.href} className="block hover:text-white">
                   {translate(language, link.label)}

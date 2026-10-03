@@ -10,6 +10,10 @@ export const officeInfo = {
   registrations: site.registrations,
 }
 
+export const aboutLinks = [
+  { label: 'Who We Are', href: '/who-we-are' },
+]
+
 export const legalLinks = [
   { label: 'Privacy Policy', href: `${site.legalBaseUrl}/privacy-policy/` },
   { label: 'Terms & Conditions', href: `${site.legalBaseUrl}/terms-conditions/` },
