@@ -170,6 +170,53 @@ export async function dueApprovedTopics(admin: SupabaseClient): Promise<BlogTopi
   return data ?? []
 }
 
+export interface PackageGrounding {
+  name: string
+  destination: string
+  short_description: string | null
+  full_description: string | null
+  highlights: string[] | null
+  available_from: string | null
+  available_to: string | null
+}
+
+/** Find the published package a topic is actually about, by checking whether the topic's angle
+ * or keyword mentions the package's destination or name. Returns null when nothing matches -
+ * never guesses a "closest" package, since grounding a post in the wrong product would be worse
+ * than not grounding it at all. */
+export async function findGroundingPackage(admin: SupabaseClient, topic: Pick<TopicIdea, 'angle' | 'keyword'>): Promise<PackageGrounding | null> {
+  const { data, error } = await admin
+    .from('travel_packages')
+    .select('name, destination, short_description, full_description, highlights, available_from, available_to')
+    .eq('status', 'published')
+    .limit(200)
+  if (error || !data) return null
+  const haystack = `${topic.angle} ${topic.keyword}`.toLowerCase()
+  const rows = data as PackageGrounding[]
+  return (
+    rows.find((p) => {
+      const dest = p.destination?.toLowerCase()
+      const name = p.name?.toLowerCase()
+      return (!!dest && haystack.includes(dest)) || (!!name && haystack.includes(name))
+    }) ?? null
+  )
+}
+
+/** Fold a matched package's real facts into the angle text handed to composeFullPost, so its
+ * AI steps (which only ever see `angle`, not the DB) can't contradict the actual product. Returns
+ * the angle unchanged when no package matched - composeFullPost still works for general
+ * travel-advice topics, it just isn't grounded in a specific package. Never invents a detail: only
+ * facts already on the `pkg` row are included. */
+export function groundAngleInPackage(angle: string, pkg: PackageGrounding | null): string {
+  if (!pkg) return angle
+  const facts: string[] = [`Real package being promoted: "${pkg.name}" (${pkg.destination}).`]
+  if (pkg.short_description) facts.push(`What it actually is: ${pkg.short_description}`)
+  if (pkg.highlights?.length) facts.push(`Its real stops/highlights (do not invent different ones): ${pkg.highlights.join(', ')}`)
+  if (pkg.available_from || pkg.available_to) facts.push(`Its real travel dates: ${pkg.available_from ?? 'unknown'} to ${pkg.available_to ?? 'unknown'}`)
+  facts.push('Name this real package by name in the post and use only these real stops/dates/details - never invent a different itinerary, stop list, or date range.')
+  return `${angle}\n\n${facts.join(' ')}`
+}
+
 /** No admin-approved topic due today: ask the AI for one fresh idea not already covered, falling
  * back to a static cluster only if the AI is unconfigured or returns nothing. Never blocks a run
  * on human approval - approval gates the *queue*, not whether autoblog can write anything at all. */

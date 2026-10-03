@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
-import { dueApprovedTopics, pickOneTopic, setTopicStatus, type TopicIdea } from '@/lib/blog-topics'
+import { dueApprovedTopics, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, autoPublishBlockers } from '@/lib/blog-composer'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { enrollIfDue } from '@/lib/distribution'
@@ -58,6 +58,40 @@ async function releaseRunLock(admin: ReturnType<typeof getSupabaseAdmin>): Promi
   await setSetting(admin, RUN_LOCK_KEY, '')
 }
 
+const COMPOSE_FAILURE_KEY = 'autoblog_compose_failures'
+// After this many consecutive compose failures, a due approved-queue row is moved to 'rejected'
+// instead of being retried forever - without this, a topic whose angle/keyword reliably breaks
+// the composer sits first in dueApprovedTopics's oldest-first ordering on every run and starves
+// every other approved row behind it.
+const MAX_COMPOSE_ATTEMPTS = 3
+
+async function readComposeFailures(admin: ReturnType<typeof getSupabaseAdmin>): Promise<Record<string, number>> {
+  const raw = await getSetting(admin, COMPOSE_FAILURE_KEY)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Bumps and returns the failure count for `rowId`. */
+async function recordComposeFailure(admin: ReturnType<typeof getSupabaseAdmin>, rowId: string): Promise<number> {
+  const failures = await readComposeFailures(admin)
+  failures[rowId] = (failures[rowId] ?? 0) + 1
+  await setSetting(admin, COMPOSE_FAILURE_KEY, JSON.stringify(failures))
+  return failures[rowId]
+}
+
+/** Clears any failure count for `rowId` once it composes successfully. */
+async function clearComposeFailure(admin: ReturnType<typeof getSupabaseAdmin>, rowId: string): Promise<void> {
+  const failures = await readComposeFailures(admin)
+  if (!(rowId in failures)) return
+  delete failures[rowId]
+  await setSetting(admin, COMPOSE_FAILURE_KEY, JSON.stringify(failures))
+}
+
 /** One post per call, at most. `scheduled: true` (the cron) also caps at one post per calendar
  * day; `scheduled: false` (the admin "run now" button) bypasses that daily cap. */
 export async function runAutoblog(opts: { scheduled: boolean }): Promise<AutoblogResult> {
@@ -107,8 +141,24 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   if (!topic) topic = await pickOneTopic(admin, existingPosts.map((p) => p.title))
   if (!topic) return { ran: false, mode, note: 'no topic available' }
 
-  const composed = await composeFullPost(topic.angle, topic.keyword)
-  if (!composed) return { ran: false, mode, note: 'composer failed or AI unconfigured' }
+  // Ground the angle in the real travel_packages row (if the topic actually matches one) before
+  // composing - without this, composeFullPost's AI steps only ever see the free-text angle/keyword
+  // and can invent an itinerary, stop list, or dates that contradict the real product.
+  const groundingPackage = await findGroundingPackage(admin, topic)
+  const groundedAngle = groundAngleInPackage(topic.angle, groundingPackage)
+
+  const composed = await composeFullPost(groundedAngle, topic.keyword)
+  if (!composed) {
+    if (queueRowId) {
+      const attempts = await recordComposeFailure(admin, queueRowId)
+      if (attempts >= MAX_COMPOSE_ATTEMPTS) {
+        await setTopicStatus(admin, queueRowId, 'rejected', {})
+        return { ran: false, mode, note: `composer failed ${attempts} times for this topic - moved it to rejected so it stops blocking the approved queue` }
+      }
+    }
+    return { ran: false, mode, note: 'composer failed or AI unconfigured' }
+  }
+  if (queueRowId) await clearComposeFailure(admin, queueRowId)
 
   // Pre-compose dedupe only checked the topic's angle, but the AI's 'idea'/'title' steps are free
   // to land on a title that duplicates an existing post by content even when the angle didn't.
