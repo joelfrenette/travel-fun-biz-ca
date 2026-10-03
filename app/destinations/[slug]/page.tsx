@@ -6,6 +6,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
 import { getDestinationPage } from "@/lib/destinations"
+import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getPublicBlurb } from "@/lib/destination-blurbs"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
@@ -41,6 +42,10 @@ export default async function DestinationPage({ params }: Props) {
   const usdToTargetRate = await getUsdToRate(currency)
   const pageUrl = absoluteUrl(`/destinations/${params.slug}`)
   const blurb = await getPublicBlurb(params.slug)
+  // Reuses the same grounding check best-time-to-visit's own page already applies (a real dated
+  // published package must exist) rather than re-deriving it from page.upcoming, whose
+  // TravelPackage items don't carry available_from/available_to at all.
+  const bestTimeToVisit = await getBestTimeToVisitPage(params.slug)
 
   // A CollectionPage listing the real upcoming trips and past-trip recaps for this destination -
   // the audit script (scripts/audit-live-seo.mjs) flagged every destination page as having no
@@ -92,6 +97,21 @@ export default async function DestinationPage({ params }: Props) {
                 ))}
               </div>
             </section>
+          )}
+
+          {/* The best-time-to-visit page already links back here ("See all {destination}
+              trips") - this completes the reciprocal link. bestTimeToVisit is only non-null when
+              a real dated published package exists (upcoming OR past - seasonal timing is still
+              meaningful either way), so this never points at a 404. Rendered independently of the
+              upcoming/past split above, not nested inside it - a destination whose only dated
+              package has since passed (and so sits in "Past trips" instead) still has real
+              best-time-to-visit data worth linking to. */}
+          {bestTimeToVisit && (
+            <p className="text-sm text-muted-foreground">
+              <Link href={`/best-time-to-visit/${params.slug}`} className="font-medium text-foreground hover:underline">
+                See the best time to visit {page.destination}
+              </Link>
+            </p>
           )}
 
           {page.recaps.length > 0 && (
