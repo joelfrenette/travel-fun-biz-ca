@@ -28,7 +28,7 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
     formState: { errors },
   } = useForm<NewsletterValues>({
     resolver: zodResolver(newsletterSchema),
-    defaultValues: { fullName: '', email: '', phone: '', deals: [] },
+    defaultValues: { fullName: '', email: '', phone: '', deals: [], company_website: '' },
   })
 
   async function onSubmit(values: NewsletterValues) {
@@ -49,7 +49,7 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
         title: translate(language, "Success! We'll keep you posted with the latest travel deals."),
         description: translate(language, 'Thank You!'),
       })
-      reset({ fullName: '', email: '', phone: '', deals: [] })
+      reset({ fullName: '', email: '', phone: '', deals: [], company_website: '' })
     } catch (error) {
       toast({
         title: translate(language, 'Subscription failed'),
@@ -64,6 +64,14 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className={className}>
       <div className="space-y-4">
+        {/* Honeypot: invisible to a real visitor, filled in by form-filling bots. Same field name
+            and technique as components/contact-form.tsx, so the shared isHoneypotFilled check
+            (lib/abuse-guard.ts) works identically against both forms. */}
+        <div className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+          <label htmlFor="newsletter-company_website">Company Website</label>
+          <Input id="newsletter-company_website" tabIndex={-1} autoComplete="off" {...register('company_website')} />
+        </div>
+
         <div>
           <label htmlFor="newsletter-fullName" className="mb-1 block text-sm font-medium">
             {translate(language, 'What is Your Full Name *')}

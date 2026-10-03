@@ -3,9 +3,8 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
 // Ported from Nomad Escape Plan (Factory Phase 1: foundation), adapted to this project's
 // getSupabaseAdmin() (which throws when unconfigured, so every call here is wrapped to fail
-// open instead — see allowKey). Not wired into any route yet in this phase; the routes that
-// should use it (submit-lead, newsletter, upload-image) get it as a small follow-up once this
-// lands, not bundled into "foundation, dormant, nothing user-visible changes."
+// open instead — see allowKey). Wired into submit-lead and newsletter; upload-image still
+// doesn't call it and remains a follow-up.
 /**
  * Light protection for the public forms — the routes anyone can POST to without
  * signing in (lead capture, newsletter, and later share-to-unlock, click tracking).
