@@ -42,7 +42,15 @@ export async function findDestinationPhoto(query: string): Promise<PexelsPhoto |
     const photo: PexelsPhoto | null = first
       ? {
           id: first.id,
-          url: first.src?.original || first.src?.large2x || first.src?.large,
+          // Found 2026-10-03: this used to prefer `original` (the full, uncompressed camera-
+          // resolution file - routinely several MB) over Pexels' own pre-sized web variants.
+          // The package-import pipeline resizes afterward (lib/image-pipeline.ts), so it only
+          // paid the cost of downloading an oversized source; the blog cover-image pipeline
+          // (lib/blog-image.ts) uploads this URL's content verbatim with no resize step at all,
+          // so every autoblog post shipped a multi-megabyte hero image straight to visitors.
+          // large2x is ~1880px wide - comfortably more than any format spec in this project
+          // (the widest is the 1600px banner) - at a fraction of the file size, no quality loss.
+          url: first.src?.large2x || first.src?.large || first.src?.original,
           photographer: first.photographer || 'Unknown',
           photographerUrl: first.photographer_url || 'https://www.pexels.com',
           alt: first.alt || null,
