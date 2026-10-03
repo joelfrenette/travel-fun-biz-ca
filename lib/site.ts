@@ -51,7 +51,10 @@ const PROFILES: Record<SiteId, SiteProfile> = {
   ca: {
     id: 'ca',
     name: 'TravelFunBiz.ca',
-    url: 'https://travelfunbiz.ca',
+    // Joel's call 2026-10-03: www is canonical (matches the live apex->www redirect already in
+    // place on Vercel). Every canonical tag, OG tag, sitemap entry, JSON-LD and IndexNow ping
+    // site-wide derives from this one value via absoluteUrl()/SITE_URL.
+    url: 'https://www.travelfunbiz.ca',
     locale: 'en_CA',
     country: 'CA',
     defaultCurrency: 'cad',
