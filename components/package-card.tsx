@@ -79,7 +79,12 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
       </CardContent>
       <CardFooter className="p-6 pt-0">
         <Button asChild className="w-full bg-primary text-primary-foreground font-bold uppercase hover:bg-primary/90">
-          <Link href={pkg.slug ? `/packages/${pkg.slug}` : `/#contact?package=${encodeURIComponent(pkg.name)}`}>
+          {/* Found 2026-10-03: a query string placed after a hash fragment (/#contact?package=X)
+              is parsed as part of the hash, not as a real query param - contact-form.tsx's
+              useSearchParams().get("package") would silently read nothing. Correct order is
+              path + query + hash. Zero real packages hit this fallback today (all 9 published
+              rows have a slug), but it's a landmine for the next one that doesn't. */}
+          <Link href={pkg.slug ? `/packages/${pkg.slug}` : `/?package=${encodeURIComponent(pkg.name)}#contact`}>
             {translate(language, 'More Info')}
           </Link>
         </Button>
