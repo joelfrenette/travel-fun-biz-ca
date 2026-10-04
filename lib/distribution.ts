@@ -4,6 +4,7 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { uploadPostConfigured, uploadPostSendPhotos, uploadPostSendText } from '@/lib/upload-post'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL } from '@/lib/site'
+import { fitCaption, tightestLimit } from '@/lib/social-captions'
 
 // Factory Phase 12: the dormant distribution ledger + mode gate. See migration 0011 for why the
 // provider-specific columns (video, per-network post ids, captions) are deliberately not here yet
@@ -171,7 +172,11 @@ async function runDistributionLocked(admin: SupabaseClient, user: string, platfo
     try {
       const { data: post } = await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
       const link = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: 'upload-post', medium: 'social', campaign: 'distribution' })
-      const caption = [post?.title || row.title, post?.meta_description, link].filter(Boolean).join('\n\n')
+      const rawCaption = [post?.title || row.title, post?.meta_description, link].filter(Boolean).join('\n\n')
+      // Mechanical limit check against the tightest of the target platforms' real character
+      // limits (lib/social-captions.ts) - Upload-Post sends this same caption to every requested
+      // network in one call, so it has to fit all of them, not just the most permissive one.
+      const caption = fitCaption(rawCaption, tightestLimit(platforms))
       const result = post?.cover_image_url
         ? await uploadPostSendPhotos({ user, platforms, text: caption, imageUrls: [post.cover_image_url] })
         : await uploadPostSendText({ user, platforms, text: caption })
