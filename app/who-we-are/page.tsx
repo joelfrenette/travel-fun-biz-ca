@@ -26,6 +26,11 @@ export const metadata: Metadata = {
 }
 
 export default function WhoWeArePage() {
+  // `language` is forwarded to Header/Footer (whose nav/footer links are translated) but NOT used
+  // for this page's own body copy below, unlike other top-level pages - deliberately English-only
+  // for now rather than a silent gap. This is marketing/values copy where tone matters; translating
+  // it accurately needs a real FR/ES pass, not a literal machine translation, so it's left as a
+  // known scope gap rather than guessed at.
   const { language, currency } = getVisitorPreferences()
 
   return (

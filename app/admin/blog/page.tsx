@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,11 +15,33 @@ function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
 }
 
+// useSearchParams() opts the page into client-side rendering and needs a Suspense boundary around
+// it, or `next build` fails with "useSearchParams() should be wrapped in a suspense boundary" -
+// same reason app/page.tsx wraps ContactForm. The default export below is just that boundary.
 export default function BlogAdminPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
+      <BlogAdminPageContent />
+    </Suspense>
+  )
+}
+
+function BlogAdminPageContent() {
   // Lets the admin-nav sidebar link straight to the autoblog tab (/admin/blog?tab=autoblog)
-  // instead of landing on Posts and leaving the visitor to find the tab themselves.
+  // instead of landing on Posts and leaving the visitor to find the tab themselves. Controlled
+  // (not just read on mount) so the URL stays in sync after switching tabs by hand - an uncontrolled
+  // Tabs only honored ?tab= on first paint, so the address bar could say autoblog while Posts was
+  // showing, breaking the back button / a bookmarked or shared link.
+  const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = searchParams.get("tab") === "autoblog" ? "autoblog" : "posts"
+  const [tab, setTab] = useState(initialTab)
+
+  function changeTab(value: string) {
+    setTab(value)
+    router.replace(value === "autoblog" ? "/admin/blog?tab=autoblog" : "/admin/blog")
+  }
+
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -62,7 +84,7 @@ export default function BlogAdminPage() {
       <div className="container mx-auto space-y-3 px-4 py-4">
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
-        <Tabs defaultValue={initialTab}>
+        <Tabs value={tab} onValueChange={changeTab}>
           <TabsList>
             <TabsTrigger value="posts">Posts</TabsTrigger>
             <TabsTrigger value="autoblog">Topics &amp; Autoblog</TabsTrigger>

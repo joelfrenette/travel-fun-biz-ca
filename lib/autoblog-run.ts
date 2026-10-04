@@ -19,8 +19,10 @@ import type { PackageGrounding } from '@/lib/blog-topics'
 // link to the trip listing otherwise. Never invents a destination or package the post isn't
 // actually about.
 function appendCta(body: string, pkg: PackageGrounding | null): string {
+  // Package names are free-text (set by Joel in the admin), not controlled to avoid Markdown link
+  // syntax - a stray "[" or "]" in a name would otherwise truncate/corrupt the generated link.
   const cta = pkg
-    ? `Ready to see the real dates and details? [Check out the ${pkg.name} trip](/packages/${pkg.slug}).`
+    ? `Ready to see the real dates and details? [Check out the ${pkg.name.replace(/[[\]]/g, '')} trip](/packages/${pkg.slug}).`
     : `Ready to start planning? [Browse our trips](/) or [get in touch](/#contact) and we'll help you find the right one.`
   return `${body.trimEnd()}\n\n---\n\n${cta}`
 }

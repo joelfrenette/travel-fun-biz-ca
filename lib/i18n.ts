@@ -6,6 +6,8 @@ const translations: Record<Language, Record<string, string>> = {
   fr: {
     'Travel Agents': 'Agents de voyage',
     'In The News': 'Dans les médias',
+    'All Trips': 'Tous les voyages',
+    'Who We Are': 'Qui sommes-nous',
     'About Us': 'À propos',
     'Contact Us': 'Contactez-nous',
     Booking: 'Réservations',
@@ -139,6 +141,8 @@ const translations: Record<Language, Record<string, string>> = {
   es: {
     'Travel Agents': 'Agentes de viaje',
     'In The News': 'En las noticias',
+    'All Trips': 'Todos los viajes',
+    'Who We Are': 'Quiénes somos',
     'About Us': 'Sobre nosotros',
     'Contact Us': 'Contáctenos',
     Booking: 'Reservas',
