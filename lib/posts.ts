@@ -43,6 +43,12 @@ export async function getPublishedPostBySlug(slug: string): Promise<Post | null>
   return data
 }
 
+export async function getPostById(id: string): Promise<Post | null> {
+  const { data, error } = await getSupabaseAdmin().from('posts').select('*').eq('id', id).maybeSingle()
+  if (error) throw new Error(error.message)
+  return data
+}
+
 export async function listPostsAdmin(): Promise<Post[]> {
   const { data, error } = await getSupabaseAdmin().from('posts').select('*').order('created_at', { ascending: false })
   if (error) throw new Error(error.message)

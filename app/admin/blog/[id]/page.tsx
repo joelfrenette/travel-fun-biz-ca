@@ -8,11 +8,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
-import { Loader2, Save, Upload, ExternalLink, Search, Copy, Check, Share2 } from "lucide-react"
+import { Loader2, Save, Upload, ExternalLink, Search, Copy, Check, Share2, Film, Sparkles } from "lucide-react"
 import type { Post, PostInput } from "@/lib/posts"
 import { generateSlug } from "@/lib/utils"
 import { renderMarkdown, readingTimeMinutes } from "@/lib/markdown"
 import { buildSyndicationKit } from "@/lib/syndication"
+import type { VideoScript } from "@/lib/video-script"
 
 function authHeaders(json = true): HeadersInit {
   const h: Record<string, string> = { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -66,6 +67,17 @@ export default function BlogEditPage() {
   const [uploading, setUploading] = useState(false)
   const [pexelsQuery, setPexelsQuery] = useState("")
   const [searchingPexels, setSearchingPexels] = useState(false)
+  // Short-form video (factory item 3/6): manual-only, no cron, two explicit steps (generate the
+  // script, review it, THEN submit the render) so nothing costs real money without the admin
+  // seeing exactly what's about to be sent first.
+  const [videoScript, setVideoScript] = useState<VideoScript | null>(null)
+  const [videoSeconds, setVideoSeconds] = useState<number | null>(null)
+  const [generatingScript, setGeneratingScript] = useState(false)
+  const [renderId, setRenderId] = useState("")
+  const [renderStatus, setRenderStatus] = useState("")
+  const [renderUrl, setRenderUrl] = useState("")
+  const [rendering, setRendering] = useState(false)
+  const [videoError, setVideoError] = useState("")
 
   useEffect(() => {
     if (isNew) return
@@ -139,6 +151,51 @@ export default function BlogEditPage() {
       setError(e instanceof Error ? e.message : "Pexels search failed")
     } finally {
       setSearchingPexels(false)
+    }
+  }
+
+  async function generateVideoScript() {
+    setGeneratingScript(true); setVideoError(""); setVideoScript(null); setRenderId(""); setRenderStatus(""); setRenderUrl("")
+    try {
+      const res = await fetch(`/api/admin/blog/${params.id}/video-script`, { method: "POST", headers: authHeaders() })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setVideoScript(data.script)
+      setVideoSeconds(data.estimatedSeconds ?? null)
+    } catch (e) {
+      setVideoError(e instanceof Error ? e.message : "Could not generate a script")
+    } finally {
+      setGeneratingScript(false)
+    }
+  }
+
+  async function submitVideoRender() {
+    if (!videoScript) return
+    setRendering(true); setVideoError(""); setRenderStatus(""); setRenderUrl("")
+    try {
+      const res = await fetch(`/api/admin/blog/${params.id}/video-render`, { method: "POST", headers: authHeaders(), body: JSON.stringify({ script: videoScript }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setRenderId(data.renderId)
+      setRenderStatus("queued")
+    } catch (e) {
+      setVideoError(e instanceof Error ? e.message : "Could not submit the render")
+    } finally {
+      setRendering(false)
+    }
+  }
+
+  async function checkRenderStatus() {
+    if (!renderId) return
+    setVideoError("")
+    try {
+      const res = await fetch(`/api/admin/blog/${params.id}/video-render?renderId=${encodeURIComponent(renderId)}`, { headers: authHeaders() })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setRenderStatus(data.status || "")
+      if (data.url) setRenderUrl(data.url)
+    } catch (e) {
+      setVideoError(e instanceof Error ? e.message : "Could not check render status")
     }
   }
 
@@ -298,6 +355,59 @@ export default function BlogEditPage() {
                   </div>
                 )
               })()}
+            </CardContent>
+          </Card>
+        )}
+
+        {!isNew && form.status === "published" && form.title && (
+          <Card>
+            <CardContent className="space-y-4 p-4">
+              <div className="flex items-center gap-2">
+                <Film className="h-4 w-4 text-muted-foreground" />
+                <h3 className="font-medium">Short-form video (experimental)</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Generates a hook + script grounded in this real post, then (if SHOTSTACK_API_KEY is set) submits it for rendering. Two explicit
+                steps on purpose - review the script before anything is submitted for a real, paid render. The Shotstack integration itself has not
+                been tested against a real account yet; treat the first real render as a test, not a known-working feature.
+              </p>
+              {videoError && <p className="text-sm text-destructive">{videoError}</p>}
+
+              <Button type="button" size="sm" variant="outline" onClick={generateVideoScript} disabled={generatingScript}>
+                {generatingScript ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1.5 h-4 w-4" />}
+                {generatingScript ? "Writing script..." : "Generate script"}
+              </Button>
+
+              {videoScript && (
+                <div className="space-y-3 rounded-md border p-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Hook (~{videoSeconds}s total)</p>
+                    <p className="text-sm">{videoScript.hook}</p>
+                  </div>
+                  <div className="space-y-2">
+                    {videoScript.beats.map((b, i) => (
+                      <div key={i} className="text-sm">
+                        <span className="font-medium">Beat {i + 1}:</span> {b.voiceover}
+                        <span className="block text-xs text-muted-foreground">on-screen: "{b.onScreenText}" &middot; b-roll: {b.brollSearchTerms.join(", ")}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <Button type="button" size="sm" onClick={submitVideoRender} disabled={rendering}>
+                    {rendering ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Film className="mr-1.5 h-4 w-4" />}
+                    {rendering ? "Submitting..." : "Submit render"}
+                  </Button>
+                </div>
+              )}
+
+              {renderId && (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Render {renderId}: {renderStatus || "unknown"}</span>
+                  <Button type="button" size="sm" variant="outline" onClick={checkRenderStatus}>Check status</Button>
+                  {renderUrl && (
+                    <a href={renderUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View video</a>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
