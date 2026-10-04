@@ -5,6 +5,7 @@ export interface NavLink {
 }
 
 export const primaryNavLinks: NavLink[] = [
+  { label: 'All Trips', href: '/packages' },
   { label: 'Blog', href: '/blog' },
   { label: 'Travel Agents', href: 'https://members.travelfunbiz.com', external: true },
   { label: 'In The News', href: 'https://travelfunbiz.com/in-the-news/', external: true },

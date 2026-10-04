@@ -114,6 +114,38 @@ export async function getPackages(): Promise<TravelPackage[]> {
   }
 }
 
+export interface BrowsePackage extends TravelPackage {
+  country: string | null
+  durationDays: number | null
+  availableFrom: string | null
+}
+
+function dbPackageToBrowsePackage(pkg: DbPackage): BrowsePackage {
+  return {
+    ...dbPackageToTravelPackage(pkg),
+    country: pkg.country,
+    durationDays: pkg.duration_days,
+    availableFrom: pkg.available_from,
+  }
+}
+
+/** Published packages with the extra fields the /packages browse/filter page needs
+ * (country, duration, start date) on top of what the homepage grid uses. */
+export async function getPackagesForBrowse(): Promise<BrowsePackage[]> {
+  const { data, error } = await supabase
+    .from('travel_packages')
+    .select('*')
+    .eq('status', 'published')
+    .order('featured', { ascending: false })
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: false })
+  if (error) {
+    console.error('Failed to fetch packages for browse:', error)
+    return []
+  }
+  return (data || []).map(dbPackageToBrowsePackage)
+}
+
 /** A published package by slug, through the anon client so RLS keeps drafts private. */
 /** The next upcoming published trip in the same category (for a recap page's "Join the next
  * trip" button) - a trip whose start date hasn't happened yet, closest one first, excluding
