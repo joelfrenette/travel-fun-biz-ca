@@ -14,6 +14,8 @@ import { generateSlug } from "@/lib/utils"
 import { renderMarkdown, readingTimeMinutes } from "@/lib/markdown"
 import { buildSyndicationKit } from "@/lib/syndication"
 import type { VideoScript } from "@/lib/video-script"
+import type { CarouselSlide } from "@/lib/carousel"
+import { absoluteUrl } from "@/lib/site"
 
 function authHeaders(json = true): HeadersInit {
   const h: Record<string, string> = { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -27,7 +29,7 @@ const emptyForm: PostInput = { title: "", slug: "", body: "", cover_image_url: "
 // for LinkedIn, Substack and Medium. Nothing here calls an API or posts anything - it's the same
 // real published text, repackaged, so there's no fabrication risk to review beyond the post
 // itself already being correct.
-function CopyBlock({ label, text, hint }: { label: string; text: string; hint?: string }) {
+function CopyBlock({ label, text, hint, rows }: { label: string; text: string; hint?: string; rows?: number }) {
   const [copied, setCopied] = useState(false)
   async function copy() {
     try {
@@ -49,7 +51,7 @@ function CopyBlock({ label, text, hint }: { label: string; text: string; hint?: 
         </Button>
       </div>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-      <Textarea readOnly value={text} rows={label === "LinkedIn post" ? 6 : 10} className="font-mono text-xs" />
+      <Textarea readOnly value={text} rows={rows ?? (label === "LinkedIn post" ? 6 : 10)} className="font-mono text-xs" />
     </div>
   )
 }
@@ -78,6 +80,11 @@ export default function BlogEditPage() {
   const [renderUrl, setRenderUrl] = useState("")
   const [rendering, setRendering] = useState(false)
   const [videoError, setVideoError] = useState("")
+  // Carousels (factory item 4/6): same manual-only pattern - generate, review the real rendered
+  // images, then the admin copies the URLs to post manually (no auto-posting built here yet).
+  const [carouselSlides, setCarouselSlides] = useState<CarouselSlide[] | null>(null)
+  const [generatingCarousel, setGeneratingCarousel] = useState(false)
+  const [carouselError, setCarouselError] = useState("")
 
   useEffect(() => {
     if (isNew) return
@@ -92,6 +99,11 @@ export default function BlogEditPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
+
+    fetch(`/api/admin/blog/${params.id}/carousel`, { headers: authHeaders() })
+      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+      .then(({ ok, data }) => { if (ok && Array.isArray(data.slides)) setCarouselSlides(data.slides) })
+      .catch(() => {})
   }, [isNew, params.id])
 
   function setTitle(title: string) {
@@ -196,6 +208,20 @@ export default function BlogEditPage() {
       if (data.url) setRenderUrl(data.url)
     } catch (e) {
       setVideoError(e instanceof Error ? e.message : "Could not check render status")
+    }
+  }
+
+  async function generateCarousel() {
+    setGeneratingCarousel(true); setCarouselError(""); setCarouselSlides(null)
+    try {
+      const res = await fetch(`/api/admin/blog/${params.id}/carousel`, { method: "POST", headers: authHeaders() })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setCarouselSlides(data.slides)
+    } catch (e) {
+      setCarouselError(e instanceof Error ? e.message : "Could not generate a carousel")
+    } finally {
+      setGeneratingCarousel(false)
     }
   }
 
@@ -406,6 +432,44 @@ export default function BlogEditPage() {
                   {renderUrl && (
                     <a href={renderUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View video</a>
                   )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {!isNew && form.status === "published" && form.slug && form.title && (
+          <Card>
+            <CardContent className="space-y-4 p-4">
+              <div className="flex items-center gap-2">
+                <Share2 className="h-4 w-4 text-muted-foreground" />
+                <h3 className="font-medium">Carousel (Instagram/LinkedIn)</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Turns this post into a 7-slide carousel, grounded in the post's own text - every number on a slide is checked against the post
+                before it ships. Each slide below is a real rendered image URL (not a mockup); copy the URLs into Upload-Post or post manually.
+                Nothing here posts automatically.
+              </p>
+              {carouselError && <p className="text-sm text-destructive">{carouselError}</p>}
+
+              <Button type="button" size="sm" variant="outline" onClick={generateCarousel} disabled={generatingCarousel}>
+                {generatingCarousel ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1.5 h-4 w-4" />}
+                {generatingCarousel ? "Writing carousel..." : carouselSlides ? "Regenerate carousel" : "Generate carousel"}
+              </Button>
+
+              {carouselSlides && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {carouselSlides.map((slide, i) => {
+                    const url = absoluteUrl(`/carousel/${form.slug}/${i + 1}`)
+                    return (
+                      <div key={i} className="space-y-1.5">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt={slide.headline} className="aspect-[4/5] w-full rounded border object-cover" />
+                        <p className="truncate text-xs text-muted-foreground" title={slide.headline}>{i + 1}. {slide.headline}</p>
+                        <CopyBlock label={`Slide ${i + 1} URL`} text={url} rows={1} />
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </CardContent>
