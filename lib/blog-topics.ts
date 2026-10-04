@@ -46,7 +46,7 @@ const TOPIC_CLUSTERS: TopicIdea[] = [
 async function gatherTopicMaterial(admin: SupabaseClient): Promise<string> {
   const [{ data: posts }, { data: packages }, { data: queue }] = await Promise.all([
     admin.from('posts').select('title').order('created_at', { ascending: false }).limit(40),
-    admin.from('travel_packages').select('name, destination, category, short_description, available_from, available_to').eq('status', 'published').limit(60),
+    admin.from('travel_packages').select('name, destination, category, short_description, available_from, available_to').eq('status', 'published').order('created_at', { ascending: false }).limit(60),
     admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved', 'used', 'rejected']).limit(200),
   ])
   const lines: string[] = []

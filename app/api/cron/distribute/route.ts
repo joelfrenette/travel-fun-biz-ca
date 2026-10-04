@@ -10,6 +10,9 @@ import { runDistribution } from '@/lib/distribution'
 // UPLOAD_POST_API_KEY must be set. Scheduling this in vercel.json is safe before any of those are
 // on - an unconfigured server just costs a 503, not a real post.
 export const dynamic = 'force-dynamic'
+// Bounded to 5 rows per run (see lib/distribution.ts) but each row is a real network call to
+// Upload-Post - sized explicitly rather than relying on the platform default.
+export const maxDuration = 60
 
 export const GET = withCronHeartbeat('distribute', async (request: Request) => {
   const denied = cronUnauthorized(request)

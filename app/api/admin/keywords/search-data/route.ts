@@ -5,6 +5,10 @@ import { listKeywords } from '@/lib/keywords'
 import { getSearchConsoleQueries, isSearchConsoleConfigured, searchConsoleSiteUrl } from '@/lib/search-console'
 import { getBingKeywordStats, isBingConfigured } from '@/lib/bing-webmaster'
 
+// The Bing branch below makes one sequential network call per tracked keyword (Bing's API has no
+// batch endpoint) - sized generously for real keyword-list volume, not just today's handful.
+export const maxDuration = 120
+
 // GET: queries Search Console already shows the site for that are not tracked yet (discovery).
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

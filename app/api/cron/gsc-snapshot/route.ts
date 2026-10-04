@@ -9,6 +9,9 @@ import { takeRankingSnapshot } from '@/lib/rankings-snapshot'
 // configured (GOOGLE_SERVICE_ACCOUNT_KEY + GA4_PROPERTY_ID's sibling, SEARCH_CONSOLE_SITE_URL) or
 // takeRankingSnapshot just reports that and writes nothing.
 export const dynamic = 'force-dynamic'
+// Search Console query/page data + the snapshot write grow with how much content exists -
+// sized explicitly rather than relying on the platform default.
+export const maxDuration = 60
 
 async function handle(request: Request) {
   const denied = cronUnauthorized(request)

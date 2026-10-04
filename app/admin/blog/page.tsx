@@ -6,8 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Loader2, Plus, Trash2, FileText } from "lucide-react"
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, RefreshCw } from "lucide-react"
 import type { Post } from "@/lib/posts"
+import type { DriftFinding } from "@/lib/content-drift"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import BlogTopicQueue from "@/components/admin/blog-topic-queue"
 
@@ -45,6 +46,25 @@ function BlogAdminPageContent() {
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  // Post-publish drift check (factory spec item: re-read published posts, flag facts that no
+  // longer match the current travel_packages data) - see lib/content-drift.ts.
+  const [driftChecking, setDriftChecking] = useState(false)
+  const [driftFindings, setDriftFindings] = useState<DriftFinding[] | null>(null)
+  const [driftError, setDriftError] = useState("")
+
+  async function checkDrift() {
+    setDriftChecking(true); setDriftError("")
+    try {
+      const res = await fetch("/api/admin/blog/drift", { headers: authHeaders() })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setDriftFindings(data.findings || [])
+    } catch (e) {
+      setDriftError(e instanceof Error ? e.message : "Drift check failed")
+    } finally {
+      setDriftChecking(false)
+    }
+  }
 
   function load() {
     setLoading(true)
@@ -90,6 +110,37 @@ function BlogAdminPageContent() {
             <TabsTrigger value="autoblog">Topics &amp; Autoblog</TabsTrigger>
           </TabsList>
           <TabsContent value="posts" className="space-y-3 pt-3">
+            <Card>
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div>
+                  <p className="font-medium">Content drift check</p>
+                  <p className="text-xs text-muted-foreground">
+                    Re-checks every published post against the current trip data - flags a post whose linked trip is no longer published or whose dates have already passed.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={checkDrift} disabled={driftChecking}>
+                  {driftChecking ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}Check for drift
+                </Button>
+              </CardContent>
+              {driftError && <CardContent className="px-4 pb-4 pt-0 text-sm text-destructive">{driftError}</CardContent>}
+              {driftFindings && (
+                <CardContent className="space-y-2 px-4 pb-4 pt-0">
+                  {driftFindings.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No drift found - every published post's linked trip is still published with current dates.</p>
+                  ) : (
+                    driftFindings.map((f, i) => (
+                      <div key={`${f.postId}-${i}`} className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-sm">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                        <div>
+                          <Link href={`/admin/blog/${f.postId}`} className="font-medium hover:underline">{f.postTitle}</Link>
+                          <p className="text-xs text-muted-foreground">{f.detail}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              )}
+            </Card>
             {loading ? (
               <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
             ) : posts.length === 0 ? (

@@ -29,15 +29,22 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
   const sinceIso = new Date(Date.now() - days * 86400000).toISOString()
   const sinceDay = sinceIso.slice(0, 10)
 
-  const [gscRes, visitsRes, leadsRes, ordersRes] = await Promise.all([
+  // site_visits has no write path yet (blocked on cookie-consent wording) so this is empty today,
+  // but once it's live this table only grows - the exact count comes from Postgres COUNT (cheap,
+  // no rows transferred) rather than pulling every row into Node; the channel breakdown below is
+  // capped at a bounded sample since it's a shape/ratio, not a number that needs to be exact.
+  const VISIT_SAMPLE_LIMIT = 5000
+  const [gscRes, visitsCountRes, visitsSampleRes, leadsRes, ordersRes] = await Promise.all([
     admin.from('gsc_ranking_days').select('impressions').gte('day', sinceDay),
-    admin.from('site_visits').select('channel').gte('created_at', sinceIso),
+    admin.from('site_visits').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso),
+    admin.from('site_visits').select('channel').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT),
     admin.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso),
     admin.from('orders').select('amount_cents, status, is_test').gte('created_at', sinceIso),
   ])
 
   const impressions = (gscRes.data ?? []).reduce((sum, r: { impressions: number | null }) => sum + (r.impressions ?? 0), 0)
-  const visitRows = visitsRes.data ?? []
+  const visitCount = visitsCountRes.count ?? 0
+  const visitRows = visitsSampleRes.data ?? []
   const realOrders = (ordersRes.data ?? []).filter((o: { is_test: boolean }) => !o.is_test)
   const paidOrders = realOrders.filter((o: { status: string }) => o.status === 'paid')
   const revenueCents = paidOrders.reduce((sum, o: { amount_cents: number | null }) => sum + (o.amount_cents ?? 0), 0)
@@ -63,7 +70,7 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
       {
         key: 'visits',
         label: 'Visits',
-        count: visitRows.length,
+        count: visitCount,
         tracked: false,
         note: "No code writes to site_visits yet. It only reads UTM/referrer into the visitor's own browser storage today, waiting on the cookie-consent wording (setup checklist, Part 6) before a real visit can be recorded server-side.",
       },
