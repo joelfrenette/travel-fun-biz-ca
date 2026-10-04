@@ -130,3 +130,53 @@ voice) isn't a free port, it has a real recurring cost/quota shape that needs a 
 
 **Tracked:** logged in `/admin/tracker` under epic `e10`; see that tracker for exact rows/ids
 rather than duplicating them here.
+
+## Content pipeline hardening, phase 2 — all 6 decisions built (2026-10-04)
+
+**PRs:** `26d455d`, `dfad3e9`, `cebfe50`, `b27083f`, `1da68fa`, `8b48e18` (direct to `main`).
+
+**What happened:** Joel authorized building all 6 decisions deferred at the end of phase 1,
+"in order of most impactful," without per-item check-ins - with the same standing discipline from
+phase 1 unchanged: never hit a paid third-party API for real without more specific go-ahead, never
+flip `distribution_mode`/`autoblog_mode` into a live-posting state, never fabricate data.
+
+1. **AI-image autoblog fallback** (`lib/blog-image.ts`): opt-in toggle (default off,
+   `autoblog_ai_image_fallback`), Pexels still tried first; only falls back to a generated
+   illustration (alt text says "Illustration:", never claims a real photo) when Pexels comes up
+   empty and the toggle is explicitly on.
+2. **Tailored per-platform captions** (`lib/social-captions.ts`): real published per-platform
+   character limits + platform-specific voice table, one Anthropic call writes all platforms at
+   once; still mechanically re-fit to each limit regardless of model output. Own toggle (default
+   off, `distribution_tailored_captions`) since it's a real recurring extra cost/quota, not free.
+3. **Video script generation** (`lib/video-script.ts`) + Shotstack scaffold (`lib/shotstack.ts`,
+   explicitly marked NOT live-tested - built from documented API shape only, no real account to
+   verify against yet). Two explicit admin steps (generate script, review, THEN submit render) so
+   nothing costs money without a human seeing the script first.
+4. **Engagement-analytics sync** - scoped down from the vanilla ask (likes/shares/saves back from
+   Upload-Post) to what's honestly buildable without guessing at an unconfirmed vendor response
+   shape: `syncPendingDistribution()` resolves held rows stuck on "needs review" by polling
+   Upload-Post's own completed/total counts, not real engagement metrics. Flagged to Joel rather
+   than fabricated.
+5. **Carousels** (`lib/carousel.ts`, `/carousel/[slug]/[n]`, admin UI card): 7-slide deck per post,
+   same numeric-grounding hard gate as the FAQ generator and composer (whole deck fails together).
+   Slides render as real PNGs via next/og's `ImageResponse`. Hit a confirmed real bug along the
+   way: Next 14.2.35's compiled `@vercel/og/index.node.js` reads its default font via a module-level
+   `fileURLToPath(path.join(import.meta.url, ...))` that produces a backslash-mangled path and
+   crashes every request on Windows - verified by reading the compiled file directly, not just the
+   stack trace. Fixed by running that one route on the edge runtime instead, which loads the same
+   default font via `fetch(new URL(...))` and has no such bug on any OS (also confirmed by reading
+   that bundle) - a targeted fix for a specific library bug, not a general edge preference.
+6. **A/B testing** - also scoped down, for the same honesty reason as #4: `distribution_mode` is
+   off and nothing has posted, so there's no real engagement data to compare variants against.
+   Built only the logging foundation (`content_variants` table, migration 0017,
+   `lib/content-variants.ts`'s `tagVariant()`) - tags cover-image source, video hook formula, and
+   carousel presence per post as each generator already runs, so a real comparison has data to work
+   from once posting history exists.
+
+**Deviations from the vanilla spec, and why:** items 4 and 6 above are both honest scope
+reductions, not full ports - building either one fully would mean inventing vendor response shapes
+or sample engagement numbers that don't exist yet, which this project's no-fabrication discipline
+rules out either way.
+
+**Tracked:** roadmap rows for carousels and A/B logging still need filing under epic `e10` in
+`/admin/tracker` - not yet done as of this entry.
