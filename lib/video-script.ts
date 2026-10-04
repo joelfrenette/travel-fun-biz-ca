@@ -33,7 +33,7 @@ const NO_FABRICATION = `Never claim personal experience, a specific past trip, a
 // one and to mechanically check what came back, same "don't just trust the model" discipline as
 // the numeric-grounding check elsewhere in this project.
 const HOOK_FORMULAS = ['number', 'myth', 'comparison', 'mistake', 'before/after', 'ranking', 'contrarian'] as const
-type HookFormula = (typeof HOOK_FORMULAS)[number]
+export type HookFormula = (typeof HOOK_FORMULAS)[number]
 
 function scriptPrompt(postTitle: string, postSummary: string, formulaHint?: HookFormula): string {
   const formulaNote = formulaHint
@@ -55,7 +55,7 @@ Keep the WHOLE spoken script (hook + every beat's voiceover line, read aloud, ba
 Return ONLY minified JSON of this exact shape: {"hook":"...","beats":[{"scene":"...","onScreenText":"...","voiceover":"...","brollSearchTerms":["...","..."]}],"title":"...","description":"...","hashtags":["...","..."]}`
 }
 
-function detectHookFormula(hook: string): HookFormula | null {
+export function detectHookFormula(hook: string): HookFormula | null {
   const h = hook.toLowerCase()
   if (/\b\d+\b/.test(h)) return 'number'
   if (/\bmyth\b|\bwrong\b|\bactually\b|\bnot true\b/.test(h)) return 'myth'

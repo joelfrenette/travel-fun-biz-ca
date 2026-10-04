@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { findDestinationPhoto, isPexelsConfigured } from '@/lib/pexels'
 import { generateAiImage, isImageAiConfigured } from '@/lib/image-ai-gen'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { tagVariant } from '@/lib/content-variants'
 
 const MAX_BYTES = 8 * 1024 * 1024
 
@@ -68,7 +69,10 @@ export async function attachAutoblogCoverImage(
           const buf = await res.arrayBuffer()
           if (buf.byteLength > 0 && buf.byteLength <= MAX_BYTES) {
             const url = await uploadCoverImage(admin, buf, slugForFilename, 'image/jpeg')
-            if (url) return { cover_image_url: url, alt_text: photo.alt || keyword }
+            if (url) {
+              await tagVariant(admin, slugForFilename, { coverSource: 'pexels' })
+              return { cover_image_url: url, alt_text: photo.alt || keyword }
+            }
           }
         }
       } catch (err) {
@@ -82,7 +86,10 @@ export async function attachAutoblogCoverImage(
       const generated = await generateAiImage(keyword)
       if (generated) {
         const url = await uploadCoverImage(admin, generated.buffer, slugForFilename, 'image/png')
-        if (url) return { cover_image_url: url, alt_text: `Illustration: ${keyword}` }
+        if (url) {
+          await tagVariant(admin, slugForFilename, { coverSource: 'ai' })
+          return { cover_image_url: url, alt_text: `Illustration: ${keyword}` }
+        }
       }
     } catch (err) {
       console.error('[blog-image] AI fallback error:', err instanceof Error ? err.message : err)

@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getPostById } from '@/lib/posts'
-import { generateVideoScript, capScriptDuration, estimatedSpokenSeconds } from '@/lib/video-script'
+import { generateVideoScript, capScriptDuration, estimatedSpokenSeconds, detectHookFormula } from '@/lib/video-script'
 import { isAiConfigured } from '@/lib/ai-verify'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { tagVariant } from '@/lib/content-variants'
 
 export const maxDuration = 60
 
@@ -19,6 +21,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const script = await generateVideoScript(post.title, post.meta_description || '')
     if (!script) return NextResponse.json({ error: 'Could not generate a script - try again.' }, { status: 502 })
     const capped = capScriptDuration(script)
+    await tagVariant(getSupabaseAdmin(), post.slug, { hookFormula: detectHookFormula(capped.hook) ?? 'fallback' })
     return NextResponse.json({ script: capped, estimatedSeconds: Math.round(estimatedSpokenSeconds(capped)) })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })

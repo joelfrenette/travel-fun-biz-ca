@@ -5,6 +5,7 @@ import { getPostById } from '@/lib/posts'
 import { generateCarouselSlides } from '@/lib/carousel'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAiConfigured } from '@/lib/ai-verify'
+import { tagVariant } from '@/lib/content-variants'
 
 export const maxDuration = 60
 
@@ -38,6 +39,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const admin = getSupabaseAdmin()
     const { error } = await setSetting(admin, carouselKey(post.slug), JSON.stringify(slides))
     if (error) throw new Error(error)
+    await tagVariant(admin, post.slug, { hasCarousel: true })
     return NextResponse.json({ slides, slug: post.slug })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
