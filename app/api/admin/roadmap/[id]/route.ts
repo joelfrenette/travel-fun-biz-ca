@@ -5,6 +5,7 @@ import type { RoadmapUseCase } from '@/types/roadmap'
 
 const STATUSES = ['backlog', 'in_progress', 'done']
 const PRIORITIES = ['P0', 'P1', 'P2', 'P3']
+const SIZES = ['S', 'M', 'L']
 
 function buildPatch(body: unknown): { patch: Partial<RoadmapUseCase>; error?: string } {
   if (!body || typeof body !== 'object') return { patch: {}, error: 'Body must be a JSON object' }
@@ -18,6 +19,10 @@ function buildPatch(body: unknown): { patch: Partial<RoadmapUseCase>; error?: st
   if ('priority' in b) {
     if (!PRIORITIES.includes(String(b.priority))) return { patch, error: `priority must be one of ${PRIORITIES.join(', ')}` }
     patch.priority = b.priority as RoadmapUseCase['priority']
+  }
+  if ('size_estimate' in b) {
+    if (b.size_estimate !== null && !SIZES.includes(String(b.size_estimate))) return { patch, error: `size_estimate must be one of ${SIZES.join(', ')} or null` }
+    patch.size_estimate = b.size_estimate as RoadmapUseCase['size_estimate']
   }
   if ('title' in b) {
     const title = typeof b.title === 'string' ? b.title.trim() : ''

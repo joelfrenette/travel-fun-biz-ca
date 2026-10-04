@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ChevronDown, ChevronRight, Loader2, Mic, MicOff, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { PLAN_START, PLAN_WEEKS, type Roadmap, type RoadmapEpic, type RoadmapUseCase, type UseCaseStatus, type UseCasePriority } from "@/types/roadmap"
+import { PLAN_START, PLAN_WEEKS, type Roadmap, type RoadmapEpic, type RoadmapUseCase, type UseCaseStatus, type UseCasePriority, type UseCaseSize } from "@/types/roadmap"
 
 const STATUSES: UseCaseStatus[] = ["backlog", "in_progress", "done"]
 const PRIORITIES: UseCasePriority[] = ["P0", "P1", "P2", "P3"]
@@ -22,6 +22,21 @@ const STATUS_CLASS: Record<UseCaseStatus, string> = {
   done: "bg-emerald-600 text-white",
 }
 const UNSORTED = "__unsorted__"
+
+// Cost estimate (roadmap_usecases_bd08f3d4): a rough t-shirt size, not a real per-item token
+// lookup - there's no historical per-use-case token ledger to derive one from (RTK's own savings
+// data is tracked per command type, not per roadmap item). SIZE_DAYS is the midpoint of each
+// size's day-range; DAY_RATE_USD is a planning assumption, not a verified Claude pricing figure -
+// both are visible in the UI (never hidden) so the number is legible as "rough estimate," not fact.
+const SIZES: UseCaseSize[] = ["S", "M", "L"]
+const SIZE_LABEL: Record<UseCaseSize, string> = { S: "S · half day", M: "M · 1-2 days", L: "L · 3-5 days" }
+const SIZE_DAYS: Record<UseCaseSize, number> = { S: 0.5, M: 1.5, L: 4 }
+const DAY_RATE_USD = 50
+
+function estimatedCost(size: UseCaseSize | null): string | null {
+  if (!size) return null
+  return `~$${Math.round(SIZE_DAYS[size] * DAY_RATE_USD)}`
+}
 
 type View = "roadmap" | "epics" | "board"
 
@@ -142,13 +157,33 @@ function PrioritySelect({ usecase, onChange, busy }: { usecase: RoadmapUseCase; 
   )
 }
 
-function UseCaseRow({ usecase, onChange, onPriorityChange, busy }: { usecase: RoadmapUseCase; onChange: (id: string, status: UseCaseStatus) => void; onPriorityChange: (id: string, priority: UseCasePriority) => void; busy: boolean }) {
+// Same compact-native-<select> reasoning as PrioritySelect above.
+function SizeSelect({ usecase, onChange, busy }: { usecase: RoadmapUseCase; onChange: (id: string, size: UseCaseSize | null) => void; busy: boolean }) {
+  return (
+    <select
+      value={usecase.size_estimate ?? ""}
+      disabled={busy}
+      onChange={(e) => onChange(usecase.id, (e.target.value || null) as UseCaseSize | null)}
+      className="h-6 rounded-full border bg-card px-2 text-xs font-semibold text-foreground disabled:opacity-60"
+      aria-label="Size estimate"
+      title={usecase.size_estimate ? SIZE_LABEL[usecase.size_estimate] : "Rough t-shirt size, for the cost-estimate column - not a precise per-item lookup."}
+    >
+      <option value="">Size?</option>
+      {SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+    </select>
+  )
+}
+
+function UseCaseRow({ usecase, onChange, onPriorityChange, onSizeChange, busy }: { usecase: RoadmapUseCase; onChange: (id: string, status: UseCaseStatus) => void; onPriorityChange: (id: string, priority: UseCasePriority) => void; onSizeChange: (id: string, size: UseCaseSize | null) => void; busy: boolean }) {
+  const cost = estimatedCost(usecase.size_estimate)
   return (
     <li className="grid gap-2 rounded-md bg-muted/50 px-3 py-2 sm:grid-cols-[1fr_auto] sm:items-center">
       <div>
         <p className="text-sm">{usecase.title}</p>
         <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <PrioritySelect usecase={usecase} onChange={onPriorityChange} busy={busy} />
+          <SizeSelect usecase={usecase} onChange={onSizeChange} busy={busy} />
+          {cost && <span title="Rough planning estimate, not a real per-item cost lookup">{cost}</span>}
           {usecase.source === "admin" && <span> · added from the admin</span>}
           {usecase.note && <span> · {usecase.note}</span>}
         </p>
@@ -366,6 +401,26 @@ export default function TrackerPage() {
     }
   }
 
+  // Cost estimate (roadmap_usecases_bd08f3d4). Same optimistic-update/rollback shape as
+  // changePriority above, but the rollback check is `previous !== undefined` rather than a
+  // truthy check - size_estimate's valid "cleared" state is `null`, which a truthy check would
+  // treat as "nothing to roll back to" and silently leave the failed optimistic value stuck.
+  async function changeSize(id: string, size: UseCaseSize | null) {
+    if (!roadmap) return
+    const previous = roadmap.usecases.find((u) => u.id === id)?.size_estimate
+    setBusy((b) => ({ ...b, [id]: true }))
+    setRoadmap({ ...roadmap, usecases: roadmap.usecases.map((u) => (u.id === id ? { ...u, size_estimate: size } : u)) })
+    try {
+      const res = await fetch(`/api/admin/roadmap/${id}`, { method: "PATCH", headers: authHeaders(), body: JSON.stringify({ size_estimate: size }) })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
+    } catch (e) {
+      setRoadmap((r) => r && { ...r, usecases: r.usecases.map((u) => (u.id === id && previous !== undefined ? { ...u, size_estimate: previous } : u)) })
+      alert(e instanceof Error ? e.message : "Could not save the change")
+    } finally {
+      setBusy((b) => ({ ...b, [id]: false }))
+    }
+  }
+
   if (error) return <div className="p-6 text-destructive">{error}</div>
   if (!roadmap) return <div className="flex items-center justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
 
@@ -407,7 +462,7 @@ export default function TrackerPage() {
                 <CardContent className="p-4">
                   <h2 className="font-semibold">Waiting for triage</h2>
                   <p className="mb-3 text-sm text-muted-foreground">Ideas added from the admin that Claude has not filed under an epic yet.</p>
-                  <ul className="space-y-2">{unsorted.map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} busy={!!busy[u.id]} />)}</ul>
+                  <ul className="space-y-2">{unsorted.map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} onSizeChange={changeSize} busy={!!busy[u.id]} />)}</ul>
                 </CardContent>
               </Card>
             )}
@@ -440,14 +495,14 @@ export default function TrackerPage() {
                               <h3 className="font-medium">{f.title}</h3>
                             </div>
                             {f.note && <p className="ml-5 text-xs text-muted-foreground">{f.note}</p>}
-                            <ul className="mt-2 space-y-1.5">{list.map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} busy={!!busy[u.id]} />)}</ul>
+                            <ul className="mt-2 space-y-1.5">{list.map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} onSizeChange={changeSize} busy={!!busy[u.id]} />)}</ul>
                           </div>
                         )
                       })}
                       {all.filter((u) => !u.feature_id).length > 0 && (
                         <div className="border-t py-3">
                           <h3 className="font-medium">Not assigned to a feature</h3>
-                          <ul className="mt-2 space-y-1.5">{all.filter((u) => !u.feature_id).map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} busy={!!busy[u.id]} />)}</ul>
+                          <ul className="mt-2 space-y-1.5">{all.filter((u) => !u.feature_id).map((u) => <UseCaseRow key={u.id} usecase={u} onChange={changeStatus} onPriorityChange={changePriority} onSizeChange={changeSize} busy={!!busy[u.id]} />)}</ul>
                         </div>
                       )}
                     </CardContent>
@@ -473,6 +528,12 @@ export default function TrackerPage() {
                           <div key={u.id} className="space-y-1.5 rounded-md bg-muted/50 p-3">
                             <div className="flex items-center justify-between gap-2"><Badge variant="outline" className="text-[10px]">{e ? `${e.code} · ${e.title}` : "Unsorted"}</Badge><PrioritySelect usecase={u} onChange={changePriority} busy={!!busy[u.id]} /></div>
                             <p className="text-sm">{u.title}</p>
+                            <div className="flex items-center gap-1.5">
+                              <SizeSelect usecase={u} onChange={changeSize} busy={!!busy[u.id]} />
+                              {estimatedCost(u.size_estimate) && (
+                                <span className="text-xs text-muted-foreground" title="Rough planning estimate, not a real per-item cost lookup">{estimatedCost(u.size_estimate)}</span>
+                              )}
+                            </div>
                             <StatusChips usecase={u} onChange={changeStatus} busy={!!busy[u.id]} />
                           </div>
                         )

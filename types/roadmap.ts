@@ -5,6 +5,9 @@ export const PLAN_WEEKS = 16
 export type UseCaseStatus = 'backlog' | 'in_progress' | 'done'
 // P0 = immediate (added 2026-09-28 for backlog grooming); P1 = high ... P3 = keep pushing out / maybe never.
 export type UseCasePriority = 'P0' | 'P1' | 'P2' | 'P3'
+// Rough t-shirt size for the Project Tracker's cost-estimate column (migration 0020) - not a
+// token-usage lookup, there's no real per-use-case historical ledger to derive one from.
+export type UseCaseSize = 'S' | 'M' | 'L'
 
 export interface RoadmapEpic {
   id: string
@@ -32,6 +35,7 @@ export interface RoadmapUseCase {
   note: string | null
   priority: UseCasePriority
   status: UseCaseStatus
+  size_estimate: UseCaseSize | null
   source: string
   sort_order: number
   created_at: string
