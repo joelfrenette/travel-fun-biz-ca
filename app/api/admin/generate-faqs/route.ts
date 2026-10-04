@@ -39,7 +39,13 @@ export async function POST(request: Request) {
       Highlights: str(body.highlights),
       Included: str(body.price_includes),
       'Not included': str(body.not_included),
-      'Group size': body.min_people || body.max_people ? `${body.min_people || '?'}-${body.max_people || '?'} travelers` : '',
+      'Group size': (() => {
+        // `|| ''`/`|| '?'` would treat a real, meaningful 0 (e.g. "no minimum group size") as
+        // absent - group size is the one field here that can legitimately be zero.
+        const hasMin = body.min_people !== '' && body.min_people != null
+        const hasMax = body.max_people !== '' && body.max_people != null
+        return hasMin || hasMax ? `${hasMin ? body.min_people : '?'}-${hasMax ? body.max_people : '?'} travelers` : ''
+      })(),
     }
     const details = contextBlock(ctx)
     if (!body.name && !body.destination) return NextResponse.json({ error: 'Fill in at least the package name or destination first, so the FAQ has something real to answer about.' }, { status: 400 })
@@ -69,7 +75,15 @@ export async function POST(request: Request) {
     })
     if (safeFaqs.length === 0) return NextResponse.json({ error: 'The AI draft mentioned specific numbers not in the package details, so every answer was discarded. Add that detail to the form first if it is real, then try again.' }, { status: 422 })
 
-    return NextResponse.json({ faqs: safeFaqs, model: r.model })
+    // Disclose a partial discard rather than silently returning fewer FAQs than asked for -
+    // generate-field/route.ts fails loud on this same grounding check; a per-item filter needs the
+    // same disclosure, or an admin has no way to know some answers were dropped for inventing a number.
+    const discarded = faqs.length - safeFaqs.length
+    return NextResponse.json({
+      faqs: safeFaqs,
+      model: r.model,
+      ...(discarded > 0 ? { notice: `${discarded} of ${faqs.length} AI-drafted answers mentioned a number not in the package details and were discarded.` } : {}),
+    })
   } catch (err) {
     console.error('[generate-faqs] error', err)
     return NextResponse.json({ error: 'Generation failed' }, { status: 500 })

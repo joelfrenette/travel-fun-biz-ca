@@ -105,7 +105,7 @@ function DestinationColumn({
       <div className="space-y-4">
         {side.packages.map((pkg: DbPackage) => {
           const dates = formatDateRange(pkg.available_from, pkg.available_to)
-          const priceDisplay = pkg.price_value ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
+          const priceDisplay = pkg.price_value != null ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
           return (
             <Link key={pkg.id} href={`/packages/${pkg.slug}`} className="group flex flex-col gap-3 rounded-xl border bg-card p-5 transition-shadow hover:shadow-lg">
               {/* eslint-disable-next-line @next/next/no-img-element */}

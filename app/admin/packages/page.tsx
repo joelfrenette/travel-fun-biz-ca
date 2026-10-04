@@ -676,13 +676,14 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
           highlights: formData.highlights || '',
           price_includes: formData.price_includes || '',
           not_included: formData.not_included || '',
-          min_people: formData.min_people || '',
-          max_people: formData.max_people || '',
+          min_people: formData.min_people ?? '',
+          max_people: formData.max_people ?? '',
         }),
       })
       const data = await res.json()
       if (res.ok && data.faqs) {
         handleChange('faqs', data.faqs)
+        if (data.notice) alert(data.notice)
       } else {
         alert(data.error || 'FAQ generation failed')
       }

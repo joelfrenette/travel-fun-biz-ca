@@ -20,7 +20,11 @@ async function getDatedPublishedPackages(): Promise<DbPackage[]> {
     console.error('Failed to fetch dated packages for best-time-to-visit:', error.message)
     return []
   }
-  return data ?? []
+  // "Best time to visit" promises real, bookable dates - a trip whose available_to has already
+  // passed is a past departure, not something a visitor can book. Those belong on the destination
+  // page's recap section (see app/destinations/[slug]/page.tsx's own isPastTrip), not here.
+  const today = new Date().toISOString().slice(0, 10)
+  return (data ?? []).filter((row) => !row.available_to || row.available_to >= today)
 }
 
 /** Every destination with at least one published package that has a real date range, for the

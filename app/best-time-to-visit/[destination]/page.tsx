@@ -72,7 +72,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Best Time to Visit</p>
             <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">Best Time to Visit {page.destination}</h1>
             <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">
-              Here are the actual dates we run trips to {page.destination}, straight from our current trip calendar. Book early for peak dates - popular departures fill up.
+              Here are the actual dates we run trips to {page.destination}, straight from our current trip calendar.
             </p>
           </div>
         </div>
@@ -85,7 +85,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {page.packages.map((pkg) => {
                 const dates = formatDateRange(pkg.available_from, pkg.available_to)
-                const priceDisplay = pkg.price_value ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
+                const priceDisplay = pkg.price_value != null ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
                 return (
                   <Link key={pkg.id} href={`/packages/${pkg.slug}`} className="group flex flex-col gap-3 rounded-xl border bg-card p-5 transition-shadow hover:shadow-lg">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
