@@ -54,6 +54,79 @@ The migration-numbering and admin-auth-shim answers above are themselves the two
 project's own architecture required a real adaptation rather than a literal port; both are
 recorded here so a later phase doesn't quietly relitigate them.
 
-**Next:** Phase 1 (`Foundation, dormant` — `cron-auth`, `cron-heartbeat`, `secret-compare`,
-`ai-verify`, `site-url`, `utm`, `safe-markdown`, `abuse-guard`, `app_settings`, `modules/site.ts`)
-has not started. Waiting on Joel to say go.
+**Next (superseded):** the line below originally said Phase 1 hadn't started - that's stale. Per
+`/admin/tracker` epic `e10`, phases 1 through 13 (minus a few still-backlog items) shipped across
+several sessions after this entry was written. This file just wasn't updated along the way; the
+tracker, not this log, has stayed the live "what's actually done" source. See the next entry below
+for the first one logged here since.
+
+## Content pipeline hardening, phase 1 (2026-10-04)
+
+**PRs:** `ff9aba1`, `79d9f43`, `76a3aee` (direct to `main`, this project's standing convention -
+see the "Workflow convention" note elsewhere in this repo's memory/CLAUDE.md).
+
+**What happened:** Joel shared a detailed writeup of Nomad Escape Plan's content pipeline
+(discovery → score → write → QA → image → publish → repurpose into video/carousel/captions →
+distribute → track → learn) and asked for the same patterns here. Ran a 4-agent audit of this
+project's actual current code first (topic discovery/dedup/grounding; cover images; distribution/
+heartbeats/health/duration budgets; video/carousel/analytics/A-B-testing existence) rather than
+assuming anything from the Sept 26 `GAP-REPORT.md` was still accurate - a lot had shipped since.
+
+**Already strong, left alone:** the topic queue (`blog_topic_queue`) decoupling discovery from
+writing; `lib/content-dedupe.ts`'s fuzzy (token-overlap, 0.75 threshold) near-duplicate check, run
+3x across the pipeline; one shared `runAutoblog()` for both the admin button and the cron; discrete
+keywords→idea→body→title composition steps; an explicit no-fabrication instruction backed by a
+post-hoc regex gate on the output; cron heartbeat coverage on all 3 real crons; System Health
+computing its verdict from the same single data source the rest of the dashboard reads, not a
+second disagreeing calculation.
+
+**Built this phase** (deterministic engineering, no new vendor/budget needed):
+- `lib/content-drift.ts` + `/api/admin/blog/drift` + an admin-page trigger: re-checks every
+  published post against CURRENT `travel_packages` data, flags a post whose linked trip is no
+  longer published or whose dates already passed. The single highest-leverage item named in Joel's
+  writeup ("cheap, catches a real recurring error class").
+- `lib/social-captions.ts`: a real per-platform character-limit table + mechanical truncation,
+  wired into `lib/distribution.ts` so the shared caption Upload-Post sends to every network can
+  never silently exceed any of their real limits.
+- `maxDuration` added to 4 routes doing real per-row work with none declared
+  (`keywords/search-data`, `funnel`, the `distribute` and `gsc-snapshot` crons).
+- `lib/funnel.ts`'s `site_visits` scan was unbounded - now an exact Postgres `COUNT` for the stage
+  number, a capped/ordered sample for the channel breakdown (harmless today at 0 rows, a real fix
+  for once the consent-gated tracking route goes live).
+- `lib/blog-topics.ts`'s `travel_packages` prompt-material query had no `.order()` - added one.
+- Autoblog's body prompt (`lib/blog-composer.ts`) now explicitly requires a direct-answer opening
+  sentence and the primary keyword in the first heading - unchanged otherwise (word count, heading
+  count, no-fabrication rule, tone). Not live-tested against a real model call (real cost per call,
+  same discipline as everywhere else in this project) - worth a glance next time autoblog runs.
+
+**Decisions needed from Joel, not built blind, each with a real reason:**
+1. **Video/TTS/auto-caption pipeline** (a Shotstack-equivalent hosted render API) - genuinely
+   missing (confirmed: zero Shotstack/voiceover/b-roll code anywhere). Real vendor + budget
+   decision, same class as decision 7 in Phase 0 above.
+2. **Carousel/slide-deck generation** - missing, and lower priority than video per Nomad's own
+   framing ("depends on distribution existing first") - distribution exists here now but is still
+   dormant (mode = off).
+3. **Genuinely distinct per-platform caption VOICE** (not just the length-fit built this phase) -
+   needs either a new AI call per post or one Upload-Post call per platform instead of one shared
+   call, multiplying its metered upload quota. A real cost/quota tradeoff to decide, not a default.
+4. **Social engagement-analytics sync** (likes/shares/saves/reach back from Upload-Post into the
+   DB) - `uploadPostGetStatus` exists but has no caller; wiring it up means a real live test
+   against Upload-Post's actual account first (per the writeup's own "live-test before trusting
+   docs" rule, and this project's standing "never hit a paid API without go-ahead" discipline) -
+   can't be done from an unattended session without Joel's explicit say-so.
+5. **A/B testing of hooks/cover styles/posting times** - blocked on #4 existing first; no real
+   engagement data to learn from yet.
+6. **Automatic AI-image fallback for autoblog covers** - confirmed real gap: autoblog's cover-image
+   path (`lib/blog-image.ts`) only tries Pexels, with a silent `null` fallback (a published post
+   with no image, generic beach-photo OG fallback). An AI generator already exists
+   (`lib/image-ai-gen.ts`) but is wired exclusively to a manual admin-clicked button on the
+   Packages page, specifically because credit-costing calls are admin-triggered here, never
+   silent. Wiring it into the unattended cron as an automatic fallback would reverse that explicit
+   rule - needs an opt-in toggle (default off) if Joel wants it, not a silent default.
+
+**Deviations from the vanilla spec, and why:** per-platform captions scoped down to mechanical
+length-fitting only, for the reason in decision 3 above - the full ask (distinct per-platform
+voice) isn't a free port, it has a real recurring cost/quota shape that needs a decision.
+
+**Tracked:** logged in `/admin/tracker` under epic `e10`; see that tracker for exact rows/ids
+rather than duplicating them here.
