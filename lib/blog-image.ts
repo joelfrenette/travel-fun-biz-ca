@@ -59,6 +59,12 @@ export async function attachAutoblogCoverImage(
 ): Promise<{ cover_image_url: string; alt_text: string } | null> {
   if (!keyword.trim()) return null
 
+  // 'post' is the manual Pexels-search route's own fallback (app/api/admin/blog/pexels-photo/
+  // route.ts) when the admin searches before a title/slug exists yet - fine for the uploaded
+  // filename (which gets a Date.now() suffix), but NOT a real per-post identity, so skip tagging
+  // under it rather than letting unrelated untitled posts collide on one shared variant row.
+  const hasRealSlug = !!slugForFilename.trim() && slugForFilename !== 'post'
+
   if (isPexelsConfigured()) {
     const photo = await findDestinationPhoto(keyword)
     if (photo) {
@@ -70,7 +76,7 @@ export async function attachAutoblogCoverImage(
           if (buf.byteLength > 0 && buf.byteLength <= MAX_BYTES) {
             const url = await uploadCoverImage(admin, buf, slugForFilename, 'image/jpeg')
             if (url) {
-              await tagVariant(admin, slugForFilename, { coverSource: 'pexels' })
+              if (hasRealSlug) await tagVariant(admin, slugForFilename, { coverSource: 'pexels' })
               return { cover_image_url: url, alt_text: photo.alt || keyword }
             }
           }
@@ -87,7 +93,7 @@ export async function attachAutoblogCoverImage(
       if (generated) {
         const url = await uploadCoverImage(admin, generated.buffer, slugForFilename, 'image/png')
         if (url) {
-          await tagVariant(admin, slugForFilename, { coverSource: 'ai' })
+          if (hasRealSlug) await tagVariant(admin, slugForFilename, { coverSource: 'ai' })
           return { cover_image_url: url, alt_text: `Illustration: ${keyword}` }
         }
       }
