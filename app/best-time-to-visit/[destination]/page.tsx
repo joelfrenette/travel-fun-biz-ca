@@ -7,9 +7,9 @@ import { Footer } from "@/components/footer"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
-import { formatPrice } from "@/lib/currency"
+import { displayPackagePrice } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
-import { jsonLdHtml } from "@/lib/jsonld"
+import { jsonLdHtml, buildCollectionPageJsonLd } from "@/lib/jsonld"
 
 export const revalidate = 300
 
@@ -43,24 +43,13 @@ export default async function BestTimeToVisitPage({ params }: Props) {
   // Every fact here comes straight from the matched travel_packages rows (name, dates, duration,
   // price, highlights) - never invented weather, temperature or crowd-level content. See
   // lib/best-time-to-visit.ts for the grounding rule this page depends on.
-  const jsonLd = [
-    {
-      "@context": "https://schema.org",
-      "@type": "CollectionPage",
-      name: `Best Time to Visit ${page.destination} | ${SITE_NAME}`,
-      description: `The real dates our trips to ${page.destination} run.`,
-      url: pageUrl,
-      mainEntity: {
-        "@type": "ItemList",
-        itemListElement: page.packages.map((pkg, i) => ({
-          "@type": "ListItem",
-          position: i + 1,
-          url: absoluteUrl(`/packages/${pkg.slug}`),
-          name: pkg.name,
-        })),
-      },
-    },
-  ]
+  const jsonLd = buildCollectionPageJsonLd(
+    `Best Time to Visit ${page.destination} | ${SITE_NAME}`,
+    `The real dates our trips to ${page.destination} run.`,
+    pageUrl,
+    page.packages,
+    absoluteUrl,
+  )
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -85,7 +74,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {page.packages.map((pkg) => {
                 const dates = formatDateRange(pkg.available_from, pkg.available_to)
-                const priceDisplay = pkg.price_value != null ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
+                const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate)
                 return (
                   <Link key={pkg.id} href={`/packages/${pkg.slug}`} className="group flex flex-col gap-3 rounded-xl border bg-card p-5 transition-shadow hover:shadow-lg">
                     {/* eslint-disable-next-line @next/next/no-img-element */}

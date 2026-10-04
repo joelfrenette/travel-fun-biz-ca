@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { getPackages, getPublishedPackageBySlug, getNextUpcomingPackageInCategory, type DbPackage } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
-import { formatPrice } from "@/lib/currency"
+import { displayPackagePrice } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates } from "@/lib/site"
 import { jsonLdHtml } from "@/lib/jsonld"
@@ -70,7 +70,7 @@ export default async function PackagePage({ params }: Props) {
   ])
 
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
-  const priceDisplay = pkg.price_value ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
+  const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate)
   const highlights = pkg.highlights?.length ? pkg.highlights : []
   const included = splitLines(pkg.price_includes)
   const notIncluded = splitLines(pkg.not_included)

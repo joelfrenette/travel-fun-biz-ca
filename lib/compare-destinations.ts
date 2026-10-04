@@ -1,5 +1,4 @@
-import { supabase } from '@/integrations/supabase/client'
-import { generateSlug } from '@/lib/utils'
+import { getAllPublishedPackages, groupPackagesByDestination, type DestinationGroup } from '@/lib/package-grouping'
 import type { DbPackage } from '@/lib/packages'
 
 // Programmatic SEO: destination-vs-destination comparison pages, second slice of the
@@ -9,33 +8,11 @@ import type { DbPackage } from '@/lib/packages'
 // destinations (duration, price, price_includes, highlights, dates, category, tags). Never an
 // invented climate/safety/"which is better" comparison. A pairing with no real comparable data
 // on one side (zero published packages) never gets a page.
-async function getAllPublishedPackages(): Promise<DbPackage[]> {
-  const { data, error } = await supabase.from('travel_packages').select('*').eq('status', 'published')
-  if (error) {
-    console.error('Failed to fetch packages for compare-destinations:', error.message)
-    return []
-  }
-  return data ?? []
-}
 
-interface DestinationGroup {
-  destination: string
-  slug: string
-  packages: DbPackage[]
-}
-
-/** One group per distinct destination string with at least one published package - same
- * dedup rule as getDestinationSlugs/getBestTimeToVisitSlugs. */
-function groupByDestination(rows: DbPackage[]): DestinationGroup[] {
-  const bySlug = new Map<string, DestinationGroup>()
-  for (const row of rows) {
-    const slug = generateSlug(row.destination)
-    if (!slug) continue
-    const existing = bySlug.get(slug)
-    if (existing) existing.packages.push(row)
-    else bySlug.set(slug, { destination: row.destination, slug, packages: [row] })
-  }
-  return Array.from(bySlug.values())
+/** One group per distinct destination string with at least one published package - shared with
+ * lib/destinations.ts and lib/best-time-to-visit.ts, see lib/package-grouping.ts. */
+function groupByDestination(rows: Parameters<typeof groupPackagesByDestination>[0]): DestinationGroup[] {
+  return Array.from(groupPackagesByDestination(rows).values())
 }
 
 /**

@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client'
-import { generateSlug } from '@/lib/utils'
+import { groupPackagesByDestination } from '@/lib/package-grouping'
 import type { DbPackage } from '@/lib/packages'
 
 // Programmatic SEO: "best time to visit X" pages, grounded ONLY in real travel_packages rows -
@@ -31,12 +31,7 @@ async function getDatedPublishedPackages(): Promise<DbPackage[]> {
  * sitemap. One slug per distinct destination string, same rule as getDestinationSlugs. */
 export async function getBestTimeToVisitSlugs(): Promise<{ destination: string; slug: string }[]> {
   const rows = await getDatedPublishedPackages()
-  const bySlug = new Map<string, string>()
-  for (const row of rows) {
-    const slug = generateSlug(row.destination)
-    if (slug && !bySlug.has(slug)) bySlug.set(slug, row.destination)
-  }
-  return Array.from(bySlug, ([slug, destination]) => ({ slug, destination }))
+  return Array.from(groupPackagesByDestination(rows).values(), ({ slug, destination }) => ({ slug, destination }))
 }
 
 export interface BestTimeToVisitPage {
@@ -47,11 +42,11 @@ export interface BestTimeToVisitPage {
 
 export async function getBestTimeToVisitPage(slug: string): Promise<BestTimeToVisitPage | null> {
   const rows = await getDatedPublishedPackages()
-  const matches = rows.filter((row) => generateSlug(row.destination) === slug)
-  if (matches.length === 0) return null
+  const group = groupPackagesByDestination(rows).get(slug)
+  if (!group) return null
 
   return {
-    destination: matches[0].destination,
-    packages: matches,
+    destination: group.destination,
+    packages: group.packages,
   }
 }

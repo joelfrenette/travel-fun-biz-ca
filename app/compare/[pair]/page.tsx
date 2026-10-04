@@ -7,9 +7,9 @@ import { Footer } from "@/components/footer"
 import { getComparePage, type ComparePageSide } from "@/lib/compare-destinations"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
-import { formatPrice, type Currency } from "@/lib/currency"
+import { displayPackagePrice, type Currency } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
-import { jsonLdHtml } from "@/lib/jsonld"
+import { jsonLdHtml, buildCollectionPageJsonLd } from "@/lib/jsonld"
 import type { DbPackage } from "@/lib/packages"
 
 export const revalidate = 300
@@ -44,24 +44,13 @@ export default async function ComparePage({ params }: Props) {
   // Every fact here comes straight from the two destinations' matched travel_packages rows
   // (name, duration, price, highlights, dates) - never an invented climate, safety or "which is
   // better" claim. See lib/compare-destinations.ts for the grounding rule this page depends on.
-  const jsonLd = [
-    {
-      "@context": "https://schema.org",
-      "@type": "CollectionPage",
-      name: `${page.a.destination} vs ${page.b.destination} Trips | ${SITE_NAME}`,
-      description: `Real trip details for ${page.a.destination} and ${page.b.destination}, side by side.`,
-      url: pageUrl,
-      mainEntity: {
-        "@type": "ItemList",
-        itemListElement: [...page.a.packages, ...page.b.packages].map((pkg, i) => ({
-          "@type": "ListItem",
-          position: i + 1,
-          url: absoluteUrl(`/packages/${pkg.slug}`),
-          name: pkg.name,
-        })),
-      },
-    },
-  ]
+  const jsonLd = buildCollectionPageJsonLd(
+    `${page.a.destination} vs ${page.b.destination} Trips | ${SITE_NAME}`,
+    `Real trip details for ${page.a.destination} and ${page.b.destination}, side by side.`,
+    pageUrl,
+    [...page.a.packages, ...page.b.packages],
+    absoluteUrl,
+  )
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -105,7 +94,7 @@ function DestinationColumn({
       <div className="space-y-4">
         {side.packages.map((pkg: DbPackage) => {
           const dates = formatDateRange(pkg.available_from, pkg.available_to)
-          const priceDisplay = pkg.price_value != null ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
+          const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate)
           return (
             <Link key={pkg.id} href={`/packages/${pkg.slug}`} className="group flex flex-col gap-3 rounded-xl border bg-card p-5 transition-shadow hover:shadow-lg">
               {/* eslint-disable-next-line @next/next/no-img-element */}

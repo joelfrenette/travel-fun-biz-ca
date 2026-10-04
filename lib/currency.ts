@@ -34,3 +34,11 @@ export function getDefaultRateFor(currency: Currency): number {
   if (currency === 'usd') return 1
   return DEFAULT_RATES[currency] ?? 1
 }
+
+/** The price shown on a package card: convert and format the real numeric price_value when one
+ * exists (including a legitimate $0), otherwise fall back to the free-text price_display string
+ * as-is. `!= null` rather than truthy, so a real 0 isn't mistaken for "no price set" - shared by
+ * every package card/listing so this fallback rule can't drift between pages. */
+export function displayPackagePrice(pkg: { price_value: number | null; price_display: string }, currency: Currency, usdToTargetRate: number): string {
+  return pkg.price_value != null ? formatPrice(pkg.price_value, currency, usdToTargetRate) : pkg.price_display
+}
