@@ -360,6 +360,24 @@ export async function syncPendingDistribution(admin: SupabaseClient): Promise<st
       const statuses = await Promise.all(
         ids.map((id) => (row.provider_request_id?.split(',').includes(id) ? uploadPostGetStatus({ requestId: id }) : uploadPostGetStatus({ jobId: id }))),
       )
+      // A confirmed 404 ("Upload-Post has no record of this id" - it expired, or the id was never
+      // valid) is a different signal from a transient check failure: this row can never resolve
+      // via this id again, no matter how many more times it's synced. Without this branch it would
+      // fall into the generic !ok path below and sit in "held" forever, re-checked on every sync
+      // but never progressing - exactly the stuck-forever gotcha this function exists to avoid.
+      if (statuses.some((s) => s.status === 'not_found')) {
+        await admin
+          .from('post_distribution')
+          .update({
+            stage: 'failed',
+            last_error: 'Upload-Post no longer has a record of this request (it may have expired) - it cannot be auto-resolved; check the Distribution admin page.',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('content_type', 'post')
+          .eq('slug', row.slug)
+        resolved++
+        continue
+      }
       if (statuses.some((s) => !s.ok)) {
         checkFailed++
         continue
