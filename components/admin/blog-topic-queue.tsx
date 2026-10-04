@@ -35,6 +35,8 @@ export default function BlogTopicQueue() {
   const [topics, setTopics] = useState<BlogTopicQueueRow[]>([])
   const [mode, setMode] = useState<AutoblogMode>("off")
   const [postsPerWeek, setPostsPerWeek] = useState(3)
+  const [aiImageFallback, setAiImageFallback] = useState(false)
+  const [aiImageConfigured, setAiImageConfigured] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -49,6 +51,8 @@ export default function BlogTopicQueue() {
         setTopics(data.topics || [])
         setMode(data.mode || "off")
         setPostsPerWeek(typeof data.postsPerWeek === "number" ? data.postsPerWeek : 3)
+        setAiImageFallback(!!data.aiImageFallback)
+        setAiImageConfigured(!!data.aiImageConfigured)
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -90,6 +94,14 @@ export default function BlogTopicQueue() {
     const res = await fetch("/api/admin/blog/autoblog-mode", { method: "POST", headers: authHeaders(), body: JSON.stringify({ mode: next }) })
     if (res.ok) setMode(next)
     else setError((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
+  }
+
+  async function changeAiImageFallback(next: boolean) {
+    setError("")
+    const res = await fetch("/api/admin/blog/autoblog-image-fallback", { method: "POST", headers: authHeaders(), body: JSON.stringify({ on: next }) })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) setAiImageFallback(next)
+    else setError(data.error || `HTTP ${res.status}`)
   }
 
   async function changePostsPerWeek(next: number) {
@@ -154,6 +166,28 @@ export default function BlogTopicQueue() {
           </Button>
         </CardContent>
         {runNote && <CardContent className="p-4 pt-0 text-sm text-muted-foreground">{runNote}</CardContent>}
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-3 p-4">
+          <div className="min-w-[220px] flex-1">
+            <p className="text-sm font-medium">AI cover image when Pexels has no match</p>
+            <p className="text-xs text-muted-foreground">
+              {aiImageConfigured
+                ? "Off ships the post with no image rather than a stock photo that doesn't fit. On spends real money per generated image (OpenAI, lib/image-ai-gen.ts) - a deliberate choice, not a default."
+                : "OPENAI_API_KEY is not set in Vercel - add it there before this can be turned on."}
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={aiImageFallback}
+              disabled={!aiImageConfigured}
+              onChange={(e) => changeAiImageFallback(e.target.checked)}
+            />
+            Generate an AI image when Pexels fails
+          </label>
+        </CardContent>
       </Card>
 
       <div className="flex items-center justify-between">

@@ -4,13 +4,20 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { listTopicQueue, suggestTopics, queueIdeas, setTopicStatus } from '@/lib/blog-topics'
 import { getAutoblogMode } from '@/lib/autoblog-run'
 import { getAutoblogPostsPerWeek } from '@/lib/autoblog-cadence'
+import { getAutoblogAiImageFallback } from '@/lib/blog-image'
+import { isImageAiConfigured } from '@/lib/image-ai-gen'
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [topics, mode, postsPerWeek] = await Promise.all([listTopicQueue(admin), getAutoblogMode(), getAutoblogPostsPerWeek(admin)])
-    return NextResponse.json({ topics, mode, postsPerWeek })
+    const [topics, mode, postsPerWeek, aiImageFallback] = await Promise.all([
+      listTopicQueue(admin),
+      getAutoblogMode(),
+      getAutoblogPostsPerWeek(admin),
+      getAutoblogAiImageFallback(admin),
+    ])
+    return NextResponse.json({ topics, mode, postsPerWeek, aiImageFallback, aiImageConfigured: isImageAiConfigured() })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
