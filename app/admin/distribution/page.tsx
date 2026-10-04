@@ -116,6 +116,21 @@ export default function DistributionPage() {
     }
   }
 
+  async function syncPending() {
+    setSaving(true)
+    try {
+      const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ action: "sync" }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Could not sync")
+      toast({ title: "Sync complete", description: data.note })
+      load()
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Could not sync", variant: "destructive" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function setStage(slug: string, action: "approve" | "hold") {
     try {
       const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ action, slug }) })
@@ -181,6 +196,13 @@ export default function DistributionPage() {
             </div>
           </CardContent>
         </Card>
+
+        {queue.some((r) => r.stage === "held") && (
+          <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3 text-sm">
+            <span className="text-muted-foreground">Some held posts may just be waiting on Upload-Post to confirm they actually posted.</span>
+            <Button size="sm" variant="outline" onClick={syncPending} disabled={saving}>Sync pending</Button>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>

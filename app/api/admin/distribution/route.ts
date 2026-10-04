@@ -12,6 +12,7 @@ import {
   setDistributionStage,
   getTailoredCaptionsEnabled,
   setTailoredCaptionsEnabled,
+  syncPendingDistribution,
   type DistributionMode,
 } from '@/lib/distribution'
 import { uploadPostConfigured } from '@/lib/upload-post'
@@ -76,6 +77,11 @@ export async function POST(request: Request) {
       const { error } = await setTailoredCaptionsEnabled(admin, body.tailoredCaptions)
       if (error) throw new Error(error)
       return NextResponse.json({ tailoredCaptions: body.tailoredCaptions })
+    }
+
+    if (body.action === 'sync') {
+      const note = await syncPendingDistribution(admin)
+      return NextResponse.json({ note })
     }
 
     if (body.action === 'approve' || body.action === 'hold') {

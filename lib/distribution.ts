@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
-import { uploadPostConfigured, uploadPostSendPhotos, uploadPostSendText } from '@/lib/upload-post'
+import { uploadPostConfigured, uploadPostSendPhotos, uploadPostSendText, uploadPostGetStatus } from '@/lib/upload-post'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL } from '@/lib/site'
 import { fitCaption, tightestLimit, generatePlatformCaptions, type PlatformCaptions } from '@/lib/social-captions'
@@ -24,6 +24,8 @@ export interface DistributionRow {
   last_error: string | null
   created_at: string
   updated_at: string
+  provider_request_id: string | null
+  provider_job_id: string | null
 }
 
 /** `app_settings.distribution_mode`: off (default — nothing gets enrolled), prepare (enroll but
@@ -206,6 +208,12 @@ async function sendTailored(
   let confirmed = true
   let retryable = true
   const errors: string[] = []
+  // Collected separately from the single requestId/jobId fields on UploadPostSendResult (which
+  // only fit one sub-call) - tailored sending can make several calls, each with its own id to
+  // poll later (see syncPendingDistribution below), so every one needs to be kept, not just the
+  // last one seen.
+  const requestIds: string[] = []
+  const jobIds: string[] = []
   for (const { platforms: sentTo, result } of outcomes) {
     Object.assign(results, result.results ?? {})
     if (!result.ok) {
@@ -214,8 +222,18 @@ async function sendTailored(
       if (result.error) errors.push(`${sentTo.join('/')}: ${result.error}`)
     }
     if (result.confirmed === false) confirmed = false
+    if (result.requestId) requestIds.push(result.requestId)
+    if (result.jobId) jobIds.push(result.jobId)
   }
-  return { ok, confirmed, retryable, results, error: errors.length ? errors.join('; ') : undefined }
+  return {
+    ok,
+    confirmed,
+    retryable,
+    results,
+    error: errors.length ? errors.join('; ') : undefined,
+    requestId: requestIds.length ? requestIds.join(',') : undefined,
+    jobId: jobIds.length ? jobIds.join(',') : undefined,
+  }
 }
 
 async function runDistributionLocked(admin: SupabaseClient, user: string, platforms: string[], tailoredCaptionsOn: boolean): Promise<string> {
@@ -255,15 +273,17 @@ async function runDistributionLocked(admin: SupabaseClient, user: string, platfo
 
       if (result.ok && result.confirmed === false) {
         // Upload-Post accepted the request (202 / job_id / scheduled) but hasn't confirmed it
-        // posted yet. There's no poller wired up to resolve this later (uploadPostGetStatus has
-        // no caller), so don't mark it "done" - route it to "held" so an admin sees it in the
-        // queue and can verify manually instead of it silently vanishing as if confirmed.
+        // posted yet. The request/job id is saved so syncPendingDistribution (below) can resolve
+        // this later via uploadPostGetStatus - held in the meantime so an admin also sees it in
+        // the queue and can verify manually instead of it silently vanishing as if confirmed.
         needsReview++
         await admin
           .from('post_distribution')
           .update({
             stage: 'held',
-            last_error: 'Upload-Post accepted this but has not confirmed it posted yet - verify manually, then re-queue or leave held.',
+            last_error: 'Upload-Post accepted this but has not confirmed it posted yet - verify manually, or wait for the next sync.',
+            provider_request_id: result.requestId ?? null,
+            provider_job_id: result.jobId ?? null,
             updated_at: new Date().toISOString(),
           })
           .eq('content_type', 'post')
@@ -305,4 +325,68 @@ async function runDistributionLocked(admin: SupabaseClient, user: string, platfo
     }
   }
   return `${posted} posted, ${failed} failed, ${needsReview} needs review, ${rows.length} attempted`
+}
+
+/** Resolves "held, needs review" rows (an async send Upload-Post accepted but hadn't confirmed
+ * yet) by polling the real request/job id saved when that happened - the "stuck-forever" gotcha
+ * this is specifically here to avoid: an "already resolved, don't re-check" guard that only looks
+ * at whether a result column is non-null would go permanently blind the moment ANY writer (this
+ * function, a future one, a manual edit) puts something non-null there first. This checks
+ * `provider_request_id`/`provider_job_id` being set (Upload-Post's own confirmed id fields) as the
+ * "is this actually resolvable" signal instead, not a generic "has this row been touched" flag.
+ * Manual-only for now (no cron wired in) - admin-triggered via the Distribution page, same
+ * "credit-costing/external calls are admin-triggered" discipline as the rest of this phase, even
+ * though checking status itself is free; the posts it's resolving are not. */
+export async function syncPendingDistribution(admin: SupabaseClient): Promise<string> {
+  const { data: rows, error } = await admin
+    .from('post_distribution')
+    .select('*')
+    .eq('content_type', 'post')
+    .eq('stage', 'held')
+    .or('provider_request_id.not.is.null,provider_job_id.not.is.null')
+    .limit(20)
+  if (error) throw new Error(`post_distribution: ${error.message}`)
+  if (!rows || rows.length === 0) return 'nothing pending to sync'
+
+  let resolved = 0
+  let stillPending = 0
+  let checkFailed = 0
+  for (const row of rows as DistributionRow[]) {
+    const ids = [...(row.provider_request_id?.split(',') ?? []), ...(row.provider_job_id?.split(',') ?? [])].filter(Boolean)
+    if (ids.length === 0) continue
+    try {
+      // Every id this row's send touched has to confirm success for the row to resolve "done" -
+      // same all-or-nothing rule runDistributionLocked itself uses.
+      const statuses = await Promise.all(
+        ids.map((id) => (row.provider_request_id?.split(',').includes(id) ? uploadPostGetStatus({ requestId: id }) : uploadPostGetStatus({ jobId: id }))),
+      )
+      if (statuses.some((s) => !s.ok)) {
+        checkFailed++
+        continue
+      }
+      // Prefer completed/total (confirmed numeric fields, lib/upload-post.ts) over the `status`
+      // string, whose real vocabulary isn't confirmed by a live call the way completed/total is -
+      // not done until every network Upload-Post is tracking for this id has a result.
+      const stillWaiting = statuses.some((s) => typeof s.completed === 'number' && typeof s.total === 'number' && s.completed < s.total)
+      if (stillWaiting || statuses.every((s) => !s.results || Object.keys(s.results).length === 0)) {
+        stillPending++
+        continue
+      }
+      const allResults = statuses.flatMap((s) => Object.values(s.results ?? {}))
+      const allOk = allResults.length > 0 && allResults.every((r) => r.ok)
+      await admin
+        .from('post_distribution')
+        .update({
+          stage: allOk ? 'done' : 'failed',
+          last_error: allOk ? null : 'Upload-Post confirmed this did not post to every network - check the Distribution admin page.',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('content_type', 'post')
+        .eq('slug', row.slug)
+      resolved++
+    } catch {
+      checkFailed++
+    }
+  }
+  return `${resolved} resolved, ${stillPending} still pending, ${checkFailed} could not be checked, ${rows.length} rows had a saved id`
 }
