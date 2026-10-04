@@ -10,21 +10,33 @@ import {
   setDistributionPlatforms,
   listDistributionQueue,
   setDistributionStage,
+  getTailoredCaptionsEnabled,
+  setTailoredCaptionsEnabled,
   type DistributionMode,
 } from '@/lib/distribution'
 import { uploadPostConfigured } from '@/lib/upload-post'
+import { isAiConfigured } from '@/lib/ai-verify'
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [mode, accounts, platforms, queue] = await Promise.all([
+    const [mode, accounts, platforms, queue, tailoredCaptions] = await Promise.all([
       getDistributionMode(admin),
       getDistributionAccounts(admin),
       getDistributionPlatforms(admin),
       listDistributionQueue(admin),
+      getTailoredCaptionsEnabled(admin),
     ])
-    return NextResponse.json({ mode, accounts, platforms, queue, providerConfigured: uploadPostConfigured() })
+    return NextResponse.json({
+      mode,
+      accounts,
+      platforms,
+      queue,
+      providerConfigured: uploadPostConfigured(),
+      tailoredCaptions,
+      aiConfigured: isAiConfigured(),
+    })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
@@ -55,6 +67,15 @@ export async function POST(request: Request) {
       const { error } = await setDistributionPlatforms(admin, body.platforms)
       if (error) throw new Error(error)
       return NextResponse.json({ platforms: await getDistributionPlatforms(admin) })
+    }
+
+    if (typeof body.tailoredCaptions === 'boolean') {
+      if (body.tailoredCaptions && !isAiConfigured()) {
+        return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not set - add it in Vercel before turning this on.' }, { status: 400 })
+      }
+      const { error } = await setTailoredCaptionsEnabled(admin, body.tailoredCaptions)
+      if (error) throw new Error(error)
+      return NextResponse.json({ tailoredCaptions: body.tailoredCaptions })
     }
 
     if (body.action === 'approve' || body.action === 'hold') {

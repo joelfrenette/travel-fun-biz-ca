@@ -4,7 +4,8 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { uploadPostConfigured, uploadPostSendPhotos, uploadPostSendText } from '@/lib/upload-post'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL } from '@/lib/site'
-import { fitCaption, tightestLimit } from '@/lib/social-captions'
+import { fitCaption, tightestLimit, generatePlatformCaptions, type PlatformCaptions } from '@/lib/social-captions'
+import type { UploadPostSendResult } from '@/lib/upload-post'
 
 // Factory Phase 12: the dormant distribution ledger + mode gate. See migration 0011 for why the
 // provider-specific columns (video, per-network post ids, captions) are deliberately not here yet
@@ -61,6 +62,22 @@ export async function setDistributionAccounts(admin: SupabaseClient, accounts: s
 // into distribution_accounts, since a profile and a platform list are different shapes of thing.
 export const DISTRIBUTION_PLATFORMS_KEY = 'distribution_platforms'
 const MAX_ATTEMPTS = 3
+
+// Tailored per-platform captions (lib/social-captions.ts) are a genuinely new, recurring Anthropic
+// call stacked on top of whatever autoblog already costs - not covered by Phase 0's "AI composer
+// is in scope" decision by itself, since that was about writing the post, not posting it. Its own
+// explicit toggle, default off, same "a considered admin decision, never a silent default" rule as
+// the AI image fallback (lib/blog-image.ts). Off means every platform just gets the one shared,
+// mechanically-fitted caption - the real behavior before tailoring existed.
+const TAILORED_CAPTIONS_KEY = 'distribution_tailored_captions'
+
+export async function getTailoredCaptionsEnabled(admin: SupabaseClient): Promise<boolean> {
+  return (await getSetting(admin, TAILORED_CAPTIONS_KEY)) === 'on'
+}
+
+export async function setTailoredCaptionsEnabled(admin: SupabaseClient, on: boolean): Promise<{ error?: string }> {
+  return setSetting(admin, TAILORED_CAPTIONS_KEY, on ? 'on' : 'off')
+}
 
 // Same pattern as autoblog's acquireRunLock/releaseRunLock (lib/autoblog-run.ts): there's no admin
 // "run now" button wired to runDistribution today (only app/api/cron/distribute/route.ts calls
@@ -148,13 +165,60 @@ export async function runDistribution(admin: SupabaseClient): Promise<string> {
 
   if (!(await acquireDistributionLock(admin))) return 'another distribution run is already in progress'
   try {
-    return await runDistributionLocked(admin, user, platforms)
+    const tailoredCaptionsOn = await getTailoredCaptionsEnabled(admin)
+    return await runDistributionLocked(admin, user, platforms, tailoredCaptionsOn)
   } finally {
     await releaseDistributionLock(admin)
   }
 }
 
-async function runDistributionLocked(admin: SupabaseClient, user: string, platforms: string[]): Promise<string> {
+/** Sends to every platform. When `captions` has a genuinely tailored entry for a platform, that
+ * platform gets its own Upload-Post call with its own text (Upload-Post's confirmed API has no
+ * per-platform text field, so distinct voice per network means one call per network, not one
+ * shared call - see lib/social-captions.ts's header comment for the quota tradeoff this implies).
+ * Any platform missing from `captions` (AI unconfigured, or that network's slot came back empty)
+ * falls back to the one shared caption in a single combined call, same as before tailoring existed -
+ * never fewer platforms reached just because tailoring partially failed. */
+async function sendTailored(
+  send: (platforms: string[], text: string) => Promise<UploadPostSendResult>,
+  platforms: string[],
+  captions: PlatformCaptions | null,
+  sharedCaption: string,
+): Promise<UploadPostSendResult> {
+  const tailoredPlatforms = platforms.filter((p) => captions?.[p])
+  const fallbackPlatforms = platforms.filter((p) => !captions?.[p])
+
+  const calls: Promise<{ platforms: string[]; result: UploadPostSendResult }>[] = []
+  for (const p of tailoredPlatforms) {
+    calls.push(send([p], captions![p]).then((result) => ({ platforms: [p], result })))
+  }
+  if (fallbackPlatforms.length > 0) {
+    calls.push(send(fallbackPlatforms, sharedCaption).then((result) => ({ platforms: fallbackPlatforms, result })))
+  }
+  const outcomes = await Promise.all(calls)
+
+  // Aggregate across every sub-call into the same shape one combined call used to return - ok
+  // only if every platform's own attempt succeeded; non-retryable if any one is (a partial retry
+  // risks re-posting to the platforms that already succeeded); confirmed:false if any one needs
+  // manual verification.
+  const results: NonNullable<UploadPostSendResult['results']> = {}
+  let ok = true
+  let confirmed = true
+  let retryable = true
+  const errors: string[] = []
+  for (const { platforms: sentTo, result } of outcomes) {
+    Object.assign(results, result.results ?? {})
+    if (!result.ok) {
+      ok = false
+      if (result.retryable === false) retryable = false
+      if (result.error) errors.push(`${sentTo.join('/')}: ${result.error}`)
+    }
+    if (result.confirmed === false) confirmed = false
+  }
+  return { ok, confirmed, retryable, results, error: errors.length ? errors.join('; ') : undefined }
+}
+
+async function runDistributionLocked(admin: SupabaseClient, user: string, platforms: string[], tailoredCaptionsOn: boolean): Promise<string> {
   const { data: rows, error } = await admin
     .from('post_distribution')
     .select('*')
@@ -172,14 +236,22 @@ async function runDistributionLocked(admin: SupabaseClient, user: string, platfo
     try {
       const { data: post } = await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
       const link = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: 'upload-post', medium: 'social', campaign: 'distribution' })
-      const rawCaption = [post?.title || row.title, post?.meta_description, link].filter(Boolean).join('\n\n')
+      const title = post?.title || row.title
+      const rawCaption = [title, post?.meta_description, link].filter(Boolean).join('\n\n')
       // Mechanical limit check against the tightest of the target platforms' real character
-      // limits (lib/social-captions.ts) - Upload-Post sends this same caption to every requested
-      // network in one call, so it has to fit all of them, not just the most permissive one.
-      const caption = fitCaption(rawCaption, tightestLimit(platforms))
-      const result = post?.cover_image_url
-        ? await uploadPostSendPhotos({ user, platforms, text: caption, imageUrls: [post.cover_image_url] })
-        : await uploadPostSendText({ user, platforms, text: caption })
+      // limits (lib/social-captions.ts) - the fallback/shared-call path sends this same caption to
+      // every network that didn't get its own tailored one, so it has to fit all of them.
+      const sharedCaption = fitCaption(rawCaption, tightestLimit(platforms))
+      // One model call writes every platform's own tailored caption, only when the admin has
+      // explicitly turned this on (distribution_tailored_captions) - off, or AI unconfigured, or
+      // the call failed, all mean every platform falls back to the shared caption above. Never
+      // blocks distribution over this, same rule as every other AI step in this project.
+      const tailored = tailoredCaptionsOn ? await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms) : null
+      const send = (p: string[], text: string) =>
+        post?.cover_image_url
+          ? uploadPostSendPhotos({ user, platforms: p, text, imageUrls: [post.cover_image_url] })
+          : uploadPostSendText({ user, platforms: p, text })
+      const result = await sendTailored(send, platforms, tailored, sharedCaption)
 
       if (result.ok && result.confirmed === false) {
         // Upload-Post accepted the request (202 / job_id / scheduled) but hasn't confirmed it

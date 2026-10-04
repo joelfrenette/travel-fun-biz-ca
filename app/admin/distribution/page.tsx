@@ -29,6 +29,8 @@ export default function DistributionPage() {
   const [accountsText, setAccountsText] = useState("")
   const [platformsText, setPlatformsText] = useState("")
   const [providerConfigured, setProviderConfigured] = useState(false)
+  const [tailoredCaptions, setTailoredCaptions] = useState(false)
+  const [aiConfigured, setAiConfigured] = useState(false)
   const [queue, setQueue] = useState<DistributionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -44,6 +46,8 @@ export default function DistributionPage() {
         setAccountsText((data.accounts || []).join(", "))
         setPlatformsText((data.platforms || []).join(", "))
         setProviderConfigured(!!data.providerConfigured)
+        setTailoredCaptions(!!data.tailoredCaptions)
+        setAiConfigured(!!data.aiConfigured)
         setQueue(data.queue || [])
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
@@ -90,6 +94,21 @@ export default function DistributionPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Could not save")
       toast({ title: "Platforms saved" })
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Could not save", variant: "destructive" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveTailoredCaptions(next: boolean) {
+    setSaving(true)
+    try {
+      const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ tailoredCaptions: next }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Could not save")
+      setTailoredCaptions(next)
+      toast({ title: next ? "Tailored captions on" : "Tailored captions off" })
     } catch (e) {
       toast({ title: "Error", description: e instanceof Error ? e.message : "Could not save", variant: "destructive" })
     } finally {
@@ -147,6 +166,18 @@ export default function DistributionPage() {
               <Label>Platforms to post to (comma-separated, must match accounts connected on that profile)</Label>
               <Textarea value={platformsText} onChange={(e) => setPlatformsText(e.target.value)} placeholder="e.g. instagram, facebook, tiktok" rows={1} />
               <Button size="sm" variant="outline" onClick={savePlatforms} disabled={saving}>Save platforms</Button>
+            </div>
+            <div className="space-y-2 border-t pt-4">
+              <Label>Tailored captions per platform</Label>
+              <p className="text-xs text-muted-foreground">
+                {aiConfigured
+                  ? "Off (default) sends the same caption to every platform, just trimmed to fit each one's character limit. On writes a genuinely different caption per platform (one Upload-Post call per platform instead of one shared call) - a real extra Anthropic cost per post, and uses more of Upload-Post's metered upload quota since it's now one call per platform."
+                  : "ANTHROPIC_API_KEY is not set in Vercel - add it there before this can be turned on."}
+              </p>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={tailoredCaptions} disabled={!aiConfigured || saving} onChange={(e) => saveTailoredCaptions(e.target.checked)} />
+                Write a tailored caption per platform
+              </label>
             </div>
           </CardContent>
         </Card>
