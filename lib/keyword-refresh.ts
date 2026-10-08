@@ -69,9 +69,29 @@ export async function refreshKeywordsIfDue(admin: SupabaseClient): Promise<strin
   if (budget <= 0) return null
   const last = Date.parse((await getSetting(admin, KEYWORD_LAST_RUN_KEY)) ?? '')
   if (Number.isFinite(last) && Date.now() - last < REFRESH_EVERY_MS) return null
+  // Second, independent check against the spend log: the 2026-10-08 first run spent on six passes
+  // in a row (about $0.20) despite the guard above, so a stamp read that comes back stale must not
+  // be the only thing standing between a pass and a paid call.
+  const logged = (await readKeywordRefreshInfo(admin)).log
+  const lastLogged = Date.parse(logged[0]?.at ?? '')
+  if (Number.isFinite(lastLogged) && Date.now() - lastLogged < REFRESH_EVERY_MS) return null
+  // The weekly cap counts what was really spent in the last 7 days, not just this run.
+  const spentThisWeek = logged.filter((e) => Date.now() - Date.parse(e.at) < REFRESH_EVERY_MS).reduce((sum, e) => sum + (e.spentUsd || 0), 0)
+  if (spentThisWeek >= budget) return null
 
   const seeds = await seedPhrases(admin)
   if (!seeds.length) return null
+
+  // Atomic claim: only the one pass whose conditional write succeeds may spend. The stamp is an ISO
+  // string, so comparing it to a cutoff string is a correct date comparison.
+  const nowIso = new Date().toISOString()
+  const cutoff = new Date(Date.now() - REFRESH_EVERY_MS).toISOString()
+  const { data: claimedRows } = await admin.from('app_settings').update({ value: nowIso, updated_at: nowIso }).eq('key', KEYWORD_LAST_RUN_KEY).lt('value', cutoff).select('key')
+  if (!claimedRows?.length) {
+    // No stale stamp to take over: either one is fresh (someone else holds it) or none exists yet.
+    const { data: inserted } = await admin.from('app_settings').upsert({ key: KEYWORD_LAST_RUN_KEY, value: nowIso, updated_at: nowIso }, { onConflict: 'key', ignoreDuplicates: true }).select('key')
+    if (!inserted?.length) return null
+  }
   // Rotate through the seed list week by week so different destinations get researched over time.
   const weekIndex = Math.floor(Date.now() / REFRESH_EVERY_MS)
   const chosen = Array.from({ length: Math.min(SEEDS_PER_RUN, seeds.length) }, (_, i) => seeds[(weekIndex * SEEDS_PER_RUN + i) % seeds.length])
@@ -83,10 +103,10 @@ export async function refreshKeywordsIfDue(admin: SupabaseClient): Promise<strin
   let spent = 0
   let added = 0
   const used: string[] = []
-  // Mark the run first so a failure partway through cannot re-spend the budget on the next pass.
-  await setSetting(admin, KEYWORD_LAST_RUN_KEY, new Date().toISOString())
+  // The stamp was written by the claim above, before any spend, so a failure partway through
+  // cannot re-spend the budget on the next pass.
   for (const seed of chosen) {
-    if (spent >= budget) break
+    if (spentThisWeek + spent >= budget) break
     try {
       const { suggestions, costUsd } = await suggestKeywords(seed, country, 30)
       spent += costUsd
