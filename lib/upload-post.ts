@@ -368,3 +368,29 @@ export async function uploadPostSendVideo(input: {
     return { ok: false, retryable: false, error: 'Could not reach Upload-Post (the post may or may not have been created).' }
   }
 }
+
+export const UPLOAD_POST_DASHBOARD_URL = 'https://app.upload-post.com'
+
+/** A one-time page where the owner of `username` links Instagram, TikTok, Facebook and the rest to
+ * that Upload-Post profile (POST /api/uploadposts/users/generate-jwt). Upload-Post's reference only
+ * names the endpoint, so the request body and the `access_url` answer field follow its white-label
+ * integration guide as recalled, NOT a confirmed live call - callers must fall back to the plain
+ * dashboard link when this returns null. */
+export async function uploadPostConnectLink(username: string): Promise<string | null> {
+  const key = process.env.UPLOAD_POST_API_KEY?.trim()
+  if (!key || !username.trim()) return null
+  try {
+    const res = await fetch(`${BASE}/api/uploadposts/users/generate-jwt`, {
+      method: 'POST',
+      headers: { Authorization: `Apikey ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ username }),
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) return null
+    const json = (await res.json().catch(() => null)) as Record<string, unknown> | null
+    const url = typeof json?.access_url === 'string' ? json.access_url : typeof json?.url === 'string' ? json.url : null
+    return url && /^https:\/\//i.test(url) ? url : null
+  } catch {
+    return null
+  }
+}

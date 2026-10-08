@@ -73,7 +73,7 @@ export async function autopilotReadiness(admin: SupabaseClient): Promise<Readine
   if (!uploadPostConfigured()) warnings.push('UPLOAD_POST_API_KEY is not set - content will be created but nothing will post to social.')
   const [accounts, platforms] = await Promise.all([getDistributionAccounts(admin), getDistributionPlatforms(admin)])
   if (uploadPostConfigured() && (!accounts[0] || platforms.length === 0)) {
-    warnings.push('No Upload-Post profile or platforms saved on the Distribution page - nothing will post until both are set.')
+    warnings.push('No Upload-Post profile or accounts chosen in the "Where it posts" box below - nothing will post until both are set.')
   }
   if (!isPexelsConfigured()) warnings.push('PEXELS_API_KEY is not set - no cover photos and no video b-roll.')
   if (!isImageAiConfigured()) warnings.push('OPENAI_API_KEY is not set - the AI cover-image fallback is inert.')

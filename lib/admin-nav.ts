@@ -102,7 +102,7 @@ const unsortedTools: AdminNavItem[] = [
   },
   {
     title: "Post Distribution",
-    description: "Enrollment ledger for social auto-posting (off by default). No posting provider is wired in yet — this only tracks which published posts are enrolled.",
+    description: "The approval queue for social posts: approve held posts, see what is queued, posted or failed. Posting settings live on Content Autopilot.",
     icon: Share2,
     status: "Active",
     href: "/admin/distribution",

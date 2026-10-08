@@ -3,10 +3,7 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { Loader2, Share2 } from "lucide-react"
 
@@ -26,11 +23,7 @@ function authHeaders(): HeadersInit {
 export default function DistributionPage() {
   const { toast } = useToast()
   const [mode, setMode] = useState<string>("off")
-  const [accountsText, setAccountsText] = useState("")
-  const [platformsText, setPlatformsText] = useState("")
   const [providerConfigured, setProviderConfigured] = useState(false)
-  const [tailoredCaptions, setTailoredCaptions] = useState(false)
-  const [aiConfigured, setAiConfigured] = useState(false)
   const [queue, setQueue] = useState<DistributionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -43,11 +36,7 @@ export default function DistributionPage() {
       .then(({ ok, data }) => {
         if (!ok) throw new Error(data.error || "Could not load")
         setMode(data.mode || "off")
-        setAccountsText((data.accounts || []).join(", "))
-        setPlatformsText((data.platforms || []).join(", "))
         setProviderConfigured(!!data.providerConfigured)
-        setTailoredCaptions(!!data.tailoredCaptions)
-        setAiConfigured(!!data.aiConfigured)
         setQueue(data.queue || [])
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
@@ -55,66 +44,6 @@ export default function DistributionPage() {
   }
 
   useEffect(() => { load() }, [])
-
-  async function saveMode(next: string) {
-    setSaving(true)
-    try {
-      const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ mode: next }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Could not save")
-      setMode(next)
-      toast({ title: "Distribution mode updated" })
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "Could not save", variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function saveAccounts() {
-    setSaving(true)
-    try {
-      const accounts = accountsText.split(",").map((s) => s.trim()).filter(Boolean)
-      const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ accounts }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Could not save")
-      toast({ title: "Upload-Post profile saved" })
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "Could not save", variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function savePlatforms() {
-    setSaving(true)
-    try {
-      const platforms = platformsText.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
-      const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ platforms }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Could not save")
-      toast({ title: "Platforms saved" })
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "Could not save", variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function saveTailoredCaptions(next: boolean) {
-    setSaving(true)
-    try {
-      const res = await fetch("/api/admin/distribution", { method: "POST", headers: authHeaders(), body: JSON.stringify({ tailoredCaptions: next }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Could not save")
-      setTailoredCaptions(next)
-      toast({ title: next ? "Tailored captions on" : "Tailored captions off" })
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "Could not save", variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
-  }
 
   async function syncPending() {
     setSaving(true)
@@ -147,12 +76,7 @@ export default function DistributionPage() {
       <div className="border-b bg-card/30">
         <div className="container mx-auto px-4 py-4">
           <h1 className="text-xl font-bold">Post Distribution</h1>
-          <p className="text-sm text-muted-foreground">
-            Provider: Upload-Post (Joel's pick, 2026-09-27). {providerConfigured
-              ? "UPLOAD_POST_API_KEY is set."
-              : "UPLOAD_POST_API_KEY is not set yet — nothing can post until it is."} Mode stays "off" by default (nothing gets enrolled, nothing
-            posts), and even in "Prepare" or "Auto" mode nothing posts unless a profile and at least one platform are set below.
-          </p>
+          <p className="text-sm text-muted-foreground">Posts waiting for your OK, queued to go out, and finished. Approve a held post to send it.</p>
         </div>
       </div>
 
@@ -160,40 +84,12 @@ export default function DistributionPage() {
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
         <Card>
-          <CardContent className="space-y-4 p-4">
-            <div className="space-y-2">
-              <Label>Distribution mode</Label>
-              <Select value={mode} onValueChange={saveMode} disabled={saving}>
-                <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="off">Off (default) — nothing gets enrolled</SelectItem>
-                  <SelectItem value="prepare">Prepare — enroll new posts held; posts once you click Approve below</SelectItem>
-                  <SelectItem value="auto">Auto — enroll new posts queued; posts with no approval click</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Upload-Post profile (the "username" from your Upload-Post account)</Label>
-              <Textarea value={accountsText} onChange={(e) => setAccountsText(e.target.value)} placeholder="e.g. joel" rows={1} />
-              <Button size="sm" variant="outline" onClick={saveAccounts} disabled={saving}>Save profile</Button>
-            </div>
-            <div className="space-y-2">
-              <Label>Platforms to post to (comma-separated, must match accounts connected on that profile)</Label>
-              <Textarea value={platformsText} onChange={(e) => setPlatformsText(e.target.value)} placeholder="e.g. instagram, facebook, tiktok" rows={1} />
-              <Button size="sm" variant="outline" onClick={savePlatforms} disabled={saving}>Save platforms</Button>
-            </div>
-            <div className="space-y-2 border-t pt-4">
-              <Label>Tailored captions per platform</Label>
-              <p className="text-xs text-muted-foreground">
-                {aiConfigured
-                  ? "Off (default) sends the same caption to every platform, just trimmed to fit each one's character limit. On writes a genuinely different caption per platform (one Upload-Post call per platform instead of one shared call) - a real extra Anthropic cost per post, and uses more of Upload-Post's metered upload quota since it's now one call per platform."
-                  : "ANTHROPIC_API_KEY is not set in Vercel - add it there before this can be turned on."}
-              </p>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={tailoredCaptions} disabled={!aiConfigured || saving} onChange={(e) => saveTailoredCaptions(e.target.checked)} />
-                Write a tailored caption per platform
-              </label>
-            </div>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
+            <p className="text-muted-foreground">
+              Mode now: <span className="font-medium text-foreground">{mode === "prepare" ? "review each post first" : mode === "auto" ? "post automatically" : "off"}</span>
+              {providerConfigured ? "" : " (UPLOAD_POST_API_KEY is not set)"}. The profile, connected accounts and mode are set in one place on the Content Autopilot page.
+            </p>
+            <Button size="sm" variant="outline" asChild><a href="/admin/autopilot">Open posting settings</a></Button>
           </CardContent>
         </Card>
 

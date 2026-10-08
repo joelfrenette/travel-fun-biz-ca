@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
+import { PostingCard } from "@/components/admin/posting-card"
 import { Loader2, Rocket, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 interface Row {
@@ -124,6 +125,8 @@ export default function AutopilotPage() {
         {state.readiness.blockers.length === 0 && state.readiness.warnings.length === 0 && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground"><CheckCircle2 className="h-4 w-4 text-emerald-600" />Everything needed is set up.</p>
         )}
+
+        <PostingCard onChanged={load} />
 
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
