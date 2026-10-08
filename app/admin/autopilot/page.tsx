@@ -25,7 +25,8 @@ interface State {
   shotstackEnv: "stage" | "v1"
   distributionMode: "off" | "prepare" | "auto"
   cron: { light: "green" | "amber" | "gray"; label: string }
-  lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "write" | "post" | "repurpose"; ok: boolean; note: string }[] } | null
+  lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "post" | "repurpose"; ok: boolean; note: string }[] } | null
+  keyword: { budget: number; configured: boolean; lastRunAt: string | null; log: { at: string; spentUsd: number; added: number; seeds: string[] }[] }
   rows: Row[]
 }
 
@@ -118,7 +119,7 @@ export default function AutopilotPage() {
                 {state.lastRun.steps.map((st) => (
                   <li key={st.step} className="flex items-start gap-2">
                     {st.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
-                    <span><span className="font-medium capitalize">{st.step === "repurpose" ? "carousel and video" : st.step === "post" ? "post to social" : "write and publish"}</span><span className="text-muted-foreground"> - {st.note}</span></span>
+                    <span><span className="font-medium capitalize">{st.step === "repurpose" ? "carousel and video" : st.step === "post" ? "post to social" : st.step === "keywords" ? "keyword research" : "write and publish"}</span><span className="text-muted-foreground"> - {st.note}</span></span>
                   </li>
                 ))}
               </ol>
@@ -170,6 +171,28 @@ export default function AutopilotPage() {
               aria-label="Videos per week"
             >
               {[0, 1, 2, 3, 5, 7].map((n) => <option key={n} value={n}>{n === 0 ? "No videos" : `${n} per week`}</option>)}
+            </select>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <h2 className="font-semibold">Keyword research per week</h2>
+              <p className="text-xs text-muted-foreground">
+                {state.keyword.configured
+                  ? `Once a week it researches new keywords for your trips and feeds them into topic picking. This is the most it will spend. ${state.keyword.log[0] ? `Last run: ${new Date(state.keyword.log[0].at).toLocaleDateString("en-CA")}, spent about $${state.keyword.log[0].spentUsd.toFixed(2)}, added ${state.keyword.log[0].added}.` : "Has not run yet."}`
+                  : "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD are not set, so there is no keyword research."}
+              </p>
+            </div>
+            <select
+              className="h-9 rounded-md border bg-card px-3 text-sm"
+              value={String(state.keyword.budget)}
+              disabled={busy || !state.keyword.configured}
+              onChange={(e) => post({ keywordBudget: Number(e.target.value) }, "Saved")}
+              aria-label="Keyword research budget per week"
+            >
+              {[0, 0.5, 1, 2, 5].map((n) => <option key={n} value={String(n)}>{n === 0 ? "Off" : `Up to $${n} a week`}</option>)}
             </select>
           </CardContent>
         </Card>

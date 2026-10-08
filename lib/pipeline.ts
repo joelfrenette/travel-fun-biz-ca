@@ -5,8 +5,10 @@ import { recordCronRun } from '@/lib/cron-heartbeat'
 import { isAutopilotOn, runAutopilotTick } from '@/lib/autopilot'
 import { runAutoblog } from '@/lib/autoblog-run'
 import { runDistribution } from '@/lib/distribution'
+import { refreshKeywordsIfDue } from '@/lib/keyword-refresh'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
+//   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
 //   1. WRITE   topic (Search Console near-misses and cached keyword research feed it), the post, its
 //              title, SEO title and description, slug, tags, call-to-action link, cover image and
 //              thumbnail, then publish it (all inside runAutoblog).
@@ -24,7 +26,7 @@ const PUBLISH_HOUR_UTC = 13
 const TIME_BUDGET_MS = 200_000
 
 export interface PipelineStep {
-  step: 'write' | 'post' | 'repurpose'
+  step: 'keywords' | 'write' | 'post' | 'repurpose'
   ok: boolean
   note: string
 }
@@ -56,6 +58,14 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
   if (await isAutomationPaused(admin)) {
     run.steps.push({ step: 'write', ok: true, note: 'automation is paused' })
     return run
+  }
+
+  // 0. KEYWORDS (weekly, capped; silent on every pass where nothing is due)
+  try {
+    const note = await refreshKeywordsIfDue(admin)
+    if (note) run.steps.push({ step: 'keywords', ok: true, note })
+  } catch (e) {
+    run.steps.push({ step: 'keywords', ok: false, note: e instanceof Error ? e.message : 'keyword research failed' })
   }
 
   // 1. WRITE

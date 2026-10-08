@@ -3,6 +3,8 @@ import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { isAutopilotOn, setAutopilot, autopilotReadiness, getVideosPerWeek, setVideosPerWeek } from '@/lib/autopilot'
 import { runPipeline, readLastPipelineRun } from '@/lib/pipeline'
+import { getKeywordBudget, setKeywordBudget, readKeywordRefreshInfo } from '@/lib/keyword-refresh'
+import { isKeywordDataConfigured } from '@/lib/keywords'
 import { shotstackEnv } from '@/lib/shotstack'
 import { getDistributionMode } from '@/lib/distribution'
 import { readCronRuns } from '@/lib/cron-heartbeat'
@@ -14,7 +16,7 @@ export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [on, readiness, videosPerWeek, runs, pipeline, distributionMode, lastRun] = await Promise.all([
+    const [on, readiness, videosPerWeek, runs, pipeline, distributionMode, lastRun, keywordBudget, keywordInfo] = await Promise.all([
       isAutopilotOn(admin),
       autopilotReadiness(admin),
       getVideosPerWeek(admin),
@@ -22,6 +24,8 @@ export async function GET(request: Request) {
       admin.from('content_pipeline').select('*').order('created_at', { ascending: false }).limit(15),
       getDistributionMode(admin),
       readLastPipelineRun(admin),
+      getKeywordBudget(admin),
+      readKeywordRefreshInfo(admin),
     ])
     const slugs = (pipeline.data ?? []).map((r: { slug: string }) => r.slug)
     const { data: posts } = slugs.length ? await admin.from('posts').select('slug, title').in('slug', slugs) : { data: [] }
@@ -33,6 +37,7 @@ export async function GET(request: Request) {
       shotstackEnv: shotstackEnv(),
       distributionMode,
       lastRun,
+      keyword: { budget: keywordBudget, configured: isKeywordDataConfigured(), lastRunAt: keywordInfo.lastRunAt, log: keywordInfo.log },
       cron: judgeCron('autopilot', runs.autopilot),
       rows: (pipeline.data ?? []).map((r: Record<string, unknown>) => ({ ...r, title: titles.get(r.slug as string) ?? r.slug })),
     })
@@ -55,6 +60,11 @@ export async function POST(request: Request) {
       const { error } = await setVideosPerWeek(admin, body.videosPerWeek)
       if (error) return NextResponse.json({ error }, { status: 400 })
       return NextResponse.json({ videosPerWeek: body.videosPerWeek })
+    }
+    if (typeof body.keywordBudget === 'number') {
+      const { error } = await setKeywordBudget(admin, body.keywordBudget)
+      if (error) return NextResponse.json({ error }, { status: 400 })
+      return NextResponse.json({ keywordBudget: body.keywordBudget })
     }
     if (body.action === 'run') {
       const run = await runPipeline(admin, { force: true })
