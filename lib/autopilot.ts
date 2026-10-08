@@ -232,8 +232,11 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
   const target = await postingTarget(admin)
   const notes: string[] = []
   const save = async (row: PipelineRow, patch: Partial<PipelineRow>) => {
-    Object.assign(row, patch)
-    await admin.from('content_pipeline').update({ ...patch, updated_at: new Date().toISOString() }).eq('slug', row.slug)
+    // The in-memory row must carry the new updated_at too: the render-timeout check below measures
+    // from it, and a stale value made a render that had just been submitted look 30 minutes old.
+    const updated_at = new Date().toISOString()
+    Object.assign(row, patch, { updated_at })
+    await admin.from('content_pipeline').update({ ...patch, updated_at }).eq('slug', row.slug)
   }
   const fail = async (row: PipelineRow, key: 'carousel' | 'video', error: string, permanent: boolean) => {
     const attempts = { ...row.attempts, [key]: (row.attempts[key] ?? 0) + 1 }
