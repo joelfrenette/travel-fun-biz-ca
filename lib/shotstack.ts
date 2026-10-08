@@ -118,7 +118,9 @@ const FONT = 'Open Sans'
 const richText = (text: string, size: number, opts: { color?: string; background?: string; bgOpacity?: number; stroke?: number; uppercase?: boolean } = {}) => ({
   type: 'rich-text',
   text,
-  font: { family: FONT, size, weight: '700', color: opts.color ?? '#ffffff', ...(opts.stroke ? { stroke: { width: opts.stroke, color: '#000000' } } : {}) },
+  font: { family: FONT, size, weight: '700', color: opts.color ?? '#ffffff' },
+  // Shotstack wants stroke beside font, not inside it (inside it is "unknown_property").
+  ...(opts.stroke ? { stroke: { width: opts.stroke, color: '#000000' } } : {}),
   style: { lineHeight: 1.15, ...(opts.uppercase ? { textTransform: 'uppercase' } : {}) },
   ...(opts.background ? { background: { color: opts.background, opacity: opts.bgOpacity ?? 0.9, borderRadius: 16, wrap: true } } : {}),
   padding: 16,
@@ -174,10 +176,12 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
           asset: {
             type: 'rich-caption',
             src: 'alias://narration',
-            font: { family: FONT, size: 44, weight: '700', color: '#ffffff', stroke: { width: 3, color: '#000000' } },
-            background: { color: '#000000', opacity: 0.45, borderRadius: 12, wrap: true },
-            padding: 12,
-            align: { horizontal: 'center', vertical: 'middle' },
+            // rich-caption has no background or wrap, and stroke sits beside font; the heavy black
+            // outline keeps the words readable over any footage.
+            font: { family: FONT, size: 44, weight: '700', color: '#ffffff' },
+            stroke: { width: 4, color: '#000000' },
+            padding: { top: 12, right: 12, bottom: 12, left: 12 },
+            align: { vertical: 'middle' },
           },
           start: 0,
           length: totalLength,
@@ -236,7 +240,7 @@ export async function submitRender(edit: ShotstackEdit): Promise<ShotstackRender
     if (!res.ok) {
       const message = typeof json.message === 'string' ? json.message : `Shotstack returned ${res.status}`
       const detail = typeof json.response === 'object' && json.response ? JSON.stringify(json.response) : json.message ? '' : text
-      return { ok: false, status: res.status, error: `${message} (${shotstackEnv()} environment${detail ? `: ${detail.slice(0, 200)}` : ''})` }
+      return { ok: false, status: res.status, error: `${message} (${shotstackEnv()} environment${detail ? `: ${detail.slice(0, 700)}` : ''})` }
     }
     const response = json.response as { id?: string } | undefined
     if (!response?.id) return { ok: false, error: 'Shotstack accepted the request but returned no render id.' }
