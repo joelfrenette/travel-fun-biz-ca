@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { setSetting } from '@/lib/app-settings'
 import { tagVariant } from '@/lib/content-variants'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
+import { findPortraitPhoto } from '@/lib/pexels'
 
 // Carousels (factory item 4/6): the "missing middle" of the social funnel - reels build reach,
 // carousels build trust (saves/shares are the strongest engagement signal Instagram/LinkedIn
@@ -11,12 +12,16 @@ import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/
 export interface CarouselSlide {
   headline: string
   body: string
+  /** Stock-photo search words the model chose for this slide (never shown to the viewer). */
+  imageQuery?: string
+  /** The photo behind the slide, resolved when the carousel is saved. */
+  imageUrl?: string
 }
 
 const SLIDE_COUNT = 7 // enough to develop an idea, short enough to finish
 
 function carouselPrompt(postTitle: string, postBody: string): string {
-  return `Turn this blog post into a ${SLIDE_COUNT}-slide Instagram/LinkedIn carousel. Each slide needs a short headline (under 8 words) and a short body (under 30 words) - write them fresh, summarizing and developing the post's real points, never copy-pasting whole paragraphs verbatim.
+  return `Turn this blog post into a ${SLIDE_COUNT}-slide Instagram/LinkedIn carousel. Each slide needs a punchy headline (under 8 words, the kind that makes someone swipe) and a short body (under 24 words) - write them fresh, summarizing and developing the post's real points, never copy-pasting whole paragraphs verbatim.
 
 Post title: ${postTitle}
 
@@ -27,7 +32,9 @@ Slide 1 should hook with the post's core promise. The last slide should be a sof
 
 Every fact, number or claim on any slide must be traceable back to something actually stated in the post body above - never add a statistic, price or date that isn't already there.
 
-Return ONLY minified JSON of this exact shape: {"slides":[{"headline":"...","body":"..."},...]} with exactly ${SLIDE_COUNT} entries.`
+Also give every slide imageQuery: 2 to 4 English words for a stock-photo search that visually fits that slide (a place, activity or mood such as "puerto plata beach" or "cruise ship deck at sunset"; never a person's name). It is only used to find a picture and is never shown.
+
+Return ONLY minified JSON of this exact shape: {"slides":[{"headline":"...","body":"...","imageQuery":"..."},...]} with exactly ${SLIDE_COUNT} entries.`
 }
 
 /** Every number appearing on a slide must appear in the source post too - same hard gate the
@@ -67,8 +74,16 @@ export const carouselKey = (slug: string) => `carousel:${slug}`
  * the public /carousel/[slug]/[n] image route reads). Shared by the admin button and the autopilot
  * so both behave identically. Returns the slides, or null if generation or grounding failed. */
 export async function generateAndSaveCarousel(admin: SupabaseClient, post: { slug: string; title: string; body: string }): Promise<CarouselSlide[] | null> {
-  const slides = await generateCarouselSlides(post.title, post.body)
-  if (!slides) return null
+  const generated = await generateCarouselSlides(post.title, post.body)
+  if (!generated) return null
+  // A different photo behind each slide, found one after another so no two slides share a picture.
+  const used = new Set<string>()
+  const slides: CarouselSlide[] = []
+  for (const slide of generated) {
+    const url = slide.imageQuery ? await findPortraitPhoto(slide.imageQuery, used) : null
+    if (url) used.add(url)
+    slides.push(url ? { ...slide, imageUrl: url } : slide)
+  }
   const { error } = await setSetting(admin, carouselKey(post.slug), JSON.stringify(slides))
   if (error) throw new Error(error)
   await tagVariant(admin, post.slug, { hasCarousel: true })

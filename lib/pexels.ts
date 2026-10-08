@@ -90,3 +90,27 @@ export async function findBrollClip(query: string): Promise<{ url: string; durat
     return null
   }
 }
+
+/** A portrait stock photo for a carousel slide, skipping any address in `used` so seven slides about
+ * the same place do not all get the identical picture. Returns null when unconfigured, nothing
+ * matches or the request fails - the slide then falls back to the post's own cover image. */
+export async function findPortraitPhoto(query: string, used: Set<string> = new Set()): Promise<string | null> {
+  const key = process.env.PEXELS_API_KEY
+  if (!key || !query.trim()) return null
+  try {
+    const res = await fetch(`${PEXELS_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=8&orientation=portrait`, {
+      headers: { Authorization: key },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return null
+    const body = (await res.json().catch(() => ({}))) as { photos?: Array<{ src?: { portrait?: string; large?: string } }> }
+    for (const photo of body.photos ?? []) {
+      const url = photo.src?.portrait || photo.src?.large
+      if (url && !used.has(url)) return url
+    }
+    return null
+  } catch {
+    return null
+  }
+}
