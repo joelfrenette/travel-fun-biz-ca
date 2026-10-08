@@ -82,7 +82,8 @@ export async function autopilotReadiness(admin: SupabaseClient): Promise<Readine
   return { blockers, warnings }
 }
 
-/** The one switch. On: applies the preset below. Off: switches both engines off again. */
+/** The one switch. On: applies the preset below (distribution goes to "auto" unless it is already
+ * in "prepare" review mode, which is kept). Off: switches both engines off again. */
 export async function setAutopilot(admin: SupabaseClient, on: boolean): Promise<{ error?: string }> {
   if (on) {
     const { blockers } = await autopilotReadiness(admin)
@@ -90,7 +91,9 @@ export async function setAutopilot(admin: SupabaseClient, on: boolean): Promise<
     const steps = [
       setAutomationPaused(admin, false),
       setSetting(admin, AUTOBLOG_MODE_KEY, 'publish'),
-      setDistributionMode(admin, 'auto'),
+      // Keep review mode if you are already in it: posts then wait for your approval and carousels/
+      // videos are made but not posted, until you set Distribution to Auto yourself.
+      (await getDistributionMode(admin)) === 'prepare' ? Promise.resolve({} as { error?: string }) : setDistributionMode(admin, 'auto'),
       setTailoredCaptionsEnabled(admin, true),
       setAutoblogAiImageFallback(admin, true),
       setSetting(admin, AUTOPILOT_KEY, 'on'),

@@ -22,6 +22,7 @@ interface State {
   readiness: { blockers: string[]; warnings: string[] }
   videosPerWeek: number
   shotstackEnv: "stage" | "v1"
+  distributionMode: "off" | "prepare" | "auto"
   cron: { light: "green" | "amber" | "gray"; label: string }
   rows: Row[]
 }
@@ -97,6 +98,15 @@ export default function AutopilotPage() {
             </Button>
           </CardContent>
         </Card>
+
+        {state.distributionMode === "prepare" && (
+          <Card className="border-amber-500/50">
+            <CardContent className="p-4 text-sm">
+              <p className="font-semibold">Review mode</p>
+              <p className="text-muted-foreground">Posts wait for your OK on the Distribution page, and carousels and videos are made but not posted. When you trust it, set Distribution to Auto and everything posts on its own.</p>
+            </CardContent>
+          </Card>
+        )}
 
         {(state.readiness.blockers.length > 0 || state.readiness.warnings.length > 0) && (
           <Card>
