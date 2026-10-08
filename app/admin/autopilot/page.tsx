@@ -216,7 +216,9 @@ export default function AutopilotPage() {
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-muted-foreground">Carousel</span><Badge variant={STAGE_VARIANT(r.carousel_stage)}>{r.carousel_stage}</Badge>
+                    {r.carousel_stage === "failed" && <Button size="sm" variant="outline" disabled={busy} onClick={() => post({ action: "retry", slug: r.slug, part: "carousel" }, "Will retry on the next pass")}>Retry</Button>}
                     <span className="text-muted-foreground">Video</span><Badge variant={STAGE_VARIANT(r.video_stage)}>{r.video_stage}</Badge>
+                    {r.video_stage === "failed" && <Button size="sm" variant="outline" disabled={busy} onClick={() => post({ action: "retry", slug: r.slug, part: "video" }, "Will retry on the next pass")}>Retry</Button>}
                   </div>
                 </div>
               ))

@@ -66,6 +66,16 @@ export async function POST(request: Request) {
       if (error) return NextResponse.json({ error }, { status: 400 })
       return NextResponse.json({ keywordBudget: body.keywordBudget })
     }
+    if (body.action === 'retry' && typeof body.slug === 'string' && (body.part === 'video' || body.part === 'carousel')) {
+      // Puts a failed step back to pending with a fresh attempt count; the next pass picks it up.
+      const stageKey = body.part === 'video' ? 'video_stage' : 'carousel_stage'
+      const { data: row } = await admin.from('content_pipeline').select('attempts').eq('slug', body.slug).maybeSingle()
+      if (!row) return NextResponse.json({ error: 'Post not found in the pipeline' }, { status: 404 })
+      const attempts = { ...(row.attempts as Record<string, number>) }
+      delete attempts[body.part]
+      await admin.from('content_pipeline').update({ [stageKey]: 'pending', attempts, last_error: null, updated_at: new Date().toISOString() }).eq('slug', body.slug).eq(stageKey, 'failed')
+      return NextResponse.json({ ok: true })
+    }
     if (body.action === 'run') {
       const run = await runPipeline(admin, { force: true })
       return NextResponse.json({ note: run.steps.map((x) => `${x.step}: ${x.note}`).join(' | ') })
