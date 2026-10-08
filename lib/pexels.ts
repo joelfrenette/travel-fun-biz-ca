@@ -63,3 +63,30 @@ export async function findDestinationPhoto(query: string): Promise<PexelsPhoto |
     return null
   }
 }
+
+const PEXELS_VIDEO_SEARCH_URL = 'https://api.pexels.com/videos/search'
+
+/** One real stock video clip (portrait, MP4) for a search term, for video b-roll. Prefers an HD
+ * file between 720 and 1080 px wide: big enough to look sharp at 720x1280 output, small enough for
+ * Shotstack to fetch quickly. Returns null when unconfigured, no match, or the request fails -
+ * never throws, so a missing clip just means that beat falls back to a still image. */
+export async function findBrollClip(query: string): Promise<{ url: string; duration: number } | null> {
+  const key = process.env.PEXELS_API_KEY
+  if (!key || !query.trim()) return null
+  try {
+    const url = `${PEXELS_VIDEO_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=5&orientation=portrait&size=medium`
+    const res = await fetch(url, { headers: { Authorization: key }, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+    if (!res.ok) return null
+    const body = (await res.json().catch(() => ({}))) as {
+      videos?: Array<{ duration?: number; video_files?: Array<{ link?: string; file_type?: string; width?: number; height?: number }> }>
+    }
+    for (const v of body.videos ?? []) {
+      const files = (v.video_files ?? []).filter((f) => f.link && f.file_type === 'video/mp4' && (f.height ?? 0) > (f.width ?? 0))
+      const best = files.filter((f) => (f.width ?? 0) >= 720 && (f.width ?? 0) <= 1080).sort((a, b) => (a.width ?? 0) - (b.width ?? 0))[0] ?? files[0]
+      if (best?.link) return { url: best.link, duration: v.duration ?? 0 }
+    }
+    return null
+  } catch {
+    return null
+  }
+}

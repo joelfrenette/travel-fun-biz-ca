@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/distribute",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/autopilot",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

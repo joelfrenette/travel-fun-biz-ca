@@ -318,3 +318,53 @@ export async function uploadPostGetStatus(id: { requestId?: string; jobId?: stri
     return { ok: false, error: 'Could not reach Upload-Post.' }
   }
 }
+
+const VIDEO_MAX_BYTES = 80 * 1024 * 1024
+
+/** Publish a VIDEO (reel / short): POST /api/upload with the file in `video` and the caption in
+ * `title`. The video URL is downloaded here first and sent as an uploaded file, mirroring the
+ * photo send (URL input is not confirmed for this API). NOT yet confirmed by a real post - unlike
+ * text and photos, which were - so the first real video post is the test, and a failure here
+ * never retries (a timeout may still have created the post). */
+export async function uploadPostSendVideo(input: {
+  user: string
+  platforms: string[]
+  text: string
+  videoUrl: string
+}): Promise<UploadPostSendResult> {
+  const key = process.env.UPLOAD_POST_API_KEY?.trim()
+  if (!key) return { ok: false, dormant: true }
+  if (!input.user || !input.platforms.length) return { ok: false, retryable: false, error: 'Needs a profile and a network.' }
+  if (!/^https:\/\//i.test(input.videoUrl)) return { ok: false, retryable: false, error: 'Needs an https video URL.' }
+
+  const form = new FormData()
+  form.set('user', input.user)
+  for (const p of input.platforms) form.append('platform[]', p)
+  if (input.text.trim()) form.set('title', input.text)
+  try {
+    const src = await fetch(input.videoUrl, { cache: 'no-store', signal: AbortSignal.timeout(30_000) })
+    const type = (src.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
+    if (!src.ok || !type.startsWith('video/')) {
+      return { ok: false, retryable: false, error: `Could not use the video (${src.status}, ${type || 'no type'}).` }
+    }
+    const declared = Number(src.headers.get('content-length') ?? '')
+    if (Number.isFinite(declared) && declared > VIDEO_MAX_BYTES) return { ok: false, retryable: false, error: 'Video is over 80 MB.' }
+    const buf = await src.arrayBuffer()
+    if (buf.byteLength === 0 || buf.byteLength > VIDEO_MAX_BYTES) return { ok: false, retryable: false, error: 'Video is empty or over 80 MB.' }
+    form.set('video', new Blob([buf], { type }), 'video.mp4')
+  } catch {
+    return { ok: false, retryable: false, error: 'Could not download the rendered video.' }
+  }
+  try {
+    const res = await fetch(`${BASE}/api/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Apikey ${key}` },
+      body: form,
+      signal: AbortSignal.timeout(120_000),
+    })
+    const json = await readJsonOrNote(res)
+    return settleUploadPostSend(res.status, res.ok, parseUploadPostSend(json))
+  } catch {
+    return { ok: false, retryable: false, error: 'Could not reach Upload-Post (the post may or may not have been created).' }
+  }
+}

@@ -1,3 +1,6 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { setSetting } from '@/lib/app-settings'
+import { tagVariant } from '@/lib/content-variants'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 
 // Carousels (factory item 4/6): the "missing middle" of the social funnel - reels build reach,
@@ -56,4 +59,18 @@ export async function generateCarouselSlides(postTitle: string, postBody: string
   } catch {
     return null
   }
+}
+
+export const carouselKey = (slug: string) => `carousel:${slug}`
+
+/** Generates a grounded carousel for a post and stores it (app_settings `carousel:{slug}`, which
+ * the public /carousel/[slug]/[n] image route reads). Shared by the admin button and the autopilot
+ * so both behave identically. Returns the slides, or null if generation or grounding failed. */
+export async function generateAndSaveCarousel(admin: SupabaseClient, post: { slug: string; title: string; body: string }): Promise<CarouselSlide[] | null> {
+  const slides = await generateCarouselSlides(post.title, post.body)
+  if (!slides) return null
+  const { error } = await setSetting(admin, carouselKey(post.slug), JSON.stringify(slides))
+  if (error) throw new Error(error)
+  await tagVariant(admin, post.slug, { hasCarousel: true })
+  return slides
 }

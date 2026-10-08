@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { isShotstackConfigured, buildVideoEdit, submitRender, getRenderStatus } from '@/lib/shotstack'
 import type { VideoScript } from '@/lib/video-script'
+import { findBrollClip } from '@/lib/pexels'
 
 export const maxDuration = 30
 
@@ -17,7 +18,8 @@ export async function POST(request: Request) {
     if (!body.script || !Array.isArray(body.script.beats) || body.script.beats.length === 0) {
       return NextResponse.json({ error: 'A valid script is required - generate one first.' }, { status: 400 })
     }
-    const edit = buildVideoEdit(body.script)
+    const clips = await Promise.all(body.script.beats.map((b) => findBrollClip((b.brollSearchTerms ?? []).join(' '))))
+    const edit = buildVideoEdit(body.script, clips.map((c) => ({ videoUrl: c?.url })))
     const result = await submitRender(edit)
     if (!result.ok) return NextResponse.json({ error: result.error || 'Shotstack rejected the render.' }, { status: 502 })
     return NextResponse.json({ renderId: result.renderId })

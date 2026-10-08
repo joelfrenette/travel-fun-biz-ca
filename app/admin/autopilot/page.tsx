@@ -1,0 +1,166 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/hooks/use-toast"
+import { Loader2, Rocket, AlertTriangle, CheckCircle2 } from "lucide-react"
+
+interface Row {
+  slug: string
+  title: string
+  carousel_stage: string
+  video_stage: string
+  video_url: string | null
+  last_error: string | null
+  created_at: string
+}
+
+interface State {
+  on: boolean
+  readiness: { blockers: string[]; warnings: string[] }
+  videosPerWeek: number
+  shotstackEnv: "stage" | "v1"
+  cron: { light: "green" | "amber" | "gray"; label: string }
+  rows: Row[]
+}
+
+function authHeaders(): HeadersInit {
+  return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
+}
+
+const STAGE_VARIANT = (s: string): "default" | "secondary" | "destructive" | "outline" =>
+  s === "posted" ? "default" : s === "failed" ? "destructive" : s === "pending" ? "outline" : "secondary"
+
+export default function AutopilotPage() {
+  const { toast } = useToast()
+  const [state, setState] = useState<State | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+
+  function load() {
+    fetch("/api/admin/autopilot", { headers: authHeaders() })
+      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error || "Could not load")
+        setState(data)
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
+  }
+  useEffect(() => { load() }, [])
+
+  async function post(body: Record<string, unknown>, okTitle: string) {
+    setBusy(true)
+    try {
+      const res = await fetch("/api/admin/autopilot", { method: "POST", headers: authHeaders(), body: JSON.stringify(body) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      toast({ title: okTitle, description: data.note })
+      load()
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (error) return <div className="p-6 text-destructive">{error}</div>
+  if (!state) return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+
+  const blocked = state.readiness.blockers.length > 0
+
+  return (
+    <div>
+      <div className="border-b bg-card/30">
+        <div className="container mx-auto px-4 py-4">
+          <h1 className="text-xl font-bold">Content Autopilot</h1>
+          <p className="text-sm text-muted-foreground">One switch. On: blog posts, cover images, captions, carousels and short videos are written and posted to your social accounts on their own.</p>
+        </div>
+      </div>
+
+      <div className="container mx-auto space-y-4 px-4 py-4">
+        <Card className={state.on ? "border-emerald-600/50" : undefined}>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+            <div className="flex items-center gap-3">
+              <Rocket className={state.on ? "h-8 w-8 text-emerald-600" : "h-8 w-8 text-muted-foreground"} />
+              <div>
+                <p className="text-lg font-semibold">{state.on ? "Autopilot is ON" : "Autopilot is OFF"}</p>
+                <p className="text-sm text-muted-foreground">
+                  {state.on ? `Scheduler: ${state.cron.label}` : "Nothing is being written or posted automatically."}
+                </p>
+              </div>
+            </div>
+            <Button size="lg" variant={state.on ? "outline" : "default"} disabled={busy || (!state.on && blocked)} onClick={() => post({ on: !state.on }, state.on ? "Autopilot off" : "Autopilot on")}>
+              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {state.on ? "Turn off" : "Turn on"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {(state.readiness.blockers.length > 0 || state.readiness.warnings.length > 0) && (
+          <Card>
+            <CardContent className="space-y-2 p-4">
+              <h2 className="font-semibold">Setup check</h2>
+              {state.readiness.blockers.map((b) => (
+                <p key={b} className="flex gap-2 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{b}</p>
+              ))}
+              {state.readiness.warnings.map((w) => (
+                <p key={w} className="flex gap-2 text-sm text-muted-foreground"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />{w}</p>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+        {state.readiness.blockers.length === 0 && state.readiness.warnings.length === 0 && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground"><CheckCircle2 className="h-4 w-4 text-emerald-600" />Everything needed is set up.</p>
+        )}
+
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <h2 className="font-semibold">Videos per week</h2>
+              <p className="text-xs text-muted-foreground">Each video render spends Shotstack credits, so this caps it. Shotstack mode: {state.shotstackEnv === "v1" ? "production" : "sandbox (watermarked, never posted)"}.</p>
+            </div>
+            <select
+              className="h-9 rounded-md border bg-card px-3 text-sm"
+              value={state.videosPerWeek}
+              disabled={busy}
+              onChange={(e) => post({ videosPerWeek: Number(e.target.value) }, "Saved")}
+              aria-label="Videos per week"
+            >
+              {[0, 1, 2, 3, 5, 7].map((n) => <option key={n} value={n}>{n === 0 ? "No videos" : `${n} per week`}</option>)}
+            </select>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-0">
+            <div className="flex items-center justify-between p-4">
+              <h2 className="font-semibold">Recent posts</h2>
+              <Button size="sm" variant="outline" disabled={busy || !state.on} onClick={() => post({ action: "run" }, "Ran one autopilot pass")}>Run a pass now</Button>
+            </div>
+            {state.rows.length === 0 ? (
+              <p className="border-t p-4 text-sm text-muted-foreground">Nothing yet. Posts show up here after they are published.</p>
+            ) : (
+              state.rows.map((r) => (
+                <div key={r.slug} className="flex flex-wrap items-center justify-between gap-3 border-t p-4">
+                  <div className="min-w-[220px] flex-1">
+                    <p className="font-medium">{r.title}</p>
+                    {r.last_error && <p className="text-xs text-destructive">{r.last_error}</p>}
+                    {r.video_stage === "sandbox" && r.video_url && (
+                      <a className="text-xs text-primary hover:underline" href={r.video_url} target="_blank" rel="noopener noreferrer">Preview sandbox video</a>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">Carousel</span><Badge variant={STAGE_VARIANT(r.carousel_stage)}>{r.carousel_stage}</Badge>
+                    <span className="text-muted-foreground">Video</span><Badge variant={STAGE_VARIANT(r.video_stage)}>{r.video_stage}</Badge>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}

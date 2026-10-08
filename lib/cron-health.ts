@@ -20,6 +20,8 @@ export interface CronStatus {
  * here runs at most daily today (autoblog, gsc-snapshot); a generous 26h margin (a day plus
  * slack) catches "stopped running" without false-alarming on ordinary scheduler jitter. */
 const STALE_MS = 26 * 60 * 60 * 1000
+/** The autopilot cron runs every 30 minutes, so three silent hours is already a problem. */
+const STALE_MS_BY_CRON: Partial<Record<CronName, number>> = { autopilot: 3 * 60 * 60 * 1000 }
 
 function siteTime(iso: string): string {
   return new Date(iso).toLocaleString('en-CA', { timeZone: 'America/Toronto', dateStyle: 'medium', timeStyle: 'short' })
@@ -30,7 +32,7 @@ export function judgeCron(name: CronName, run: CronRun | undefined, now: number 
   if (!run) return { name, light: 'gray', label: 'Never run since this was added' }
   const age = now - Date.parse(run.at)
   if (!Number.isFinite(age)) return { name, light: 'gray', label: 'Never run since this was added' }
-  if (age > STALE_MS) return { name, light: 'amber', label: `Hasn't run since ${siteTime(run.at)}` }
+  if (age > (STALE_MS_BY_CRON[name] ?? STALE_MS)) return { name, light: 'amber', label: `Hasn't run since ${siteTime(run.at)}` }
   if (!run.ok) return { name, light: 'amber', label: `Last run (${siteTime(run.at)}) reported a problem${run.note ? `: ${run.note}` : ''}` }
   return { name, light: 'green', label: `Ran ${siteTime(run.at)}${run.note ? ` - ${run.note}` : ''}` }
 }

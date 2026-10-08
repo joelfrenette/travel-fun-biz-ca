@@ -2,18 +2,11 @@ import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getPostById } from '@/lib/posts'
-import { generateCarouselSlides } from '@/lib/carousel'
-import { getSetting, setSetting } from '@/lib/app-settings'
+import { generateAndSaveCarousel, carouselKey } from '@/lib/carousel'
+import { getSetting } from '@/lib/app-settings'
 import { isAiConfigured } from '@/lib/ai-verify'
-import { tagVariant } from '@/lib/content-variants'
 
 export const maxDuration = 60
-
-// Storage: a JSON blob in the existing app_settings key/value table, keyed by the post's slug -
-// a dedicated table is a nice-to-have, not a blocker to ship this (factory spec's own framing).
-function carouselKey(slug: string): string {
-  return `carousel:${slug}`
-}
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -34,12 +27,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
   try {
     const post = await getPostById(params.id)
     if (!post) return NextResponse.json({ error: 'Post not found' }, { status: 404 })
-    const slides = await generateCarouselSlides(post.title, post.body)
+    const slides = await generateAndSaveCarousel(getSupabaseAdmin(), post)
     if (!slides) return NextResponse.json({ error: 'Could not generate a grounded carousel - the draft may have mentioned a number not in the post. Try again.' }, { status: 502 })
-    const admin = getSupabaseAdmin()
-    const { error } = await setSetting(admin, carouselKey(post.slug), JSON.stringify(slides))
-    if (error) throw new Error(error)
-    await tagVariant(admin, post.slug, { hasCarousel: true })
     return NextResponse.json({ slides, slug: post.slug })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })

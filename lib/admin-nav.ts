@@ -94,6 +94,13 @@ const unsortedTools: AdminNavItem[] = [
     href: "/admin/system-health",
   },
   {
+    title: "Content Autopilot",
+    description: "One switch that runs the whole chain on its own: blog posts, cover images, captions, carousels and short videos, posted to social.",
+    icon: Bot,
+    status: "Active",
+    href: "/admin/autopilot",
+  },
+  {
     title: "Post Distribution",
     description: "Enrollment ledger for social auto-posting (off by default). No posting provider is wired in yet — this only tracks which published posts are enrolled.",
     icon: Share2,

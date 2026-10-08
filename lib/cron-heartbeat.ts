@@ -26,7 +26,7 @@ import { setSetting } from '@/lib/app-settings'
  * actually exist; same rule lib/cron-health.ts already states for judgement logic - add a name
  * back here only once its route and vercel.json entry exist, never as a placeholder.
  */
-export const CRON_NAMES = ['autoblog', 'distribute', 'gsc-snapshot'] as const
+export const CRON_NAMES = ['autoblog', 'distribute', 'gsc-snapshot', 'autopilot'] as const
 export type CronName = (typeof CRON_NAMES)[number]
 
 export interface CronRun {
