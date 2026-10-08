@@ -47,6 +47,18 @@ export async function setGhlAccounts(admin: SupabaseClient, accounts: GhlAccount
   return setSetting(admin, GHL_ACCOUNTS_KEY, JSON.stringify(accounts))
 }
 
+// Which networks accept which kind of post. A network outside a kind's list is skipped for that
+// kind, never sent and failed (YouTube takes video only, so a photo post to it is rejected outright).
+// Photo and video lists follow Upload-Post's published support; text is the stricter set because
+// Instagram, TikTok, Pinterest and YouTube need media.
+export type PostKind = 'text' | 'photo' | 'video'
+export const PLATFORM_ACCEPTS: Record<PostKind, string[]> = {
+  text: ['x', 'twitter', 'linkedin', 'facebook', 'threads', 'bluesky', 'reddit', 'google'],
+  photo: ['instagram', 'tiktok', 'linkedin', 'facebook', 'x', 'twitter', 'threads', 'pinterest', 'bluesky', 'google'],
+  video: ['instagram', 'tiktok', 'youtube', 'facebook', 'linkedin', 'x', 'twitter', 'threads', 'pinterest', 'bluesky'],
+}
+export const platformsFor = (kind: PostKind, platforms: string[]): string[] => platforms.filter((p) => PLATFORM_ACCEPTS[kind].includes(p))
+
 export interface PostingTarget {
   provider: Provider
   /** Lowercase network names this target will post to. */

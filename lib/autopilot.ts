@@ -16,7 +16,6 @@ import { utmLink } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { isAiConfigured } from '@/lib/ai-verify'
 import { isImageAiConfigured } from '@/lib/image-ai-gen'
-import { sendThrottledAlert } from '@/lib/alerts'
 
 // Autopilot: ONE switch that runs the whole content chain with no further clicks. Turning it on
 // applies a preset to the existing engine settings (autoblog publish, distribution auto, tailored
@@ -42,7 +41,7 @@ const RENDER_RETENTION_MS = 48 * 60 * 60 * 1000
 const SOFT_DEADLINE_MS = 150_000
 // After Shotstack rejects the key (401/403) video steps pause this long instead of burning an AI
 // script call per row per run; rows stay pending and resume by themselves once the key works.
-const VIDEO_BLOCK_KEY = 'autopilot_video_blocked_until'
+export const VIDEO_BLOCK_KEY = 'autopilot_video_blocked_until'
 const VIDEO_BLOCK_MS = 6 * 60 * 60 * 1000
 
 // Which Upload-Post networks take a multi-image post / a vertical video. A configured platform
@@ -208,18 +207,8 @@ export async function cleanupOldRenders(admin: SupabaseClient): Promise<string |
 
 export async function runAutopilotTick(admin: SupabaseClient): Promise<string> {
   const cleanup = await cleanupOldRenders(admin).catch(() => null)
-  const { note, problems } = await runAutopilotMain(admin)
-  let alert = ''
-  if (problems.length) {
-    const result = await sendThrottledAlert(admin, 'Autopilot hit a problem', [
-      'Content Autopilot reported:',
-      ...problems.map((p) => `- ${p}`),
-      '',
-      'Details and recent posts: https://www.travelfunbiz.ca/admin/autopilot',
-    ])
-    alert = result === 'sent' ? '; alert emailed' : ''
-  }
-  return [note, cleanup].filter(Boolean).join('; ') + alert
+  const { note } = await runAutopilotMain(admin)
+  return [note, cleanup].filter(Boolean).join('; ')
 }
 
 async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; problems: string[] }> {
@@ -309,7 +298,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
               videoSlots--
               const tail = [capped.title, capped.description, capped.hashtags.join(' '), postLink(row.slug)].filter(Boolean).join('\n\n')
               await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: fitCaption(tail, tightestLimit(VIDEO_PLATFORMS)) })
-            } else if (/(401|403)/.test(submitted.error ?? '')) {
+            } else if (submitted.status === 401 || submitted.status === 403) {
               await setSetting(admin, VIDEO_BLOCK_KEY, new Date(Date.now() + VIDEO_BLOCK_MS).toISOString())
               notes.push(`Shotstack rejected the API key (${submitted.error}) - check SHOTSTACK_API_KEY. Video steps paused for 6 hours.`)
             } else {
@@ -360,6 +349,6 @@ async function settlePost(
   if (result.dormant) return
   // A failed send is never blindly retried unless Upload-Post confirmed it is safe: a timeout may
   // still have created the post, and a duplicate public post is worse than a missed one.
-  await fail(row, key, result.error ?? 'Upload-Post did not post it', result.retryable === false)
+  await fail(row, key, result.error ?? 'The provider did not post it', true)
   notes.push(`${row.slug}: ${key} post failed`)
 }

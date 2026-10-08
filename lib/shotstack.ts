@@ -161,6 +161,8 @@ export interface ShotstackRenderResult {
   ok: boolean
   renderId?: string
   error?: string
+  /** HTTP status when Shotstack answered with an error. */
+  status?: number
 }
 
 /** Submits a render job; Shotstack renders asynchronously, so poll with getRenderStatus. */
@@ -174,11 +176,17 @@ export async function submitRender(edit: ShotstackEdit): Promise<ShotstackRender
       body: JSON.stringify(edit),
       signal: AbortSignal.timeout(30_000),
     })
-    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    const text = await res.text().catch(() => '')
+    let json: Record<string, unknown> = {}
+    try {
+      json = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      // not JSON: the raw text is reported below
+    }
     if (!res.ok) {
       const message = typeof json.message === 'string' ? json.message : `Shotstack returned ${res.status}`
-      const detail = typeof json.response === 'object' && json.response ? JSON.stringify(json.response).slice(0, 200) : ''
-      return { ok: false, error: detail ? `${message} (${detail})` : message }
+      const detail = typeof json.response === 'object' && json.response ? JSON.stringify(json.response) : json.message ? '' : text
+      return { ok: false, status: res.status, error: `${message} (${shotstackEnv()} environment${detail ? `: ${detail.slice(0, 200)}` : ''})` }
     }
     const response = json.response as { id?: string } | undefined
     if (!response?.id) return { ok: false, error: 'Shotstack accepted the request but returned no render id.' }

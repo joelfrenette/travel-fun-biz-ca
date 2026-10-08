@@ -3,6 +3,7 @@ import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { isAutopilotOn, setAutopilot, autopilotReadiness, getVideosPerWeek, setVideosPerWeek } from '@/lib/autopilot'
 import { runPipeline, readLastPipelineRun } from '@/lib/pipeline'
+import { collectIssues, resolveIssue, type IssueAction } from '@/lib/issues'
 import { getKeywordBudget, setKeywordBudget, readKeywordRefreshInfo } from '@/lib/keyword-refresh'
 import { isKeywordDataConfigured } from '@/lib/keywords'
 import { shotstackEnv } from '@/lib/shotstack'
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [on, readiness, videosPerWeek, runs, pipeline, distributionMode, lastRun, keywordBudget, keywordInfo] = await Promise.all([
+    const [on, readiness, videosPerWeek, runs, pipeline, distributionMode, lastRun, keywordBudget, keywordInfo, issues] = await Promise.all([
       isAutopilotOn(admin),
       autopilotReadiness(admin),
       getVideosPerWeek(admin),
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
       readLastPipelineRun(admin),
       getKeywordBudget(admin),
       readKeywordRefreshInfo(admin),
+      collectIssues(admin),
     ])
     const slugs = (pipeline.data ?? []).map((r: { slug: string }) => r.slug)
     const { data: posts } = slugs.length ? await admin.from('posts').select('slug, title').in('slug', slugs) : { data: [] }
@@ -37,6 +39,7 @@ export async function GET(request: Request) {
       shotstackEnv: shotstackEnv(),
       distributionMode,
       lastRun,
+      issues,
       keyword: { budget: keywordBudget, configured: isKeywordDataConfigured(), lastRunAt: keywordInfo.lastRunAt, log: keywordInfo.log },
       cron: judgeCron('autopilot', runs.autopilot),
       rows: (pipeline.data ?? []).map((r: Record<string, unknown>) => ({ ...r, title: titles.get(r.slug as string) ?? r.slug })),
@@ -66,14 +69,9 @@ export async function POST(request: Request) {
       if (error) return NextResponse.json({ error }, { status: 400 })
       return NextResponse.json({ keywordBudget: body.keywordBudget })
     }
-    if (body.action === 'retry' && typeof body.slug === 'string' && (body.part === 'video' || body.part === 'carousel')) {
-      // Puts a failed step back to pending with a fresh attempt count; the next pass picks it up.
-      const stageKey = body.part === 'video' ? 'video_stage' : 'carousel_stage'
-      const { data: row } = await admin.from('content_pipeline').select('attempts').eq('slug', body.slug).maybeSingle()
-      if (!row) return NextResponse.json({ error: 'Post not found in the pipeline' }, { status: 404 })
-      const attempts = { ...(row.attempts as Record<string, number>) }
-      delete attempts[body.part]
-      await admin.from('content_pipeline').update({ [stageKey]: 'pending', attempts, last_error: null, updated_at: new Date().toISOString() }).eq('slug', body.slug).eq(stageKey, 'failed')
+    if (body.action === 'issue' && typeof body.kind === 'string') {
+      const error = await resolveIssue(admin, body.kind as IssueAction, typeof body.slug === 'string' ? body.slug : undefined)
+      if (error) return NextResponse.json({ error }, { status: 400 })
       return NextResponse.json({ ok: true })
     }
     if (body.action === 'run') {

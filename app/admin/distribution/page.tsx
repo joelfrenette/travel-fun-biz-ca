@@ -116,7 +116,7 @@ export default function DistributionPage() {
                   <div className="min-w-[220px] flex-1">
                     <p className="font-medium">{row.title}</p>
                     <p className="text-xs text-muted-foreground">{row.slug} &middot; {new Date(row.created_at).toLocaleDateString("en-CA")}</p>
-                    {row.last_error && <p className="text-xs text-destructive">{row.last_error}</p>}
+                    {row.last_error && <p className="text-xs text-destructive">{row.last_error}{row.stage === "failed" && <> - <a className="underline" href="/admin/autopilot">fix or retry on Content Autopilot</a></>}</p>}
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={row.stage === "held" ? "secondary" : row.stage === "failed" ? "destructive" : "default"}>{row.stage}</Badge>

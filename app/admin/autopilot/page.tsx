@@ -27,6 +27,7 @@ interface State {
   cron: { light: "green" | "amber" | "gray"; label: string }
   lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "post" | "repurpose"; ok: boolean; note: string }[] } | null
   keyword: { budget: number; configured: boolean; lastRunAt: string | null; log: { at: string; spentUsd: number; added: number; seeds: string[] }[] }
+  issues: { id: string; area: "post" | "carousel" | "video" | "system" | "setup"; title: string; detail: string; fix?: string; actions?: { label: string; kind: string; slug?: string }[] }[]
   rows: Row[]
 }
 
@@ -102,6 +103,34 @@ export default function AutopilotPage() {
           </CardContent>
         </Card>
 
+        <Card className={state.issues.some((i) => i.area !== "setup") ? "border-destructive/50" : undefined}>
+          <CardContent className="space-y-3 p-4">
+            <h2 className="font-semibold">Needs attention</h2>
+            {state.issues.length === 0 ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground"><CheckCircle2 className="h-4 w-4 text-emerald-600" />Nothing. Everything is running and set up.</p>
+            ) : (
+              <ul className="space-y-3">
+                {state.issues.map((i) => (
+                  <li key={i.id} className="flex flex-wrap items-start justify-between gap-3 border-t pt-3 first:border-t-0 first:pt-0">
+                    <div className="min-w-[240px] flex-1 space-y-0.5">
+                      <p className="flex items-start gap-2 text-sm font-medium"><AlertTriangle className={i.area === "setup" ? "mt-0.5 h-4 w-4 shrink-0 text-amber-500" : "mt-0.5 h-4 w-4 shrink-0 text-destructive"} />{i.title}</p>
+                      <p className="break-words pl-6 text-xs text-muted-foreground">{i.detail}</p>
+                      {i.fix && <p className="pl-6 text-xs">{i.fix}</p>}
+                    </div>
+                    {i.actions && (
+                      <div className="flex gap-2">
+                        {i.actions.map((a) => (
+                          <Button key={a.kind} size="sm" variant={a.kind.startsWith("dismiss") ? "ghost" : "outline"} disabled={busy} onClick={() => post({ action: "issue", kind: a.kind, slug: a.slug }, a.label === "Dismiss" ? "Dismissed" : "Will try again on the next pass")}>{a.label}</Button>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardContent className="space-y-3 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -138,22 +167,6 @@ export default function AutopilotPage() {
           </Card>
         )}
 
-        {(state.readiness.blockers.length > 0 || state.readiness.warnings.length > 0) && (
-          <Card>
-            <CardContent className="space-y-2 p-4">
-              <h2 className="font-semibold">Setup check</h2>
-              {state.readiness.blockers.map((b) => (
-                <p key={b} className="flex gap-2 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{b}</p>
-              ))}
-              {state.readiness.warnings.map((w) => (
-                <p key={w} className="flex gap-2 text-sm text-muted-foreground"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />{w}</p>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-        {state.readiness.blockers.length === 0 && state.readiness.warnings.length === 0 && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground"><CheckCircle2 className="h-4 w-4 text-emerald-600" />Everything needed is set up.</p>
-        )}
 
         <PostingCard onChanged={load} />
 
@@ -216,9 +229,7 @@ export default function AutopilotPage() {
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-muted-foreground">Carousel</span><Badge variant={STAGE_VARIANT(r.carousel_stage)}>{r.carousel_stage}</Badge>
-                    {r.carousel_stage === "failed" && <Button size="sm" variant="outline" disabled={busy} onClick={() => post({ action: "retry", slug: r.slug, part: "carousel" }, "Will retry on the next pass")}>Retry</Button>}
                     <span className="text-muted-foreground">Video</span><Badge variant={STAGE_VARIANT(r.video_stage)}>{r.video_stage}</Badge>
-                    {r.video_stage === "failed" && <Button size="sm" variant="outline" disabled={busy} onClick={() => post({ action: "retry", slug: r.slug, part: "video" }, "Will retry on the next pass")}>Retry</Button>}
                   </div>
                 </div>
               ))

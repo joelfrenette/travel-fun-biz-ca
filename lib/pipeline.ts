@@ -6,6 +6,9 @@ import { isAutopilotOn, runAutopilotTick } from '@/lib/autopilot'
 import { runAutoblog } from '@/lib/autoblog-run'
 import { runDistribution } from '@/lib/distribution'
 import { refreshKeywordsIfDue } from '@/lib/keyword-refresh'
+import { PIPELINE_LAST_RUN_KEY, type PipelineRun } from '@/lib/pipeline-log'
+import { collectIssues } from '@/lib/issues'
+import { sendThrottledAlert } from '@/lib/alerts'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -18,32 +21,13 @@ import { refreshKeywordsIfDue } from '@/lib/keyword-refresh'
 // Each pass does whatever is due, so a slow video render never blocks the next post, and a pass that
 // runs out of time simply continues on the next one. Nothing here is a new capability: it is the
 // existing engines, sequenced, so there is nothing to click between steps.
-export const PIPELINE_LAST_RUN_KEY = 'pipeline_last_run'
 // Scheduled passes only write the day's post from this UTC hour on (9 am Eastern), so posts do not
 // go live at 3 am. The button ignores it.
 const PUBLISH_HOUR_UTC = 13
 // Past this much elapsed time a pass skips its remaining steps; the next pass picks them up.
 const TIME_BUDGET_MS = 200_000
 
-export interface PipelineStep {
-  step: 'keywords' | 'write' | 'post' | 'repurpose'
-  ok: boolean
-  note: string
-}
-
-export interface PipelineRun {
-  at: string
-  trigger: 'schedule' | 'button'
-  steps: PipelineStep[]
-}
-
-export async function readLastPipelineRun(admin: SupabaseClient): Promise<PipelineRun | null> {
-  try {
-    return JSON.parse((await getSetting(admin, PIPELINE_LAST_RUN_KEY)) ?? 'null') as PipelineRun | null
-  } catch {
-    return null
-  }
-}
+export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 
 /** `force` (the button) writes a new post now regardless of the daily cadence and publish hour. */
 export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean } = {}): Promise<PipelineRun> {
@@ -112,5 +96,20 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
   }
 
   await setSetting(admin, PIPELINE_LAST_RUN_KEY, JSON.stringify(run))
+
+  // One alert email built from the single issue list (setup items are left out: those are not
+  // failures). Throttled to one email per 6 hours however often the pipeline runs.
+  try {
+    const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup')
+    if (open.length) {
+      await sendThrottledAlert(admin, `Autopilot: ${open.length} thing${open.length === 1 ? '' : 's'} need attention`, [
+        ...open.map((i) => `- ${i.title}: ${i.detail}${i.fix ? ` (${i.fix})` : ''}`),
+        '',
+        'Fix or retry each one here: https://www.travelfunbiz.ca/admin/autopilot',
+      ])
+    }
+  } catch {
+    // an alert problem must never fail the pipeline
+  }
   return run
 }

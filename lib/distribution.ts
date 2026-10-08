@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { uploadPostGetStatus } from '@/lib/upload-post'
-import { resolvePostingTarget, type PostingTarget } from '@/lib/social-provider'
+import { resolvePostingTarget, platformsFor, type PostingTarget } from '@/lib/social-provider'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL } from '@/lib/site'
 import { fitCaption, tightestLimit, generatePlatformCaptions, type PlatformCaptions } from '@/lib/social-captions'
@@ -27,6 +27,8 @@ export interface DistributionRow {
   updated_at: string
   provider_request_id: string | null
   provider_job_id: string | null
+  /** Networks this post has already reached, so a retry never re-posts to them. */
+  sent_platforms: string[] | null
 }
 
 /** `app_settings.distribution_mode`: off (default — nothing gets enrolled), prepare (enroll but
@@ -183,7 +185,7 @@ async function sendTailored(
   platforms: string[],
   captions: PlatformCaptions | null,
   sharedCaption: string,
-): Promise<UploadPostSendResult> {
+): Promise<UploadPostSendResult & { sent: string[] }> {
   const tailoredPlatforms = platforms.filter((p) => captions?.[p])
   const fallbackPlatforms = platforms.filter((p) => !captions?.[p])
 
@@ -223,6 +225,7 @@ async function sendTailored(
     if (result.jobId) jobIds.push(result.jobId)
   }
   return {
+    sent: outcomes.filter((o) => o.result.ok).flatMap((o) => o.platforms),
     ok,
     confirmed,
     retryable,
@@ -234,7 +237,6 @@ async function sendTailored(
 }
 
 async function runDistributionLocked(admin: SupabaseClient, target: PostingTarget, tailoredCaptionsOn: boolean): Promise<string> {
-  const platforms = target.platforms
   const { data: rows, error } = await admin
     .from('post_distribution')
     .select('*')
@@ -253,6 +255,25 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const { data: post } = await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
       const link = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: target.provider, medium: 'social', campaign: 'distribution' })
       const title = post?.title || row.title
+      // Only networks that accept this kind of post, and never ones this post already reached.
+      const kind = post?.cover_image_url ? 'photo' : 'text'
+      const already = row.sent_platforms ?? []
+      const platforms = platformsFor(kind, target.platforms).filter((p) => !already.includes(p))
+      if (platforms.length === 0) {
+        const anySent = already.length > 0
+        await admin
+          .from('post_distribution')
+          .update({
+            stage: anySent ? 'done' : 'failed',
+            last_error: anySent ? null : `None of your selected networks takes a ${kind} post (selected: ${target.platforms.join(', ') || 'none'}). Tick a network that does, such as Facebook, LinkedIn or Bluesky.`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('content_type', 'post')
+          .eq('slug', row.slug)
+        if (anySent) posted++
+        else failed++
+        continue
+      }
       const rawCaption = [title, post?.meta_description, link].filter(Boolean).join('\n\n')
       // Mechanical limit check against the tightest of the target platforms' real character
       // limits (lib/social-captions.ts) - the fallback/shared-call path sends this same caption to
@@ -266,6 +287,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const send = (p: string[], text: string) =>
         post?.cover_image_url ? target.sendPhotos(p, text, [post.cover_image_url]) : target.sendText(p, text)
       const result = await sendTailored(send, platforms, tailored, sharedCaption)
+      const sentPlatforms = [...new Set([...already, ...result.sent])]
 
       if (result.ok && result.confirmed === false) {
         // Upload-Post accepted the request (202 / job_id / scheduled) but hasn't confirmed it
@@ -280,12 +302,13 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
             last_error: 'Upload-Post accepted this but has not confirmed it posted yet - verify manually, or wait for the next sync.',
             provider_request_id: result.requestId ?? null,
             provider_job_id: result.jobId ?? null,
+            sent_platforms: sentPlatforms,
             updated_at: new Date().toISOString(),
           })
           .eq('content_type', 'post')
           .eq('slug', row.slug)
       } else if (result.ok) {
-        await admin.from('post_distribution').update({ stage: 'done', updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
+        await admin.from('post_distribution').update({ stage: 'done', sent_platforms: sentPlatforms, updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
         posted++
       } else {
         failed++
@@ -299,7 +322,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           .update({
             stage: retryable && attempts < MAX_ATTEMPTS ? 'queued' : 'failed',
             attempts,
-            last_error: (result.error || 'Upload-Post did not confirm every network posted').slice(0, 300),
+            sent_platforms: sentPlatforms,
+            last_error: (result.error || 'The provider did not confirm every network posted').slice(0, 300),
             updated_at: new Date().toISOString(),
           })
           .eq('content_type', 'post')
