@@ -104,3 +104,72 @@ export async function ghlCreatePost(input: { accountIds: string[]; text: string;
     return { ok: false, retryable: false, error: 'Could not reach GoHighLevel (the post may or may not have been created).' }
   }
 }
+
+/** Hosts a file on GoHighLevel's own media storage and returns the hosted address. TikTok only accepts
+ * a video pulled from a domain verified in TikTok's settings ("The media URL isn't from a verified
+ * domain", seen on a real post 2026-10-08), and GoHighLevel's own storage is one TikTok accepts, so
+ * TikTok videos go through here first. Needs the token to carry the media-library write permission.
+ * The request shape (POST /medias/upload-file, hosted + fileUrl) follows GHL's documented API and is
+ * not yet confirmed by a live call here. */
+export async function ghlHostMedia(sourceUrl: string, name: string): Promise<{ url?: string; error?: string }> {
+  if (!ghlSocialConfigured()) return { error: 'GoHighLevel is not configured.' }
+  try {
+    const form = new FormData()
+    form.set('hosted', 'true')
+    form.set('fileUrl', sourceUrl)
+    form.set('name', name)
+    const res = await fetch(`${BASE}/medias/upload-file`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.GOHIGHLEVEL_PRIVATE_TOKEN!.trim()}`, Version: VERSION, Accept: 'application/json' },
+      body: form,
+      signal: AbortSignal.timeout(60_000),
+    })
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (!res.ok) {
+      const why = typeof json.message === 'string' ? json.message : `HTTP ${res.status}`
+      const hint = res.status === 401 || res.status === 403 ? ' - the GoHighLevel token needs the media library (medias.write) permission' : ''
+      return { error: `Could not host the video on GoHighLevel: ${why}${hint}` }
+    }
+    const url = typeof json.url === 'string' ? json.url : typeof (json.data as { url?: unknown } | undefined)?.url === 'string' ? ((json.data as { url: string }).url) : null
+    return url ? { url } : { error: 'GoHighLevel accepted the upload but returned no address for it.' }
+  } catch {
+    return { error: 'Could not reach GoHighLevel to host the video.' }
+  }
+}
+
+export interface GhlFailedPost {
+  id: string
+  platform: string
+  accountId: string
+  error: string
+  at: string
+}
+
+/** Posts GoHighLevel accepted and then failed to publish (it says "accepted" at creation, and the
+ * network's rejection arrives later - for example TikTok refusing a video). Looks back `days` days. */
+export async function ghlListFailedPosts(days = 3): Promise<GhlFailedPost[]> {
+  if (!ghlSocialConfigured()) return []
+  try {
+    const now = new Date()
+    const res = await fetch(`${BASE}/social-media-posting/${loc()}/posts/list`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ type: 'failed', skip: '0', limit: '50', includeUsers: 'false', fromDate: new Date(now.getTime() - days * 86_400_000).toISOString(), toDate: new Date(now.getTime() + 86_400_000).toISOString() }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!res.ok) return []
+    const json = (await res.json().catch(() => null)) as { results?: { posts?: Array<Record<string, unknown>> } } | null
+    return (json?.results?.posts ?? [])
+      .filter((x) => x.status === 'failed' && x.deleted !== true && typeof x.postId === 'string')
+      .map((x) => ({
+        id: x.postId as string,
+        platform: typeof x.platform === 'string' ? x.platform : 'unknown',
+        accountId: typeof x.accountId === 'string' ? x.accountId : '',
+        error: typeof x.error === 'string' && x.error ? x.error : 'GoHighLevel reported a failure without a reason.',
+        at: typeof x.createdAt === 'string' ? x.createdAt : '',
+      }))
+  } catch {
+    return []
+  }
+}

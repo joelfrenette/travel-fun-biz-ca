@@ -4,14 +4,18 @@ import { autopilotReadiness, VIDEO_BLOCK_KEY } from '@/lib/autopilot'
 import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeAllCrons } from '@/lib/cron-health'
 import { readLastPipelineRun } from '@/lib/pipeline-log'
+import { getProvider, getGhlAccounts } from '@/lib/social-provider'
+import { ghlListFailedPosts } from '@/lib/ghl-social'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
 // quiet or reported a problem, steps of the last pass that failed, and setup that is still missing.
 // Each issue says what happened in plain words, what to do about it, and carries the button that
 // does it. The Autopilot page shows this list; the alert email is built from it too.
+const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
+
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video'
 
 export interface Issue {
   id: string
@@ -101,6 +105,31 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     if (!st.ok && st.step !== 'repurpose') issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
   }
 
+  // Posts GoHighLevel accepted and then failed to publish (the network's rejection arrives later), for
+  // the accounts you ticked only - the same GoHighLevel location holds other businesses' accounts.
+  if ((await getProvider(admin)) === 'ghl') {
+    const ours = new Set((await getGhlAccounts(admin)).map((a) => a.id))
+    let dismissed: string[] = []
+    try {
+      dismissed = JSON.parse((await getSetting(admin, GHL_DISMISSED_KEY)) ?? '[]')
+    } catch {
+      dismissed = []
+    }
+    for (const f of await ghlListFailedPosts(3)) {
+      if (!ours.has(f.accountId) || dismissed.includes(f.id)) continue
+      issues.push({
+        id: `ghl:${f.id}`,
+        area: 'post',
+        title: `${f.platform[0].toUpperCase()}${f.platform.slice(1)} rejected a post from GoHighLevel`,
+        detail: f.error,
+        fix: /verified domain/i.test(f.error)
+          ? 'TikTok only takes videos hosted on a domain it trusts. The video is now hosted on GoHighLevel first (needs the media library permission on your GHL token), so a new video should go through.'
+          : adviceFor(f.error),
+        actions: [{ label: 'Dismiss', kind: 'dismiss-ghl', slug: f.id }],
+      })
+    }
+  }
+
   // Setup that is still missing.
   const ready = await autopilotReadiness(admin)
   ready.blockers.forEach((b, i) => issues.push({ id: `setup:blocker-${i}`, area: 'setup', title: 'Setup required', detail: b }))
@@ -117,6 +146,16 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
     return error ?? null
   }
   if (!slug) return 'A post is required.'
+  if (kind === 'dismiss-ghl') {
+    let list: string[] = []
+    try {
+      list = JSON.parse((await getSetting(admin, GHL_DISMISSED_KEY)) ?? '[]')
+    } catch {
+      list = []
+    }
+    const { error } = await setSetting(admin, GHL_DISMISSED_KEY, JSON.stringify([...new Set([...list, slug])].slice(-200)))
+    return error ?? null
+  }
   if (kind === 'retry-post') {
     // sent_platforms is kept, so a retry only goes to networks that have not received the post.
     const { error } = await admin.from('post_distribution').update({ stage: 'queued', attempts: 0, last_error: null, updated_at: now }).eq('content_type', 'post').eq('slug', slug).eq('stage', 'failed')

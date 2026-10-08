@@ -7,7 +7,7 @@ import {
   uploadPostSendVideo,
   type UploadPostSendResult,
 } from '@/lib/upload-post'
-import { ghlSocialConfigured, ghlSocialMissing, ghlCreatePost } from '@/lib/ghl-social'
+import { ghlSocialConfigured, ghlSocialMissing, ghlCreatePost, ghlHostMedia } from '@/lib/ghl-social'
 
 // One place that answers "where does a post go, and how do I send it": Upload-Post or GoHighLevel,
 // one active at a time (so the same post can never go out twice). distribution.ts and autopilot.ts
@@ -93,13 +93,13 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
     const idsFor = (platforms: string[]) => accounts.filter((a) => platforms.includes(a.platform)).map((a) => a.id)
     // One call per network, so one network refusing a post never stops the others, and the result
     // says exactly which networks were reached.
-    const perNetwork = async (platforms: string[], send: (ids: string[]) => Promise<UploadPostSendResult>): Promise<UploadPostSendResult> => {
+    const perNetwork = async (platforms: string[], send: (ids: string[], platform: string) => Promise<UploadPostSendResult>): Promise<UploadPostSendResult> => {
       const results: NonNullable<UploadPostSendResult['results']> = {}
       const errors: string[] = []
       for (const p of platforms) {
         const ids = idsFor([p])
         if (!ids.length) continue
-        const r = await send(ids)
+        const r = await send(ids, p)
         results[p] = { ok: r.ok, error: r.error }
         if (!r.ok) errors.push(`${p}: ${r.error ?? 'failed'}`)
       }
@@ -112,7 +112,18 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
         platforms: [...new Set(accounts.map((a) => a.platform))],
         sendText: (p, text) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text })),
         sendPhotos: (p, text, imageUrls) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text, mediaUrls: imageUrls, mediaType: 'image' })),
-        sendVideo: (p, text, videoUrl) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text, mediaUrls: [videoUrl], mediaType: 'video', kind: 'reel' })),
+        // TikTok only pulls videos from a domain it has verified, so its copy is hosted on GoHighLevel's
+        // own storage first; the other networks take the original address.
+        sendVideo: (p, text, videoUrl) =>
+          perNetwork(p, async (ids, platform) => {
+            let url = videoUrl
+            if (platform === 'tiktok') {
+              const hosted = await ghlHostMedia(videoUrl, `tiktok-${Date.now()}.mp4`)
+              if (!hosted.url) return { ok: false, retryable: false, error: hosted.error }
+              url = hosted.url
+            }
+            return ghlCreatePost({ accountIds: ids, text, mediaUrls: [url], mediaType: 'video', kind: 'reel' })
+          }),
       },
     }
   }
