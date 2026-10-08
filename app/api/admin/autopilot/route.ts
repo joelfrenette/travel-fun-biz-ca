@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { isAutopilotOn, setAutopilot, autopilotReadiness, getVideosPerWeek, setVideosPerWeek, runAutopilotTick } from '@/lib/autopilot'
+import { isAutopilotOn, setAutopilot, autopilotReadiness, getVideosPerWeek, setVideosPerWeek } from '@/lib/autopilot'
+import { runPipeline, readLastPipelineRun } from '@/lib/pipeline'
 import { shotstackEnv } from '@/lib/shotstack'
 import { getDistributionMode } from '@/lib/distribution'
 import { readCronRuns } from '@/lib/cron-heartbeat'
@@ -13,13 +14,14 @@ export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [on, readiness, videosPerWeek, runs, pipeline, distributionMode] = await Promise.all([
+    const [on, readiness, videosPerWeek, runs, pipeline, distributionMode, lastRun] = await Promise.all([
       isAutopilotOn(admin),
       autopilotReadiness(admin),
       getVideosPerWeek(admin),
       readCronRuns(admin),
       admin.from('content_pipeline').select('*').order('created_at', { ascending: false }).limit(15),
       getDistributionMode(admin),
+      readLastPipelineRun(admin),
     ])
     const slugs = (pipeline.data ?? []).map((r: { slug: string }) => r.slug)
     const { data: posts } = slugs.length ? await admin.from('posts').select('slug, title').in('slug', slugs) : { data: [] }
@@ -30,6 +32,7 @@ export async function GET(request: Request) {
       videosPerWeek,
       shotstackEnv: shotstackEnv(),
       distributionMode,
+      lastRun,
       cron: judgeCron('autopilot', runs.autopilot),
       rows: (pipeline.data ?? []).map((r: Record<string, unknown>) => ({ ...r, title: titles.get(r.slug as string) ?? r.slug })),
     })
@@ -54,7 +57,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ videosPerWeek: body.videosPerWeek })
     }
     if (body.action === 'run') {
-      return NextResponse.json({ note: await runAutopilotTick(admin) })
+      const run = await runPipeline(admin, { force: true })
+      return NextResponse.json({ note: run.steps.map((x) => `${x.step}: ${x.note}`).join(' | ') })
     }
     return NextResponse.json({ error: 'Nothing to do - pass on, videosPerWeek, or {action: "run"}.' }, { status: 400 })
   } catch (error) {

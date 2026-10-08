@@ -1,20 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/cron/autoblog",
-      "schedule": "0 13 * * *"
-    },
-    {
       "path": "/api/cron/gsc-snapshot",
       "schedule": "0 14 * * *"
     },
     {
-      "path": "/api/cron/distribute",
-      "schedule": "0 15 * * *"
-    },
-    {
       "path": "/api/cron/autopilot",
-      "schedule": "*/30 * * * *"
+      "schedule": "*/15 * * * *"
     }
   ]
 }

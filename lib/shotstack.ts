@@ -1,3 +1,5 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { getSetting, setSetting } from '@/lib/app-settings'
 import type { VideoScript } from '@/lib/video-script'
 
 // Shotstack (shotstack.io) - hosted video-render API. The whole render happens in Shotstack's
@@ -14,8 +16,59 @@ import type { VideoScript } from '@/lib/video-script'
 // different API keys.
 export type ShotstackEnv = 'stage' | 'v1'
 
+// Which environment the key belongs to. An explicit SHOTSTACK_ENV always wins. When it is unset,
+// detectShotstackEnv() asks Shotstack which environment accepts the key (a free, read-only call) and
+// remembers the answer, so a production key does not need a second setting to work. Until detection
+// has run, the safe default is the sandbox.
+let detectedEnv: ShotstackEnv | null = null
+
 export function shotstackEnv(): ShotstackEnv {
-  return process.env.SHOTSTACK_ENV?.trim() === 'v1' ? 'v1' : 'stage'
+  const v = process.env.SHOTSTACK_ENV?.trim()
+  if (v === 'v1' || v === 'stage') return v
+  return detectedEnv ?? 'stage'
+}
+
+async function keyAccepted(env: ShotstackEnv, key: string): Promise<boolean | null> {
+  try {
+    const res = await fetch(`https://api.shotstack.io/edit/${env}/templates`, {
+      headers: { 'x-api-key': key, Accept: 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (res.ok) return true
+    if (res.status === 401 || res.status === 403) return false
+    return null
+  } catch {
+    return null
+  }
+}
+
+const ENV_CACHE_KEY = 'shotstack_env_detected'
+const ENV_CACHE_MS = 24 * 60 * 60 * 1000
+
+export async function detectShotstackEnv(admin: SupabaseClient): Promise<ShotstackEnv> {
+  const explicit = process.env.SHOTSTACK_ENV?.trim()
+  if (explicit === 'v1' || explicit === 'stage') return explicit
+  const key = process.env.SHOTSTACK_API_KEY?.trim()
+  if (!key) return shotstackEnv()
+  try {
+    const cached = JSON.parse((await getSetting(admin, ENV_CACHE_KEY)) ?? 'null') as { env?: string; at?: number } | null
+    if (cached && (cached.env === 'v1' || cached.env === 'stage') && typeof cached.at === 'number' && Date.now() - cached.at < ENV_CACHE_MS) {
+      detectedEnv = cached.env
+      return cached.env
+    }
+  } catch {
+    // unreadable cache: probe again below
+  }
+  const onV1 = await keyAccepted('v1', key)
+  const onStage = onV1 ? null : await keyAccepted('stage', key)
+  const found: ShotstackEnv | null = onV1 ? 'v1' : onStage ? 'stage' : null
+  if (found) {
+    detectedEnv = found
+    await setSetting(admin, ENV_CACHE_KEY, JSON.stringify({ env: found, at: Date.now() }))
+    return found
+  }
+  return shotstackEnv()
 }
 
 const baseUrl = () => `https://api.shotstack.io/edit/${shotstackEnv()}`

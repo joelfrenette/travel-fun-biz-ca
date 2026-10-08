@@ -25,6 +25,7 @@ interface State {
   shotstackEnv: "stage" | "v1"
   distributionMode: "off" | "prepare" | "auto"
   cron: { light: "green" | "amber" | "gray"; label: string }
+  lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "write" | "post" | "repurpose"; ok: boolean; note: string }[] } | null
   rows: Row[]
 }
 
@@ -100,6 +101,33 @@ export default function AutopilotPage() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold">The pipeline</h2>
+                <p className="text-xs text-muted-foreground">Every 15 minutes it does whatever is due, in order: write and publish the post, post it with a caption per network, make the carousel and the video, post those. Posts are written once a day from 9 am Eastern.</p>
+              </div>
+              <Button size="sm" disabled={busy || !state.on} onClick={() => post({ action: "run" }, "Pipeline ran")} title="Writes and publishes a new post right now, then runs every following step">
+                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Write and publish a post now
+              </Button>
+            </div>
+            {state.lastRun ? (
+              <ol className="space-y-1.5 text-sm">
+                <li className="text-xs text-muted-foreground">Last pass: {new Date(state.lastRun.at).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium", timeStyle: "short" })} ({state.lastRun.trigger === "button" ? "button" : "scheduled"})</li>
+                {state.lastRun.steps.map((st) => (
+                  <li key={st.step} className="flex items-start gap-2">
+                    {st.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
+                    <span><span className="font-medium capitalize">{st.step === "repurpose" ? "carousel and video" : st.step === "post" ? "post to social" : "write and publish"}</span><span className="text-muted-foreground"> - {st.note}</span></span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-muted-foreground">It has not run yet. It starts within 15 minutes of turning Autopilot on.</p>
+            )}
+          </CardContent>
+        </Card>
+
         {state.distributionMode === "prepare" && (
           <Card className="border-amber-500/50">
             <CardContent className="p-4 text-sm">
@@ -150,7 +178,6 @@ export default function AutopilotPage() {
           <CardContent className="p-0">
             <div className="flex items-center justify-between p-4">
               <h2 className="font-semibold">Recent posts</h2>
-              <Button size="sm" variant="outline" disabled={busy || !state.on} onClick={() => post({ action: "run" }, "Ran one autopilot pass")}>Run a pass now</Button>
             </div>
             {state.rows.length === 0 ? (
               <p className="border-t p-4 text-sm text-muted-foreground">Nothing yet. Posts show up here after they are published.</p>
