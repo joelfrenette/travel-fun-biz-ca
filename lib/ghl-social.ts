@@ -23,14 +23,18 @@ export interface GhlAccount {
   expired: boolean
 }
 
+// The location id has been saved in Vercel as plain LOCATION_ID as well as GOHIGHLEVEL_LOCATION_ID,
+// so either name works.
+const locationId = () => (process.env.GOHIGHLEVEL_LOCATION_ID || process.env.LOCATION_ID || '').trim()
+
 export function ghlSocialConfigured(): boolean {
-  return !!process.env.GOHIGHLEVEL_PRIVATE_TOKEN?.trim() && !!process.env.GOHIGHLEVEL_LOCATION_ID?.trim()
+  return !!process.env.GOHIGHLEVEL_PRIVATE_TOKEN?.trim() && !!locationId()
 }
 
 export function ghlSocialMissing(): string[] {
   const missing: string[] = []
   if (!process.env.GOHIGHLEVEL_PRIVATE_TOKEN?.trim()) missing.push('GOHIGHLEVEL_PRIVATE_TOKEN')
-  if (!process.env.GOHIGHLEVEL_LOCATION_ID?.trim()) missing.push('GOHIGHLEVEL_LOCATION_ID')
+  if (!locationId()) missing.push('GOHIGHLEVEL_LOCATION_ID (or LOCATION_ID)')
   if (!process.env.GOHIGHLEVEL_USER_ID?.trim()) missing.push('GOHIGHLEVEL_USER_ID')
   return missing
 }
@@ -41,7 +45,7 @@ const headers = () => ({
   Accept: 'application/json',
   'Content-Type': 'application/json',
 })
-const loc = () => encodeURIComponent(process.env.GOHIGHLEVEL_LOCATION_ID!.trim())
+const loc = () => encodeURIComponent(locationId())
 
 export async function ghlListAccounts(): Promise<{ accounts: GhlAccount[]; error?: string }> {
   if (!ghlSocialConfigured()) return { accounts: [] }
