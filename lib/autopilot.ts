@@ -5,7 +5,7 @@ import { AUTOBLOG_MODE_KEY } from '@/lib/autoblog-run'
 import { setAutoblogAiImageFallback } from '@/lib/blog-image'
 import { getDistributionMode, setDistributionMode, getDistributionAccounts, getDistributionPlatforms, setTailoredCaptionsEnabled } from '@/lib/distribution'
 import { generateAndSaveCarousel, carouselKey, type CarouselSlide } from '@/lib/carousel'
-import { generateVideoScript, capScriptDuration } from '@/lib/video-script'
+import { generateVideoScript, capScriptDuration, coverTitleFor } from '@/lib/video-script'
 import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, type BeatVisual } from '@/lib/shotstack'
 import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
 import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
@@ -13,7 +13,7 @@ import { resolvePostingTarget, getProvider, platformsFor, sentPlatformsOf, type 
 import { ghlSocialMissing } from '@/lib/ghl-social'
 import { fitCaption, tightestLimit } from '@/lib/social-captions'
 import { utmLink } from '@/lib/utm'
-import { SITE_URL, absoluteUrl } from '@/lib/site'
+import { SITE_URL, SITE_NAME, absoluteUrl } from '@/lib/site'
 import { isAiConfigured } from '@/lib/ai-verify'
 import { isImageAiConfigured } from '@/lib/image-ai-gen'
 
@@ -302,7 +302,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             const capped = capScriptDuration(script)
             const clips = await Promise.all(capped.beats.map((b) => findBrollClip(b.brollSearchTerms.join(' '))))
             const visuals: BeatVisual[] = clips.map((c) => ({ videoUrl: c?.url }))
-            const submitted = await submitRender(buildVideoEdit(capped, visuals, post.cover_image_url ?? undefined))
+            const submitted = await submitRender(buildVideoEdit(capped, visuals, post.cover_image_url ?? undefined, coverTitleFor(capped, post.title), SITE_NAME.toUpperCase()))
             if (submitted.ok && submitted.renderId) {
               videoSlots--
               const tail = [capped.title, capped.description, capped.hashtags.join(' '), postLink(row.slug)].filter(Boolean).join('\n\n')

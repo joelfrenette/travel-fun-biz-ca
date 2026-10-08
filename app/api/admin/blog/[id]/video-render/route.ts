@@ -19,7 +19,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'A valid script is required - generate one first.' }, { status: 400 })
     }
     const clips = await Promise.all(body.script.beats.map((b) => findBrollClip((b.brollSearchTerms ?? []).join(' '))))
-    const edit = buildVideoEdit(body.script, clips.map((c) => ({ videoUrl: c?.url })))
+    const edit = buildVideoEdit(body.script, clips.map((c) => ({ videoUrl: c?.url })), undefined, body.script.coverTitle)
     const result = await submitRender(edit)
     if (!result.ok) return NextResponse.json({ error: result.error || 'Shotstack rejected the render.' }, { status: 502 })
     return NextResponse.json({ renderId: result.renderId })

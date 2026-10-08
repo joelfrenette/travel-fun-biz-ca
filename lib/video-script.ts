@@ -21,6 +21,8 @@ export interface VideoBeat {
 
 export interface VideoScript {
   hook: string
+  /** Short scroll-stopping headline for the opening cover card (3-7 words). */
+  coverTitle?: string
   beats: VideoBeat[]
   title: string
   description: string
@@ -48,11 +50,13 @@ ${NO_FABRICATION}
 
 The hook is the first spoken line - it has to earn the next 2 seconds of attention. ${formulaNote} A weak hook is a vague scene-setter ("Have you ever wondered about..."); a strong one states something specific and surprising in one breath.
 
+Also write coverTitle: the headline printed big on the opening cover frame of the video, 3 to 7 words, built to stop a thumb mid-scroll (curiosity, contrast or a bold promise), plain words, no emoji, no hashtags. It may only promise what the post itself supports - never invent a price, number, date or place that is not in the title or summary above.
+
 Write 4-6 beats after the hook. Each beat needs: a scene description (what b-roll footage would show, for searching stock clips - never shown to the viewer), 3-6 words of on-screen text, one spoken voiceover line (natural spoken pace, not written prose), and 2-4 English search terms for finding a matching stock video clip.
 
 Keep the WHOLE spoken script (hook + every beat's voiceover line, read aloud, back to back) under 140 words total - real narration runs slower than reading speed, and this has to fit under 60 seconds including a title card.
 
-Return ONLY minified JSON of this exact shape: {"hook":"...","beats":[{"scene":"...","onScreenText":"...","voiceover":"...","brollSearchTerms":["...","..."]}],"title":"...","description":"...","hashtags":["...","..."]}`
+Return ONLY minified JSON of this exact shape: {"hook":"...","coverTitle":"...","beats":[{"scene":"...","onScreenText":"...","voiceover":"...","brollSearchTerms":["...","..."]}],"title":"...","description":"...","hashtags":["...","..."]}`
 }
 
 export function detectHookFormula(hook: string): HookFormula | null {
@@ -82,8 +86,13 @@ async function runScriptStep(postTitle: string, postSummary: string, formulaHint
     .filter((b): b is VideoBeat => !!b && typeof b.scene === 'string' && typeof b.onScreenText === 'string' && typeof b.voiceover === 'string')
     .map((b) => ({ ...b, brollSearchTerms: Array.isArray(b.brollSearchTerms) ? b.brollSearchTerms.filter((t): t is string => typeof t === 'string') : [] }))
   if (beats.length === 0) return null
+  // The cover headline is public text on the first frame: any number in it must come from the post.
+  const knownNumbers = new Set(`${postTitle} ${postSummary}`.match(/\d+/g) ?? [])
+  const rawCover = typeof parsed.coverTitle === 'string' ? parsed.coverTitle.trim().replace(/\s+/g, ' ') : ''
+  const coverTitle = rawCover && rawCover.length <= 60 && (rawCover.match(/\d+/g) ?? []).every((n) => knownNumbers.has(n)) ? rawCover : undefined
   return {
     hook: parsed.hook,
+    coverTitle,
     beats,
     title: typeof parsed.title === 'string' ? parsed.title : postTitle,
     description: typeof parsed.description === 'string' ? parsed.description : '',
@@ -144,4 +153,12 @@ export function capScriptDuration(script: VideoScript, maxSeconds = MAX_DURATION
     beats.splice(removeAt, 1)
   }
   return { ...script, beats }
+}
+
+/** The cover card headline: the model's, or a short cut of the post's own title when it gave none
+ * (or one with an unsupported number). Never invents anything. */
+export function coverTitleFor(script: VideoScript, postTitle: string): string {
+  if (script.coverTitle) return script.coverTitle
+  const words = postTitle.replace(/[.!?]+$/, '').split(/\s+/).filter(Boolean)
+  return words.slice(0, 7).join(' ')
 }

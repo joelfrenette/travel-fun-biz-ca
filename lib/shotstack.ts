@@ -86,6 +86,9 @@ export interface ShotstackClip {
   transition?: { in?: string; out?: string }
   position?: string
   offset?: { x?: number; y?: number }
+  width?: number
+  height?: number
+  filter?: string
   alias?: string
 }
 
@@ -104,47 +107,94 @@ export interface BeatVisual {
   imageUrl?: string
 }
 
-const TITLE_CARD_SECONDS = 3
+const COVER_SECONDS = 3
 const SECONDS_PER_WORD = 1 / 2.5
+// The output is 9:16 "hd" = 720 x 1280. Text boxes are 640 wide (40px margins each side) and wrap
+// inside that box, so nothing is cut off at the edges. Text sits clear of the top and bottom strips
+// that Instagram and TikTok cover with their own buttons and caption.
+const TEXT_WIDTH = 640
+const FONT = 'Open Sans'
 
-/** Builds the Edit API body for one script. Track order is top-most first (Shotstack layers the
- * first track on top): captions, on-screen text per beat, the hook title card, the visuals
- * (stock video or still image per beat, back to back), and one continuous text-to-speech clip
- * carrying an alias the caption track reads from, so beats can never overlap or clip each other.
- * Beat timing is estimated by word count (2.5 words/sec) because a hosted TTS render has no
- * measurable timing until it exists; it is not frame-accurate. */
-export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], fallbackImageUrl?: string): ShotstackEdit {
+const richText = (text: string, size: number, opts: { color?: string; background?: string; bgOpacity?: number; stroke?: number; uppercase?: boolean } = {}) => ({
+  type: 'rich-text',
+  text,
+  font: { family: FONT, size, weight: '700', color: opts.color ?? '#ffffff', ...(opts.stroke ? { stroke: { width: opts.stroke, color: '#000000' } } : {}) },
+  style: { lineHeight: 1.15, ...(opts.uppercase ? { textTransform: 'uppercase' } : {}) },
+  ...(opts.background ? { background: { color: opts.background, opacity: opts.bgOpacity ?? 0.9, borderRadius: 16, wrap: true } } : {}),
+  padding: 16,
+  align: { horizontal: 'center', vertical: 'middle' },
+})
+
+/** Builds the Edit API body for one script. Layers, top-most first: captions from the narration
+ * audio, the opening cover card (catchy headline over the post's cover image) for the first 3
+ * seconds, short on-screen text per beat, the visuals (cover image then stock video per beat), and
+ * one continuous text-to-speech clip the captions read from. Beat timing is estimated by word count
+ * (2.5 words/sec) because a hosted render has nothing to measure until it exists. */
+export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], coverImageUrl?: string, coverTitle?: string, brand = 'TRAVELFUN.BIZ'): ShotstackEdit {
   const fullNarration = [script.hook, ...script.beats.map((b) => b.voiceover)].join(' ')
 
   const visualClips: ShotstackClip[] = []
   const textClips: ShotstackClip[] = []
-  let cursor = TITLE_CARD_SECONDS
+
+  // Cover: the post's own image, darkened so the headline reads; falls back to the first stock clip.
+  if (coverImageUrl) {
+    visualClips.push({ asset: { type: 'image', src: coverImageUrl }, start: 0, length: COVER_SECONDS, fit: 'cover', effect: 'zoomIn', filter: 'darken' })
+  } else if (visuals[0]?.videoUrl) {
+    visualClips.push({ asset: { type: 'video', src: visuals[0].videoUrl, volume: 0 }, start: 0, length: COVER_SECONDS, fit: 'cover', filter: 'darken' })
+  }
+
+  let cursor = COVER_SECONDS
   script.beats.forEach((beat, i) => {
     const words = beat.voiceover.trim().split(/\s+/).filter(Boolean).length
     const length = Math.max(words * SECONDS_PER_WORD, 1.5)
     const v = visuals[i]
     if (v?.videoUrl) {
       visualClips.push({ asset: { type: 'video', src: v.videoUrl, volume: 0 }, start: cursor, length, fit: 'cover' })
-    } else if (v?.imageUrl || fallbackImageUrl) {
-      visualClips.push({ asset: { type: 'image', src: v?.imageUrl || fallbackImageUrl }, start: cursor, length, fit: 'cover', effect: 'zoomIn' })
+    } else if (v?.imageUrl || coverImageUrl) {
+      visualClips.push({ asset: { type: 'image', src: v?.imageUrl || coverImageUrl }, start: cursor, length, fit: 'cover', effect: 'zoomIn' })
     }
     textClips.push({
-      asset: { type: 'title', text: beat.onScreenText, style: 'minimal' },
+      asset: richText(beat.onScreenText, 50, { background: '#000000', bgOpacity: 0.55, stroke: 2 }),
       start: cursor,
       length,
+      width: TEXT_WIDTH,
       position: 'top',
-      offset: { y: -0.15 },
+      offset: { y: -0.2 },
     })
     cursor += length
   })
   const totalLength = cursor
 
   const tracks: ShotstackTrack[] = [
-    // Auto-transcribed captions from the narration audio (src aliases the TTS clip below).
-    { clips: [{ asset: { type: 'rich-caption', src: 'alias://narration' }, start: 0, length: totalLength }] },
+    // Captions, transcribed from the narration (src aliases the TTS clip below), kept to the lower
+    // middle and wrapped inside the same 640px box.
+    {
+      clips: [
+        {
+          asset: {
+            type: 'rich-caption',
+            src: 'alias://narration',
+            font: { family: FONT, size: 44, weight: '700', color: '#ffffff', stroke: { width: 3, color: '#000000' } },
+            background: { color: '#000000', opacity: 0.45, borderRadius: 12, wrap: true },
+            padding: 12,
+            align: { horizontal: 'center', vertical: 'middle' },
+          },
+          start: 0,
+          length: totalLength,
+          width: TEXT_WIDTH,
+          position: 'bottom',
+          offset: { y: 0.18 },
+        },
+      ],
+    },
+    // Cover card text: brand line on top, the headline big in the middle.
+    {
+      clips: [
+        { asset: richText(brand, 34, { background: '#d81f26', bgOpacity: 0.95 }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'top', offset: { y: -0.16 } },
+        { asset: richText(coverTitle || script.hook, 84, { background: '#d81f26', bgOpacity: 0.92, stroke: 3, uppercase: true }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'center' },
+      ],
+    },
     { clips: textClips },
-    // Hook title card: first frame, doubles as the cover thumbnail.
-    { clips: [{ asset: { type: 'title', text: script.hook, style: 'blockbuster' }, start: 0, length: TITLE_CARD_SECONDS }] },
   ]
   if (visualClips.length > 0) tracks.push({ clips: visualClips })
   tracks.push({
