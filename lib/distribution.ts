@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
-import { uploadPostConfigured, uploadPostSendPhotos, uploadPostSendText, uploadPostGetStatus } from '@/lib/upload-post'
+import { uploadPostGetStatus } from '@/lib/upload-post'
+import { resolvePostingTarget, type PostingTarget } from '@/lib/social-provider'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL } from '@/lib/site'
 import { fitCaption, tightestLimit, generatePlatformCaptions, type PlatformCaptions } from '@/lib/social-captions'
@@ -158,17 +159,13 @@ export async function runDistribution(admin: SupabaseClient): Promise<string> {
   if (await isAutomationPaused(admin)) return 'automation is paused'
   const mode = await getDistributionMode(admin)
   if (mode === 'off') return 'distribution mode is off'
-  if (!uploadPostConfigured()) return 'UPLOAD_POST_API_KEY is not set'
-
-  const [accounts, platforms] = await Promise.all([getDistributionAccounts(admin), getDistributionPlatforms(admin)])
-  const user = accounts[0]
-  if (!user) return 'no Upload-Post profile set (distribution_accounts)'
-  if (!platforms.length) return 'no platforms set (distribution_platforms)'
+  const { target, reason } = await resolvePostingTarget(admin)
+  if (!target) return reason ?? 'posting is not set up'
 
   if (!(await acquireDistributionLock(admin))) return 'another distribution run is already in progress'
   try {
     const tailoredCaptionsOn = await getTailoredCaptionsEnabled(admin)
-    return await runDistributionLocked(admin, user, platforms, tailoredCaptionsOn)
+    return await runDistributionLocked(admin, target, tailoredCaptionsOn)
   } finally {
     await releaseDistributionLock(admin)
   }
@@ -236,7 +233,8 @@ async function sendTailored(
   }
 }
 
-async function runDistributionLocked(admin: SupabaseClient, user: string, platforms: string[], tailoredCaptionsOn: boolean): Promise<string> {
+async function runDistributionLocked(admin: SupabaseClient, target: PostingTarget, tailoredCaptionsOn: boolean): Promise<string> {
+  const platforms = target.platforms
   const { data: rows, error } = await admin
     .from('post_distribution')
     .select('*')
@@ -253,7 +251,7 @@ async function runDistributionLocked(admin: SupabaseClient, user: string, platfo
   for (const row of rows as DistributionRow[]) {
     try {
       const { data: post } = await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
-      const link = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: 'upload-post', medium: 'social', campaign: 'distribution' })
+      const link = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: target.provider, medium: 'social', campaign: 'distribution' })
       const title = post?.title || row.title
       const rawCaption = [title, post?.meta_description, link].filter(Boolean).join('\n\n')
       // Mechanical limit check against the tightest of the target platforms' real character
@@ -266,9 +264,7 @@ async function runDistributionLocked(admin: SupabaseClient, user: string, platfo
       // blocks distribution over this, same rule as every other AI step in this project.
       const tailored = tailoredCaptionsOn ? await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms) : null
       const send = (p: string[], text: string) =>
-        post?.cover_image_url
-          ? uploadPostSendPhotos({ user, platforms: p, text, imageUrls: [post.cover_image_url] })
-          : uploadPostSendText({ user, platforms: p, text })
+        post?.cover_image_url ? target.sendPhotos(p, text, [post.cover_image_url]) : target.sendText(p, text)
       const result = await sendTailored(send, platforms, tailored, sharedCaption)
 
       if (result.ok && result.confirmed === false) {

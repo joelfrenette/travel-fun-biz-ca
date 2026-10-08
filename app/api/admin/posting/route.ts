@@ -14,6 +14,8 @@ import {
 } from '@/lib/distribution'
 import { uploadPostConfigured, uploadPostListProfiles, uploadPostConnectLink, UPLOAD_POST_DASHBOARD_URL } from '@/lib/upload-post'
 import { isAiConfigured } from '@/lib/ai-verify'
+import { getProvider, setProvider, getGhlAccounts, setGhlAccounts, type Provider, type GhlAccountRef } from '@/lib/social-provider'
+import { ghlSocialConfigured, ghlSocialMissing, ghlListAccounts } from '@/lib/ghl-social'
 
 // The one place to set up where content gets posted: provider, which profile, which connected
 // accounts, and whether posts need your OK first. Replaces typing a profile name and a platform list
@@ -29,15 +31,19 @@ export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [mode, accounts, platforms, tailoredCaptions, listed] = await Promise.all([
+    const [mode, accounts, platforms, tailoredCaptions, listed, provider, ghlSelected, ghlListed] = await Promise.all([
       getDistributionMode(admin),
       getDistributionAccounts(admin),
       getDistributionPlatforms(admin),
       getTailoredCaptionsEnabled(admin),
       uploadPostListProfiles(),
+      getProvider(admin),
+      getGhlAccounts(admin),
+      ghlListAccounts(),
     ])
     return NextResponse.json({
-      provider: 'upload-post',
+      provider,
+      ghl: { configured: ghlSocialConfigured(), missing: ghlSocialMissing(), accounts: ghlListed.accounts, selected: ghlSelected, error: ghlListed.error ?? null },
       configured: uploadPostConfigured(),
       profiles: listed.profiles ?? [],
       profilesError: listed.error ?? null,
@@ -59,6 +65,19 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}))
     const admin = getSupabaseAdmin()
 
+    if (body.provider === 'upload-post' || body.provider === 'ghl') {
+      const { error } = await setProvider(admin, body.provider as Provider)
+      if (error) throw new Error(error)
+      return NextResponse.json({ ok: true })
+    }
+    if (Array.isArray(body.ghlAccounts)) {
+      const refs = (body.ghlAccounts as unknown[]).filter(
+        (a): a is GhlAccountRef => !!a && typeof (a as GhlAccountRef).id === 'string' && typeof (a as GhlAccountRef).platform === 'string' && typeof (a as GhlAccountRef).name === 'string',
+      )
+      const { error } = await setGhlAccounts(admin, refs)
+      if (error) throw new Error(error)
+      return NextResponse.json({ ok: true })
+    }
     if (typeof body.profile === 'string') {
       const { error } = await setDistributionAccounts(admin, body.profile.trim() ? [body.profile.trim()] : [])
       if (error) throw new Error(error)

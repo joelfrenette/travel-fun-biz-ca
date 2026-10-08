@@ -8,7 +8,9 @@ import { generateAndSaveCarousel, carouselKey, type CarouselSlide } from '@/lib/
 import { generateVideoScript, capScriptDuration } from '@/lib/video-script'
 import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, type BeatVisual } from '@/lib/shotstack'
 import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
-import { uploadPostConfigured, uploadPostSendPhotos, uploadPostSendVideo, type UploadPostSendResult } from '@/lib/upload-post'
+import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
+import { resolvePostingTarget, getProvider, type PostingTarget } from '@/lib/social-provider'
+import { ghlSocialMissing } from '@/lib/ghl-social'
 import { fitCaption, tightestLimit } from '@/lib/social-captions'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
@@ -74,9 +76,14 @@ export async function autopilotReadiness(admin: SupabaseClient): Promise<Readine
   const warnings: string[] = []
   if (!isAiConfigured()) blockers.push('ANTHROPIC_API_KEY is not set in Vercel - nothing can be written without it.')
   if (!process.env.CRON_SECRET) blockers.push('CRON_SECRET is not set in Vercel - the scheduled jobs refuse to run without it.')
-  if (!uploadPostConfigured()) warnings.push('UPLOAD_POST_API_KEY is not set - content will be created but nothing will post to social.')
-  const [accounts, platforms] = await Promise.all([getDistributionAccounts(admin), getDistributionPlatforms(admin)])
-  if (uploadPostConfigured() && (!accounts[0] || platforms.length === 0)) {
+  const provider = await getProvider(admin)
+  if (provider === 'ghl') {
+    const missing = ghlSocialMissing()
+    if (missing.length) warnings.push(`GoHighLevel posting needs ${missing.join(', ')} in Vercel - nothing will post until they are set.`)
+    else if (!(await resolvePostingTarget(admin)).target) warnings.push('No GoHighLevel accounts ticked in the "Where it posts" box below - nothing will post until you choose some.')
+  } else if (!uploadPostConfigured()) {
+    warnings.push('UPLOAD_POST_API_KEY is not set - content will be created but nothing will post to social.')
+  } else if (!(await resolvePostingTarget(admin)).target) {
     warnings.push('No Upload-Post profile or accounts chosen in the "Where it posts" box below - nothing will post until both are set.')
   }
   if (!isPexelsConfigured()) warnings.push('PEXELS_API_KEY is not set - no cover photos and no video b-roll.')
@@ -153,21 +160,23 @@ async function loadPost(admin: SupabaseClient, slug: string): Promise<PostFacts 
   return data && data.status === 'published' ? (data as PostFacts) : null
 }
 
-interface PostingTarget {
-  user: string
+interface AutopilotTarget {
+  target: PostingTarget
   carouselPlatforms: string[]
   videoPlatforms: string[]
 }
 
-/** Posting only happens in distribution mode "auto" with a profile and platforms saved - the same
- * gate the text/photo distribution uses. Otherwise content is still created, just not sent. */
-async function postingTarget(admin: SupabaseClient): Promise<PostingTarget | null> {
-  if ((await getDistributionMode(admin)) !== 'auto' || !uploadPostConfigured()) return null
-  const [accounts, platforms] = await Promise.all([getDistributionAccounts(admin), getDistributionPlatforms(admin)])
-  const user = accounts[0]
-  if (!user) return null
-  const lower = platforms.map((p) => p.toLowerCase())
-  return { user, carouselPlatforms: lower.filter((p) => CAROUSEL_PLATFORMS.includes(p)), videoPlatforms: lower.filter((p) => VIDEO_PLATFORMS.includes(p)) }
+/** Posting only happens in distribution mode "auto" with a provider fully set up - the same gate
+ * the text/photo distribution uses. Otherwise content is still created, just not sent. */
+async function postingTarget(admin: SupabaseClient): Promise<AutopilotTarget | null> {
+  if ((await getDistributionMode(admin)) !== 'auto') return null
+  const { target } = await resolvePostingTarget(admin)
+  if (!target) return null
+  return {
+    target,
+    carouselPlatforms: target.platforms.filter((p) => CAROUSEL_PLATFORMS.includes(p)),
+    videoPlatforms: target.platforms.filter((p) => VIDEO_PLATFORMS.includes(p)),
+  }
 }
 
 const postLink = (slug: string) => utmLink(`${SITE_URL}/blog/${slug}`, { source: 'upload-post', medium: 'social', campaign: 'autopilot' })
@@ -277,7 +286,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       const slides = raw ? (JSON.parse(raw) as CarouselSlide[]) : []
       if (post && slides.length) {
         const caption = fitCaption([post.title, post.meta_description, postLink(row.slug)].filter(Boolean).join('\n\n'), tightestLimit(target.carouselPlatforms))
-        const result = await uploadPostSendPhotos({ user: target.user, platforms: target.carouselPlatforms, text: caption, imageUrls: slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)) })
+        const result = await target.target.sendPhotos(target.carouselPlatforms, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
         await settlePost(row, 'carousel', result, 'posted', save, fail, notes)
       }
     }
@@ -326,7 +335,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       }
     }
     if (row.video_stage === 'rendered' && row.video_url && target && target.videoPlatforms.length && Date.now() - startedAt < SOFT_DEADLINE_MS) {
-      const result = await uploadPostSendVideo({ user: target.user, platforms: target.videoPlatforms, text: row.video_caption ?? row.slug, videoUrl: row.video_url })
+      const result = await target.target.sendVideo(target.videoPlatforms, row.video_caption ?? row.slug, row.video_url)
       await settlePost(row, 'video', result, 'posted', save, fail, notes)
     }
   }

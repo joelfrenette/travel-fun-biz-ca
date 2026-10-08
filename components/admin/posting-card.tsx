@@ -11,7 +11,8 @@ interface Account { platform: string; username?: string; status?: string }
 interface Profile { username: string; accounts: Account[] }
 
 interface Posting {
-  provider: "upload-post"
+  provider: "upload-post" | "ghl"
+  ghl: { configured: boolean; missing: string[]; accounts: { id: string; platform: string; name: string; type?: string; active: boolean; expired: boolean }[]; selected: { id: string; platform: string; name: string }[]; error: string | null }
   configured: boolean
   profiles: Profile[]
   profilesError: string | null
@@ -96,12 +97,46 @@ export function PostingCard({ onChanged }: { onChanged?: () => void }) {
       <CardContent className="space-y-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">Where it posts</h2>
-          <div className="flex items-center gap-2 text-xs">
-            <Badge>Upload-Post</Badge>
-            <Badge variant="outline" title="Posting through GoHighLevel is planned but not built yet.">GoHighLevel: coming</Badge>
+          <div className="flex items-center gap-2 text-xs" role="group" aria-label="Posting provider">
+            <Button size="sm" variant={data.provider === "upload-post" ? "default" : "outline"} disabled={busy} onClick={() => data.provider !== "upload-post" && save({ provider: "upload-post" }, "Posting through Upload-Post")}>Upload-Post</Button>
+            <Button size="sm" variant={data.provider === "ghl" ? "default" : "outline"} disabled={busy} onClick={() => data.provider !== "ghl" && save({ provider: "ghl" }, "Posting through GoHighLevel")}>GoHighLevel</Button>
           </div>
         </div>
 
+        {data.provider === "ghl" ? (
+          <div className="space-y-3">
+            {data.ghl.missing.length > 0 ? (
+              <p className="flex gap-2 text-sm text-muted-foreground"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />GoHighLevel posting needs {data.ghl.missing.join(", ")} in Vercel. The token must be a Private Integration Token with the Social Planner permission (the older API key cannot post).</p>
+            ) : (
+              <>
+                {data.ghl.error && <p className="text-sm text-destructive">{data.ghl.error}</p>}
+                <p className="text-sm font-medium">Post to (nothing is ticked until you choose)</p>
+                <div className="grid gap-x-5 gap-y-2 sm:grid-cols-2">
+                  {data.ghl.accounts.map((a) => {
+                    const checked = data.ghl.selected.some((x) => x.id === a.id)
+                    const unusable = !a.active || a.expired
+                    return (
+                      <label key={a.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={busy || unusable}
+                          onChange={() => save({ ghlAccounts: checked ? data.ghl.selected.filter((x) => x.id !== a.id) : [...data.ghl.selected, { id: a.id, platform: a.platform, name: a.name }] }, "Saved")}
+                        />
+                        <span className="capitalize">{a.platform}</span>
+                        <span className="truncate text-xs text-muted-foreground">{a.name}</span>
+                        {unusable && <Badge variant="destructive">{a.expired ? "expired" : "inactive"}</Badge>}
+                      </label>
+                    )
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">Your GoHighLevel holds accounts for several businesses, so tick only the TravelFunBiz ones. The first post through GoHighLevel is an untested path: check the result in GoHighLevel after it goes out.</p>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={load}>Refresh</Button>
+              </>
+            )}
+          </div>
+        ) : (
+          <>
         {!data.configured ? (
           <p className="flex gap-2 text-sm text-muted-foreground"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />UPLOAD_POST_API_KEY is not set in Vercel yet, so there is nothing to connect to.</p>
         ) : (
@@ -160,6 +195,9 @@ export function PostingCard({ onChanged }: { onChanged?: () => void }) {
               <Button size="sm" variant="outline" disabled={busy} onClick={connect}><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Connect accounts</Button>
               <Button size="sm" variant="ghost" disabled={busy} onClick={load}>Refresh</Button>
             </div>
+          </>
+        )}
+
           </>
         )}
 
