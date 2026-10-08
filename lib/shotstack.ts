@@ -165,3 +165,46 @@ export async function getRenderStatus(renderId: string): Promise<ShotstackStatus
     return { ok: false, error: err instanceof Error ? err.message : 'Could not reach Shotstack.' }
   }
 }
+
+const serveUrl = () => `https://api.shotstack.io/serve/${shotstackEnv()}`
+
+/** Deletes every file Shotstack is hosting for one render (the video itself plus its poster and
+ * thumbnail - each is a separate asset and must be deleted individually). Shotstack keeps hosted
+ * renders until they are deleted, so without this they pile up against your storage. A render with
+ * no remaining assets (already deleted, or never saved) counts as success. */
+export async function deleteRenderAssets(renderId: string): Promise<{ ok: boolean; deleted: number; error?: string }> {
+  const key = process.env.SHOTSTACK_API_KEY?.trim()
+  if (!key) return { ok: false, deleted: 0, error: 'SHOTSTACK_API_KEY is not set' }
+  try {
+    const list = await fetch(`${serveUrl()}/assets/render/${encodeURIComponent(renderId)}`, {
+      headers: { 'x-api-key': key, Accept: 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (list.status === 404) return { ok: true, deleted: 0 }
+    if (!list.ok) return { ok: false, deleted: 0, error: `Shotstack returned ${list.status} listing assets` }
+    const json = (await list.json().catch(() => ({}))) as { data?: unknown }
+    // Response is JSON:API-style ({data:[{type:'asset', attributes:{id,...}}]}); tolerate a single
+    // object or a bare id field too, since this shape has not been seen from a live call here.
+    const items = Array.isArray(json.data) ? json.data : json.data ? [json.data] : []
+    const ids = items
+      .map((i) => {
+        const o = i as { id?: unknown; attributes?: { id?: unknown } }
+        return typeof o.attributes?.id === 'string' ? o.attributes.id : typeof o.id === 'string' ? o.id : null
+      })
+      .filter((id): id is string => !!id)
+    let deleted = 0
+    for (const id of ids) {
+      const res = await fetch(`${serveUrl()}/assets/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'x-api-key': key },
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (res.ok || res.status === 404) deleted++
+      else return { ok: false, deleted, error: `Shotstack returned ${res.status} deleting an asset` }
+    }
+    return { ok: true, deleted }
+  } catch (err) {
+    return { ok: false, deleted: 0, error: err instanceof Error ? err.message : 'Could not reach Shotstack.' }
+  }
+}

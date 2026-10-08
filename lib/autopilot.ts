@@ -6,7 +6,7 @@ import { setAutoblogAiImageFallback } from '@/lib/blog-image'
 import { getDistributionMode, setDistributionMode, getDistributionAccounts, getDistributionPlatforms, setTailoredCaptionsEnabled } from '@/lib/distribution'
 import { generateAndSaveCarousel, carouselKey, type CarouselSlide } from '@/lib/carousel'
 import { generateVideoScript, capScriptDuration } from '@/lib/video-script'
-import { buildVideoEdit, submitRender, getRenderStatus, isShotstackConfigured, shotstackEnv, type BeatVisual } from '@/lib/shotstack'
+import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, isShotstackConfigured, shotstackEnv, type BeatVisual } from '@/lib/shotstack'
 import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
 import { uploadPostConfigured, uploadPostSendPhotos, uploadPostSendVideo, type UploadPostSendResult } from '@/lib/upload-post'
 import { fitCaption, tightestLimit } from '@/lib/social-captions'
@@ -32,6 +32,9 @@ const ENROLL_WINDOW_DAYS = 3
 // Rows older than this stop being worked on (a stuck row can't be retried forever).
 const ACTIVE_WINDOW_DAYS = 7
 const RENDER_TIMEOUT_MS = 30 * 60 * 1000
+// Shotstack keeps hosted renders until deleted. By the time this has passed, the video has long
+// since been posted (or its sandbox preview reviewed), so the hosted copy is only costing storage.
+const RENDER_RETENTION_MS = 48 * 60 * 60 * 1000
 // Heavy steps are skipped once a run has used this much of its time budget.
 const SOFT_DEADLINE_MS = 150_000
 
@@ -106,6 +109,7 @@ export interface PipelineRow {
   render_id: string | null
   video_url: string | null
   video_caption: string | null
+  video_cleaned_at: string | null
   attempts: Record<string, number>
   last_error: string | null
   created_at: string
@@ -157,7 +161,38 @@ async function postingTarget(admin: SupabaseClient): Promise<PostingTarget | nul
 
 const postLink = (slug: string) => utmLink(`${SITE_URL}/blog/${slug}`, { source: 'upload-post', medium: 'social', campaign: 'autopilot' })
 
+
+/** Housekeeping, independent of the Autopilot switch: deletes Shotstack's hosted files for any
+ * render that finished 48+ hours ago, so rendered videos do not accumulate against your storage. A
+ * failed delete is retried on the next run; the row is only marked cleaned once Shotstack confirms. */
+export async function cleanupOldRenders(admin: SupabaseClient): Promise<string | null> {
+  if (!isShotstackConfigured()) return null
+  const { data } = await admin
+    .from('content_pipeline')
+    .select('slug, render_id')
+    .not('render_id', 'is', null)
+    .is('video_cleaned_at', null)
+    .in('video_stage', ['posted', 'sandbox', 'failed'])
+    .lt('updated_at', new Date(Date.now() - RENDER_RETENTION_MS).toISOString())
+    .limit(10)
+  const rows = (data ?? []) as Array<{ slug: string; render_id: string }>
+  let cleaned = 0
+  for (const r of rows) {
+    const res = await deleteRenderAssets(r.render_id)
+    if (!res.ok) continue
+    cleaned++
+    await admin.from('content_pipeline').update({ video_cleaned_at: new Date().toISOString(), video_url: null }).eq('slug', r.slug)
+  }
+  return rows.length ? `cleaned ${cleaned}/${rows.length} old Shotstack renders` : null
+}
+
 export async function runAutopilotTick(admin: SupabaseClient): Promise<string> {
+  const cleanup = await cleanupOldRenders(admin).catch(() => null)
+  const main = await runAutopilotMain(admin)
+  return cleanup ? `${main}; ${cleanup}` : main
+}
+
+async function runAutopilotMain(admin: SupabaseClient): Promise<string> {
   const startedAt = Date.now()
   if (!(await isAutopilotOn(admin))) return 'autopilot is off'
   if (await isAutomationPaused(admin)) return 'automation is paused'
