@@ -178,5 +178,60 @@ reductions, not full ports - building either one fully would mean inventing vend
 or sample engagement numbers that don't exist yet, which this project's no-fabrication discipline
 rules out either way.
 
-**Tracked:** roadmap rows for carousels and A/B logging still need filing under epic `e10` in
-`/admin/tracker` - not yet done as of this entry.
+**Tracked:** filed under epic `e10` in `/admin/tracker` (carousels done, A/B logging and
+engagement sync kept in progress with honest scope notes).
+
+## Content Autopilot - one pipeline, live on real accounts (2026-10-07 to 2026-10-08)
+
+**Commits:** `4d5b155` ... `e2fbe5b` (direct to `main`). Migrations `0017`-`0025`, all applied to the
+one Supabase project and verified.
+
+**What happened:** Joel asked for the whole content chain to run on autopilot with one action, not a
+set of settings and clicks. Built it, turned it on (his call), and tested it end to end on his real
+accounts, fixing what the test found.
+
+**Built**
+- `lib/pipeline.ts`: ONE scheduler (`/api/cron/autopilot`, every 15 minutes) that does whatever is due,
+  in order: weekly keyword research, write+publish the day's post (from 13:00 UTC), post it with a
+  caption per network, then carousel and video and their posting, plus housekeeping. The separate
+  autoblog and distribute schedules were removed (their heartbeats are recorded by the pipeline).
+  `/admin/autopilot` has the one switch, one "write and publish a post now" button, and each step's
+  result. Turning it on applies a preset (autoblog publish, distribution auto unless already in
+  review mode, tailored captions, AI cover fallback).
+- `lib/autopilot.ts`: per-post `content_pipeline` state machine (carousel, video), videos-per-week cap,
+  48-hour Shotstack render cleanup, Shotstack environment auto-detection (key decides sandbox vs
+  production), and a 6-hour pause when Shotstack rejects the key.
+- `lib/social-provider.ts` + `lib/ghl-social.ts`: one active provider at a time, Upload-Post or
+  GoHighLevel Social Planner, behind one PostingTarget. Provider-aware network rules (YouTube is
+  video-only; GHL's TikTok takes video only, hosted on GHL first). "Where it posts" card on the
+  Autopilot page (profile and accounts loaded from the provider, nothing ticked by default for GHL
+  because that location holds several businesses' accounts).
+- `lib/issues.ts`: ONE "Needs attention" list for every error (failed posts, carousels, videos,
+  GHL posts a network rejected after accepting, paused video, quiet cron jobs, failed steps,
+  missing setup), each with plain advice and a Retry/Dismiss/Resume button; the alert email
+  (`lib/alerts.ts`, Resend, 6-hour throttle) is built from it.
+- `lib/keyword-refresh.ts`: weekly capped (default $1) DataForSEO keyword research seeded from the
+  site's own trips, feeding the existing topic picker.
+- Video: Shotstack rewritten against its real API; Pexels portrait stock footage; cover card for the
+  first 3 seconds with a model-written catchy headline; text wrapped inside the 9:16 frame.
+  Carousels: a portrait photo per slide, bold red cover card, progress strip and swipe cue.
+- Tracker: per-use-case size estimate and rough cost (S/M/L x a stated day rate).
+
+**Bugs the live test found (all fixed)**
+- A photo post was sent to YouTube (video-only), and a partial failure made retries re-send to every
+  network: Bluesky got 4-5 copies of one post. Now each post and carousel/video records the networks
+  it reached (`sent_platforms`, `carousel_sent`, `video_sent`) and retries skip them.
+- The "pause video on a rejected key" safety never fired: a backspace character had replaced `\b` in
+  its regex (a shell-heredoc escaping accident). Now keyed on the HTTP status.
+- A just-submitted video render was marked timed out in the same pass (stale in-memory timestamp).
+- Keyword research ran on six passes in one day instead of once a week (cause not proven); now an
+  atomic database claim plus a real weekly spend cap.
+- GHL's TikTok rejected photo posts and, later and silently, a video from an unverified domain.
+
+**Not yet confirmed by a real run:** the new-look video (cover card, wrapped text), the new carousel
+with per-slide photos, GHL hosting of the TikTok video (needs the `medias.write` permission on the
+GHL token), the Resend alert email, and the Upload-Post connect link. The next scheduled post is the
+test for the first three.
+
+**Deviations from the spec, and why:** none from the vanilla Nomad spec; this phase is this
+project's own automation layer on top of the ported engines.
