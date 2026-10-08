@@ -14,6 +14,7 @@ import { utmLink } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { isAiConfigured } from '@/lib/ai-verify'
 import { isImageAiConfigured } from '@/lib/image-ai-gen'
+import { sendThrottledAlert } from '@/lib/alerts'
 
 // Autopilot: ONE switch that runs the whole content chain with no further clicks. Turning it on
 // applies a preset to the existing engine settings (autoblog publish, distribution auto, tailored
@@ -188,14 +189,24 @@ export async function cleanupOldRenders(admin: SupabaseClient): Promise<string |
 
 export async function runAutopilotTick(admin: SupabaseClient): Promise<string> {
   const cleanup = await cleanupOldRenders(admin).catch(() => null)
-  const main = await runAutopilotMain(admin)
-  return cleanup ? `${main}; ${cleanup}` : main
+  const { note, problems } = await runAutopilotMain(admin)
+  let alert = ''
+  if (problems.length) {
+    const result = await sendThrottledAlert(admin, 'Autopilot hit a problem', [
+      'Content Autopilot reported:',
+      ...problems.map((p) => `- ${p}`),
+      '',
+      'Details and recent posts: https://www.travelfunbiz.ca/admin/autopilot',
+    ])
+    alert = result === 'sent' ? '; alert emailed' : ''
+  }
+  return [note, cleanup].filter(Boolean).join('; ') + alert
 }
 
-async function runAutopilotMain(admin: SupabaseClient): Promise<string> {
+async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; problems: string[] }> {
   const startedAt = Date.now()
-  if (!(await isAutopilotOn(admin))) return 'autopilot is off'
-  if (await isAutomationPaused(admin)) return 'automation is paused'
+  if (!(await isAutopilotOn(admin))) return { note: 'autopilot is off', problems: [] }
+  if (await isAutomationPaused(admin)) return { note: 'automation is paused', problems: [] }
 
   const enrolled = await enrollRecentPosts(admin)
   const { data: rowsRaw } = await admin
@@ -206,7 +217,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<string> {
     .order('created_at', { ascending: true })
     .limit(20)
   const rows = (rowsRaw ?? []) as PipelineRow[]
-  if (!rows.length) return `${enrolled} enrolled, nothing to do`
+  if (!rows.length) return { note: `${enrolled} enrolled, nothing to do`, problems: [] }
 
   const target = await postingTarget(admin)
   const notes: string[] = []
@@ -304,7 +315,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<string> {
     }
   }
 
-  return `${enrolled} enrolled, ${rows.length} active${notes.length ? `; problems: ${notes.join(' | ')}` : ''}`
+  return { note: `${enrolled} enrolled, ${rows.length} active${notes.length ? `; problems: ${notes.join(' | ')}` : ''}`, problems: notes }
 }
 
 async function settlePost(
