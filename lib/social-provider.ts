@@ -57,7 +57,18 @@ export const PLATFORM_ACCEPTS: Record<PostKind, string[]> = {
   photo: ['instagram', 'tiktok', 'linkedin', 'facebook', 'x', 'twitter', 'threads', 'pinterest', 'bluesky', 'google'],
   video: ['instagram', 'tiktok', 'youtube', 'facebook', 'linkedin', 'x', 'twitter', 'threads', 'pinterest', 'bluesky'],
 }
-export const platformsFor = (kind: PostKind, platforms: string[]): string[] => platforms.filter((p) => PLATFORM_ACCEPTS[kind].includes(p))
+// Per-provider exceptions to the lists above. GoHighLevel's TikTok only takes a video ("TikTok needs a
+// video to create a post, it doesn't support multi media formats", seen on a real post 2026-10-08),
+// while Upload-Post's TikTok takes photo posts.
+const PROVIDER_EXCLUDES: Partial<Record<Provider, Partial<Record<PostKind, string[]>>>> = { ghl: { photo: ['tiktok'], text: ['tiktok'] } }
+export const platformsFor = (kind: PostKind, platforms: string[], provider?: Provider): string[] =>
+  platforms.filter((p) => PLATFORM_ACCEPTS[kind].includes(p) && !(provider && PROVIDER_EXCLUDES[provider]?.[kind]?.includes(p)))
+
+/** Which of `platforms` a send reached: per-network results when the provider gave them, otherwise
+ * all of them if the whole send succeeded. */
+export function sentPlatformsOf(result: UploadPostSendResult, platforms: string[]): string[] {
+  return platforms.filter((p) => (result.results && p in result.results ? result.results[p].ok : result.ok))
+}
 
 export interface PostingTarget {
   provider: Provider
@@ -80,13 +91,28 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
     const accounts = await getGhlAccounts(admin)
     if (!accounts.length) return { reason: 'no GoHighLevel accounts selected' }
     const idsFor = (platforms: string[]) => accounts.filter((a) => platforms.includes(a.platform)).map((a) => a.id)
+    // One call per network, so one network refusing a post never stops the others, and the result
+    // says exactly which networks were reached.
+    const perNetwork = async (platforms: string[], send: (ids: string[]) => Promise<UploadPostSendResult>): Promise<UploadPostSendResult> => {
+      const results: NonNullable<UploadPostSendResult['results']> = {}
+      const errors: string[] = []
+      for (const p of platforms) {
+        const ids = idsFor([p])
+        if (!ids.length) continue
+        const r = await send(ids)
+        results[p] = { ok: r.ok, error: r.error }
+        if (!r.ok) errors.push(`${p}: ${r.error ?? 'failed'}`)
+      }
+      const reached = Object.values(results)
+      return { ok: reached.length > 0 && errors.length === 0, retryable: false, results, error: errors.length ? errors.join('; ') : undefined }
+    }
     return {
       target: {
         provider,
         platforms: [...new Set(accounts.map((a) => a.platform))],
-        sendText: (p, text) => ghlCreatePost({ accountIds: idsFor(p), text }),
-        sendPhotos: (p, text, imageUrls) => ghlCreatePost({ accountIds: idsFor(p), text, mediaUrls: imageUrls, mediaType: 'image' }),
-        sendVideo: (p, text, videoUrl) => ghlCreatePost({ accountIds: idsFor(p), text, mediaUrls: [videoUrl], mediaType: 'video', kind: 'reel' }),
+        sendText: (p, text) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text })),
+        sendPhotos: (p, text, imageUrls) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text, mediaUrls: imageUrls, mediaType: 'image' })),
+        sendVideo: (p, text, videoUrl) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text, mediaUrls: [videoUrl], mediaType: 'video', kind: 'reel' })),
       },
     }
   }

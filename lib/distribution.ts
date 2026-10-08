@@ -225,7 +225,7 @@ async function sendTailored(
     if (result.jobId) jobIds.push(result.jobId)
   }
   return {
-    sent: outcomes.filter((o) => o.result.ok).flatMap((o) => o.platforms),
+    sent: outcomes.flatMap((o) => o.platforms.filter((p) => (o.result.results && p in o.result.results ? o.result.results[p].ok : o.result.ok))),
     ok,
     confirmed,
     retryable,
@@ -258,7 +258,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // Only networks that accept this kind of post, and never ones this post already reached.
       const kind = post?.cover_image_url ? 'photo' : 'text'
       const already = row.sent_platforms ?? []
-      const platforms = platformsFor(kind, target.platforms).filter((p) => !already.includes(p))
+      const platforms = platformsFor(kind, target.platforms, target.provider).filter((p) => !already.includes(p))
       if (platforms.length === 0) {
         const anySent = already.length > 0
         await admin

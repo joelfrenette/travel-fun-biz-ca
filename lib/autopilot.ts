@@ -9,7 +9,7 @@ import { generateVideoScript, capScriptDuration } from '@/lib/video-script'
 import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, type BeatVisual } from '@/lib/shotstack'
 import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
 import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
-import { resolvePostingTarget, getProvider, type PostingTarget } from '@/lib/social-provider'
+import { resolvePostingTarget, getProvider, platformsFor, sentPlatformsOf, type PostingTarget } from '@/lib/social-provider'
 import { ghlSocialMissing } from '@/lib/ghl-social'
 import { fitCaption, tightestLimit } from '@/lib/social-captions'
 import { utmLink } from '@/lib/utm'
@@ -127,6 +127,8 @@ export interface PipelineRow {
   video_url: string | null
   video_caption: string | null
   video_cleaned_at: string | null
+  carousel_sent: string[] | null
+  video_sent: string[] | null
   attempts: Record<string, number>
   last_error: string | null
   created_at: string
@@ -173,8 +175,8 @@ async function postingTarget(admin: SupabaseClient): Promise<AutopilotTarget | n
   if (!target) return null
   return {
     target,
-    carouselPlatforms: target.platforms.filter((p) => CAROUSEL_PLATFORMS.includes(p)),
-    videoPlatforms: target.platforms.filter((p) => VIDEO_PLATFORMS.includes(p)),
+    carouselPlatforms: platformsFor('photo', target.platforms, target.provider).filter((p) => CAROUSEL_PLATFORMS.includes(p)),
+    videoPlatforms: platformsFor('video', target.platforms, target.provider).filter((p) => VIDEO_PLATFORMS.includes(p)),
   }
 }
 
@@ -269,14 +271,18 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
         }
       }
     }
-    if (row.carousel_stage === 'generated' && target && target.carouselPlatforms.length && Date.now() - startedAt < SOFT_DEADLINE_MS) {
+    const carouselTargets = target ? target.carouselPlatforms.filter((p) => !(row.carousel_sent ?? []).includes(p)) : []
+    if (row.carousel_stage === 'generated' && target && target.carouselPlatforms.length && carouselTargets.length === 0) {
+      await save(row, { carousel_stage: 'posted', last_error: null })
+    }
+    if (row.carousel_stage === 'generated' && target && carouselTargets.length && Date.now() - startedAt < SOFT_DEADLINE_MS) {
       const post = await loadPost(admin, row.slug)
       const raw = await getSetting(admin, carouselKey(row.slug))
       const slides = raw ? (JSON.parse(raw) as CarouselSlide[]) : []
       if (post && slides.length) {
-        const caption = fitCaption([post.title, post.meta_description, postLink(row.slug)].filter(Boolean).join('\n\n'), tightestLimit(target.carouselPlatforms))
-        const result = await target.target.sendPhotos(target.carouselPlatforms, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
-        await settlePost(row, 'carousel', result, 'posted', save, fail, notes)
+        const caption = fitCaption([post.title, post.meta_description, postLink(row.slug)].filter(Boolean).join('\n\n'), tightestLimit(carouselTargets))
+        const result = await target.target.sendPhotos(carouselTargets, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
+        await settlePost(row, 'carousel', result, carouselTargets, save, fail, notes)
       }
     }
 
@@ -323,9 +329,13 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
         await fail(row, 'video', 'render did not finish within 30 minutes', true)
       }
     }
-    if (row.video_stage === 'rendered' && row.video_url && target && target.videoPlatforms.length && Date.now() - startedAt < SOFT_DEADLINE_MS) {
-      const result = await target.target.sendVideo(target.videoPlatforms, row.video_caption ?? row.slug, row.video_url)
-      await settlePost(row, 'video', result, 'posted', save, fail, notes)
+    const videoTargets = target ? target.videoPlatforms.filter((p) => !(row.video_sent ?? []).includes(p)) : []
+    if (row.video_stage === 'rendered' && row.video_url && target && target.videoPlatforms.length && videoTargets.length === 0) {
+      await save(row, { video_stage: 'posted', last_error: null })
+    }
+    if (row.video_stage === 'rendered' && row.video_url && target && videoTargets.length && Date.now() - startedAt < SOFT_DEADLINE_MS) {
+      const result = await target.target.sendVideo(videoTargets, row.video_caption ?? row.slug, row.video_url)
+      await settlePost(row, 'video', result, videoTargets, save, fail, notes)
     }
   }
 
@@ -336,19 +346,25 @@ async function settlePost(
   row: PipelineRow,
   key: 'carousel' | 'video',
   result: UploadPostSendResult,
-  doneStage: 'posted',
+  platforms: string[],
   save: (row: PipelineRow, patch: Partial<PipelineRow>) => Promise<void>,
   fail: (row: PipelineRow, key: 'carousel' | 'video', error: string, permanent: boolean) => Promise<void>,
   notes: string[],
 ): Promise<void> {
   const stageKey = key === 'carousel' ? 'carousel_stage' : 'video_stage'
+  const sentKey = key === 'carousel' ? 'carousel_sent' : 'video_sent'
+  if (result.dormant) return
+  // Remember which networks were reached, even when others failed, so a retry never re-posts to them.
+  const reached = result.ok ? platforms : sentPlatformsOf(result, platforms)
+  const sent = [...new Set([...((row[sentKey] as string[] | null) ?? []), ...reached])]
   if (result.ok) {
-    await save(row, { [stageKey]: doneStage, last_error: result.confirmed === false ? 'Upload-Post accepted this but has not confirmed it posted yet.' : null } as Partial<PipelineRow>)
+    await save(row, { [stageKey]: 'posted', [sentKey]: sent, last_error: result.confirmed === false ? 'The provider accepted this but has not confirmed it posted yet.' : null } as Partial<PipelineRow>)
     return
   }
-  if (result.dormant) return
-  // A failed send is never blindly retried unless Upload-Post confirmed it is safe: a timeout may
-  // still have created the post, and a duplicate public post is worse than a missed one.
+  await save(row, { [sentKey]: sent } as Partial<PipelineRow>)
+  // Failed sends are never retried automatically (a timeout may still have created the post, and a
+  // duplicate public post is worse than a missed one); the retry button only resends to networks
+  // that were not reached.
   await fail(row, key, result.error ?? 'The provider did not post it', true)
   notes.push(`${row.slug}: ${key} post failed`)
 }
