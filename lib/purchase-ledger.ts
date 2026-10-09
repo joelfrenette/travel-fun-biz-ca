@@ -55,6 +55,17 @@ function tagTokens(tags: unknown): string[] {
   return list.map((t) => String(t).trim().toLowerCase()).filter(Boolean)
 }
 
+/** This GoHighLevel location also takes payments for other sites (members area) and for client
+ * invoices. Only a payment from a contact tagged `site-ca` (every lead from this site carries it), a
+ * test purchase, or one that names a package of this site is recorded here; everything else is still
+ * logged by the webhook route but never enters the orders ledger or its revenue numbers. */
+export function belongsToThisSite(body: Record<string, unknown>): boolean {
+  const tags = tagTokens(body?.tags)
+  const contact = body?.contact as Record<string, unknown> | undefined
+  const custom = (body?.customData as Record<string, unknown> | undefined) ?? {}
+  return tags.includes('site-ca') || tagTokens(contact?.tags).includes('site-ca') || tags.includes('test-purchase') || !!custom.package_slug
+}
+
 /** GHL's raw webhook payload -> a normalized order, or null if this ping wasn't a purchase at
  * all (GHL sends the same webhook shape for other contact events too - a payload only counts once
  * it carries a real transaction id). Pure - never touches the database. */

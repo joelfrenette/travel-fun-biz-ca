@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { ghlWebhookUnauthorized } from '@/lib/ghl-webhook-auth'
-import { parseGhlOrder, recordOrder } from '@/lib/purchase-ledger'
+import { belongsToThisSite, parseGhlOrder, recordOrder } from '@/lib/purchase-ledger'
 
 // Factory Phase 4: leads/CRM, inbound side. Dormant until GOHIGHLEVEL_WEBHOOK_SECRET is set in
 // GHL's own workflow AND here - until then every call gets a 503 and nothing is written. This is
@@ -27,13 +27,16 @@ export async function POST(request: Request) {
       const admin = getSupabaseAdmin()
       const { secret: _secret, ...loggable } = body
       const contact = body?.contact as Record<string, unknown> | undefined
+      // A call that is not about this site (another business's payment in the same GoHighLevel
+      // location) is logged by field names only: no email, amount or name is kept.
+      const ours = !denied && belongsToThisSite(body)
       const { data } = await admin
         .from('webhook_events')
         .insert({
           source: 'ghl',
           status: denied ? denied.status : 200,
-          email: (body?.email as string) || (contact?.email as string) || null,
-          payload: denied ? { keys: Object.keys(loggable) } : loggable,
+          email: ours ? (body?.email as string) || (contact?.email as string) || null : null,
+          payload: ours ? loggable : { keys: Object.keys(loggable), ...(denied ? {} : { skipped: 'not this site' }) },
         })
         .select('id')
         .single()
@@ -45,7 +48,7 @@ export async function POST(request: Request) {
 
     if (denied) return denied
 
-    const order = parseGhlOrder(body)
+    const order = belongsToThisSite(body) ? parseGhlOrder(body) : null
     if (order) {
       try {
         await recordOrder(getSupabaseAdmin(), order, eventId)
