@@ -152,6 +152,10 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     if (wroteToday > 0) return { ran: false, mode, note: 'already wrote a post today' }
   }
 
+  if (opts.scheduled && (Number((await getSetting(admin, `autoblog_dupe_skips:${new Date().toISOString().slice(0, 10)}`)) ?? 0) || 0) >= 4) {
+    return { ran: false, mode, note: 'every topic today was about a package already covered in the last 30 days; trying again tomorrow (add more trips or approve fresh topics to widen it)' }
+  }
+
   let topic: TopicIdea | null = null
   let queueRowId: string | null = null
   for (const row of await dueApprovedTopics(admin)) {
@@ -170,6 +174,23 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // composing - without this, composeFullPost's AI steps only ever see the free-text angle/keyword
   // and can invent an itinerary, stop list, or dates that contradict the real product.
   const groundingPackage = await findGroundingPackage(admin, topic)
+  // One post per package per 30 days (published or draft). The site once wrote six near-identical posts
+  // about one Rhine trip in a day; a stale read let them through, and this is the second wall. Fails
+  // closed: if the check cannot be read, nothing is written. The skip counter stops a day of repeats
+  // from spending an AI topic call every 15 minutes.
+  if (groundingPackage?.slug) {
+    const skipKey = `autoblog_dupe_skips:${new Date().toISOString().slice(0, 10)}`
+    const skips = Number((await getSetting(admin, skipKey)) ?? 0) || 0
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
+    const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${groundingPackage.slug}%`)
+    if (error) return { ran: false, mode, note: 'could not check whether this package was already covered, so nothing was written' }
+    if (count && count > 0) {
+      if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', {})
+      await setSetting(admin, skipKey, String(skips + 1))
+      return { ran: false, mode, note: `skipped - a post about "${groundingPackage.name}" was already written in the last 30 days (${skips + 1} of 4 repeats allowed today)` }
+    }
+  }
+
   const groundedAngle = groundAngleInPackage(topic.angle, groundingPackage)
 
   const composed = await composeFullPost(groundedAngle, topic.keyword)
