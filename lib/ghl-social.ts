@@ -109,14 +109,21 @@ export async function ghlCreatePost(input: { accountIds: string[]; text: string;
  * a video pulled from a domain verified in TikTok's settings ("The media URL isn't from a verified
  * domain", seen on a real post 2026-10-08), and GoHighLevel's own storage is one TikTok accepts, so
  * TikTok videos go through here first. Needs the token to carry the media-library write permission.
- * The request shape (POST /medias/upload-file, hosted + fileUrl) follows GHL's documented API and is
- * not yet confirmed by a live call here. */
+ * The first version sent hosted=true + fileUrl, which GHL treats as "already hosted elsewhere" and
+ * answered with the original address, so TikTok was still handed Shotstack's domain (real post,
+ * 2026-10-08). The file itself is now downloaded and uploaded as bytes, and an answer that still
+ * points at the source host is reported as a failure instead of being sent on to TikTok. */
+const MAX_HOSTED_BYTES = 100 * 1024 * 1024
+
 export async function ghlHostMedia(sourceUrl: string, name: string): Promise<{ url?: string; error?: string }> {
   if (!ghlSocialConfigured()) return { error: 'GoHighLevel is not configured.' }
   try {
+    const download = await fetch(sourceUrl, { cache: 'no-store', signal: AbortSignal.timeout(60_000) })
+    if (!download.ok) return { error: `Could not download the video to host it on GoHighLevel (HTTP ${download.status}).` }
+    const bytes = await download.arrayBuffer()
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_HOSTED_BYTES) return { error: `The video was ${bytes.byteLength === 0 ? 'empty' : 'too large'} to host on GoHighLevel.` }
     const form = new FormData()
-    form.set('hosted', 'true')
-    form.set('fileUrl', sourceUrl)
+    form.set('file', new Blob([bytes], { type: 'video/mp4' }), name)
     form.set('name', name)
     const res = await fetch(`${BASE}/medias/upload-file`, {
       method: 'POST',
@@ -131,7 +138,14 @@ export async function ghlHostMedia(sourceUrl: string, name: string): Promise<{ u
       return { error: `Could not host the video on GoHighLevel: ${why}${hint}` }
     }
     const url = typeof json.url === 'string' ? json.url : typeof (json.data as { url?: unknown } | undefined)?.url === 'string' ? ((json.data as { url: string }).url) : null
-    return url ? { url } : { error: 'GoHighLevel accepted the upload but returned no address for it.' }
+    if (!url) return { error: 'GoHighLevel accepted the upload but returned no address for it.' }
+    let sameHost = false
+    try {
+      sameHost = new URL(url).host === new URL(sourceUrl).host
+    } catch {
+      // an unparsable address is passed on as-is
+    }
+    return sameHost ? { error: 'GoHighLevel returned the original video address instead of hosting it, so TikTok would reject it.' } : { url }
   } catch {
     return { error: 'Could not reach GoHighLevel to host the video.' }
   }
