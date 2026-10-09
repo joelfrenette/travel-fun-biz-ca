@@ -1,7 +1,7 @@
 import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
-import { Analytics } from "@vercel/analytics/next"
+import { SiteAnalytics } from "@/components/site-analytics"
 import "./globals.css"
 import { ConsentAnalytics } from "@/components/consent-analytics"
 import { CookieBanner } from "@/components/cookie-banner"
@@ -65,7 +65,7 @@ export default function RootLayout({
           {children}
           <ScrollToTop />
           <AttributionCapture />
-          <Analytics />
+          <SiteAnalytics />
         </ThemeProvider>
         {/* Google Analytics only loads after the visitor accepts analytics (components/consent-analytics.tsx). */}
         <ConsentAnalytics gaId={gaId} />

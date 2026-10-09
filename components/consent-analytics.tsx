@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import { useConsent } from "@/lib/consent"
+import { isInternalBrowser } from "@/lib/internal-traffic"
 
 declare global {
   interface Window {
@@ -19,7 +20,8 @@ export function ConsentAnalytics({ gaId }: { gaId?: string }) {
   useEffect(() => {
     if (!gaId) return
     const flag = `ga-disable-${gaId}`
-    if (!analytics) {
+    // The owner's own browser (signed in to the admin, localhost, /admin pages) never reaches analytics.
+    if (!analytics || isInternalBrowser()) {
       ;(window as unknown as Record<string, unknown>)[flag] = true
       document.cookie.split(";").map((c) => c.split("=")[0].trim()).filter((n) => n === "_ga" || n.startsWith("_ga_") || n === "_gid").forEach((n) => {
         document.cookie = `${n}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`

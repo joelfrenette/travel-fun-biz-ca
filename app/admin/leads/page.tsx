@@ -26,7 +26,8 @@ export default function LeadsPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const failed = leads.filter((l) => !l.forwarded_to_ghl)
+  // Test leads (made-up people used to try the forms) are shown, labelled, but never counted or warned about.
+  const failed = leads.filter((l) => !l.forwarded_to_ghl && !l.is_test)
 
   return (
     <div>
@@ -57,7 +58,7 @@ export default function LeadsPage() {
             <Card key={l.id}>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div className="min-w-[220px] flex-1">
-                  <p className="font-medium">{l.name}</p>
+                  <p className="font-medium">{l.name}{l.is_test && <Badge variant="outline" className="ml-2 align-middle text-[10px]">TEST - not counted</Badge>}</p>
                   <p className="text-xs text-muted-foreground">
                     {l.email}{l.phone ? ` · ${l.phone}` : ""}{l.package ? ` · ${l.package}` : ""} · {new Date(l.created_at).toLocaleString("en-CA")}
                   </p>

@@ -3,6 +3,7 @@ import type { ContactSubmission } from '@/lib/schemas/contact'
 import type { NewsletterSubmission } from '@/lib/schemas/newsletter'
 import type { Attribution } from '@/lib/attribution'
 import { SITE_ID } from '@/lib/site'
+import { isTestPerson } from '@/lib/test-data'
 
 // Two ways in. The private-integration token (GOHIGHLEVEL_PRIVATE_TOKEN, the same one used for social
 // posting) talks to GoHighLevel's current API; the older GOHIGHLEVEL_API_KEY talks to the legacy v1
@@ -131,7 +132,7 @@ export async function submitLeadToGoHighLevel(lead: ContactSubmission): Promise<
       email: lead.email,
       phone: lead.phone || '',
       source: 'Website Contact Form',
-      tags: ['travel-lead', `site-${SITE_ID}`, tagSafe(lead.package), ...attributionTags(lead.attribution)],
+      tags: ['travel-lead', ...(isTestPerson(lead) ? ['test-data'] : []), `site-${SITE_ID}`, tagSafe(lead.package), ...attributionTags(lead.attribution)],
       customFields: [
         { key: 'package_interest', value: lead.package },
         { key: 'travel_date', value: lead.travelDate || '' },
@@ -191,7 +192,7 @@ export async function subscribeNewsletterToGoHighLevel(values: NewsletterSubmiss
       email: values.email,
       phone: values.phone,
       source: 'Website Newsletter',
-      tags: ['newsletter', 'email-consent', `site-${SITE_ID}`, ...values.deals.map((d) => `deals-${tagSafe(d)}`), ...attributionTags(values.attribution)],
+      tags: ['newsletter', 'email-consent', ...(isTestPerson({ email: values.email, name: values.fullName }) ? ['test-data'] : []), `site-${SITE_ID}`, ...values.deals.map((d) => `deals-${tagSafe(d)}`), ...attributionTags(values.attribution)],
       customFields: [
         { key: 'deal_interests', value: values.deals.join(', ') },
         { key: 'lead_source', value: 'Website Newsletter' },

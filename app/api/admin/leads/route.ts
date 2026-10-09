@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     const { data, error } = await getSupabaseAdmin()
       .from('leads')
-      .select('id, name, email, phone, package, forwarded_to_ghl, ghl_error, created_at')
+      .select('id, name, email, phone, package, forwarded_to_ghl, ghl_error, is_test, created_at')
       .order('created_at', { ascending: false })
       .limit(100)
     if (error) throw new Error(error.message)

@@ -156,7 +156,7 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
 
   // Leads that were saved here but never reached GoHighLevel. They are safe in the leads table, but
   // nobody is following them up in the CRM until they are sent on.
-  const { data: unsent } = await admin.from('leads').select('ghl_error, created_at').eq('forwarded_to_ghl', false).gte('created_at', new Date(Date.now() - 14 * 86_400_000).toISOString()).order('created_at', { ascending: false }).limit(50)
+  const { data: unsent } = await admin.from('leads').select('ghl_error, created_at').eq('is_test', false).eq('forwarded_to_ghl', false).gte('created_at', new Date(Date.now() - 14 * 86_400_000).toISOString()).order('created_at', { ascending: false }).limit(50)
   if (unsent?.length) {
     const reason = (unsent[0] as { ghl_error: string | null }).ghl_error ?? 'no reason recorded'
     issues.push({

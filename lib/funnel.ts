@@ -38,7 +38,7 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
     admin.from('gsc_ranking_days').select('impressions').gte('day', sinceDay),
     admin.from('site_visits').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso),
     admin.from('site_visits').select('channel').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT),
-    admin.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso),
+    admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', sinceIso),
     admin.from('orders').select('amount_cents, status, is_test').gte('created_at', sinceIso),
   ])
 

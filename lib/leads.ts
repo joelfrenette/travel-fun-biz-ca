@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import type { ContactSubmission } from '@/lib/schemas/contact'
+import { isTestPerson } from '@/lib/test-data'
 
 // Factory Phase 10: leads/CRM glue. A local backup of every real contact-form submission,
 // independent of whether GoHighLevel accepted it. Never throws - a lost backup write must never
@@ -21,6 +22,7 @@ export async function recordLead(lead: ContactSubmission, forwarded: { ok: boole
       page_path: lead.attribution?.page_path || null,
       forwarded_to_ghl: forwarded.ok,
       ghl_error: forwarded.ok ? null : (forwarded.error ?? null),
+      is_test: isTestPerson(lead),
     })
   } catch {
     // the backup itself failing is never the visitor's problem
@@ -63,6 +65,7 @@ export async function saveLeadFirst(lead: LeadBackup): Promise<string | null> {
         page_path: lead.attribution?.page_path || null,
         forwarded_to_ghl: false,
         ghl_error: PENDING_NOTE,
+        is_test: isTestPerson(lead),
       })
       .select('id')
       .single()
@@ -89,5 +92,7 @@ export interface LeadRow {
   package: string | null
   forwarded_to_ghl: boolean
   ghl_error: string | null
+  /** A made-up person used to try the forms; never counted in any report (lib/test-data.ts). */
+  is_test?: boolean
   created_at: string
 }

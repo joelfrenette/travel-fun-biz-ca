@@ -73,12 +73,13 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   }
 
   // Leads, signups, orders
-  const leadsTotal = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', start).lt('created_at', end))
-  const signups = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('package', 'Newsletter signup').gte('created_at', start).lt('created_at', end))
+  // Test leads and signups (made-up people used to try the forms) are never counted here.
+  const leadsTotal = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', start).lt('created_at', end))
+  const signups = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).eq('package', 'Newsletter signup').gte('created_at', start).lt('created_at', end))
   if (leadsTotal === null || signups === null) yesterday.push('Leads and signups: could not read them.')
   else yesterday.push(`New leads from the contact form: ${leadsTotal - signups}. Newsletter signups: ${signups}.`)
   // Which post and format earned them (links we post carry utm_campaign = the post, utm_content = the format)
-  const { data: credited } = await admin.from('leads').select('utm_campaign, utm_content').gte('created_at', start).lt('created_at', end).not('utm_campaign', 'is', null)
+  const { data: credited } = await admin.from('leads').select('utm_campaign, utm_content').eq('is_test', false).gte('created_at', start).lt('created_at', end).not('utm_campaign', 'is', null)
   if (credited?.length) {
     const tally = new Map<string, number>()
     for (const r of credited as { utm_campaign: string; utm_content: string | null }[]) tally.set(`${r.utm_campaign}${r.utm_content ? ` (${r.utm_content})` : ''}`, (tally.get(`${r.utm_campaign}${r.utm_content ? ` (${r.utm_content})` : ''}`) ?? 0) + 1)

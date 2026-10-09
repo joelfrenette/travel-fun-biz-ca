@@ -50,6 +50,8 @@ export function toCents(v: unknown): number {
 
 const TEST_COUPON_CODES = new Set(['TEST', 'TESTPURCHASE'])
 
+import { isTestEmail } from '@/lib/test-data'
+
 function tagTokens(tags: unknown): string[] {
   const list = Array.isArray(tags) ? tags : String(tags ?? '').split(',')
   return list.map((t) => String(t).trim().toLowerCase()).filter(Boolean)
@@ -99,7 +101,8 @@ export function parseGhlOrder(body: Record<string, unknown>): OrderInput | null 
     email,
     ghl_contact_id: (body?.contact_id as string) || (contact?.id as string) || null,
     status: 'paid',
-    is_test: isTestCoupon || (amount_cents === 0 && isTestTag),
+    // A fake customer (example.com and similar, or "TEST LEAD") is a test sale whatever the amount.
+    is_test: isTestCoupon || (amount_cents === 0 && isTestTag) || isTestEmail(email),
     amount_cents,
     subtotal_cents: payment?.sub_total_amount != null ? toCents(payment.sub_total_amount) : null,
     discount_cents: payment?.discount_amount != null ? toCents(payment.discount_amount) : null,
