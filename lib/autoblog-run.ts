@@ -109,6 +109,13 @@ async function clearComposeFailure(admin: ReturnType<typeof getSupabaseAdmin>, r
   await setSetting(admin, COMPOSE_FAILURE_KEY, JSON.stringify(failures))
 }
 
+/** How many posts were created since 00:00 UTC today, or null when the count could not be read. */
+async function postsWrittenToday(admin: ReturnType<typeof getSupabaseAdmin>): Promise<number | null> {
+  const start = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`
+  const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', start)
+  return error ? null : (count ?? 0)
+}
+
 /** One post per call, at most. `scheduled: true` (the cron) also caps at one post per calendar
  * day; `scheduled: false` (the admin "run now" button) bypasses that daily cap. */
 export async function runAutoblog(opts: { scheduled: boolean }): Promise<AutoblogResult> {
@@ -138,10 +145,11 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     if (!isPublishDayDue(postsPerWeek, currentWeekday())) {
       return { ran: false, mode, note: `not a publish day at ${postsPerWeek}/week` }
     }
-    const today = new Date().toISOString().slice(0, 10)
-    if (existingPosts.some((p) => p.created_at?.slice(0, 10) === today)) {
-      return { ran: false, mode, note: 'already wrote a post today' }
-    }
+    // A direct count, not the list above: this is the guard that stops a runaway, so it fails closed
+    // (a read error means "do not write") and never depends on a list that could be stale.
+    const wroteToday = await postsWrittenToday(admin)
+    if (wroteToday === null) return { ran: false, mode, note: 'could not check whether a post was already written today, so nothing was written' }
+    if (wroteToday > 0) return { ran: false, mode, note: 'already wrote a post today' }
   }
 
   let topic: TopicIdea | null = null
@@ -184,6 +192,12 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   if (findDuplicate(composed.title, existingPosts)) {
     if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', {})
     return { ran: false, mode, note: `skipped - duplicate of an existing post: "${composed.title}"` }
+  }
+
+  // The compose step takes a while; check once more, right before saving, that no other run got there first.
+  if (opts.scheduled) {
+    const again = await postsWrittenToday(admin)
+    if (again === null || again > 0) return { ran: false, mode, note: 'a post was written while this one was being composed, so this one was dropped' }
   }
 
   const blockers = mode === 'publish' ? autoPublishBlockers(composed) : []

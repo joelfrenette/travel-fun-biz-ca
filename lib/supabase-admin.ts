@@ -13,7 +13,14 @@ export function getSupabaseAdmin(): SupabaseClient {
   if (!client) {
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY
     if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set')
-    client = createClient(SUPABASE_URL, key, { auth: { persistSession: false } })
+    // Every admin read must be live. Next.js can serve a repeated fetch from its data cache, and the
+    // pipeline makes decisions from these reads ("was a post already written today?", "is this a
+    // duplicate?", "has the weekly keyword spend been used?"). A stale answer made it write seven
+    // near-identical posts in one day (2026-10-09) and double-spend keyword research (2026-10-08).
+    client = createClient(SUPABASE_URL, key, {
+      auth: { persistSession: false },
+      global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+    })
   }
   return client
 }
