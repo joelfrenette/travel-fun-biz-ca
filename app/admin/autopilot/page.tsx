@@ -111,7 +111,7 @@ export default function AutopilotPage() {
             ) : (
               <ul className="space-y-3">
                 {state.issues.map((i) => (
-                  <li key={i.id} className="flex flex-wrap items-start justify-between gap-3 border-t pt-3 first:border-t-0 first:pt-0">
+                  <li key={i.id} id={`issue-${i.id.replace(/[^a-z0-9]+/gi, "-")}`} className="flex flex-wrap items-start justify-between gap-3 border-t pt-3 first:border-t-0 first:pt-0">
                     <div className="min-w-[240px] flex-1 space-y-0.5">
                       <p className="flex items-start gap-2 text-sm font-medium"><AlertTriangle className={i.area === "setup" ? "mt-0.5 h-4 w-4 shrink-0 text-amber-500" : "mt-0.5 h-4 w-4 shrink-0 text-destructive"} />{i.title}</p>
                       <p className="break-words pl-6 text-xs text-muted-foreground">{i.detail}</p>
@@ -138,9 +138,14 @@ export default function AutopilotPage() {
                 <h2 className="font-semibold">The pipeline</h2>
                 <p className="text-xs text-muted-foreground">Every 15 minutes it does whatever is due, in order: write and publish the post, post it with a caption per network, make the carousel and the video, post those. Posts are written once a day from 9 am Eastern.</p>
               </div>
-              <Button size="sm" disabled={busy || !state.on} onClick={() => post({ action: "run" }, "Pipeline ran")} title="Writes and publishes a new post right now, then runs every following step">
-                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Write and publish a post now
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => post({ action: "debrief" }, "Brief emailed")} title="Emails you today's brief right now (the 7 am email still goes out as normal)">
+                  Email me the brief now
+                </Button>
+                <Button size="sm" disabled={busy || !state.on} onClick={() => post({ action: "run" }, "Pipeline ran")} title="Writes and publishes a new post right now, then runs every following step">
+                  {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Write and publish a post now
+                </Button>
+              </div>
             </div>
             {state.lastRun ? (
               <ol className="space-y-1.5 text-sm">

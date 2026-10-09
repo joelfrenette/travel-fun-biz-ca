@@ -9,6 +9,9 @@ import { refreshKeywordsIfDue } from '@/lib/keyword-refresh'
 import { PIPELINE_LAST_RUN_KEY, type PipelineRun } from '@/lib/pipeline-log'
 import { collectIssues } from '@/lib/issues'
 import { sendThrottledAlert } from '@/lib/alerts'
+import { selfHeal } from '@/lib/heal'
+import { runDebriefIfDue } from '@/lib/debrief'
+import { plainAction } from '@/lib/plain-steps'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -29,6 +32,23 @@ const TIME_BUDGET_MS = 200_000
 
 export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 
+/** Runs on every pass, even when Autopilot is off or paused: the safe self-repairs, then the daily
+ * brief email (once a day from 7 am). Neither may ever fail the pipeline. */
+async function housekeeping(admin: SupabaseClient, run: PipelineRun): Promise<void> {
+  try {
+    const fixed = await selfHeal(admin)
+    if (fixed.length) run.steps.push({ step: 'heal', ok: true, note: fixed.join(' ') })
+  } catch {
+    // a repair problem is never the pipeline's problem
+  }
+  try {
+    const sent = await runDebriefIfDue(admin)
+    if (sent) run.steps.push({ step: 'debrief', ok: sent.ok, note: sent.note })
+  } catch (e) {
+    run.steps.push({ step: 'debrief', ok: false, note: e instanceof Error ? e.message : 'the daily brief failed' })
+  }
+}
+
 /** `force` (the button) writes a new post now regardless of the daily cadence and publish hour. */
 export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean } = {}): Promise<PipelineRun> {
   const startedAt = Date.now()
@@ -37,10 +57,12 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
 
   if (!(await isAutopilotOn(admin))) {
     run.steps.push({ step: 'write', ok: true, note: 'Autopilot is off' })
+    await housekeeping(admin, run)
     return run
   }
   if (await isAutomationPaused(admin)) {
     run.steps.push({ step: 'write', ok: true, note: 'automation is paused' })
+    await housekeeping(admin, run)
     return run
   }
 
@@ -95,6 +117,7 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     }
   }
 
+  await housekeeping(admin, run)
   await setSetting(admin, PIPELINE_LAST_RUN_KEY, JSON.stringify(run))
 
   // One alert email built from the single issue list (setup items are left out: those are not
@@ -103,9 +126,11 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup')
     if (open.length) {
       await sendThrottledAlert(admin, `Autopilot: ${open.length} thing${open.length === 1 ? '' : 's'} need attention`, [
-        ...open.map((i) => `- ${i.title}: ${i.detail}${i.fix ? ` (${i.fix})` : ''}`),
-        '',
-        'Fix or retry each one here: https://www.travelfunbiz.ca/admin/autopilot',
+        ...open.flatMap((i) => {
+          const a = plainAction(i)
+          return [`* ${a.title}`, `  ${a.why}`, ...a.steps.map((s, k) => `  ${k + 1}) ${s}`), `  ${a.urlLabel}: ${a.url}`, ...(a.paste ? [`  Paste to Claude: ${a.paste}`] : []), '']
+        }),
+        'See everything: https://www.travelfunbiz.ca/admin/autopilot',
       ])
     }
   } catch {

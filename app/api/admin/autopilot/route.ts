@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { isAutopilotOn, setAutopilot, autopilotReadiness, getVideosPerWeek, setVideosPerWeek } from '@/lib/autopilot'
 import { runPipeline, readLastPipelineRun } from '@/lib/pipeline'
 import { collectIssues, resolveIssue, type IssueAction } from '@/lib/issues'
+import { runDebriefIfDue } from '@/lib/debrief'
 import { getKeywordBudget, setKeywordBudget, readKeywordRefreshInfo } from '@/lib/keyword-refresh'
 import { isKeywordDataConfigured } from '@/lib/keywords'
 import { shotstackEnv } from '@/lib/shotstack'
@@ -73,6 +74,11 @@ export async function POST(request: Request) {
       const error = await resolveIssue(admin, body.kind as IssueAction, typeof body.slug === 'string' ? body.slug : undefined)
       if (error) return NextResponse.json({ error }, { status: 400 })
       return NextResponse.json({ ok: true })
+    }
+    if (body.action === 'debrief') {
+      // Emails the daily brief now (does not use up the 7 am send).
+      const sent = await runDebriefIfDue(admin, { force: true })
+      return NextResponse.json({ note: sent?.note ?? 'nothing to send' }, { status: sent?.ok === false ? 502 : 200 })
     }
     if (body.action === 'run') {
       const run = await runPipeline(admin, { force: true })
