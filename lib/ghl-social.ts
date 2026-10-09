@@ -157,31 +157,48 @@ export interface GhlFailedPost {
   accountId: string
   error: string
   at: string
+  /** The caption that was sent; carries the blog link, which says which post this was. */
+  text: string
+  /** GHL's post type: "reel" for a video, "post" otherwise. */
+  kind: string
+  mediaCount: number
 }
 
 /** Posts GoHighLevel accepted and then failed to publish (it says "accepted" at creation, and the
  * network's rejection arrives later - for example TikTok refusing a video). Looks back `days` days. */
-export async function ghlListFailedPosts(days = 3): Promise<GhlFailedPost[]> {
+export function ghlListFailedPosts(days = 3): Promise<GhlFailedPost[]> {
+  return listPostsByStatus('failed', days)
+}
+
+/** Posts GoHighLevel reports as really published (the network confirmed them). */
+export function ghlListPublishedPosts(days = 3): Promise<GhlFailedPost[]> {
+  return listPostsByStatus('published', days)
+}
+
+async function listPostsByStatus(status: 'failed' | 'published', days: number): Promise<GhlFailedPost[]> {
   if (!ghlSocialConfigured()) return []
   try {
     const now = new Date()
     const res = await fetch(`${BASE}/social-media-posting/${loc()}/posts/list`, {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({ type: 'failed', skip: '0', limit: '50', includeUsers: 'false', fromDate: new Date(now.getTime() - days * 86_400_000).toISOString(), toDate: new Date(now.getTime() + 86_400_000).toISOString() }),
+      body: JSON.stringify({ type: status, skip: '0', limit: '50', includeUsers: 'false', fromDate: new Date(now.getTime() - days * 86_400_000).toISOString(), toDate: new Date(now.getTime() + 86_400_000).toISOString() }),
       cache: 'no-store',
       signal: AbortSignal.timeout(20_000),
     })
     if (!res.ok) return []
     const json = (await res.json().catch(() => null)) as { results?: { posts?: Array<Record<string, unknown>> } } | null
     return (json?.results?.posts ?? [])
-      .filter((x) => x.status === 'failed' && x.deleted !== true && typeof x.postId === 'string')
+      .filter((x) => x.status === status && x.deleted !== true && typeof x.postId === 'string')
       .map((x) => ({
         id: x.postId as string,
         platform: typeof x.platform === 'string' ? x.platform : 'unknown',
         accountId: typeof x.accountId === 'string' ? x.accountId : '',
         error: typeof x.error === 'string' && x.error ? x.error : 'GoHighLevel reported a failure without a reason.',
         at: typeof x.createdAt === 'string' ? x.createdAt : '',
+        text: typeof x.summary === 'string' ? x.summary : '',
+        kind: typeof x.type === 'string' ? x.type : 'post',
+        mediaCount: Array.isArray(x.media) ? x.media.length : 0,
       }))
   } catch {
     return []
