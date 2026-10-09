@@ -106,7 +106,7 @@ export default async function BlogPostPage({ params }: Props) {
           ) : (
             <div className="mt-12 rounded-xl border bg-muted/30 p-6 text-center">
               <p className="text-lg font-semibold text-foreground">Ready for your own trip?</p>
-              <Link href="/#contact" className="mt-3 inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Browse Upcoming Trips</Link>
+              <Link href="/#contact" className="mt-3 inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
             </div>
           )}
         </article>

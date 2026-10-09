@@ -98,6 +98,8 @@ ${postDescription ? `Post summary: ${postDescription}\n` : ''}Link to include: $
 Write one caption for each of these platforms, following its own rules:
 ${platformRules}
 
+End every caption with exactly one concrete next step the reader can take on the post page, such as read the full guide, or ask us about this trip. Plain words, no urgency, no promised discounts, availability or replies. Do not promise anything the post does not offer.
+
 Never invent a claim, price, date or detail not in the post title/summary above - these captions only ever describe a real blog post, nothing more. Return ONLY minified JSON of this exact shape: {"captions":{"<platform>":"<caption text>", ...}} with exactly one entry per platform listed above, using the same platform name as given.`
 
   try {

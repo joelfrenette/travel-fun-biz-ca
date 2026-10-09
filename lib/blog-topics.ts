@@ -117,7 +117,7 @@ export async function suggestTopics(admin: SupabaseClient, opts: { count: number
 
 ${material || '(no existing posts, packages or queued keywords yet)'}
 
-Suggest ${opts.count} NEW topic ideas. Each must be a genuinely different angle from every title and keyword listed above - do not rephrase one of them. Ground each idea in something real from the material above when possible (a destination or package we actually sell), but a general travel-planning angle is fine too. Never invent a specific trip, price, date or traveler story that isn't in the material.
+Suggest ${opts.count} NEW topic ideas. Each must be a genuinely different angle from every title and keyword listed above - do not rephrase one of them. Ground each idea in something real from the material above when possible (a destination or package we actually sell), but a general travel-planning angle is fine too. Prefer packages and destinations that have the fewest existing posts above; do not suggest a second post about a package or destination that already has one unless no other package is listed. Prefer packages whose travel year is the current or next year (${new Date().getFullYear()} or ${new Date().getFullYear() + 1}); do not write about a package whose travel dates have already passed. Never invent a specific trip, price, date or traveler story that isn't in the material.
 
 Return ONLY minified JSON of this exact shape, nothing else:
 {"ideas":[{"angle":"<one-sentence post angle>","keyword":"<target search phrase, lowercase>","why":"<short reason this angle is worth writing, <100 chars>","source":"ai suggestion"}]}`
