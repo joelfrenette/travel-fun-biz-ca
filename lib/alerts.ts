@@ -6,6 +6,16 @@ import { getSetting, setSetting } from '@/lib/app-settings'
 // other integration here. A free Resend account can send to its own owner's address from
 // onboarding@resend.dev without verifying a domain, which is all an alert to ADMIN_EMAIL needs.
 const LAST_ALERT_KEY = 'autopilot_last_alert_at'
+/** The last reason an email could not be delivered ('' when the last one went through). Shown in Needs
+ * attention, because an email problem cannot be reported by email. */
+export const MAIL_ERROR_KEY = 'mail_last_error'
+
+export async function noteMailResult(admin: SupabaseClient, error: string | null): Promise<void> {
+  await setSetting(admin, MAIL_ERROR_KEY, error ? error.slice(0, 300) : '').catch(() => undefined)
+}
+
+/** Where alerts and the daily brief go: NOTIFY_TO_EMAIL if set, else the admin address. */
+export const notifyTo = (fallback?: string) => process.env.NOTIFY_TO_EMAIL?.trim() || fallback || process.env.ADMIN_EMAIL?.trim() || ''
 // One email per window, however many runs fail inside it - an outage must not become an inbox flood.
 const THROTTLE_MS = 6 * 60 * 60 * 1000
 
@@ -24,13 +34,18 @@ export async function sendThrottledAlert(admin: SupabaseClient, subject: string,
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY!.trim()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: process.env.ALERT_FROM_EMAIL?.trim() || 'TravelFunBiz Autopilot <onboarding@resend.dev>',
-        to: [process.env.ADMIN_EMAIL!.trim()],
+        to: [notifyTo()],
         subject,
         text: lines.join('\n'),
       }),
       signal: AbortSignal.timeout(15_000),
     })
-    if (!res.ok) return 'failed'
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { message?: string }
+      await noteMailResult(admin, `Resend said ${res.status}${body.message ? `: ${body.message}` : ''}`)
+      return 'failed'
+    }
+    await noteMailResult(admin, null)
     await setSetting(admin, LAST_ALERT_KEY, new Date().toISOString())
     return 'sent'
   } catch {

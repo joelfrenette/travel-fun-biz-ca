@@ -28,6 +28,26 @@ export function plainAction(i: Issue): PlainAction {
   const text = `${i.title} ${i.detail}`
   const paste = `Please fix this on TravelFunBiz.ca. Problem: ${i.title}. What it says: ${i.detail}. Look into it, fix it if you can, and tell me in simple words what you did.`
 
+  if (i.id === 'system:mail-blocked' || i.id === 'system:step-debrief' || /verify a domain|testing emails/i.test(text)) {
+    return {
+      id: i.id,
+      title: 'Emails from Aiva cannot reach your Gmail yet',
+      why: 'Resend (the email sender) only lets a new account email its owner until a domain is checked. So the daily brief and the alert emails are being refused.',
+      steps: [
+        'FAST FIX (works in 2 minutes): open Vercel, then your project, then Settings, then Environment Variables.',
+        'Click Add New. Name: NOTIFY_TO_EMAIL. Value: the email you signed up to Resend with (Resend named it as info@travelfunbiz.com). Save, then click Redeploy. The emails will arrive there. You can set up a forward to Gmail in your email program.',
+        'BEST FIX (so they come to Gmail): open Resend at resend.com/domains and sign in.',
+        'Click "Add Domain", type travelfunbiz.ca, and click Add.',
+        'Resend shows a list of DNS records (Type, Name, Value). Keep that page open.',
+        'Open the place where travelfunbiz.ca is managed (Vercel, then Domains, or the company you bought it from). Add each record exactly as Resend shows it.',
+        'Go back to Resend and click Verify. It can take up to an hour.',
+        'In Vercel Environment Variables, add ALERT_FROM_EMAIL with the value: Aiva from TravelFunBiz.ca <aiva@travelfunbiz.ca>   Then remove NOTIFY_TO_EMAIL and Redeploy.',
+      ],
+      url: 'https://resend.com/domains',
+      urlLabel: 'Open Resend domains',
+      paste: 'Please help me finish verifying travelfunbiz.ca in Resend so Aiva can email joelfrenette@gmail.com. Check the DNS records I pasted and tell me if anything is missing.',
+    }
+  }
   if (/expired|reconnect|reauth/i.test(text)) {
     return {
       id: i.id,

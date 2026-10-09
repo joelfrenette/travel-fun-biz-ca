@@ -6,6 +6,7 @@ import { readHealLog } from '@/lib/heal'
 import { ghlListPublishedPosts } from '@/lib/ghl-social'
 import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 import { isAutopilotOn } from '@/lib/autopilot'
+import { noteMailResult, notifyTo } from '@/lib/alerts'
 
 // The daily brief: one email at 7 am (site time) from "Aiva from TravelFunBiz.ca" with what happened
 // yesterday, what is planned today, and the few things only a person can do, each with the exact link
@@ -179,7 +180,7 @@ export async function sendBrief(brief: Brief): Promise<{ ok: boolean; error?: st
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: `Aiva from TravelFunBiz.ca <${fromAddress()}>`, to: [process.env.DEBRIEF_TO_EMAIL?.trim() || TO_DEFAULT], subject, html, text }),
+      body: JSON.stringify({ from: `Aiva from TravelFunBiz.ca <${fromAddress()}>`, to: [notifyTo(TO_DEFAULT)], subject, html, text }),
       signal: AbortSignal.timeout(20_000),
     })
     if (res.ok) return { ok: true }
@@ -203,6 +204,7 @@ export async function runDebriefIfDue(admin: SupabaseClient, opts: { force?: boo
     if (error) return (error as { code?: string }).code === '23505' ? null : { ok: false, note: `could not claim today's brief: ${error.message}` }
   }
   const sent = await sendBrief(await buildBrief(admin, now))
+  await noteMailResult(admin, sent.ok ? null : (sent.error ?? 'the brief could not be sent'))
   if (sent.ok) return { ok: true, note: 'the daily brief was emailed' }
   // Give today's claim back so the next pass tries again (a stuck failure shows up in Needs attention).
   if (!opts.force) await admin.from('app_settings').delete().eq('key', key)

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { autopilotReadiness, VIDEO_BLOCK_KEY } from '@/lib/autopilot'
+import { MAIL_ERROR_KEY } from '@/lib/alerts'
 import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeAllCrons } from '@/lib/cron-health'
 import { readLastPipelineRun } from '@/lib/pipeline-log'
@@ -102,7 +103,8 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
   // Steps of the last pass that failed (the carousel/video step is covered by the rows above).
   const last = await readLastPipelineRun(admin)
   for (const st of last?.steps ?? []) {
-    if (!st.ok && st.step !== 'repurpose') issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
+    // An email delivery failure is shown once, as "Emails from Aiva are not being delivered" below.
+    if (!st.ok && st.step !== 'repurpose' && !(st.step === 'debrief' && /Resend said/.test(st.note))) issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
   }
 
   // Posts GoHighLevel accepted and then failed to publish (the network's rejection arrives later), for
@@ -137,6 +139,19 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
         actions: [{ label: 'Dismiss', kind: 'dismiss-ghl', slug: f.id }],
       })
     }
+  }
+
+  // Email that could not be delivered (alerts and the daily brief). An email problem cannot be reported
+  // by email, so it is shown here, and cleared the next time an email goes through.
+  const mailError = (await getSetting(admin, MAIL_ERROR_KEY))?.trim()
+  if (mailError) {
+    issues.push({
+      id: 'system:mail-blocked',
+      area: 'system',
+      title: 'Emails from Aiva are not being delivered',
+      detail: mailError,
+      fix: 'Verify your domain in Resend, or point the emails at the Resend account owner address. Steps are in the daily brief and below.',
+    })
   }
 
   // Leads that were saved here but never reached GoHighLevel. They are safe in the leads table, but
