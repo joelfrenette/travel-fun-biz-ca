@@ -134,6 +134,20 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     }
   }
 
+  // Leads that were saved here but never reached GoHighLevel. They are safe in the leads table, but
+  // nobody is following them up in the CRM until they are sent on.
+  const { data: unsent } = await admin.from('leads').select('ghl_error, created_at').eq('forwarded_to_ghl', false).gte('created_at', new Date(Date.now() - 14 * 86_400_000).toISOString()).order('created_at', { ascending: false }).limit(50)
+  if (unsent?.length) {
+    const reason = (unsent[0] as { ghl_error: string | null }).ghl_error ?? 'no reason recorded'
+    issues.push({
+      id: 'system:leads-not-forwarded',
+      area: 'system',
+      title: `${unsent.length} lead${unsent.length === 1 ? '' : 's'} saved but not sent to GoHighLevel`,
+      detail: `Latest reason: ${reason}. They are safe on the Leads page in the admin.`,
+      fix: adviceFor(reason) ?? 'Open the Leads page, copy the contact into GoHighLevel by hand, and check the GoHighLevel keys in Vercel.',
+    })
+  }
+
   // Setup that is still missing.
   const ready = await autopilotReadiness(admin)
   ready.blockers.forEach((b, i) => issues.push({ id: `setup:blocker-${i}`, area: 'setup', title: 'Setup required', detail: b }))
