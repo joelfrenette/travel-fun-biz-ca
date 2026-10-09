@@ -54,7 +54,7 @@ export function Footer({ language }: FooterProps) {
                   {translate(language, link.label)}
                 </Link>
               ))}
-              <CookieSettingsLink className="block text-left hover:text-white" />
+              <CookieSettingsLink className="block text-left hover:text-white" label={translate(language, "Cookie settings")} />
             </div>
 
             <div className="space-y-1 text-xs text-gray-400">

@@ -137,6 +137,17 @@ const translations: Record<Language, Record<string, string>> = {
     'Subscribe': 'S\'abonner',
     'Newsletter Sign Up': 'Inscription infolettre',
     'Which Deals you like? (multi-select) *': 'Quels forfaits aimez-vous? (choix multiples) *',
+    // Privacy choices (cookie banner) and the email/text consent box. Good-faith drafts, to be
+    // reviewed by a person who reads French and, ideally, a lawyer (Quebec Law 25 applies).
+    'Your privacy choices': 'Vos choix en matière de confidentialité',
+    'We use cookies that are essential to make this site work. With your permission we would also use Google Analytics, and remember which ad, post or search brought you here. This shows us which trips and articles are helpful so we can improve them. Nothing optional runs unless you say yes, and you can change your mind any time with "Cookie settings" at the bottom of every page.':
+      'Nous utilisons des témoins (cookies) essentiels au fonctionnement de ce site. Avec votre permission, nous utiliserions aussi Google Analytics et nous retiendrions la publicité, la publication ou la recherche qui vous a amené ici. Cela nous montre quels voyages et quels articles sont utiles afin de les améliorer. Rien de facultatif ne s\'exécute sans votre accord, et vous pouvez changer d\'avis en tout temps avec « Paramètres des témoins » au bas de chaque page.',
+    'Read our Privacy Policy': 'Lisez notre politique de confidentialité',
+    'Essential only': 'Essentiels seulement',
+    'Accept analytics': 'Accepter les statistiques',
+    'Cookie settings': 'Paramètres des témoins',
+    'Yes, I agree to receive travel deals and updates from': 'Oui, j\'accepte de recevoir des offres de voyage et des nouvelles de',
+    'by email and text message. I can unsubscribe at any time.': 'par courriel et par message texte. Je peux me désabonner en tout temps.',
   },
   es: {
     'Travel Agents': 'Agentes de viaje',

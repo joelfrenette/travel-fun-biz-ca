@@ -69,7 +69,7 @@ export default function RootLayout({
         </ThemeProvider>
         {/* Google Analytics only loads after the visitor accepts analytics (components/consent-analytics.tsx). */}
         <ConsentAnalytics gaId={gaId} />
-        <CookieBanner />
+        <CookieBanner language={lang} />
       </body>
     </html>
   )
