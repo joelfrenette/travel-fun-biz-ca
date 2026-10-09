@@ -170,6 +170,11 @@ export function ghlListFailedPosts(days = 3): Promise<GhlFailedPost[]> {
   return listPostsByStatus('failed', days)
 }
 
+/** Posts GoHighLevel reports as really published (the network confirmed them). */
+export function ghlListPublishedPosts(days = 3): Promise<GhlFailedPost[]> {
+  return listPostsByStatus('published', days)
+}
+
 async function listPostsByStatus(status: 'failed' | 'published', days: number): Promise<GhlFailedPost[]> {
   if (!ghlSocialConfigured()) return []
   try {

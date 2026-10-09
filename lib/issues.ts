@@ -5,7 +5,7 @@ import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeAllCrons } from '@/lib/cron-health'
 import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { getProvider, getGhlAccounts } from '@/lib/social-provider'
-import { ghlListFailedPosts } from '@/lib/ghl-social'
+import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -115,8 +115,15 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     } catch {
       dismissed = []
     }
+    // Self-healing: a failure is hidden once the same network has the same blog post (and kind of post)
+    // published AFTER it, so a retry that worked clears the old error without anyone clicking Dismiss.
+    // If the published list cannot be read, nothing is hidden (the error stays visible).
+    const blogSlugOf = (t: string) => /\/blog\/([a-z0-9][a-z0-9-]*)/i.exec(t)?.[1] ?? null
+    const published = await ghlListPublishedPosts(3)
     for (const f of await ghlListFailedPosts(3)) {
       if (!ours.has(f.accountId) || dismissed.includes(f.id)) continue
+      const slug = blogSlugOf(f.text)
+      if (slug && published.some((p) => p.platform === f.platform && p.kind === f.kind && p.accountId === f.accountId && blogSlugOf(p.text) === slug && p.at > f.at)) continue
       issues.push({
         id: `ghl:${f.id}`,
         area: 'post',
