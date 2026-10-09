@@ -107,10 +107,32 @@ async function healVideos(admin: SupabaseClient): Promise<string[]> {
   return done
 }
 
+/** A carousel or video still waiting to be made or posted for a blog post that is no longer published
+ * (unpublished, turned back into a draft, or deleted) is cancelled, so it can never spend a render or
+ * post a link to a page that is gone. If the posts cannot be read, nothing is cancelled. */
+async function healOrphans(admin: SupabaseClient): Promise<string[]> {
+  const done: string[] = []
+  const { data: rows } = await admin.from('content_pipeline').select('slug, carousel_stage, video_stage').or('carousel_stage.in.(pending,generated),video_stage.in.(pending,rendered)').limit(30)
+  const active = (rows ?? []) as { slug: string; carousel_stage: string; video_stage: string }[]
+  if (!active.length) return done
+  const { data: posts, error } = await admin.from('posts').select('slug, status').in('slug', active.map((r) => r.slug))
+  if (error) return done
+  const live = new Set((posts ?? []).filter((p: { status: string }) => p.status === 'published').map((p: { slug: string }) => p.slug))
+  for (const row of active) {
+    if (live.has(row.slug)) continue
+    const patch: Record<string, string | null> = { last_error: null, updated_at: new Date().toISOString() }
+    if (['pending', 'generated'].includes(row.carousel_stage)) patch.carousel_stage = 'skipped'
+    if (['pending', 'rendered'].includes(row.video_stage)) patch.video_stage = 'skipped'
+    const { error: upErr } = await admin.from('content_pipeline').update(patch).eq('slug', row.slug)
+    if (!upErr) done.push(`Cancelled the carousel and video for "${row.slug}" because that post is no longer published.`)
+  }
+  return done
+}
+
 /** Runs every safe repair. Never throws; returns what it fixed. */
 export async function selfHeal(admin: SupabaseClient): Promise<string[]> {
   const fixed: string[] = []
-  for (const heal of [healLeads, healVideos]) {
+  for (const heal of [healOrphans, healLeads, healVideos]) {
     try {
       fixed.push(...(await heal(admin)))
     } catch {

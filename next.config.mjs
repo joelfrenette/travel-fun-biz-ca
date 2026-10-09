@@ -10,10 +10,22 @@ function legacyComRedirects() {
   return JSON.parse(readFileSync(path, 'utf8'))
 }
 
+// 2026-10-09: the autoblog wrote six near-identical Rhine posts in one day (a stale-read bug, fixed).
+// Their links were already posted on social, so the five extras are unpublished and 301 to the one
+// kept, instead of showing a not-found page.
+const KEPT_RHINE_POST = '/blog/your-7-night-rhine-float-decoded-cologne-to-basel'
+const duplicatePostRedirects = [
+  '7-nights-on-the-rhine-river-swiss-alps-cruise',
+  'deck-to-peak-planning-your-cologne-to-basel-rhine-cruise',
+  'cologne-to-basel-rhine-river-cruise-planning-guide',
+  'rhine-river-cruise-with-amy-liz-cologne-to-basel',
+  '7-night-rhine-river-cruise-from-cologne-day-by-day',
+].map((slug) => ({ source: `/blog/${slug}`, destination: KEPT_RHINE_POST, permanent: true }))
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async redirects() {
-    return legacyComRedirects()
+    return [...legacyComRedirects(), ...duplicatePostRedirects]
   },
   images: {
     remotePatterns: [

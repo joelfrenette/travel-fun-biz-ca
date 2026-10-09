@@ -25,7 +25,7 @@ interface State {
   shotstackEnv: "stage" | "v1"
   distributionMode: "off" | "prepare" | "auto"
   cron: { light: "green" | "amber" | "gray"; label: string }
-  lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "post" | "repurpose"; ok: boolean; note: string }[] } | null
+  lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "post" | "repurpose" | "heal" | "debrief"; ok: boolean; note: string }[] } | null
   keyword: { budget: number; configured: boolean; lastRunAt: string | null; log: { at: string; spentUsd: number; added: number; seeds: string[] }[] }
   issues: { id: string; area: "post" | "carousel" | "video" | "system" | "setup"; title: string; detail: string; fix?: string; actions?: { label: string; kind: string; slug?: string }[] }[]
   rows: Row[]
@@ -153,7 +153,7 @@ export default function AutopilotPage() {
                 {state.lastRun.steps.map((st) => (
                   <li key={st.step} className="flex items-start gap-2">
                     {st.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
-                    <span><span className="font-medium capitalize">{st.step === "repurpose" ? "carousel and video" : st.step === "post" ? "post to social" : st.step === "keywords" ? "keyword research" : "write and publish"}</span><span className="text-muted-foreground"> - {st.note}</span></span>
+                    <span><span className="font-medium capitalize">{({ repurpose: "carousel and video", post: "post to social", keywords: "keyword research", heal: "self-repair", debrief: "daily brief email", write: "write and publish" } as Record<string, string>)[st.step] ?? st.step}</span><span className="text-muted-foreground"> - {st.note}</span></span>
                   </li>
                 ))}
               </ol>
