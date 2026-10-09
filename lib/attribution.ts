@@ -44,8 +44,30 @@ export function captureAttribution(): void {
   }
 }
 
+/** Erases what was remembered about where the visitor came from (consent declined or withdrawn). */
+export function clearAttribution(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // blocked storage: nothing was stored
+  }
+}
+
+// Same key lib/consent.ts writes. Read directly here because this file is also imported by server code
+// (the form schemas), which must not import a client module.
+function analyticsConsented(): boolean {
+  try {
+    return JSON.parse(window.localStorage.getItem('tfb_consent_v1') || 'null')?.analytics === true
+  } catch {
+    return false
+  }
+}
+
 export function getAttribution(): Attribution {
   if (typeof window === 'undefined') return {}
+  // No consent: send only the page the form is on, nothing remembered about how the visitor arrived.
+  if (!analyticsConsented()) return { page_path: window.location.pathname }
   let stored: Attribution = {}
   try {
     stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}')

@@ -2,6 +2,7 @@ import Link from "next/link"
 import Image from "next/image"
 import { aboutLinks, legalLinks, officeInfo, recognitionBadges, socialPromos } from "@/content/footer"
 import { NewsletterForm } from "@/components/newsletter-form"
+import { CookieSettingsLink } from "@/components/cookie-settings-link"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 
@@ -53,6 +54,7 @@ export function Footer({ language }: FooterProps) {
                   {translate(language, link.label)}
                 </Link>
               ))}
+              <CookieSettingsLink className="block text-left hover:text-white" />
             </div>
 
             <div className="space-y-1 text-xs text-gray-400">

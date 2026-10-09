@@ -6,6 +6,9 @@ export const newsletterSchema = z.object({
   email: z.string().email('Enter a valid email'),
   phone: z.string().min(7, 'Enter a valid phone number'),
   deals: z.array(z.string()).min(1, 'Select at least one deal preference'),
+  // Express consent (CASL): an unticked box the visitor ticks themselves, never pre-ticked. The
+  // submission is refused without it, here and on the server.
+  consent: z.boolean().refine((v) => v === true, { message: 'Please tick the box so we are allowed to email and text you' }),
   // Honeypot (lib/abuse-guard.ts): real visitors never see or fill this field.
   // A form-filling bot fills every field, so a filled honeypot marks the submission as spam.
   company_website: z.string().optional(),

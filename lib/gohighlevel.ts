@@ -191,7 +191,7 @@ export async function subscribeNewsletterToGoHighLevel(values: NewsletterSubmiss
       email: values.email,
       phone: values.phone,
       source: 'Website Newsletter',
-      tags: ['newsletter', `site-${SITE_ID}`, ...values.deals.map((d) => `deals-${tagSafe(d)}`), ...attributionTags(values.attribution)],
+      tags: ['newsletter', 'email-consent', `site-${SITE_ID}`, ...values.deals.map((d) => `deals-${tagSafe(d)}`), ...attributionTags(values.attribution)],
       customFields: [
         { key: 'deal_interests', value: values.deals.join(', ') },
         { key: 'lead_source', value: 'Website Newsletter' },

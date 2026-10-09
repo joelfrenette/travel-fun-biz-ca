@@ -32,7 +32,8 @@ export async function POST(request: Request) {
       email: parsed.data.email,
       phone: parsed.data.phone,
       package: 'Newsletter signup',
-      message: parsed.data.deals.length ? `Deal interests: ${parsed.data.deals.join(', ')}` : undefined,
+      // The consent record: the box was ticked on the form (the row's created_at is when).
+      message: `Deal interests: ${parsed.data.deals.join(', ')}\nConsent to emails and texts: yes (checkbox ticked on the signup form)`,
       attribution: parsed.data.attribution,
     })
     const result = await subscribeNewsletterToGoHighLevel(parsed.data)

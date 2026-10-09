@@ -2,8 +2,9 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
-import Script from "next/script"
 import "./globals.css"
+import { ConsentAnalytics } from "@/components/consent-analytics"
+import { CookieBanner } from "@/components/cookie-banner"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AttributionCapture } from "@/components/attribution-capture"
 import { ScrollToTop } from "@/components/scroll-to-top"
@@ -66,17 +67,9 @@ export default function RootLayout({
           <AttributionCapture />
           <Analytics />
         </ThemeProvider>
-        {gaId && (
-          <>
-            <Script src={`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gaId)}`} strategy="afterInteractive" />
-            <Script id="ga4-init" strategy="afterInteractive">
-              {`window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', ${JSON.stringify(gaId)});`}
-            </Script>
-          </>
-        )}
+        {/* Google Analytics only loads after the visitor accepts analytics (components/consent-analytics.tsx). */}
+        <ConsentAnalytics gaId={gaId} />
+        <CookieBanner />
       </body>
     </html>
   )

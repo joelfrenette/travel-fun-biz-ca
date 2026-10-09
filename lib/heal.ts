@@ -70,9 +70,11 @@ async function healLeads(admin: SupabaseClient): Promise<string[]> {
     }
     const attribution = { utm_source: row.utm_source ?? undefined, utm_medium: row.utm_medium ?? undefined, utm_campaign: row.utm_campaign ?? undefined, utm_content: row.utm_content ?? undefined, page_path: row.page_path ?? undefined }
     const isNewsletter = row.package === 'Newsletter signup'
-    const deals = (row.message ?? '').replace(/^Deal interests:\s*/i, '').split(',').map((d) => d.trim()).filter(Boolean)
+    const deals = ((row.message ?? '').split('\n')[0] ?? '').replace(/^Deal interests:\s*/i, '').split(',').map((d) => d.trim()).filter(Boolean)
+    // A signup is only re-sent when its record shows the consent box was ticked (older rows have none).
+    if (isNewsletter && !/Consent to emails and texts: yes/i.test(row.message ?? '')) continue
     const result = isNewsletter
-      ? await subscribeNewsletterToGoHighLevel({ fullName: row.name, email: row.email, phone: row.phone ?? '', deals: deals.length ? deals : ['general'], attribution })
+      ? await subscribeNewsletterToGoHighLevel({ fullName: row.name, email: row.email, phone: row.phone ?? '', deals: deals.length ? deals : ['general'], consent: true, attribution })
       : await submitLeadToGoHighLevel({ name: row.name, email: row.email, phone: row.phone ?? undefined, package: row.package ?? 'Website', travelDate: row.travel_date ?? undefined, travelers: row.travelers ?? undefined, message: row.message ?? undefined, attribution })
     if (result.ok) {
       await admin.from('leads').update({ forwarded_to_ghl: true, ghl_error: null }).eq('id', row.id)

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { newsletterDealOptions } from '@/content/footer'
+import { SITE_NAME, site } from '@/lib/site'
 import { useState } from 'react'
 import type { Language } from '@/lib/preferences'
 import { translate } from '@/lib/i18n'
@@ -28,7 +29,7 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
     formState: { errors },
   } = useForm<NewsletterValues>({
     resolver: zodResolver(newsletterSchema),
-    defaultValues: { fullName: '', email: '', phone: '', deals: [], company_website: '' },
+    defaultValues: { fullName: '', email: '', phone: '', deals: [], consent: false, company_website: '' },
   })
 
   async function onSubmit(values: NewsletterValues) {
@@ -49,7 +50,7 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
         title: translate(language, "Success! We'll keep you posted with the latest travel deals."),
         description: translate(language, 'Thank You!'),
       })
-      reset({ fullName: '', email: '', phone: '', deals: [], company_website: '' })
+      reset({ fullName: '', email: '', phone: '', deals: [], consent: false, company_website: '' })
     } catch (error) {
       toast({
         title: translate(language, 'Subscription failed'),
@@ -133,6 +134,17 @@ export function NewsletterForm({ className, language }: NewsletterFormProps) {
             ))}
           </select>
           {errors.deals && <p className="text-sm text-red-600">{errors.deals.message}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="newsletter-consent" className="flex items-start gap-2 text-xs leading-snug text-gray-700">
+            <input id="newsletter-consent" type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" {...register('consent')} />
+            <span>
+              {translate(language, 'Yes, I agree to receive travel deals and updates from')} {SITE_NAME} ({site.addressLines.join(', ')}
+              {site.phone ? `, ${site.phone}` : ''}) {translate(language, 'by email and text message. I can unsubscribe at any time.')}
+            </span>
+          </label>
+          {errors.consent && <p className="text-sm text-red-600">{errors.consent.message}</p>}
         </div>
 
         <Button type="submit" className="w-full bg-[#e31e24] py-6 text-lg font-bold hover:bg-[#c01a1f]" disabled={isSubmitting}>
