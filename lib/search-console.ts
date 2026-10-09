@@ -1,4 +1,5 @@
 import { getGoogleAccessToken, isGoogleServiceAccountConfigured } from '@/lib/google-auth'
+import type { QueryPagePair } from '@/lib/rankings'
 
 // Google Search Console query report: the phrases Google already shows this site for.
 // Same service account as GA4; it must be added as a user on the Search Console property.
@@ -88,6 +89,46 @@ export async function getNearMissKeywords(days = 28, limit = 10): Promise<Search
     return nearMissQueries(await getSearchConsoleQueries(days), limit)
   } catch (err) {
     console.error('[search-console] near-miss lookup failed:', err instanceof Error ? err.message : err)
+    return []
+  }
+}
+
+let pairCache: { rows: QueryPagePair[]; at: number } | null = null
+
+/** Which pages Google shows for which keywords (Search Console's query + page report), for the last
+ * 28 days ending 2 days ago. Cached for an hour. Returns [] (never throws) when Search Console is not
+ * configured or the call fails: the Rankings page then just shows a dash in its keyword/page column. */
+export async function getQueryPagePairs(days = 28): Promise<QueryPagePair[]> {
+  if (!isSearchConsoleConfigured()) return []
+  if (pairCache && Date.now() - pairCache.at < CACHE_MS) return pairCache.rows
+  try {
+    const token = await getGoogleAccessToken(SCOPE)
+    const end = new Date(Date.now() - 2 * 864e5)
+    const start = new Date(end.getTime() - (days - 1) * 864e5)
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const res = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(searchConsoleSiteUrl())}/searchAnalytics/query`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startDate: iso(start), endDate: iso(end), dimensions: ['query', 'page'], rowLimit: 5000 }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20_000),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) return []
+    const rows: QueryPagePair[] = ((body.rows || []) as { keys?: string[]; clicks?: number; impressions?: number }[])
+      .map((r) => {
+        let path = ''
+        try {
+          path = new URL(String(r.keys?.[1] ?? '')).pathname.replace(/\/+$/, '')
+        } catch {
+          path = ''
+        }
+        return { query: String(r.keys?.[0] ?? '').toLowerCase(), path, clicks: Number(r.clicks) || 0, impressions: Number(r.impressions) || 0 }
+      })
+      .filter((r) => r.query && r.path)
+    pairCache = { rows, at: Date.now() }
+    return rows
+  } catch {
     return []
   }
 }

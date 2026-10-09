@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { buildMovers, type RankRow } from '@/lib/rankings'
+import { bestPairs, buildMovers, type RankRow } from '@/lib/rankings'
+import { getQueryPagePairs } from '@/lib/search-console'
 import { RANKING_DAYS_TABLE, RANKINGS_TABLE } from '@/lib/rankings-snapshot'
 
 // Factory Phase 8: reads what Phase 5's gsc-snapshot cron has been writing into
@@ -22,10 +23,12 @@ export async function GET(request: Request) {
     const queryRows = (rows.data ?? []).filter((r) => r.kind === 'query') as RankRow[]
     const pageRows = (rows.data ?? []).filter((r) => r.kind === 'page') as RankRow[]
 
+    // Which page ranks for which keyword (live from Search Console, cached an hour; empty if unavailable)
+    const { pageForQuery, queryForPage } = bestPairs(await getQueryPagePairs())
     return NextResponse.json({
       days: days.data ?? [],
-      queryMovers: buildMovers(queryRows).slice(0, 25),
-      pageMovers: buildMovers(pageRows).slice(0, 25),
+      queryMovers: buildMovers(queryRows).slice(0, 25).map((m) => ({ ...m, other: pageForQuery.get(m.key.toLowerCase()) ?? null })),
+      pageMovers: buildMovers(pageRows).slice(0, 25).map((m) => ({ ...m, other: queryForPage.get(m.key.replace(/\/+$/, '')) ?? null })),
     })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, TrendingUp, TrendingDown, LineChart } from "lucide-react"
+import { googlePageOf, movementOf } from "@/lib/rankings"
 
 interface RankDayRow {
   day: string
@@ -22,6 +23,8 @@ interface Mover {
   clicks: number
   impressions: number
   series: { day: string; position: number }[]
+  /** The page for a keyword, or the top keyword for a page (null until Search Console reports it). */
+  other?: string | null
 }
 
 function authHeaders(): HeadersInit {
@@ -43,24 +46,52 @@ function sparkPoints(series: { position: number }[], width: number, height: numb
     .join(" ")
 }
 
-function MoverRow({ m }: { m: Mover }) {
-  const up = m.change > 0
-  const flat = m.change === 0
+// Same column widths for the header and every row, so the headed columns line up.
+const COLS = "grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.6fr)_72px_84px_84px_84px] items-center gap-3"
+
+function MoverTable({ movers, nameLabel, otherLabel, emptyOther }: { movers: Mover[]; nameLabel: string; otherLabel: string; emptyOther: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-t py-2 first:border-t-0">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{m.key}</p>
-        <p className="text-xs text-muted-foreground">
-          #{m.first.toFixed(1)} &rarr; #{m.latest.toFixed(1)} &middot; {m.clicks} clicks &middot; {m.impressions} impressions
-        </p>
+    <div className="overflow-x-auto">
+      <div className="min-w-[720px]">
+        <div className={`${COLS} border-b pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>
+          <span>{nameLabel}</span>
+          <span>{otherLabel}</span>
+          <span>Trend</span>
+          <span className="text-center">Movement</span>
+          <span className="text-center">Google page</span>
+          <span className="text-center">Position (1-100)</span>
+        </div>
+        {movers.map((m) => (
+          <MoverRow key={m.key} m={m} emptyOther={emptyOther} />
+        ))}
       </div>
-      <svg width="80" height="24" className="flex-shrink-0 text-muted-foreground">
-        <polyline points={sparkPoints(m.series, 80, 24)} fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </div>
+  )
+}
+
+function MoverRow({ m, emptyOther }: { m: Mover; emptyOther: string }) {
+  const move = movementOf(m.change)
+  const position = Math.round(m.latest)
+  return (
+    <div className={`${COLS} border-t py-2 first:border-t-0`}>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium" title={m.key}>{m.key}</p>
+        <p className="text-xs text-muted-foreground">{m.clicks} clicks &middot; {m.impressions} impressions</p>
+      </div>
+      <p className="truncate text-sm text-muted-foreground" title={m.other ?? emptyOther}>{m.other ?? "-"}</p>
+      <svg width="64" height="24" className="text-muted-foreground">
+        <polyline points={sparkPoints(m.series, 64, 24)} fill="none" stroke="currentColor" strokeWidth="1.5" />
       </svg>
-      <span className={`flex items-center gap-1 text-sm font-medium ${flat ? "text-muted-foreground" : up ? "text-emerald-600" : "text-destructive"}`}>
-        {!flat && (up ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />)}
-        {Math.abs(m.change).toFixed(1)}
+      <span className={`flex items-center justify-center gap-1 text-sm font-semibold ${move.dir === "same" ? "text-muted-foreground" : move.dir === "up" ? "text-emerald-600" : "text-destructive"}`}>
+        {move.dir === "same" ? "0" : (
+          <>
+            {move.dir === "up" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+            {move.dir === "up" ? "Up" : "Down"} {move.amount}
+          </>
+        )}
       </span>
+      <span className="text-center text-xl font-bold">{position >= 1 ? `Page ${googlePageOf(m.latest)}` : "-"}</span>
+      <span className="text-center text-2xl font-bold">{position >= 1 ? position : "-"}</span>
     </div>
   )
 }
@@ -133,7 +164,7 @@ export default function RankingsPage() {
                 {queryMovers.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Not enough history yet - check back after a few more days of snapshots.</p>
                 ) : (
-                  queryMovers.map((m) => <MoverRow key={m.key} m={m} />)
+                  <MoverTable movers={queryMovers} nameLabel="Keyword" otherLabel="Page" emptyOther="Not reported by Google yet" />
                 )}
               </CardContent>
             </Card>
@@ -144,7 +175,7 @@ export default function RankingsPage() {
                 {pageMovers.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Not enough history yet - check back after a few more days of snapshots.</p>
                 ) : (
-                  pageMovers.map((m) => <MoverRow key={m.key} m={m} />)
+                  <MoverTable movers={pageMovers} nameLabel="Page" otherLabel="Top keyword" emptyOther="Not reported by Google yet" />
                 )}
               </CardContent>
             </Card>
