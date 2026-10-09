@@ -5,7 +5,7 @@ import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeAllCrons } from '@/lib/cron-health'
 import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { getProvider, getGhlAccounts } from '@/lib/social-provider'
-import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
+import { ghlListFailedPosts } from '@/lib/ghl-social'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -15,7 +15,7 @@ import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
 const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
 
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'dismiss-ghl' | 'retry-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video'
 
 export interface Issue {
   id: string
@@ -125,11 +125,9 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
         fix: /verified domain/i.test(f.error)
           ? 'TikTok only takes videos hosted on a domain it trusts. The video is now hosted on GoHighLevel first (needs the media library permission on your GHL token), so a new video should go through.'
           : adviceFor(f.error),
-        actions: [
-          // Retry only appears when the failed post can be tied back to one of our posts.
-          ...(blogSlugOf(f.text) ? [{ label: `Retry ${f.platform}`, kind: 'retry-ghl' as const, slug: f.id }] : []),
-          { label: 'Dismiss', kind: 'dismiss-ghl' as const, slug: f.id },
-        ],
+        // Dismiss only: a one-click re-send of a single network was built and then removed (2026-10-09),
+        // because the QA review found it could double-post and every fix made it more complex.
+        actions: [{ label: 'Dismiss', kind: 'dismiss-ghl', slug: f.id }],
       })
     }
   }
@@ -156,11 +154,6 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
   return issues
 }
 
-/** The blog post a social post points at, read from the link in its caption. */
-function blogSlugOf(text: string): string | null {
-  return /\/blog\/([a-z0-9][a-z0-9-]*)/i.exec(text)?.[1] ?? null
-}
-
 async function dismissGhl(admin: SupabaseClient, id: string): Promise<string | null> {
   let list: string[] = []
   try {
@@ -172,45 +165,6 @@ async function dismissGhl(admin: SupabaseClient, id: string): Promise<string | n
   return error ?? null
 }
 
-/** Re-sends one post to the one network GoHighLevel rejected it on. Clicked by a person, never run
- * automatically, because a re-send is a public post. The other networks are untouched: their names stay
- * in the post's "already sent" list, so only the cleared network is sent to on the next pass. */
-async function retryGhlNetwork(admin: SupabaseClient, ghlPostId: string): Promise<string | null> {
-  const failed = (await ghlListFailedPosts(3)).find((f) => f.id === ghlPostId)
-  if (!failed) return 'GoHighLevel no longer lists that failed post. Dismiss it, or reload the page.'
-  const slug = blogSlugOf(failed.text)
-  if (!slug) return 'Could not tell which post that was.'
-  // A later send may already have gone through (for example the network took the retry), and an old
-  // failure stays listed for days. Never re-send when this network already has the same post live.
-  const alreadyLive = (await ghlListPublishedPosts(3)).some((p) => p.platform === failed.platform && p.kind === failed.kind && blogSlugOf(p.text) === slug && p.at > failed.at)
-  if (alreadyLive) {
-    await dismissGhl(admin, ghlPostId)
-    return `${failed.platform} already has this post live (published after the failure), so nothing was re-sent. The old failure was cleared.`
-  }
-  const now = new Date().toISOString()
-  const without = (list: string[] | null) => (list ?? []).filter((p) => p !== failed.platform)
-
-  if (failed.kind === 'reel') {
-    const { data: row } = await admin.from('content_pipeline').select('video_sent, video_url').eq('slug', slug).maybeSingle()
-    if (!row) return 'That post is not in the pipeline.'
-    if (!row.video_url) return 'The rendered video was already deleted from Shotstack (they are kept 48 hours). Make a new one with Retry on the video.'
-    const { error } = await admin.from('content_pipeline').update({ video_sent: without(row.video_sent as string[] | null), video_stage: 'rendered', last_error: null, updated_at: now }).eq('slug', slug)
-    if (error) return error.message
-  } else if (failed.mediaCount > 1) {
-    const { data: row } = await admin.from('content_pipeline').select('carousel_sent').eq('slug', slug).maybeSingle()
-    if (!row) return 'That post is not in the pipeline.'
-    const { error } = await admin.from('content_pipeline').update({ carousel_sent: without(row.carousel_sent as string[] | null), carousel_stage: 'generated', last_error: null, updated_at: now }).eq('slug', slug)
-    if (error) return error.message
-  } else {
-    const { data: row } = await admin.from('post_distribution').select('sent_platforms').eq('content_type', 'post').eq('slug', slug).maybeSingle()
-    if (!row) return 'That post is not in the distribution queue.'
-    const { error } = await admin.from('post_distribution').update({ sent_platforms: without(row.sent_platforms as string[] | null), stage: 'queued', attempts: 0, last_error: null, updated_at: now }).eq('content_type', 'post').eq('slug', slug)
-    if (error) return error.message
-  }
-  // The old failure has served its purpose; hide it so only a new failure shows up again.
-  return dismissGhl(admin, ghlPostId)
-}
-
 /** Runs one of the actions an issue offers. Returns an error message, or null on success. */
 export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slug?: string): Promise<string | null> {
   const now = new Date().toISOString()
@@ -220,7 +174,6 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
   }
   if (!slug) return 'A post is required.'
   if (kind === 'dismiss-ghl') return dismissGhl(admin, slug)
-  if (kind === 'retry-ghl') return retryGhlNetwork(admin, slug)
   if (kind === 'retry-post') {
     // sent_platforms is kept, so a retry only goes to networks that have not received the post.
     const { error } = await admin.from('post_distribution').update({ stage: 'queued', attempts: 0, last_error: null, updated_at: now }).eq('content_type', 'post').eq('slug', slug).eq('stage', 'failed')

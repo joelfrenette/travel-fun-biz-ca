@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { submitLeadToGoHighLevel } from "@/lib/gohighlevel"
 import { contactSubmissionSchema } from "@/lib/schemas/contact"
 import { isHoneypotFilled, allowRequest } from "@/lib/abuse-guard"
-import { recordLead } from "@/lib/leads"
+import { recordLead, saveLeadFirst, markLeadSent } from "@/lib/leads"
 
 export async function POST(request: Request) {
   try {
@@ -27,9 +27,11 @@ export async function POST(request: Request) {
     const data = { ...parsed.data, submittedAt: parsed.data.submittedAt || new Date().toISOString() }
     console.log("[lead] Submission received", { package: data.package, source: data.attribution?.utm_source, page: data.attribution?.page_path })
 
+    // Saved here BEFORE GoHighLevel is called, so a slow or hanging GHL cannot lose the lead.
+    const leadId = await saveLeadFirst(data)
     const result = await submitLeadToGoHighLevel(data)
-    // Recorded locally either way - a GHL outage no longer means the lead is gone for good.
-    await recordLead(data, result)
+    if (leadId) await markLeadSent(leadId, result)
+    else await recordLead(data, result) // the early save failed: record it now, as before
     if (result.ok) return NextResponse.json({ success: true, message: "Lead submitted successfully" })
 
     return NextResponse.json({ error: result.error }, { status: result.error.includes('not configured') ? 503 : 502 })

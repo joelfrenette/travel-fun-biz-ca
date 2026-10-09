@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { newsletterSubmissionSchema } from '@/lib/schemas/newsletter'
 import { subscribeNewsletterToGoHighLevel } from '@/lib/gohighlevel'
 import { isHoneypotFilled, allowRequest } from '@/lib/abuse-guard'
+import { saveLeadFirst, markLeadSent } from '@/lib/leads'
 
 export async function POST(request: Request) {
   try {
@@ -24,7 +25,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Too many submissions - please try again shortly' }, { status: 429 })
     }
 
+    // Backed up in the leads table first (package says it is a signup), so a GoHighLevel failure
+    // cannot lose the subscriber.
+    const backupId = await saveLeadFirst({
+      name: parsed.data.fullName,
+      email: parsed.data.email,
+      phone: parsed.data.phone,
+      package: 'Newsletter signup',
+      message: parsed.data.deals.length ? `Deal interests: ${parsed.data.deals.join(', ')}` : undefined,
+      attribution: parsed.data.attribution,
+    })
     const result = await subscribeNewsletterToGoHighLevel(parsed.data)
+    if (backupId) await markLeadSent(backupId, result)
     if (result.ok) return NextResponse.json({ success: true })
 
     // Never tell a visitor they are subscribed when nothing was saved.

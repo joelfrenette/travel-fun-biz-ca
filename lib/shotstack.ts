@@ -108,6 +108,7 @@ export interface BeatVisual {
 }
 
 const COVER_SECONDS = 3
+const TAIL_SECONDS = 1.5
 const SECONDS_PER_WORD = 1 / 2.5
 // The output is 9:16 "hd" = 720 x 1280. Text boxes are 640 wide (40px margins each side) and wrap
 // inside that box, so nothing is cut off at the edges. Text sits clear of the top and bottom strips
@@ -135,17 +136,21 @@ const richText = (text: string, size: number, opts: { color?: string; background
 export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], coverImageUrl?: string, coverTitle?: string, brand = 'TRAVELFUN.BIZ'): ShotstackEdit {
   const fullNarration = [script.hook, ...script.beats.map((b) => b.voiceover)].join(' ')
 
+  // The hook is spoken first, so the beats cannot start before it ends (the cover alone is 3s).
+  const hookWords = script.hook.trim().split(/\s+/).filter(Boolean).length
+  const beatsStart = Math.max(COVER_SECONDS, hookWords * SECONDS_PER_WORD)
+
   const visualClips: ShotstackClip[] = []
   const textClips: ShotstackClip[] = []
 
   // Cover: the post's own image, darkened so the headline reads; falls back to the first stock clip.
   if (coverImageUrl) {
-    visualClips.push({ asset: { type: 'image', src: coverImageUrl }, start: 0, length: COVER_SECONDS, fit: 'cover', effect: 'zoomIn', filter: 'darken' })
+    visualClips.push({ asset: { type: 'image', src: coverImageUrl }, start: 0, length: beatsStart, fit: 'cover', effect: 'zoomIn', filter: 'darken' })
   } else if (visuals[0]?.videoUrl) {
-    visualClips.push({ asset: { type: 'video', src: visuals[0].videoUrl, volume: 0 }, start: 0, length: COVER_SECONDS, fit: 'cover', filter: 'darken' })
+    visualClips.push({ asset: { type: 'video', src: visuals[0].videoUrl, volume: 0 }, start: 0, length: beatsStart, fit: 'cover', filter: 'darken' })
   }
 
-  let cursor = COVER_SECONDS
+  let cursor = beatsStart
   script.beats.forEach((beat, i) => {
     const words = beat.voiceover.trim().split(/\s+/).filter(Boolean).length
     const length = Math.max(words * SECONDS_PER_WORD, 1.5)
@@ -165,7 +170,8 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
     })
     cursor += length
   })
-  const totalLength = cursor
+  // Tail margin so a slower real voice is not cut mid-sentence.
+  const totalLength = cursor + TAIL_SECONDS
 
   const tracks: ShotstackTrack[] = [
     // Captions, transcribed from the narration (src aliases the TTS clip below), kept to the lower
@@ -217,6 +223,11 @@ export interface ShotstackRenderResult {
   error?: string
   /** HTTP status when Shotstack answered with an error. */
   status?: number
+  /** Shotstack definitely did not accept the job (429 or 503): safe to try again later, costs nothing. */
+  transient?: boolean
+  /** The request may have been accepted and charged although no answer arrived (timeout, dropped
+   * connection, or an answer without a render id). Submitting again could pay for a second render. */
+  ambiguous?: boolean
 }
 
 /** Submits a render job; Shotstack renders asynchronously, so poll with getRenderStatus. */
@@ -240,13 +251,18 @@ export async function submitRender(edit: ShotstackEdit): Promise<ShotstackRender
     if (!res.ok) {
       const message = typeof json.message === 'string' ? json.message : `Shotstack returned ${res.status}`
       const detail = typeof json.response === 'object' && json.response ? JSON.stringify(json.response) : json.message ? '' : text
-      return { ok: false, status: res.status, error: `${message} (${shotstackEnv()} environment${detail ? `: ${detail.slice(0, 700)}` : ''})` }
+      const error = `${message} (${shotstackEnv()} environment${detail ? `: ${detail.slice(0, 700)}` : ''})`
+      // Only 429 (rate limited) and 503 (unavailable) mean "the job was not taken". Any other 5xx, and
+      // 502/504 in particular, can come from a gateway AFTER Shotstack queued and charged the job, with
+      // the render id lost on the way back, so those go down the ambiguous path (a person checks).
+      if (res.status >= 500 && res.status !== 503) return { ok: false, status: res.status, ambiguous: true, error }
+      return { ok: false, status: res.status, transient: res.status === 429 || res.status === 503, error }
     }
     const response = json.response as { id?: string } | undefined
-    if (!response?.id) return { ok: false, error: 'Shotstack accepted the request but returned no render id.' }
+    if (!response?.id) return { ok: false, ambiguous: true, error: 'Shotstack accepted the request but returned no render id.' }
     return { ok: true, renderId: response.id }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Could not reach Shotstack.' }
+    return { ok: false, ambiguous: true, error: err instanceof Error ? err.message : 'Could not reach Shotstack.' }
   }
 }
 

@@ -14,6 +14,14 @@ export async function getSetting(supabase: SupabaseClient, key: string): Promise
   return data?.value ?? null
 }
 
+/** Like getSetting, but a failed read is reported instead of looking like "no value". Use it wherever
+ * "missing" and "could not read" must lead to different decisions (safety markers, dismissed lists). */
+export async function getSettingStrict(supabase: SupabaseClient, key: string): Promise<{ value: string | null; error?: string }> {
+  const { data, error } = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle()
+  if (error) return { value: null, error: error.message }
+  return { value: data?.value ?? null }
+}
+
 export async function setSetting(supabase: SupabaseClient, key: string, value: string): Promise<{ error?: string }> {
   const { error } = await supabase
     .from('app_settings')

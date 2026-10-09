@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getSetting, setSetting } from '@/lib/app-settings'
+import { getSetting, getSettingStrict, setSetting } from '@/lib/app-settings'
 import {
   uploadPostConfigured,
   uploadPostSendText,
@@ -26,6 +26,14 @@ export interface GhlAccountRef {
 
 export async function getProvider(admin: SupabaseClient): Promise<Provider> {
   return (await getSetting(admin, PROVIDER_KEY)) === 'ghl' ? 'ghl' : 'upload-post'
+}
+
+/** For anything that SENDS: a failed read must stop the send, never fall back to the other provider
+ * (which would post the same networks a second time on the next healthy run). */
+async function getProviderStrict(admin: SupabaseClient): Promise<{ provider?: Provider; error?: string }> {
+  const r = await getSettingStrict(admin, PROVIDER_KEY)
+  if (r.error) return { error: r.error }
+  return { provider: r.value === 'ghl' ? 'ghl' : 'upload-post' }
 }
 
 export async function setProvider(admin: SupabaseClient, provider: Provider): Promise<{ error?: string }> {
@@ -83,7 +91,8 @@ const csv = (raw: string | null) => (raw ?? '').split(',').map((s) => s.trim()).
 
 /** The active provider's posting target, or why there isn't one yet. */
 export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ target?: PostingTarget; reason?: string }> {
-  const provider = await getProvider(admin)
+  const { provider, error: providerErr } = await getProviderStrict(admin)
+  if (!provider) return { reason: `could not read which posting provider is chosen (${providerErr}); nothing was sent` }
 
   if (provider === 'ghl') {
     const missing = ghlSocialMissing()
