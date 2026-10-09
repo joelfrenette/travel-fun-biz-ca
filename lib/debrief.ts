@@ -77,6 +77,13 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   const signups = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('package', 'Newsletter signup').gte('created_at', start).lt('created_at', end))
   if (leadsTotal === null || signups === null) yesterday.push('Leads and signups: could not read them.')
   else yesterday.push(`New leads from the contact form: ${leadsTotal - signups}. Newsletter signups: ${signups}.`)
+  // Which post and format earned them (links we post carry utm_campaign = the post, utm_content = the format)
+  const { data: credited } = await admin.from('leads').select('utm_campaign, utm_content').gte('created_at', start).lt('created_at', end).not('utm_campaign', 'is', null)
+  if (credited?.length) {
+    const tally = new Map<string, number>()
+    for (const r of credited as { utm_campaign: string; utm_content: string | null }[]) tally.set(`${r.utm_campaign}${r.utm_content ? ` (${r.utm_content})` : ''}`, (tally.get(`${r.utm_campaign}${r.utm_content ? ` (${r.utm_content})` : ''}`) ?? 0) + 1)
+    yesterday.push(`Signups and leads credited to a post: ${[...tally].slice(0, 5).map(([k, n]) => `${k} ${n}`).join(', ')}.`)
+  }
   const { data: orders } = await admin.from('orders').select('amount_cents, currency, is_test, status').gte('created_at', start).lt('created_at', end)
   const real = ((orders ?? []) as { amount_cents: number | null; currency: string | null; is_test: boolean; status: string }[]).filter((o) => !o.is_test && o.status === 'paid')
   if (real.length) yesterday.push(`Payments recorded: ${real.length}, total ${money(real.reduce((s, o) => s + (o.amount_cents ?? 0), 0), real[0].currency ?? 'CAD')}.`)

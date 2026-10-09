@@ -253,7 +253,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
   for (const row of rows as DistributionRow[]) {
     try {
       const { data: post } = await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
-      const link = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: target.provider, medium: 'social', campaign: 'distribution' })
+      const link = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: 'social', medium: 'social', campaign: row.slug, content: post?.cover_image_url ? 'post-photo' : 'post-text' })
       const title = post?.title || row.title
       // Only networks that accept this kind of post, and never ones this post already reached.
       const kind = post?.cover_image_url ? 'photo' : 'text'

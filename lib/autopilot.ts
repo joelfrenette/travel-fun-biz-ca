@@ -11,7 +11,7 @@ import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
 import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
 import { resolvePostingTarget, getProvider, platformsFor, sentPlatformsOf, type PostingTarget } from '@/lib/social-provider'
 import { ghlSocialMissing } from '@/lib/ghl-social'
-import { fitCaption, tightestLimit } from '@/lib/social-captions'
+import { fitCaptionWithLink, tightestLimit } from '@/lib/social-captions'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL, SITE_NAME, absoluteUrl } from '@/lib/site'
 import { isAiConfigured } from '@/lib/ai-verify'
@@ -180,7 +180,10 @@ async function postingTarget(admin: SupabaseClient): Promise<AutopilotTarget | n
   }
 }
 
-const postLink = (slug: string) => utmLink(`${SITE_URL}/blog/${slug}`, { source: 'upload-post', medium: 'social', campaign: 'autopilot' })
+// Every link carries the post it points to (campaign) and the format that carried it (content), so a
+// signup or lead can be credited to the post and the carousel or video that produced it. The network is
+// not tagged: one caption set is sent per provider run, so the network is not known here.
+const postLink = (slug: string, format: 'carousel' | 'video') => utmLink(`${SITE_URL}/blog/${slug}`, { source: 'social', medium: 'social', campaign: slug, content: format })
 
 
 /** Housekeeping, independent of the Autopilot switch: deletes Shotstack's hosted files for any
@@ -283,7 +286,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       const raw = await getSetting(admin, carouselKey(row.slug))
       const slides = raw ? (JSON.parse(raw) as CarouselSlide[]) : []
       if (post && slides.length) {
-        const caption = fitCaption([post.title, post.meta_description, postLink(row.slug)].filter(Boolean).join('\n\n'), tightestLimit(carouselTargets))
+        const caption = fitCaptionWithLink([post.title, post.meta_description].filter(Boolean).join('\n\n'), postLink(row.slug, 'carousel'), tightestLimit(carouselTargets))
         const result = await target.target.sendPhotos(carouselTargets, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
         await settlePost(row, 'carousel', result, carouselTargets, save, fail, notes)
       }
@@ -305,8 +308,8 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             const submitted = await submitRender(buildVideoEdit(capped, visuals, post.cover_image_url ?? undefined, coverTitleFor(capped, post.title), SITE_NAME.toUpperCase()))
             if (submitted.ok && submitted.renderId) {
               videoSlots--
-              const tail = [capped.title, capped.description, capped.hashtags.join(' '), postLink(row.slug)].filter(Boolean).join('\n\n')
-              await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: fitCaption(tail, tightestLimit(VIDEO_PLATFORMS)) })
+              const tail = [capped.title, capped.description, capped.hashtags.join(' ')].filter(Boolean).join('\n\n')
+              await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: fitCaptionWithLink(tail, postLink(row.slug, 'video'), tightestLimit(VIDEO_PLATFORMS)) })
             } else if (submitted.status === 401 || submitted.status === 403) {
               await setSetting(admin, VIDEO_BLOCK_KEY, new Date(Date.now() + VIDEO_BLOCK_MS).toISOString())
               notes.push(`Shotstack rejected the API key (${submitted.error}) - check SHOTSTACK_API_KEY. Video steps paused for 6 hours.`)

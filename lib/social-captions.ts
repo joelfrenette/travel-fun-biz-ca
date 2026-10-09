@@ -49,6 +49,16 @@ export function fitCaption(text: string, limit: number): string {
   return `${trimmed.trimEnd()}${ELLIPSIS}`
 }
 
+/** Fits `body` plus a trailing link into `limit`, cutting only the body, so the link is never trimmed
+ * (a half-cut URL is worse than a shorter caption). The link alone if there is no room for any text. */
+export function fitCaptionWithLink(body: string, link: string, limit: number): string {
+  const whole = [body, link].filter(Boolean).join('\n\n')
+  if (whole.length <= limit) return whole
+  const room = limit - link.length - 2
+  if (room < 40) return link
+  return `${fitCaption(body, room)}\n\n${link}`
+}
+
 /** Platform-specific voice notes - not just a character limit, real conventions that make a
  * caption feel native to the network instead of a generic blurb pasted everywhere. Kept as data,
  * not scattered through the prompt string, so adding a network is one line. */
