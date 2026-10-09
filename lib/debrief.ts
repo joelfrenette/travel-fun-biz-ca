@@ -7,6 +7,7 @@ import { ghlListPublishedPosts } from '@/lib/ghl-social'
 import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 import { isAutopilotOn } from '@/lib/autopilot'
 import { noteMailResult, notifyTo } from '@/lib/alerts'
+import { briefHtml } from '@/lib/brief-html'
 
 // The daily brief: one email at 7 am (site time) from "Aiva from TravelFunBiz.ca" with what happened
 // yesterday, what is planned today, and the few things only a person can do, each with the exact link
@@ -35,9 +36,16 @@ function zonedStart(ymd: string): Date {
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const money = (cents: number, cur = 'CAD') => `${(cents / 100).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`
 
-interface Brief {
+export interface BriefStat {
+  value: string
+  label: string
+}
+
+export interface Brief {
   dateLabel: string
   actions: PlainAction[]
+  /** Yesterday's headline numbers, shown as tiles ('?' when a number could not be read). */
+  stats: BriefStat[]
   yesterday: string[]
   today: string[]
   healed: string[]
@@ -55,9 +63,11 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   const start = zonedStart(yYmd).toISOString()
   const end = zonedStart(todayYmd).toISOString()
   const yesterday: string[] = []
+  const stats: BriefStat[] = []
 
   // Posts written yesterday
   const { data: posts, error: postsErr } = await admin.from('posts').select('title, slug, status').gte('created_at', start).lt('created_at', end).order('created_at')
+  stats.push({ value: postsErr ? '?' : String(posts?.length ?? 0), label: 'Blog posts written' })
   if (postsErr) yesterday.push('Blog posts: could not read them.')
   else if (!posts?.length) yesterday.push('Blog posts: none written.')
   else for (const p of posts as { title: string; slug: string; status: string }[]) yesterday.push(`Blog post ${p.status === 'published' ? 'published' : 'saved as a draft'}: ${p.title} - ${SITE_URL}/blog/${p.slug}`)
@@ -67,8 +77,10 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
     const live = (await ghlListPublishedPosts(3)).filter((p) => p.at >= start && p.at < end)
     const byNet = new Map<string, number>()
     for (const p of live) byNet.set(p.platform, (byNet.get(p.platform) ?? 0) + 1)
+    stats.push({ value: String(live.length), label: 'Posts live on social' })
     yesterday.push(live.length ? `Posts that went live on social: ${[...byNet].map(([n, c]) => `${n} ${c}`).join(', ')}.` : 'Posts that went live on social: none.')
   } catch {
+    stats.push({ value: '?', label: 'Posts live on social' })
     yesterday.push('Posts that went live on social: could not check.')
   }
 
@@ -76,6 +88,8 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   // Test leads and signups (made-up people used to try the forms) are never counted here.
   const leadsTotal = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', start).lt('created_at', end))
   const signups = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).eq('package', 'Newsletter signup').gte('created_at', start).lt('created_at', end))
+  stats.push({ value: leadsTotal === null || signups === null ? '?' : String(leadsTotal - signups), label: 'New leads' })
+  stats.push({ value: signups === null ? '?' : String(signups), label: 'Newsletter signups' })
   if (leadsTotal === null || signups === null) yesterday.push('Leads and signups: could not read them.')
   else yesterday.push(`New leads from the contact form: ${leadsTotal - signups}. Newsletter signups: ${signups}.`)
   // Which post and format earned them (links we post carry utm_campaign = the post, utm_content = the format)
@@ -87,11 +101,13 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   }
   const { data: orders } = await admin.from('orders').select('amount_cents, currency, is_test, status').gte('created_at', start).lt('created_at', end)
   const real = ((orders ?? []) as { amount_cents: number | null; currency: string | null; is_test: boolean; status: string }[]).filter((o) => !o.is_test && o.status === 'paid')
+  stats.push({ value: String(real.length), label: 'Payments recorded' })
   if (real.length) yesterday.push(`Payments recorded: ${real.length}, total ${money(real.reduce((s, o) => s + (o.amount_cents ?? 0), 0), real[0].currency ?? 'CAD')}.`)
 
   // Google Search numbers (they lag by a day or two, so the date is shown)
   const { data: gsc } = await admin.from('gsc_ranking_days').select('day, clicks, impressions').order('day', { ascending: false }).limit(1)
   const g = (gsc ?? [])[0] as { day: string; clicks: number | null; impressions: number | null } | undefined
+  stats.push({ value: g ? String(g.clicks ?? 0) : '-', label: 'Google clicks (28 days)' })
   if (g) yesterday.push(`Google Search (latest day available, ${g.day}): ${g.impressions ?? 0} times shown, ${g.clicks ?? 0} clicks.`)
 
   // Today
@@ -126,6 +142,7 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   return {
     dateLabel: new Intl.DateTimeFormat('en-CA', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' }).format(now),
     actions,
+    stats,
     yesterday,
     today,
     healed,
@@ -133,30 +150,11 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   }
 }
 
-const li = (items: string[]) => items.map((t) => `<li style="margin:6px 0">${esc(t)}</li>`).join('')
 
 export function renderBrief(b: Brief): { subject: string; html: string; text: string } {
   const n = b.actions.length
   const subject = `Aiva's daily brief, ${b.dateLabel}: ${n ? `${n} thing${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you` : 'all clear'}`
-  const h2 = (t: string) => `<h2 style="font-size:18px;margin:28px 0 8px;color:#201c1c">${esc(t)}</h2>`
-  const card = (a: PlainAction) =>
-    `<div style="border:1px solid #e7e0dd;border-left:4px solid #d81f26;border-radius:8px;padding:14px 16px;margin:12px 0">` +
-    `<div style="font-size:16px;font-weight:700">${esc(a.title)}</div>` +
-    `<div style="margin:6px 0;color:#5b5250">${esc(a.why)}</div>` +
-    `<ol style="margin:8px 0 8px 20px;padding:0">${li(a.steps)}</ol>` +
-    `<a href="${esc(a.url)}" style="display:inline-block;background:#d81f26;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700">${esc(a.urlLabel)}</a>` +
-    (a.paste ? `<div style="margin-top:10px;font-size:13px;color:#5b5250">Copy this and paste it to Claude:</div><div style="background:#f6f2f0;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:13px;white-space:pre-wrap">${esc(a.paste)}</div>` : '') +
-    `</div>`
-  const html =
-    `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:16px;line-height:1.5;color:#201c1c;max-width:640px;margin:0 auto;padding:16px">` +
-    `<p style="margin:0 0 4px">Good morning Joel,</p><p style="margin:0">Here is your brief for <b>${esc(b.dateLabel)}</b>.</p>` +
-    h2(n ? `Do these first (${n})` : 'Nothing needs you today') +
-    (n ? b.actions.slice(0, 6).map(card).join('') + (n > 6 ? `<p>${n - 6} more are on the <a href="${SITE_URL}/admin/autopilot">Content Autopilot page</a>.</p>` : '') : '<p>Everything is running by itself. Enjoy your day.</p>') +
-    h2('Yesterday') + `<ul style="margin:0 0 0 20px;padding:0">${li(b.yesterday)}</ul>` +
-    h2('Today') + `<ul style="margin:0 0 0 20px;padding:0">${li(b.today)}</ul>` +
-    (b.healed.length ? h2('Fixed by itself') + `<ul style="margin:0 0 0 20px;padding:0">${li(b.healed)}</ul>` : '') +
-    (b.trackerItems.length ? h2('Waiting on you (not urgent)') + `<ul style="margin:0 0 0 20px;padding:0">${li(b.trackerItems.map((t) => `${t.priority}: ${t.title}`))}</ul><p><a href="${TRACKER_URL}">Open the project tracker</a></p>` : '') +
-    `<hr style="border:none;border-top:1px solid #e7e0dd;margin:28px 0 12px"><p style="font-size:13px;color:#5b5250;margin:0">Aiva, TravelFunBiz.ca. <a href="${SITE_URL}/admin/autopilot">Content Autopilot</a> | <a href="${CHECKLIST_URL}">Setup checklist</a> | <a href="${TRACKER_URL}">Tracker</a></p></div>`
+  const html = briefHtml(b)
   const text = [
     `Good morning Joel, here is your brief for ${b.dateLabel}.`,
     '',
