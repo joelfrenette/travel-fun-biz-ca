@@ -142,6 +142,121 @@ export async function getPublishedPackagesByIds(ids: string[]): Promise<TravelPa
 }
 
 // ---------------------------------------------------------------------------------------------------
+// Link graph (growth loop WP7): which published guides to link to from a guide, a blog post, a destination
+// page. All reads are the anon client with explicit columns, so only published rows can come back. The
+// choosing is in pure functions (no database), so it can be tested offline.
+// ---------------------------------------------------------------------------------------------------
+
+/** The few columns a link needs. */
+export type GuideLink = Pick<Guide, 'id' | 'kind' | 'slug' | 'name' | 'parent_slug' | 'summary' | 'related_package_ids'>
+
+const LINK_COLUMNS = 'id, kind, slug, name, parent_slug, summary, related_package_ids'
+
+/** Every published guide as a link row, newest first. Never throws: a read error is an empty list. */
+export async function listPublishedGuideLinks(): Promise<GuideLink[]> {
+  const { data, error } = await supabase.from('guides').select(LINK_COLUMNS).eq('status', 'published').order('created_at', { ascending: false })
+  if (error) {
+    console.error('[guides] link list failed:', error.message)
+    return []
+  }
+  return ((data ?? []) as GuideLink[]).filter((g) => isGuideKind(g.kind))
+}
+
+/** One line for a card: the first sentence of the summary, cut at 160 characters. */
+export function oneLineSummary(summary: string): string {
+  const flat = summary.replace(/\s+/g, ' ').trim()
+  const first = flat.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? flat
+  return first.length > 160 ? `${first.slice(0, 157).trimEnd()}...` : first
+}
+
+/** Up to `limit` guides related to `current`, in this order: same parent (siblings under one destination or
+ * cruise line, plus the parent itself and a guide whose parent is this one), then the same kind, then any that
+ * share a related package. Never includes `current`, never repeats. `candidates` must already be published. */
+export function pickRelatedGuides(current: Pick<GuideLink, 'kind' | 'slug' | 'parent_slug' | 'related_package_ids'>, candidates: GuideLink[], limit = 6): GuideLink[] {
+  const others = candidates.filter((g) => !(g.kind === current.kind && g.slug === current.slug))
+  const sameParent = others.filter(
+    (g) =>
+      (current.parent_slug && (g.parent_slug === current.parent_slug || (g.kind === 'destinations' && g.slug === current.parent_slug))) ||
+      g.parent_slug === current.slug,
+  )
+  const sameKind = others.filter((g) => g.kind === current.kind)
+  const mine = new Set(current.related_package_ids ?? [])
+  const sharesPackage = mine.size > 0 ? others.filter((g) => (g.related_package_ids ?? []).some((id) => mine.has(id))) : []
+  const seen = new Set<string>()
+  const out: GuideLink[] = []
+  for (const g of [...sameParent, ...sameKind, ...sharesPackage]) {
+    if (seen.has(g.id)) continue
+    seen.add(g.id)
+    out.push(g)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+const normPhrase = (s: string) => ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `
+
+/** Up to `limit` guides that a blog post is really about. A guide counts when the post's destination (from its
+ * linked package) is the guide's own slug or its parent, or when the guide's whole name appears as a phrase in
+ * one of the post's tags or in its title. Nothing else counts: no fuzzy match, so with no match the result is
+ * empty. Destination matches come first. */
+export function pickGuidesForPost(post: { title: string; tags: string[]; destinationSlug: string | null }, candidates: GuideLink[], limit = 3): GuideLink[] {
+  const byDestination = post.destinationSlug ? candidates.filter((g) => g.parent_slug === post.destinationSlug || (g.kind === 'destinations' && g.slug === post.destinationSlug)) : []
+  // Destination guides first, then the properties under that destination.
+  byDestination.sort((a, b) => Number(b.kind === 'destinations') - Number(a.kind === 'destinations'))
+  const haystacks = [post.title, ...post.tags].map(normPhrase)
+  const byName = candidates.filter((g) => {
+    const name = normPhrase(g.name)
+    return name.trim().length >= 4 && haystacks.some((h) => h.includes(name))
+  })
+  const seen = new Set<string>()
+  const out: GuideLink[] = []
+  for (const g of [...byDestination, ...byName]) {
+    if (seen.has(g.id)) continue
+    seen.add(g.id)
+    out.push(g)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** Related published guides for a guide page. Never throws. */
+export async function listRelatedGuides(current: Pick<GuideLink, 'kind' | 'slug' | 'parent_slug' | 'related_package_ids'>, limit = 6): Promise<GuideLink[]> {
+  return pickRelatedGuides(current, await listPublishedGuideLinks(), limit)
+}
+
+/** Published guides a blog post is about (see pickGuidesForPost). The destination comes only from the post's
+ * linked package (published), never guessed. Never throws. */
+export async function listGuidesForPost(post: { title: string; tags: string[]; related_package_id: string | null }, limit = 3): Promise<GuideLink[]> {
+  try {
+    let destinationSlug: string | null = null
+    if (post.related_package_id) {
+      const { data } = await supabase.from('travel_packages').select('destination').eq('id', post.related_package_id).eq('status', 'published').maybeSingle()
+      const destination = (data as { destination: string | null } | null)?.destination
+      destinationSlug = destination ? generateSlug(destination) || null : null
+    }
+    return pickGuidesForPost({ title: post.title, tags: post.tags ?? [], destinationSlug }, await listPublishedGuideLinks(), limit)
+  } catch {
+    return []
+  }
+}
+
+/** Published hotel and resort guides whose parent is this destination, for the destination page. Never throws. */
+export async function listPropertyGuidesForDestination(destinationSlug: string): Promise<GuideLink[]> {
+  const { data, error } = await supabase
+    .from('guides')
+    .select(LINK_COLUMNS)
+    .eq('status', 'published')
+    .eq('parent_slug', destinationSlug)
+    .in('kind', ['hotels', 'resorts'])
+    .order('name', { ascending: true })
+  if (error) {
+    console.error('[guides] destination property list failed:', error.message)
+    return []
+  }
+  return (data ?? []) as GuideLink[]
+}
+
+// ---------------------------------------------------------------------------------------------------
 // Admin reads and writes (service role)
 // ---------------------------------------------------------------------------------------------------
 

@@ -297,8 +297,26 @@ const RECENCY_PATTERNS = [
 const WORD_NUMBER_PATTERNS = [
   /\b(?:hundreds?|thousands?|millions?|dozens?)\b/i,
   /\b(?:\w+teenth|twentieth) century\b/i,
-  /(?<!\bor )\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[- ](?:night|day|week|guest|passenger|port|stop|ship|deck|cabin|room|restaurant|pool|metre|meter|foot|feet)s?\b/i,
 ]
+// A spelled-out count plus a unit ("four-night"). Blocked unless the grounding says the same count with the
+// same unit (see ungroundedWordCounts), because a made-up count usually sounds exactly like this.
+const COUNTED_UNIT_RE = /(?<!\bor )\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[- ](night|day|week|guest|passenger|port|stop|ship|deck|cabin|room|restaurant|pool|metre|meter|foot|feet)s?\b/gi
+const COUNT_WORD_VALUE: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 }
+
+/** Spelled-out counts with a unit that the grounding does not back. The grounding backs "four-night" when it
+ * contains the same count next to the same unit, as a digit ("4-night", "4 nights") or as a word ("four nights").
+ * A stray digit elsewhere does not excuse it. Returns the offending phrases. */
+export function ungroundedWordCounts(text: string, grounding: string): string[] {
+  const lower = grounding.toLowerCase()
+  const out: string[] = []
+  for (const m of text.matchAll(COUNTED_UNIT_RE)) {
+    const word = m[1].toLowerCase()
+    const unit = m[2].toLowerCase()
+    const same = new RegExp(`\\b(?:${COUNT_WORD_VALUE[word]}|${word})[- ]${unit}s?\\b`)
+    if (!same.test(lower)) out.push(m[0].toLowerCase())
+  }
+  return [...new Set(out)]
+}
 // Itinerary or schedule stated as fact.
 const SCHEDULE_PATTERN = /\bevery (?:week|day|month|sailing|departure)\b/i
 // The agency speaking about its own history. Only offers of help are allowed.
@@ -431,7 +449,7 @@ export function guideBlockers(guide: ComposedGuide, ctx: GateContext): string[] 
   }
   if (RECENCY_PATTERNS.some((p) => p.test(all))) blockers.push('unverifiable recency claim')
   if (COUNT_CLAIM.test(all)) blockers.push('amenity or capacity count')
-  if (WORD_NUMBER_PATTERNS.some((p) => p.test(all))) blockers.push('a size, count or date written in words')
+  if (WORD_NUMBER_PATTERNS.some((p) => p.test(all)) || ungroundedWordCounts(all, ctx.grounding).length) blockers.push('a size, count or date written in words')
   if (SCHEDULE_PATTERN.test(all)) blockers.push('itinerary or schedule stated as fact')
   if (/\u2013/.test(all)) blockers.push('en dash present')
 

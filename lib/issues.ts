@@ -43,13 +43,15 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
   const issues: Issue[] = []
 
   // Posts that failed to go out (text/photo post to social).
+  // Guide posts (slug guide-<kind>-<slug>, migration 0030) share the same ledger and read the same way; the
+  // row's own title column holds the guide name.
   const { data: failedPosts } = await admin.from('post_distribution').select('slug, title, last_error').eq('content_type', 'post').eq('stage', 'failed')
   for (const r of (failedPosts ?? []) as { slug: string; title: string; last_error: string | null }[]) {
     const err = r.last_error ?? 'unknown error'
     issues.push({
       id: `post:${r.slug}`,
       area: 'post',
-      title: `Post to social failed: ${r.title}`,
+      title: `${r.slug.startsWith('guide-') ? 'Guide post to social failed' : 'Post to social failed'}: ${r.title}`,
       detail: err,
       fix: adviceFor(err),
       actions: [{ label: 'Retry', kind: 'retry-post', slug: r.slug }],

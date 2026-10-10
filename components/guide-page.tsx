@@ -4,7 +4,7 @@ import { notFound } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
-import { getPublishedGuide, listPublishedGuides, getPublishedPackagesByIds, guideKinds, guidePath, type PublicGuide, type GuideKind } from "@/lib/guides"
+import { getPublishedGuide, listRelatedGuides, oneLineSummary, getPublishedPackagesByIds, guideKinds, guidePath, type PublicGuide, type GuideKind } from "@/lib/guides"
 import { getDestinationSlugs } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
@@ -97,10 +97,11 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const info = guideKinds[kind]
   const { language, currency } = getVisitorPreferences()
   const bestTimeSlug = kind === "destinations" ? slug : guide.parent_slug
-  const [usdToTargetRate, packages, sameKind, destinations, bestTime] = await Promise.all([
+  const [usdToTargetRate, packages, relatedGuides, destinations, bestTime] = await Promise.all([
     getUsdToRate(currency),
     getPublishedPackagesByIds(guide.related_package_ids),
-    listPublishedGuides(kind),
+    // Up to 6 other published guides: same parent first, then the same kind, then ones sharing a trip.
+    listRelatedGuides(guide, 6),
     guide.parent_slug ? getDestinationSlugs() : Promise.resolve([]),
     // Only for a destination guide or a guide whose parent is a destination: the best-time page exists only when a real dated package does.
     bestTimeSlug ? getBestTimeToVisitPage(bestTimeSlug) : Promise.resolve(null),
@@ -108,7 +109,6 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const parentGuide = guide.parent_slug ? await getPublishedGuide("destinations", guide.parent_slug) : null
   const parentDestination = guide.parent_slug ? destinations.find((d) => d.slug === guide.parent_slug) : undefined
   const parentName = parentGuide?.name ?? parentDestination?.destination ?? null
-  const siblings = sameKind.filter((g) => g.slug !== slug).slice(0, 6)
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -163,7 +163,24 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
             </div>
           </section>
 
-          {(parentName || (bestTime && bestTimeSlug) || siblings.length > 0) && (
+          {relatedGuides.length > 0 && (
+            <section aria-labelledby="related-guides-heading">
+              <h2 id="related-guides-heading" className="mb-3 text-xl font-bold text-foreground">Related guides</h2>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {relatedGuides.map((g) => (
+                  <li key={g.id}>
+                    <Link href={guidePath(g.kind, g.slug)} className="block h-full rounded-lg border bg-card p-4 transition-shadow hover:shadow-md">
+                      <span className="text-xs uppercase text-muted-foreground">{guideKinds[g.kind].label}</span>
+                      <span className="mt-0.5 block font-semibold text-foreground">{g.name}</span>
+                      <span className="mt-1 block text-sm text-muted-foreground">{oneLineSummary(g.summary)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {(parentName || (bestTime && bestTimeSlug)) && (
             <nav aria-label="Related pages" className="space-y-2 text-sm">
               <h2 className="text-base font-bold text-foreground">Keep exploring</h2>
               <ul className="space-y-1">
@@ -173,9 +190,6 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
                 {bestTime && bestTimeSlug && (
                   <li><Link href={`/best-time-to-visit/${bestTimeSlug}`} className="font-medium text-foreground hover:underline">When to visit {bestTime.destination}</Link></li>
                 )}
-                {siblings.map((g) => (
-                  <li key={g.id}><Link href={guidePath(g.kind, g.slug)} className="font-medium text-foreground hover:underline">{g.name}: {info.guideLabel}</Link></li>
-                ))}
                 <li><Link href={info.urlPrefix} className="text-muted-foreground hover:underline">All {info.plural.toLowerCase()}</Link></li>
               </ul>
             </nav>
