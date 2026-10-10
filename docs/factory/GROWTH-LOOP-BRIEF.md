@@ -375,3 +375,11 @@ Legal safety rules (non-negotiable): no new facts ever; every automatic edit is 
 visible in the admin (Content edits list with a Revert button that restores `before`); nothing touches
 `/who-we-are`, legal pages, testimonials, or package pages (those are Joel's); the privacy and consent text is
 never generated; HARD blockers always need a human.
+
+WP10 additions (Joel, 2026-10-10 evening):
+- Named-property guides (hotels, resorts, ships, river cruises, yachts) MAY auto-publish once the repaired gate
+  is clean: `publishDecision` drops the always-draft rule for those kinds when `guides_publish_mode=publish` and
+  blockers are empty after repair. The HARD list still holds everything as a draft. Their social enrolment keeps
+  the "held" rule from WP7 unless Joel changes it later.
+- The 7 am brief gets an "Edits made" section: one line per automatic edit in the last 24 hours (what, where,
+  reason, method) with a link to the Content edits admin list, and the count of items waiting on a human.
