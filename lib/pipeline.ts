@@ -12,6 +12,7 @@ import { collectIssues } from '@/lib/issues'
 import { sendThrottledAlert } from '@/lib/alerts'
 import { selfHeal } from '@/lib/heal'
 import { runDebriefIfDue } from '@/lib/debrief'
+import { snapshotContentPerformance } from '@/lib/content-performance'
 import { plainAction } from '@/lib/plain-steps'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
@@ -41,6 +42,13 @@ async function housekeeping(admin: SupabaseClient, run: PipelineRun): Promise<vo
     if (fixed.length) run.steps.push({ step: 'heal', ok: true, note: fixed.join(' ') })
   } catch {
     // a repair problem is never the pipeline's problem
+  }
+  try {
+    // Once a day (the claim inside), before the brief so the brief can use today's numbers.
+    const note = await snapshotContentPerformance(admin)
+    if (note) run.steps.push({ step: 'performance', ok: !/could not|failed/i.test(note), note })
+  } catch {
+    // a snapshot problem is never the pipeline's problem
   }
   try {
     const sent = await runDebriefIfDue(admin)

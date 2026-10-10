@@ -86,6 +86,7 @@ export function briefHtml(b: Brief): string {
 
   const yesterday = section('Yesterday', tiles(b.stats) + bullets(b.yesterday))
   const today = section('Today', bullets(b.today, '#3763c9'), '#3763c9')
+  const working = section('What is working', bullets(b.working, '#1a7d4a'), '#1a7d4a')
   const healed = b.healed.length ? section('Fixed by itself', panel('#e8f6ee', bullets(b.healed, '#1a7d4a')), '#1a7d4a') : ''
   const waiting = b.trackerItems.length
     ? section('Waiting on you (not urgent)', panel('#fbf0dd', bullets(b.trackerItems.map((t) => `${t.priority}: ${t.title}`), '#a9660b') + `<div style="font-size:14px;padding-top:2px"><a href="${SITE_URL}/admin/tracker" style="color:${RED};font-weight:700">Open the project tracker &rarr;</a></div>`), '#a9660b')
@@ -102,7 +103,7 @@ export function briefHtml(b: Brief): string {
   return (
     `<table ${T} width="100%" bgcolor="#f4efec" style="background:#f4efec;font-family:${FONT}"><tr><td align="center" style="padding:24px 10px">` +
     `<table ${T} width="640" align="center" bgcolor="#ffffff" style="width:640px;max-width:100%;background:#ffffff">` +
-    header + needs + yesterday + today + healed + waiting + footer +
+    header + needs + yesterday + today + working + healed + waiting + footer +
     `</table></td></tr></table>`
   )
 }
