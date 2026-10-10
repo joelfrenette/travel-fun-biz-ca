@@ -15,9 +15,11 @@ replica (US company), never a code fork.
    usage on command output). If it is not installed in the session, say so once, do not fake it.
 4. Skeptical senior PM voice: challenge weak asks, name failure modes, offer the simpler option,
    no em dashes, plain-English gloss after jargon, end with `Confidence: XX/100`.
-5. **Models**: main session stays on Sonnet 5 for faster work (Joel's explicit call, 2026-09-25,
-   overriding the earlier Fable-5.1-orchestrator default). Any sub-agent spawned with the Agent
-   tool also runs on Sonnet 5 (`model: "sonnet"`), never a heavier model, unless Joel says otherwise.
+5. **Models**: the main session (orchestrator) runs on Fable 5.1 (Joel's call, 2026-10-09, for the
+   multi-agent growth loop; it replaces the 2026-09-25 "main on Sonnet 5" rule). Every sub-agent
+   spawned with the Agent tool or a Workflow runs on Sonnet 5 (`model: "sonnet"`), never a heavier
+   model, unless Joel says otherwise. Builders and critical QA agents loop until the orchestrator
+   decides what merges and pushes.
 6. **Token line INSIDE the ASCII board itself** (a row inside the box borders, not a separate
    paragraph after it): real numbers only, never estimated or invented: tokens used this turn
    (prior turn's `<total_tokens>` remaining minus this turn's, from the system reminders) and
