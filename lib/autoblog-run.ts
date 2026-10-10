@@ -2,8 +2,8 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
-import { composeFullPost, autoPublishBlockers, type AllowedLink } from '@/lib/blog-composer'
-import { pickStyle, CTA_STYLES, appendStyledCta } from '@/lib/content-styles'
+import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
+import { pickStyle, pickCtaStyle, CTA_STYLES, appendStyledCta } from '@/lib/content-styles'
 import { tagVariant } from '@/lib/content-variants'
 import { listSitePages } from '@/lib/site-pages'
 import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
@@ -26,6 +26,18 @@ import type { PackageGrounding } from '@/lib/blog-topics'
 // actually about.
 // Growth loop WP1: the closing call to action is now style-aware (lib/content-styles.ts ctaFor, five
 // variants, all still grounded: the real package page, the contact section or the home page only).
+
+/** Next CTA style: rotates off the cta_style tagged on the last ten posts (content_variants). If that
+ * cannot be read, falls back to a plain count-based rotation. Never throws. */
+async function pickRecentCtaStyle(admin: ReturnType<typeof getSupabaseAdmin>, recentSlugs: string[], fallbackIndex: number) {
+  try {
+    const { data } = await admin.from('content_variants').select('slug, variant_tags').in('slug', recentSlugs)
+    const bySlug = new Map((data ?? []).map((r: { slug: string; variant_tags: { cta_style?: string } | null }) => [r.slug, r.variant_tags?.cta_style]))
+    return pickCtaStyle(recentSlugs.map((s) => bySlug.get(s)))
+  } catch {
+    return CTA_STYLES[fallbackIndex % CTA_STYLES.length]
+  }
+}
 
 /** The pages the composer may link to from the body, each confirmed to exist right now: the matched
  * package, its destination page (only when a published package gives it one), and its
@@ -229,7 +241,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // Rotate the writing style off the last ten posts (existingPosts is newest first) and work out which
   // internal pages the post may link to.
   const style = pickStyle(existingPosts.slice(0, 10).map((p) => p.content_style))
-  const ctaStyle = CTA_STYLES[existingPosts.length % CTA_STYLES.length]
+  const ctaStyle = await pickRecentCtaStyle(admin, existingPosts.slice(0, 10).map((p) => p.slug), existingPosts.length)
   const allowedLinks = await buildAllowedLinks(admin, groundingPackage)
 
   const composed = await composeFullPost(groundedAngle, topic.keyword, { style, allowedLinks })
@@ -261,7 +273,15 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     if (again === null || again > 0) return { ran: false, mode, note: 'a post was written while this one was being composed, so this one was dropped' }
   }
 
-  const blockers = mode === 'publish' ? autoPublishBlockers(composed, new Date(), { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}` }) : []
+  // The gate, with at most ONE automatic repair call when the only problem is a number or link the
+  // writer was not allowed to use (see gateWithRepair). Still blocked after that means a saved draft.
+  let final = composed
+  let blockers: string[] = []
+  if (mode === 'publish') {
+    const gated = await gateWithRepair(composed, new Date(), { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}` })
+    final = gated.post
+    blockers = gated.blockers
+  }
   const publishing = mode === 'publish' && blockers.length === 0
   // Use the composed post's own tags (derived from its actual keywords) rather than the
   // pre-composition topic.keyword - the composer's 'idea' step can land on an article that
@@ -271,26 +291,27 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   const image = await attachAutoblogCoverImage(admin, imageSearchTerm, composed.slug)
 
   const post = await createPost({
-    title: composed.title,
-    slug: composed.slug,
-    body: appendStyledCta(composed.body, ctaStyle.id, groundingPackage),
-    tags: composed.tags,
+    title: final.title,
+    slug: final.slug,
+    body: appendStyledCta(final.body, ctaStyle.id, groundingPackage),
+    tags: final.tags,
     cover_image_url: image?.cover_image_url ?? null,
     alt_text: image?.alt_text ?? null,
     status: publishing ? 'published' : 'draft',
     publish_date: publishing ? new Date().toISOString().slice(0, 10) : null,
-    meta_title: composed.seo_title,
-    meta_description: composed.seo_description,
-    content_style: composed.content_style || style.id,
-    faq: composed.faq,
-    key_takeaways: composed.key_takeaways,
-    og_title: composed.og_title,
-    og_description: composed.og_description,
-    primary_keyword: composed.primary_keyword,
-    secondary_keywords: composed.secondary_keywords,
+    meta_title: final.seo_title,
+    meta_description: final.seo_description,
+    content_style: final.content_style || style.id,
+    faq: final.faq,
+    key_takeaways: final.key_takeaways,
+    og_title: final.og_title,
+    og_description: final.og_description,
+    primary_keyword: final.primary_keyword,
+    secondary_keywords: final.secondary_keywords,
   })
-  // Record the choices so a later step can compare styles against real clicks, visits and leads.
-  await tagVariant(admin, post.slug, { content_style: style.id, cta_style: ctaStyle.id })
+  // Record the choices so a later step can compare styles against real clicks, visits and leads. A held
+  // draft also records why, which the morning brief reads.
+  await tagVariant(admin, post.slug, { content_style: style.id, cta_style: ctaStyle.id, ...(blockers.length ? { held_reasons: blockers.join('; ') } : {}) })
 
   if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', { used_slug: post.slug })
   // Close the loop: the keyword this post was written for now points at it, so it is not picked again and
@@ -307,7 +328,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   return {
     ran: true,
     mode,
-    note: blockers.length ? `wrote a draft - quality gate held it back: ${blockers.join('; ')}` : 'ok',
+    note: (blockers.length ? `wrote a draft - quality gate held it back: ${blockers.join('; ')}` : 'ok') + (post.seoColumnsMissing ? ' | saved without FAQ/takeaways: run migration 0027' : ''),
     postId: post.id,
     postSlug: post.slug,
     published: publishing,

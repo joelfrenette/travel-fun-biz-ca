@@ -16,7 +16,7 @@ export interface ContentStyle {
   maxWords: number
 }
 
-const NUMBERS_AS_WORDS = 'Write small counts as words (for example "three common mistakes") and use digits only for list numbering.'
+const NUMBERS_AS_WORDS = 'Do not state numbers or counts of any kind (no digits and no number words such as "three nights" or "two ports"), except list structure such as numbered steps.'
 
 export const CONTENT_STYLES: ContentStyle[] = [
   {
@@ -94,7 +94,8 @@ export const STYLE_WINDOW = 10
 function rotate<T extends { id: string }>(recent: (string | null | undefined)[], catalogue: T[]): T {
   if (catalogue.length === 0) throw new Error('rotate: empty catalogue')
   const known = new Set(catalogue.map((s) => s.id))
-  const history = recent.filter((r): r is string => typeof r === 'string' && known.has(r)).slice(0, STYLE_WINDOW)
+  // Window first (the last STYLE_WINDOW posts, styled or not), then drop the ones with no known style.
+  const history = recent.slice(0, STYLE_WINDOW).filter((r): r is string => typeof r === 'string' && known.has(r))
   const last = history[0]
   const candidates = catalogue.length > 1 ? catalogue.filter((s) => s.id !== last) : catalogue
   let best = candidates[0]

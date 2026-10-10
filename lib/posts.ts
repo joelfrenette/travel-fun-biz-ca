@@ -65,7 +65,9 @@ export async function listPostsAdmin(): Promise<Post[]> {
 
 export type PostInput = Partial<Omit<Post, 'id' | 'created_at' | 'updated_at'>>
 
-export async function createPost(input: PostInput): Promise<Post> {
+/** `seoColumnsMissing` is true only when migration 0027 is not applied and the post was saved
+ * without its FAQ, takeaways and other SEO fields (the caller must surface that). */
+export async function createPost(input: PostInput): Promise<Post & { seoColumnsMissing?: boolean }> {
   if (!input.title?.trim()) throw new Error('Title is required')
   if (!input.slug?.trim()) throw new Error('Slug is required')
   const baseRow = {
@@ -92,15 +94,17 @@ export async function createPost(input: PostInput): Promise<Post> {
   if (input.secondary_keywords?.length) seoRow.secondary_keywords = input.secondary_keywords
 
   const admin = getSupabaseAdmin()
+  let seoColumnsMissing = false
   let { data, error } = await admin.from('posts').insert({ ...baseRow, ...seoRow }).select().single()
   // Safety net while migration 0027 has not been applied yet: the post is more valuable than its
   // extra fields, so retry once without them rather than losing the run.
   if (error && Object.keys(seoRow).length > 0 && /column|schema cache/i.test(error.message)) {
     console.error('[posts] SEO columns missing (apply migration 0027); saving without them:', error.message)
     ;({ data, error } = await admin.from('posts').insert(baseRow).select().single())
+    if (!error) seoColumnsMissing = true
   }
   if (error) throw new Error(error.message)
-  return data
+  return seoColumnsMissing ? { ...data, seoColumnsMissing: true } : data
 }
 
 export async function updatePost(id: string, patch: PostInput): Promise<Post> {

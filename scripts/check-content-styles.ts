@@ -1,7 +1,7 @@
 // Pure checks for the growth loop WP1 rotation and quality gate. No database, no AI.
 // Run: pnpm dlx tsx scripts/check-content-styles.ts
-import { CONTENT_STYLES, CTA_STYLES, pickStyle, ctaFor, STYLE_WINDOW } from '../lib/content-styles'
-import { autoPublishBlockers, type ComposedPost } from '../lib/blog-composer'
+import { CONTENT_STYLES, CTA_STYLES, pickStyle, pickCtaStyle, ctaFor, STYLE_WINDOW } from '../lib/content-styles'
+import { autoPublishBlockers, normalizePost, cutAtWord, fixDashes, findOffenders, applyRewrites, gateWithRepair, type ComposedPost } from '../lib/blog-composer'
 
 let failures = 0
 function check(name: string, ok: boolean, detail = '') {
@@ -60,7 +60,7 @@ check('ignores null and unknown history entries', pickStyle([null, 'nonsense', u
       const text = ctaFor(c.id, p)
       const targets = [...text.matchAll(/\]\(([^)]*)\)/g)].map((m) => m[1])
       const allowed = new Set(['/', '/#contact', ...(p ? [`/packages/${p.slug}`] : [])])
-      if (targets.length === 0 || targets.some((t) => !allowed.has(t)) || text.includes('—') || /\d/.test(text)) {
+      if (targets.length === 0 || targets.some((t) => !allowed.has(t)) || text.includes('2014') || /\d/.test(text)) {
         ok = false
         why = `${c.id}/${p ? 'pkg' : 'none'}: ${text}`
       }
@@ -115,16 +115,103 @@ check('clean post has no blockers', run(good).length === 0, run(good).join(' | '
 check('dead internal link is caught', has(run({ ...good, body: good.body.replace('/packages/rhine-cruise', '/packages/not-real') }), 'link to a page'))
 check('dead destinations link is caught', has(run({ ...good, body: good.body + '\n\n[x](/destinations/atlantis)' }), 'link to a page'))
 check('contact and home links are fine', run({ ...good, body: good.body + '\n\n[a](/#contact) [b](/)' }).length === 0)
-check('em dash in body is caught', has(run({ ...good, body: good.body + ' a — b' }), 'long dash'))
-check('em dash in FAQ is caught', has(run({ ...good, faq: [{ q: 'q—', a: 'a' }, ...good.faq.slice(1)] }), 'long dash'))
-check('foreign number in FAQ is caught', has(run({ ...good, faq: [{ q: 'How long?', a: 'About 14 days.' }, ...good.faq.slice(1)] }), 'FAQ or takeaways'))
-check('foreign number in takeaways is caught', has(run({ ...good, key_takeaways: ['Costs 999 dollars', 'b', 'c'] }), 'FAQ or takeaways'))
-check('foreign number in body is caught', has(run({ ...good, body: good.body + '\n\nThe ship carries 180 guests.' }), 'in the body'))
+check('em dash in body is caught', has(run({ ...good, body: good.body + ' a ' + String.fromCharCode(0x2014) + ' b' }), 'long dash'))
+check('em dash in FAQ is caught', has(run({ ...good, faq: [{ q: 'q' + String.fromCharCode(0x2014) + '', a: 'a' }, ...good.faq.slice(1)] }), 'long dash'))
+check('foreign number in FAQ is caught', has(run({ ...good, faq: [{ q: 'How long?', a: 'About 14 days.' }, ...good.faq.slice(1)] }), 'number not in'))
+check('foreign number in takeaways is caught', has(run({ ...good, key_takeaways: ['Costs 999 dollars', 'b', 'c'] }), 'number not in'))
+check('foreign number in body is caught', has(run({ ...good, body: good.body + '\n\nThe ship carries 180 guests.' }), 'number not in'))
 check('number from the grounding text is allowed', run({ ...good, body: good.body + '\n\nIt runs in November 2026.' }).length === 0)
 check('list numbering is not a claim', run({ ...good, body: good.body + '\n\n1. First\n2. Second\n\n## 3. Third thing' }).length === 0)
 check('missing FAQ is caught', has(run({ ...good, faq: [] }), 'missing FAQ'))
 check('missing takeaways is caught', has(run({ ...good, key_takeaways: [] }), 'missing key takeaways'))
 check('OG title over 60 characters is caught', has(run({ ...good, og_title: 'x'.repeat(61) }), 'social title'))
 
-console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`)
-process.exit(failures === 0 ? 0 : 1)
+// ---- fix round 1 ----
+const EM = String.fromCharCode(0x2014)
+const EN = String.fromCharCode(0x2013)
+
+// 1. OG length is repaired, not blocked.
+{
+  const words = 'a plain guide to river cruising for first timers who want an easy pace'
+  const long = normalizePost({ ...good, seo_title: 'River cruise for first timers: a plain guide', og_title: words + ' ' + words, og_description: (words + ' ').repeat(6) })
+  check('long OG title falls back to the SEO title, within 60', long.og_title === 'River cruise for first timers: a plain guide' && long.og_title.length <= 60, long.og_title)
+  check('long OG description is cut at a word boundary within 110', long.og_description.length <= 110 && (words + ' ').repeat(6).startsWith(long.og_description) && !/\s$/.test(long.og_description), long.og_description)
+  const cut = cutAtWord('abcdefghij klmnopqrst uvwxyz', 15)
+  check('cutAtWord never cuts mid-word', cut === 'abcdefghij', cut)
+  const empty = normalizePost({ ...good, og_title: '', og_description: '', seo_description: 'x '.repeat(80) })
+  check('empty OG description falls back to the SEO description, within 110', empty.og_description.length > 0 && empty.og_description.length <= 110)
+  check('a repaired post has no length blockers', autoPublishBlockers(long, now, ctx).length === 0, autoPublishBlockers(long, now, ctx).join(' | '))
+}
+
+// 2. Dashes are replaced in every field.
+{
+  const dirty = normalizePost({
+    ...good,
+    title: `River${EM}cruise`,
+    seo_title: `A ${EM} B`,
+    seo_description: `x${EN}y`,
+    body: `${good.body}\n\nOne ${EM} two.\n\nRange 5${EN}7 here.\n- a list item`,
+    faq: [{ q: `Q ${EM} one?`, a: `A${EM}one` }, ...good.faq.slice(1)],
+    key_takeaways: [`T ${EM} one`, 'b', 'c'],
+    og_title: `O ${EM} t`,
+    og_description: `D ${EM} d`,
+    primary_keyword: `k${EM}k`,
+  })
+  const all = JSON.stringify(dirty)
+  check('no long dashes survive anywhere', !all.includes(EM) && !all.includes(EN))
+  check('dash becomes a comma; digit range becomes "to"', dirty.body.includes('One, two.') && dirty.body.includes('5 to 7') && dirty.title === 'River, cruise')
+  check('line breaks and list markers survive', dirty.body.includes('\n- a list item'))
+  check('fixDashes leaves ordinary hyphens', fixDashes('well-known') === 'well-known')
+}
+
+// 3. Number grounding comes from the facts only; title and social text are gated too.
+check('AI keywords no longer license a number', has(run({ ...good, tags: ['river cruise 14 days'], primary_keyword: '14 day river cruise', body: good.body + '\n\nIt runs for 14 days.' }), 'number not in'))
+check('digit in title is caught', has(run({ ...good, title: 'Ten reasons, 7 of them' }), 'number not in'))
+check('digit in SEO description is caught', has(run({ ...good, seo_description: 'Top 5 tips' }), 'number not in'))
+check('digit in OG text is caught', has(run({ ...good, og_title: '5 things', og_description: 'About 9 things' }), 'number not in'))
+check('grounded digit in the title is allowed', run({ ...good, title: 'The Rhine trip in 2026' }).length === 0)
+
+// 5. Word numbers.
+check('word number with a unit is caught', has(run({ ...good, body: good.body + '\n\nIt is a three-night stay.' }), 'word number'))
+check('couple of + unit is caught', has(run({ ...good, key_takeaways: ['Spend a couple of days', 'b', 'c'] }), 'word number'))
+check('word number allowed when the facts say it in words', autoPublishBlockers({ ...good, body: good.body + '\n\nIt is a three nights stay.' }, now, { ...ctx, groundingText: ctx.groundingText + ' three nights on board' }).length === 0)
+check('word number allowed when the facts say it in digits', autoPublishBlockers({ ...good, body: good.body + '\n\nIt is a three night stay.' }, now, { ...ctx, groundingText: ctx.groundingText + ' 3 nights on board' }).length === 0)
+check('word number without a unit is not a claim', run({ ...good, body: good.body + '\n\nThere are two ways to see it.' }).length === 0)
+
+// 6. Links.
+check('absolute link to our own domain is converted to a path and passes', run({ ...good, body: good.body + '\n\n[x](https://www.travelfunbiz.ca/packages/rhine-cruise)' }).length === 0)
+check('absolute link to our own domain with a dead path is caught', has(run({ ...good, body: good.body + '\n\n[x](https://travelfunbiz.ca/packages/nope)' }), 'link to a page'))
+check('other web link is a blocker', has(run({ ...good, body: good.body + '\n\n[x](https://example.com/page)' }), 'external'))
+check('mailto link is a blocker', has(run({ ...good, body: good.body + '\n\n[x](mailto:a@b.co)' }), 'external'))
+check('link with a title attribute is still checked', has(run({ ...good, body: good.body + '\n\n[x](/packages/nope "t")' }), 'link to a page'))
+check('link inside a FAQ answer is a blocker', has(run({ ...good, faq: [{ q: 'Q?', a: 'See [this](/packages/rhine-cruise).' }, ...good.faq.slice(1)] }), 'FAQ'))
+check('our-team and award claims are blocked', has(run({ ...good, body: good.body + '\n\nOur guests loved it. An award-winning ship.' }), 'experience'))
+
+// 4. The single repair: offenders are found, rewrites are applied, and the gate passes after.
+{
+  const bad = { ...good, body: good.body + '\n\nThe ship holds 180 guests. It is a gentle trip.\n\nSee [a](/packages/nope) too.', key_takeaways: ['Costs 999 dollars', 'b', 'c'] }
+  const offenders = findOffenders(bad, ctx)
+  check('offenders name the exact sentences', offenders.some((o) => o.field === 'body' && o.text === 'The ship holds 180 guests.') && offenders.some((o) => o.field === 'takeaway') && offenders.some((o) => o.text.includes('/packages/nope')), JSON.stringify(offenders.map((o) => o.text)))
+  check('clean sentences are not offenders', !offenders.some((o) => o.text === 'It is a gentle trip.'))
+  const fixed = applyRewrites(bad, offenders, offenders.map((o, id) => ({ id, text: o.field === 'takeaway' ? 'Good value' : o.text.includes('/packages/nope') ? 'See more too.' : 'The ship is a comfortable size.' })))
+  check('after the rewrites the gate is clean', autoPublishBlockers(fixed, now, ctx).length === 0, autoPublishBlockers(fixed, now, ctx).join(' | '))
+  const missing = findOffenders({ ...bad, faq: [] }, ctx)
+  check('offenders are still found alongside a structural blocker', missing.length > 0)
+}
+
+// 9. Window first, then drop unstyled posts.
+check('only the last ten posts count', pickStyle([...Array(STYLE_WINDOW).fill(null), 'listicle', 'listicle']).id === CONTENT_STYLES[0].id)
+check('pickCtaStyle never repeats the latest', CTA_STYLES.every((c) => pickCtaStyle([c.id]).id !== c.id))
+
+;(async () => {
+  // Single retry: with no AI configured the repair cannot run, so the blockers come back unchanged and unrepaired.
+  const r = await gateWithRepair({ ...good, body: good.body + '\n\nThe ship holds 180 guests.' }, now, ctx)
+  check('gateWithRepair makes no change when it cannot repair', r.repaired === false && has(r.blockers, 'number not in'))
+  const clean = await gateWithRepair(good, now, ctx)
+  check('gateWithRepair passes a clean post straight through', clean.repaired === false && clean.blockers.length === 0)
+  const structural = await gateWithRepair({ ...good, faq: [], body: good.body + '\n\nThe ship holds 180 guests.' }, now, ctx)
+  check('a structural blocker is never sent for repair', structural.repaired === false)
+
+  console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`)
+  process.exit(failures === 0 ? 0 : 1)
+})()

@@ -66,7 +66,8 @@ interface ComposerContext {
 
 const NO_FABRICATION = `Never claim personal experience, a specific past trip, a named traveler, a specific date, or a price - you are a marketing writer, not someone who has been on this trip. Write from general travel-planning knowledge and what a first-time visitor would want to know.`
 
-const EM_DASH = '—'
+const EM_DASH = String.fromCharCode(0x2014)
+const EN_DASH = String.fromCharCode(0x2013)
 
 function linkInstructions(links: AllowedLink[]): string {
   if (links.length === 0) return 'Do not include any links in the post (the site adds its own).'
@@ -83,12 +84,12 @@ function composerPrompt(step: Step, ctx: ComposerContext): string {
     case 'body': {
       const wordRange = ctx.style ? `${ctx.style.minWords}-${ctx.style.maxWords}` : '700-900'
       const styleBlock = ctx.style ? `\n\n${ctx.style.prompt}` : ''
-      return `Write a blog post of roughly ${wordRange} words, in markdown, for a travel agency's blog.\n\nIdea: ${ctx.idea}\nDescription: ${ctx.description}\nTarget keywords (work them in naturally, don't stuff): ${ctx.keywords.join(', ')}\nPrimary keyword: ${ctx.keywords[0] ?? ''}${styleBlock}\n\n${NO_FABRICATION}\n\nFormat rules: the opening sentence must directly answer the core question a reader searching the primary keyword actually has - plain, complete, quotable on its own by a search engine or AI answer box, not a scene-setting lead-in. Follow it with the rest of the hook paragraph (no heading before it). Straight after that opening paragraph, add one separate short paragraph that starts with the bold words "**Quick answer:**" followed by a one or two sentence plain summary of the whole post. Within the first two sections, include one short definition sentence for the main concept of the post in the form "X is ..." that an AI answer engine could quote. Use 4-6 "##" section headings and work the primary keyword into the first one naturally (never forced or unnatural-sounding). Use at least one "###" sub-heading under the longest section. Use a short bullet list somewhere it helps scanability, write in a warm and practical tone, and do not include a title heading (the title is generated separately) or a call-to-action link (the site adds its own).\n\n${linkInstructions(ctx.allowedLinks)}\n\nFinish with a short final paragraph (2-3 sentences, no heading, no link) that names the one question the reader should settle next (for example who they would travel with, or which month works) and says our team can help them work that out. State no prices, dates, availability or urgency, and no exact statistics, distances or counts you were not given: stay at the level of general guidebook knowledge. Never use the long dash character; use commas or full stops instead. Output raw markdown only, no commentary before or after it.`
+      return `Write a blog post of roughly ${wordRange} words, in markdown, for a travel agency's blog.\n\nIdea: ${ctx.idea}\nDescription: ${ctx.description}\nTarget keywords (work them in naturally, don't stuff): ${ctx.keywords.join(', ')}\nPrimary keyword: ${ctx.keywords[0] ?? ''}${styleBlock}\n\n${NO_FABRICATION}\n\nFormat rules: the opening sentence must directly answer the core question a reader searching the primary keyword actually has - plain, complete, quotable on its own by a search engine or AI answer box, not a scene-setting lead-in. Follow it with the rest of the hook paragraph (no heading before it). Straight after that opening paragraph, add one separate short paragraph that starts with the bold words "**Quick answer:**" followed by a one or two sentence summary that adds who the trip or advice suits, rather than restating the opening sentence. Within the first two sections, include one short definition sentence for the main concept of the post in the form "X is ..." that an AI answer engine could quote. Use 4-6 "##" section headings and work the primary keyword into the first one naturally (never forced or unnatural-sounding). Use a "###" sub-heading under the longest section where it fits (optional for list and checklist styles). Use a short bullet list somewhere it helps scanability, write in a warm and practical tone, and do not include a title heading (the title is generated separately) or a call-to-action link (the site adds its own).\n\n${linkInstructions(ctx.allowedLinks)}\n\nFinish with a short final paragraph (2-3 sentences, no heading, no link) that names the one question the reader should settle next (for example who they would travel with, or which month works) and says our team can help them work that out. State no prices, dates, availability or urgency, and no exact statistics, distances or counts you were not given: stay at the level of general guidebook knowledge. Never use the long dash character; use commas or full stops instead. Output raw markdown only, no commentary before or after it.`
     }
     case 'title':
-      return `Idea: ${ctx.idea}\nDescription: ${ctx.description}\n\nWrite: a clear post title (under 65 characters), an SEO title (under 60 characters, can equal the title), and an SEO meta description (under 155 characters). The title and seo_title must contain the primary keyword (${ctx.keywords[0] ?? ''}) and tell the reader who the trip or advice is for or what decision it helps with. No fake urgency, superlatives about price, or numbers you were not given. Never use the long dash character. Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"..."}`
+      return `Idea: ${ctx.idea}\nDescription: ${ctx.description}\n\nWrite: a clear post title (under 65 characters), an SEO title (under 60 characters, can equal the title), and an SEO meta description (under 155 characters). The title and seo_title must contain the primary keyword (${ctx.keywords[0] ?? ''}) and tell the reader who the trip or advice is for or what decision it helps with. No fake urgency, superlatives about price, and no digits or numbers of any kind in the title, SEO title or meta description. Never use the long dash character. Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"..."}`
     case 'enrich':
-      return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. No prices, dates, availability or digits; write any small count as a word.\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post.\n- og_description: a social share description, 110 characters or fewer.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
+      return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. No prices, dates, availability, digits, number words or counts of any kind, and no links (answers are plain text).\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits, number words or counts.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post. No digits or numbers.\n- og_description: a social share description, 110 characters or fewer. No digits or numbers.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
   }
 }
 
@@ -172,7 +173,7 @@ export async function composeFullPost(angle: string, seedKeyword?: string, opts:
   const seoTitle = titleResult.seo_title ?? titleResult.title
   const secondary = asTextList(extra.secondary_keywords, 6)
 
-  return {
+  return normalizePost({
     title: titleResult.title,
     slug: slugify(titleResult.title),
     body,
@@ -181,21 +182,76 @@ export async function composeFullPost(angle: string, seedKeyword?: string, opts:
     tags: ctx.keywords.slice(0, 5),
     faq: asFaq(extra.faq),
     key_takeaways: asTextList(extra.key_takeaways, 5),
-    og_title: asText(extra.og_title) || seoTitle,
-    og_description: asText(extra.og_description) || (titleResult.seo_description ?? '').slice(0, 110),
+    og_title: asText(extra.og_title),
+    og_description: asText(extra.og_description),
     primary_keyword: asText(extra.primary_keyword) || ctx.keywords[0],
     secondary_keywords: secondary.length ? secondary : ctx.keywords.slice(1, 5),
     content_style: opts.style?.id ?? '',
+  })
+}
+
+/** Cut text to at most `max` characters at a word boundary (never mid-word), dropping trailing
+ * punctuation left dangling by the cut. */
+export function cutAtWord(text: string, max: number): string {
+  const s = text.trim()
+  if (s.length <= max) return s
+  const window = s.slice(0, max + 1)
+  const space = window.lastIndexOf(' ')
+  const cut = space > 0 ? window.slice(0, space) : s.slice(0, max)
+  return cut.replace(/[\s,;:\-]+$/, '')
+}
+
+/** Long dashes read as machine-written. A dash used as a break becomes a comma; one between two
+ * digits (a range) becomes "to". Spaces and tabs only, so line breaks in markdown survive. */
+export function fixDashes(text: string): string {
+  return text
+    .replace(new RegExp(`(\\d)${EN_DASH}(\\d)`, 'g'), '$1 to $2')
+    .replace(new RegExp(`[ \\t]*[${EM_DASH}${EN_DASH}][ \\t]*`, 'g'), ', ')
+}
+
+/** Mechanical clean-up of the model's output, so a cosmetic slip never blocks a publish: dashes
+ * are replaced in every text field, and the social share text is forced to its length limits at a
+ * word boundary (falling back to the SEO title / description when the model's own is too long). */
+export function normalizePost(post: ComposedPost): ComposedPost {
+  const f = fixDashes
+  const seoTitle = f(post.seo_title)
+  const seoDescription = f(post.seo_description)
+  let ogTitle = f(post.og_title || '')
+  if (!ogTitle || ogTitle.length > 60) ogTitle = cutAtWord(seoTitle || f(post.title), 60)
+  let ogDescription = f(post.og_description || '')
+  if (!ogDescription) ogDescription = seoDescription
+  if (ogDescription.length > 110) ogDescription = cutAtWord(ogDescription, 110)
+  return {
+    ...post,
+    title: f(post.title),
+    seo_title: seoTitle,
+    seo_description: seoDescription,
+    body: f(post.body),
+    tags: post.tags.map(f),
+    faq: post.faq.map((x) => ({ q: f(x.q), a: f(x.a) })),
+    key_takeaways: post.key_takeaways.map(f),
+    og_title: ogTitle,
+    og_description: ogDescription,
+    primary_keyword: f(post.primary_keyword),
+    secondary_keywords: post.secondary_keywords.map(f),
   }
 }
 
 const PLACEHOLDER_PATTERNS = [/\[.*?\]/, /lorem ipsum/i, /todo/i, /insert .* here/i]
 const REFUSAL_PATTERNS = [/i (cannot|can't|won'?t) (write|generate|help|comply)/i, /as an ai( language model)?/i]
-const EXPERIENCE_CLAIM_PATTERNS = [/\bwhen i (visited|went|traveled|stayed)\b/i, /\bmy (trip|visit|stay|experience) to\b/i, /\bi (recently|personally) (visited|went)\b/i]
+const EXPERIENCE_CLAIM_PATTERNS = [
+  /\bwhen i (visited|went|traveled|stayed)\b/i,
+  /\bmy (trip|visit|stay|experience) to\b/i,
+  /\bi (recently|personally) (visited|went)\b/i,
+  /\bour team has (sailed|been|stayed)\b/i,
+  /\bour guests (love|loved)\b/i,
+  /\baward-winning\b/i,
+]
 
 // The placeholder pattern above flags any "[...]" in the body, which would flag every markdown link.
 // Links are checked on their own below, so for that one pattern a link is blanked out first.
-const MARKDOWN_LINK = /\[([^\]]*)\]\(([^)\s]*)\)/g
+const MARKDOWN_LINK = /\[([^\]]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/g
+const LINK_TARGET = /\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
 
 const normNum = (s: string): string => {
   const n = Number(s.replace(/,/g, ''))
@@ -208,10 +264,23 @@ export function numbersIn(text: string): string[] {
   return (text.match(/\d[\d,]*(?:\.\d+)?/g) ?? []).map(normNum)
 }
 
-/** Numbers in a body that are real content (not link addresses, list numbering or "Step 2"
+const WORD_NUMBERS: Record<string, number> = {
+  two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, hundred: 100, thousand: 1000, dozen: 12, 'couple of': 2,
+}
+const WORD_NUMBER_RE =
+  /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|dozen|couple of)[- ](night|day|week|hour|star|passenger|guest|port|stop|country|ship|mile|km|minute)s?\b/gi
+
+/** Number words attached to a unit ("three nights", "two-hour"), the way a made-up count usually
+ * sounds. */
+export function wordNumbersIn(text: string): { phrase: string; value: string; unit: string }[] {
+  return [...text.matchAll(WORD_NUMBER_RE)].map((m) => ({ phrase: m[0].toLowerCase(), value: String(WORD_NUMBERS[m[1].toLowerCase()]), unit: m[2].toLowerCase() }))
+}
+
+/** Numbers in a body line that are real content (not link addresses, list numbering or "Step 2"
  * style labels, which are structure and not claims). */
-function bodyNumbers(body: string): string[] {
-  const stripped = body
+function bodyNumbers(text: string): string[] {
+  const stripped = text
     .replace(/\]\([^)]*\)/g, ']')
     .replace(/^\s*\d+[.)]\s/gm, '')
     .replace(/^#{1,6}\s*\d+[.):]?\s/gm, '## ')
@@ -222,22 +291,107 @@ function bodyNumbers(body: string): string[] {
 export interface PublishGateContext {
   /** Real internal paths the post may link to (exact, no query or hash), for example /packages/x. */
   allowedPaths?: string[]
-  /** The facts the writer was given (the grounded angle). A number must appear here, in the
-   * keywords or in the title to be allowed in the FAQ, takeaways or body. */
+  /** The facts the writer was given (the grounded angle, the seed keyword, the package text). A
+   * number may only appear in the post if it appears here. The AI's own title, tags and keywords
+   * do NOT count as a source. */
   groundingText?: string
 }
 
-function linkTargets(text: string): string[] {
-  const out: string[] = []
-  for (const m of text.matchAll(/\]\((\/[^)\s]*)\)/g)) out.push(m[1])
-  return out
+interface Grounding {
+  numbers: Set<string>
+  lower: string
+  paths: Set<string>
 }
 
-/** Reasons a composed post must not auto-publish. Empty means it's clean. This is the quality
- * gate PARITY-SPEC's owner rules call for ("no approval gates, only quality gates") - it runs
- * whether or not a human ever looks at the draft. */
-export function autoPublishBlockers(post: ComposedPost, now: Date = new Date(), ctx: PublishGateContext = {}): string[] {
+function groundingFrom(ctx: PublishGateContext): Grounding {
+  return {
+    numbers: new Set(numbersIn(ctx.groundingText ?? '')),
+    lower: (ctx.groundingText ?? '').toLowerCase(),
+    paths: new Set((ctx.allowedPaths ?? []).map((p) => p.replace(/[?#].*$/, '').replace(/\/+$/, ''))),
+  }
+}
+
+type LinkKind = 'ok' | 'dead' | 'external'
+
+/** Site-relative links must be the home page, the contact section or a confirmed path. Links to
+ * our own domain are treated as paths. Any other web or email link is not allowed. */
+function classifyLink(target: string, paths: Set<string>): LinkKind {
+  let t = target
+  if (/^https?:\/\//i.test(t)) {
+    try {
+      const u = new URL(t)
+      if (!/^(www\.)?travelfunbiz\.ca$/i.test(u.hostname)) return 'external'
+      t = u.pathname || '/'
+    } catch {
+      return 'external'
+    }
+  } else if (t.startsWith('#')) {
+    return 'ok'
+  } else if (!t.startsWith('/')) {
+    return 'external'
+  }
+  const path = t.replace(/[?#].*$/, '').replace(/\/+$/, '')
+  if (path === '') return 'ok'
+  return paths.has(path) ? 'ok' : 'dead'
+}
+
+interface Problems {
+  numbers: string[]
+  wordNums: string[]
+  dead: string[]
+  external: string[]
+}
+
+const noProblems = (p: Problems) => !p.numbers.length && !p.wordNums.length && !p.dead.length && !p.external.length
+
+function unitProblems(text: string, g: Grounding, structural: boolean): Problems {
+  const nums = (structural ? bodyNumbers(text) : numbersIn(text.replace(/\]\([^)]*\)/g, ']'))).filter((n) => !g.numbers.has(n))
+  const wordNums = wordNumbersIn(text)
+    // Grounded only if the facts say it in words, or give the same number next to the same unit
+    // ("3 nights"). A stray 3 elsewhere (a date) does not excuse "three nights".
+    .filter((w) => !g.lower.includes(w.phrase) && !new RegExp(`\\b${w.value}[- ]${w.unit}`, 'i').test(g.lower))
+    .map((w) => w.phrase)
+  const dead: string[] = []
+  const external: string[] = []
+  for (const m of text.matchAll(LINK_TARGET)) {
+    const kind = classifyLink(m[1], g.paths)
+    if (kind === 'dead') dead.push(m[1])
+    else if (kind === 'external') external.push(m[1])
+  }
+  return { numbers: [...new Set(nums)], wordNums: [...new Set(wordNums)], dead, external }
+}
+
+export type OffenderField = 'body' | 'title' | 'seo_title' | 'seo_description' | 'og_title' | 'og_description' | 'faq_q' | 'faq_a' | 'takeaway'
+
+export interface Offender {
+  field: OffenderField
+  index?: number
+  /** The exact text to rewrite (a sentence for the body, the whole value for the other fields). */
+  text: string
+  why: string
+}
+
+function whyText(p: Problems, faqLink = false): string {
+  const parts: string[] = []
+  if (p.numbers.length) parts.push(`remove the numbers ${p.numbers.join(', ')}`)
+  if (p.wordNums.length) parts.push(`remove the counts "${p.wordNums.join('", "')}"`)
+  if (p.dead.length) parts.push(`remove the link(s) ${p.dead.join(', ')} (keep the words, drop the link)`)
+  if (p.external.length || faqLink) parts.push(`remove the link(s) ${p.external.join(', ') || 'in this text'} (keep the words, drop the link)`)
+  return parts.join('; ')
+}
+
+interface Analysis {
+  blockers: string[]
+  offenders: Offender[]
+}
+
+/** The full gate. `blockers` is what autoPublishBlockers returns; `offenders` are the exact
+ * sentences/fields behind the number and link blockers, for the single automatic repair. */
+function analyse(post: ComposedPost, now: Date, ctx: PublishGateContext): Analysis {
   const blockers: string[] = []
+  const offenders: Offender[] = []
+  const g = groundingFrom(ctx)
+
   const wordCount = post.body.trim().split(/\s+/).filter(Boolean).length
   if (wordCount < 450) blockers.push(`too short (${wordCount} words)`)
   if (!/^##\s/m.test(post.body)) blockers.push('no section headings')
@@ -252,36 +406,141 @@ export function autoPublishBlockers(post: ComposedPost, now: Date = new Date(), 
   if (faq.length < 3) blockers.push('missing FAQ (needs at least 3 questions)')
   if (takeaways.length < 3) blockers.push('missing key takeaways (needs at least 3)')
 
-  const faqText = faq.map((f) => `${f.q} ${f.a}`).join(' ')
-  const takeawayText = takeaways.join(' ')
-
-  // Numbers: nothing numeric may appear that the writer was not given.
-  const allowedNumbers = new Set(
-    numbersIn(
-      [ctx.groundingText ?? '', post.title, post.seo_title, post.tags.join(' '), post.primary_keyword ?? '', (post.secondary_keywords ?? []).join(' ')].join(' '),
-    ),
-  )
-  const foreign = (nums: string[]) => [...new Set(nums.filter((n) => !allowedNumbers.has(n)))]
-  const foreignFaq = foreign(numbersIn(`${faqText} ${takeawayText}`))
-  if (foreignFaq.length) blockers.push(`number not in the source facts in FAQ or takeaways (${foreignFaq.join(', ')})`)
-  const foreignBody = foreign(bodyNumbers(post.body))
-  if (foreignBody.length) blockers.push(`number not in the source facts in the body (${foreignBody.join(', ')})`)
-
-  // Internal links: every site-relative link must be the home page, the contact section, or a path
-  // the caller confirmed exists.
-  const allowedPaths = new Set((ctx.allowedPaths ?? []).map((p) => p.replace(/[?#].*$/, '').replace(/\/+$/, '')))
+  const numbers = new Set<string>()
+  const wordNums = new Set<string>()
   const dead = new Set<string>()
-  for (const target of linkTargets(`${post.body}\n${faq.map((f) => f.a).join('\n')}`)) {
-    const path = target.replace(/[?#].*$/, '').replace(/\/+$/, '')
-    if (path === '') continue
-    if (!allowedPaths.has(path)) dead.add(target)
+  const external = new Set<string>()
+  let faqLink = false
+  const collect = (p: Problems) => {
+    p.numbers.forEach((x) => numbers.add(x))
+    p.wordNums.forEach((x) => wordNums.add(x))
+    p.dead.forEach((x) => dead.add(x))
+    p.external.forEach((x) => external.add(x))
   }
-  if (dead.size) blockers.push(`link to a page that was not confirmed to exist (${[...dead].join(', ')})`)
 
-  const allText = [post.title, post.seo_title, post.seo_description, post.body, faqText, takeawayText, post.og_title ?? '', post.og_description ?? ''].join('\n')
+  const simple: [OffenderField, string, number | undefined][] = [
+    ['title', post.title, undefined],
+    ['seo_title', post.seo_title, undefined],
+    ['seo_description', post.seo_description, undefined],
+    ['og_title', post.og_title ?? '', undefined],
+    ['og_description', post.og_description ?? '', undefined],
+    ...faq.flatMap((f, i): [OffenderField, string, number | undefined][] => [['faq_q', f.q, i], ['faq_a', f.a, i]]),
+    ...takeaways.map((t, i): [OffenderField, string, number | undefined] => ['takeaway', t, i]),
+  ]
+  for (const [field, text, index] of simple) {
+    if (!text) continue
+    const p = unitProblems(text, g, false)
+    // FAQ text is rendered as plain text, so any link in it would show as raw markdown.
+    const hasLink = (field === 'faq_q' || field === 'faq_a') && /\]\([^)]*\)/.test(text)
+    if (hasLink) faqLink = true
+    if (!noProblems(p) || hasLink) {
+      collect(p)
+      offenders.push({ field, index, text, why: whyText(p, hasLink) })
+    }
+  }
+
+  for (const line of post.body.split('\n')) {
+    const lineP = unitProblems(line, g, true)
+    if (noProblems(lineP)) continue
+    collect(lineP)
+    const sentences = line.split(/(?<=[a-zA-Z)"'][.!?])\s+/)
+    let flagged = false
+    for (const s of sentences) {
+      const sp = unitProblems(s, g, true)
+      if (!noProblems(sp)) {
+        flagged = true
+        offenders.push({ field: 'body', text: s, why: whyText(sp) })
+      }
+    }
+    if (!flagged) offenders.push({ field: 'body', text: line, why: whyText(lineP) })
+  }
+
+  if (numbers.size) blockers.push(`number not in the source facts (${[...numbers].join(', ')})`)
+  if (wordNums.size) blockers.push(`word number not in the source facts (${[...wordNums].join(', ')})`)
+  if (dead.size) blockers.push(`link to a page that was not confirmed to exist (${[...dead].join(', ')})`)
+  if (external.size) blockers.push(`external or email link (${[...external].join(', ')})`)
+  if (faqLink) blockers.push('link inside a FAQ question or answer')
+
+  const allText = [post.title, post.seo_title, post.seo_description, post.body, ...faq.map((f) => `${f.q} ${f.a}`), ...takeaways, post.og_title ?? '', post.og_description ?? ''].join('\n')
   if (allText.includes(EM_DASH)) blockers.push('contains a long dash character')
 
+  // Backstop only: normalizePost already repairs these, so this fires only for a post built by hand.
   if ((post.og_title ?? '').length > 60) blockers.push(`social title too long (${post.og_title.length} characters)`)
   if ((post.og_description ?? '').length > 110) blockers.push(`social description too long (${post.og_description.length} characters)`)
-  return blockers
+  return { blockers, offenders }
+}
+
+/** Reasons a composed post must not auto-publish. Empty means it's clean. This is the quality
+ * gate PARITY-SPEC's owner rules call for ("no approval gates, only quality gates") - it runs
+ * whether or not a human ever looks at the draft. */
+export function autoPublishBlockers(post: ComposedPost, now: Date = new Date(), ctx: PublishGateContext = {}): string[] {
+  return analyse(post, now, ctx).blockers
+}
+
+/** The sentences and fields behind any number or link blockers. */
+export function findOffenders(post: ComposedPost, ctx: PublishGateContext = {}, now: Date = new Date()): Offender[] {
+  return analyse(post, now, ctx).offenders
+}
+
+/** Put model rewrites back where the offenders came from. Unusable rewrites (empty, not text) are
+ * ignored, so the offending text simply stays and the gate blocks it again. */
+export function applyRewrites(post: ComposedPost, offenders: Offender[], rewrites: { id: number; text: string }[]): ComposedPost {
+  const next: ComposedPost = { ...post, faq: post.faq.map((f) => ({ ...f })), key_takeaways: [...post.key_takeaways] }
+  for (const r of rewrites) {
+    const o = offenders[r.id]
+    const text = typeof r.text === 'string' ? r.text.trim() : ''
+    if (!o || !text) continue
+    switch (o.field) {
+      case 'body': {
+        const at = next.body.indexOf(o.text)
+        if (at !== -1) next.body = next.body.slice(0, at) + text + next.body.slice(at + o.text.length)
+        break
+      }
+      case 'faq_q': if (o.index !== undefined && next.faq[o.index]) next.faq[o.index].q = text; break
+      case 'faq_a': if (o.index !== undefined && next.faq[o.index]) next.faq[o.index].a = text; break
+      case 'takeaway': if (o.index !== undefined) next.key_takeaways[o.index] = text; break
+      default: next[o.field] = text
+    }
+  }
+  return next
+}
+
+const REPAIRABLE = /^(number not in|word number not in|link to a page|external or email link|link inside a FAQ)/
+const MAX_REPAIR_SENTENCES = 12
+
+/** The quality gate plus ONE automatic repair. When the only blockers are numbers or links the
+ * model was not allowed to use, one extra model call rewrites just the offending sentences, then
+ * the gate runs once more. Never more than one retry; a post still blocked is saved as a draft. */
+export async function gateWithRepair(
+  post: ComposedPost,
+  now: Date,
+  ctx: PublishGateContext,
+): Promise<{ post: ComposedPost; blockers: string[]; repaired: boolean }> {
+  const first = analyse(post, now, ctx)
+  if (first.blockers.length === 0) return { post, blockers: [], repaired: false }
+  const offenders = first.offenders.slice(0, MAX_REPAIR_SENTENCES)
+  const onlyRepairable = first.blockers.every((b) => REPAIRABLE.test(b))
+  if (!onlyRepairable || offenders.length === 0 || first.offenders.length > MAX_REPAIR_SENTENCES || !isAiConfigured()) {
+    return { post, blockers: first.blockers, repaired: false }
+  }
+
+  const list = offenders.map((o, i) => `${i}. [${o.why}] ${o.text}`).join('\n')
+  const prompt = `Rewrite each numbered text below so it no longer has the problem named in the square brackets. Keep the meaning, tone, markdown formatting and length as close as you can. Do not add any number, count, number word, date, price or link. Where a number or count is removed, say it in general terms instead (for example "a few", "several", "most"). Never use the long dash character.\n\n${list}\n\nReturn ONLY minified JSON with the rewritten text for every number: {"rewrites":[{"id":0,"text":"..."}]}`
+  let rewrites: { id: number; text: string }[] = []
+  try {
+    const r = await callAnthropic({ max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 60_000 })
+    if (r && r.res.ok) {
+      const payload = await r.res.json()
+      if ((payload as { stop_reason?: string })?.stop_reason !== 'max_tokens') {
+        const parsed = parseModelJson<{ rewrites?: { id: number; text: string }[] }>(anthropicText(payload))
+        if (parsed && Array.isArray(parsed.rewrites)) rewrites = parsed.rewrites
+      }
+    }
+  } catch (err) {
+    console.error('[blog-composer] repair call failed:', err instanceof Error ? err.message : err)
+  }
+  if (rewrites.length === 0) return { post, blockers: first.blockers, repaired: false }
+
+  const fixed = normalizePost(applyRewrites(post, offenders, rewrites))
+  return { post: fixed, blockers: analyse(fixed, now, ctx).blockers, repaired: true }
 }
