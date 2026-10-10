@@ -10,8 +10,11 @@ import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice, type Currency } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
-import { jsonLdHtml, buildCollectionPageJsonLd } from "@/lib/jsonld"
+import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import type { DbPackage } from "@/lib/packages"
+import { comparePath } from "@/lib/page-copy"
+import { getUsablePageCopy } from "@/lib/page-copy-render"
+import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
 
 export const revalidate = 300
 
@@ -21,8 +24,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const page = await getComparePage(params.pair)
   if (!page) return { title: `Comparison not found | ${SITE_NAME}`, robots: { index: false } }
 
-  const title = `${page.a.destination} vs ${page.b.destination} Trips | ${SITE_NAME}`
-  const description = `See what our real ${page.a.destination} and ${page.b.destination} trips include side by side - duration, price and highlights, straight from our current trip list.`
+  // Written copy (when a published row exists) supplies the meta and OG text; otherwise the text below is used as before.
+  const copy = await getUsablePageCopy(comparePath(params.pair), [...page.a.packages, ...page.b.packages].map((p) => p.slug))
+  const title = (copy?.meta_title ? `${copy.meta_title} | ${SITE_NAME}` : null) || `${page.a.destination} vs ${page.b.destination} Trips | ${SITE_NAME}`
+  const description = copy?.meta_description || `See what our real ${page.a.destination} and ${page.b.destination} trips include side by side - duration, price and highlights, straight from our current trip list.`
+  const ogTitle = copy?.og_title || title
+  const ogDescription = copy?.og_description || description
   const url = absoluteUrl(`/compare/${params.pair}`)
   const image = ogImageEntry("compare", params.pair, `${page.a.destination} vs ${page.b.destination}`)
 
@@ -30,8 +37,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title,
     description,
     alternates: { canonical: url },
-    openGraph: { title, description, url, type: "website", images: [image] },
-    twitter: { card: "summary_large_image", title, description, images: [image.url] },
+    openGraph: { title: ogTitle, description: ogDescription, url, type: "website", images: [image] },
+    twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription, images: [image.url] },
   }
 }
 
@@ -53,12 +60,23 @@ export default async function ComparePage({ params }: Props) {
     [...page.a.packages, ...page.b.packages],
     absoluteUrl,
   )
+  // Written copy, when a published row exists. Adds FAQPage and BreadcrumbList next to the CollectionPage above.
+  const copy = await getUsablePageCopy(comparePath(params.pair), [...page.a.packages, ...page.b.packages].map((p) => p.slug), true)
+  const structuredData: object[] = [...jsonLd]
+  if (copy) {
+    structuredData.push(buildBreadcrumbJsonLd([
+      { name: "Home", url: absoluteUrl("/") },
+      { name: "Destinations", url: absoluteUrl("/destinations") },
+      { name: `${page.a.destination} vs ${page.b.destination}`, url: pageUrl },
+    ]))
+    if (copy.faq.length > 0) structuredData.push(buildFaqPageJsonLd(copy.faq))
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(copy ? structuredData : jsonLd) }} />
         <div className="border-b bg-muted/30">
           <div className="container mx-auto px-4 py-10">
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Compare Destinations</p>
@@ -71,10 +89,23 @@ export default async function ComparePage({ params }: Props) {
           </div>
         </div>
 
+        {copy && (
+          <div className="container mx-auto space-y-6 px-4 pt-10">
+            <PageCopyIntro copy={copy} />
+            <PageCopyTakeaways copy={copy} />
+          </div>
+        )}
+
         <div className="container mx-auto grid gap-8 px-4 py-10 sm:grid-cols-2">
           <DestinationColumn side={page.a} currency={currency} usdToTargetRate={usdToTargetRate} />
           <DestinationColumn side={page.b} currency={currency} usdToTargetRate={usdToTargetRate} />
         </div>
+
+        {copy && copy.faq.length > 0 && (
+          <div className="container mx-auto px-4 pb-10">
+            <PageCopyFaq copy={copy} />
+          </div>
+        )}
       </main>
       <Footer language={language} />
     </div>

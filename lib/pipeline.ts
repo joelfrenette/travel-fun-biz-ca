@@ -15,6 +15,7 @@ import { runDebriefIfDue } from '@/lib/debrief'
 import { snapshotContentPerformance } from '@/lib/content-performance'
 import { plainAction } from '@/lib/plain-steps'
 import { runGuidesStep } from '@/lib/guide-run'
+import { runPageCopyStep } from '@/lib/page-copy-run'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -23,6 +24,7 @@ import { runGuidesStep } from '@/lib/guide-run'
 //              thumbnail, then publish it (all inside runAutoblog).
 //   1b. GUIDES  at most a few capped guide pages a week (destinations, hotels, resorts, cruise lines, ships,
 //              river cruises, yachts), published only when the quality gate passes.
+//   1c. COPY    at most a few capped intros, takeaways and FAQs a week for the compare and best-time pages.
 //   2. POST    the post itself to social, with a caption written for each network.
 //   3. REPURPOSE  carousel, then the short video (script, stock footage, voiceover, captions,
 //              render), then post both; plus housekeeping (delete old Shotstack renders).
@@ -36,6 +38,8 @@ const PUBLISH_HOUR_UTC = 13
 const TIME_BUDGET_MS = 200_000
 // The guides step can use about 140 seconds (two AI calls), the route allows 300, so it must start before this.
 const GUIDES_START_BY_MS = 100_000
+// The page copy step makes one AI call (80 second limit), so it must start before this.
+const COPY_START_BY_MS = 60_000
 
 export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 
@@ -123,6 +127,20 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
       run.steps.push({ step: 'guides', ok: result.ok, note: result.note })
     } catch (e) {
       run.steps.push({ step: 'guides', ok: false, note: e instanceof Error ? e.message : 'guides step failed' })
+    }
+  }
+
+  // 1c. PAGE COPY (the real intro, takeaways and FAQ for the compare and best-time pages). At most
+  // page_copy_per_day and page_copy_per_week (counted from the page_copy table, failing closed). One AI call
+  // of up to about 80 seconds, so it only starts early in the pass and never delays the posting steps below.
+  if (overBudget() || Date.now() - startedAt > COPY_START_BY_MS) {
+    run.steps.push({ step: 'copy', ok: true, note: 'continues on the next pass' })
+  } else {
+    try {
+      const result = await runPageCopyStep(admin)
+      run.steps.push({ step: 'copy', ok: result.ok, note: result.note })
+    } catch (e) {
+      run.steps.push({ step: 'copy', ok: false, note: e instanceof Error ? e.message : 'page copy step failed' })
     }
   }
 

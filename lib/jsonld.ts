@@ -41,3 +41,23 @@ export function buildCollectionPageJsonLd(
     },
   ]
 }
+
+const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
+
+/** A schema.org FAQPage from question and answer pairs. Callers add it only when there is at least one pair. */
+export function buildFaqPageJsonLd(faq: { q: string; a: string }[]) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faq.map((f) => ({ '@type': 'Question', name: oneLine(f.q), acceptedAnswer: { '@type': 'Answer', text: oneLine(f.a) } })),
+  }
+}
+
+/** A schema.org BreadcrumbList from ordered { name, url } items (url already absolute). */
+export function buildBreadcrumbJsonLd(items: { name: string; url: string }[]) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: items.map((item, i) => ({ '@type': 'ListItem', position: i + 1, name: item.name, item: item.url })),
+  }
+}
