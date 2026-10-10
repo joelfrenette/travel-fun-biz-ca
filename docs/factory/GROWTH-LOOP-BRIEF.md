@@ -207,3 +207,63 @@ SHIP, FIX-THEN-SHIP, or REWORK. QA never edits code.
 
 Each builder's final report: what was built (files), what was verified (tsc output line), what was
 NOT done and why, open questions for Joel (only things only he can do), and the branch name.
+
+## Wave 2 (2026-10-10): more pages that rank, pages that share well, guides that bring traffic
+
+Same rules as above. Migration numbers: WP6 none, WP7 0030, WP8 0031. Builders work in isolated worktrees off
+main at or after 5a97d42 (wave 1 merged). Do not edit files owned by another wave-2 package.
+
+### WP6: Social share images for every page (no migration, no vendor)
+
+Owner files: new `app/og/[...path]/route.tsx` (or per-route `opengraph-image.tsx` files, pick ONE approach and
+say why), new `lib/og-image.ts`, small edits to the `generateMetadata` of `app/blog/[slug]/page.tsx`,
+`components/guide-page.tsx` and the guide route files, `app/packages/[slug]/page.tsx`,
+`app/compare/[pair]/page.tsx`, `app/best-time-to-visit/[destination]/page.tsx`, `app/destinations/[slug]/page.tsx`.
+
+Deliverable: a rendered 1200x630 PNG per public page using `next/og` ImageResponse (already used by
+`app/carousel/[slug]/[n]/route.tsx`: copy its Satori constraints and font loading): the page's cover or hero
+photo (Pexels URL) as background when present, a dark gradient, the title (wrapped, max 3 lines), a kind label
+(Blog, Destination guide, Hotel guide, Trip, Compare, Best time), and the site name. Fallback when no photo:
+brand colour background. Cached (`revalidate` 1 day) and keyed by slug; never calls any AI. Metadata `openGraph.images`
+and `twitter.images` point at it; `og_title`/`og_description` already exist on posts and guides, use them. Keep
+`DEFAULT_OG_IMAGE` as the final fallback. Verify by curl: `curl -sI /og/blog/<slug>` returns image/png.
+
+### WP7: Guides earn traffic: social posts for published guides, link graph, gate fix (migration 0030)
+
+Owner files: `lib/guides.ts`, `lib/guide-run.ts`, `lib/guide-composer.ts`, `lib/distribution.ts` (additive only:
+read ADOPTION-LOG 10-08/10-09 first; the send path must stay identical), `lib/social-captions.ts` (caller side only),
+`components/guide-page.tsx`, `supabase/migrations/0030_post_distribution_path.sql`, `lib/issues.ts` if needed.
+
+Deliverables:
+1. Gate fix: in `guide-composer.ts` the word-number+unit check must be excused when the grounding text contains
+   the same count as a digit or word with the same unit (the Montego Bay draft was held for "four-night" while the
+   package is a 4-night trip). Same rule WP1 uses. Add a check to `scripts/check-guide-gate.ts`.
+2. Published guides get social posts: `post_distribution` gains nullable `path text` and `title text` (migration
+   0030) so a row can refer to a guide page, not only a blog post. When a guide is published (pipeline or admin
+   Publish), enrol it like a post (`enrollIfDue` equivalent for guides) at most ONE guide post per day across all
+   kinds, with the same per-network captions, hook rotation and UTM tags (campaign = `guide-<kind>-<slug>`). The
+   image for the post is the guide hero (or the WP6 share image URL if present at runtime, else hero). Carousel and
+   video are NOT generated for guides in this wave. The posting call shape must not change.
+3. Link graph: each guide page lists up to 6 related guides (same destination parent, same kind, or sharing a
+   package) and each blog post lists up to 3 related guides by destination match (`app/blog/[slug]/page.tsx`, a
+   small "Guides" box; coordinate: WP6 touches only generateMetadata there). Destination pages link to every
+   published hotel/resort guide under that destination. All links only to published rows.
+4. Admin: the guides panel shows "posted to social: networks" per guide from the ledger.
+
+### WP8: Compare and Best-time pages get real copy (migration 0031)
+
+Owner files: new `lib/page-copy.ts`, new `lib/page-copy-composer.ts`, `app/compare/[pair]/page.tsx`,
+`app/best-time-to-visit/[destination]/page.tsx`, `lib/pipeline.ts` (one capped step `copy`, after `guides`),
+`lib/pipeline-log.ts` (union), `supabase/migrations/0031_page_copy.sql`, Autopilot page card (small), admin API
+under `app/api/admin/page-copy/`.
+
+Deliverables: a `page_copy` table keyed by `path` (unique) with intro (markdown, 150-300 words, direct answer first),
+faq jsonb, key_takeaways text[], meta_title, meta_description, og_title, og_description, status (draft|published),
+quality_notes, source, timestamps; RLS on, anon select where published. Composer grounded ONLY in the real packages
+the page already lists (names, destinations, categories, short descriptions, month ranges from available_from/to)
+and the destination blurb/guide summary when present; same gate as guides (numbers in digits or words only when in
+the grounding, superlatives, named venues, agency claims, dashes, dead links). Pipeline step: 1 page per day,
+7 per week, oldest-missing-first across compare and best-time pages that have at least one published package,
+publish when the gate passes (these pages name no hotels, so publish is allowed), else draft with notes. Pages
+render the intro above the package grid, takeaways, FAQ (FAQPage JSON-LD), BreadcrumbList, and use og fields;
+with no row they render exactly as today. A `scripts/check-page-copy.ts` offline check for the gate.
