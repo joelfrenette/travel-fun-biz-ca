@@ -98,6 +98,17 @@ export function plainAction(i: Issue): PlainAction {
       paste,
     }
   }
+  if (i.id === 'system:page-copy-failing') {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'The site tried to write the intro text for a Compare or Best time to visit page and it did not work. After two tries it stops trying that page, so it does not waste money.',
+      steps: ['Open the Content Autopilot page with the link below.', 'Read the grey line. It says which page failed and why.', 'If it says the AI key is missing or wrong, open Vercel, then your project, then Settings, then Environment Variables, and check ANTHROPIC_API_KEY. Redeploy after changing it.', 'Click "Dismiss" so the site tries those pages again.', 'If the same page fails again, copy the message below and paste it to Claude.'],
+      url: autopilot(i.id),
+      urlLabel: 'Open this problem',
+      paste,
+    }
+  }
   if (i.id === 'system:leads-not-forwarded') {
     return {
       id: i.id,

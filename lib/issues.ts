@@ -8,6 +8,7 @@ import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { getProvider, getGhlAccounts } from '@/lib/social-provider'
 import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
+import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS } from '@/lib/page-copy-failures'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -17,7 +18,7 @@ import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX
 const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
 
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy'
 
 export interface Issue {
   id: string
@@ -107,11 +108,13 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
   // entries; otherwise the step item is the only trace, so it stays.
   const guideRead = await readGuideFailuresChecked(admin)
   const guideItemCovers = !guideRead.error && Object.keys(guideRead.failures).length > 0
+  const copyRead = await readCopyFailuresChecked(admin)
+  const copyItemCovers = !copyRead.error && Object.keys(copyRead.failures).length > 0
   for (const st of last?.steps ?? []) {
     // An email delivery failure is shown once, as "Emails from Aiva are not being delivered" below.
     // A failed guide WRITE has its own item below (it names the guide and the reason); any other guides-step
     // failure (for example the table cannot be read) still shows here.
-    if (!st.ok && st.step !== 'repurpose' && !(st.step === 'guides' && guideItemCovers && /^could not write/.test(st.note)) && !(st.step === 'debrief' && /Resend said/.test(st.note))) issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
+    if (!st.ok && st.step !== 'repurpose' && !(st.step === 'guides' && guideItemCovers && /^could not write/.test(st.note)) && !(st.step === 'copy' && copyItemCovers && /^could not write/.test(st.note)) && !(st.step === 'debrief' && /Resend said/.test(st.note))) issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
   }
 
   // Guide pages (destinations, hotels, ships ...) that could not be written. One item lists them all.
@@ -124,6 +127,19 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
       detail: guideFailures.map((f) => `${f.name} (${f.kind}, tried ${f.n} time${f.n === 1 ? '' : 's'}): ${f.last}`).join(' | '),
       fix: `A guide is skipped after ${MAX_GUIDE_ATTEMPTS} failed tries so it cannot keep spending AI credits. Check ANTHROPIC_API_KEY in Vercel; click Dismiss to let them be tried again.`,
       actions: [{ label: 'Dismiss', kind: 'dismiss-guides' }],
+    })
+  }
+
+  // Compare and best-time page copy that could not be written. One item lists them all.
+  const copyFailures = Object.values(await readCopyFailures(admin))
+  if (copyFailures.length) {
+    issues.push({
+      id: 'system:page-copy-failing',
+      area: 'system',
+      title: `${copyFailures.length} page${copyFailures.length === 1 ? '' : 's'} could not get written copy`,
+      detail: copyFailures.map((f) => `${f.path} (tried ${f.n} time${f.n === 1 ? '' : 's'}): ${f.last}`).join(' | '),
+      fix: `A page is skipped after ${MAX_COPY_ATTEMPTS} failed tries so it cannot keep spending AI credits. Check ANTHROPIC_API_KEY in Vercel; click Dismiss to let them be tried again.`,
+      actions: [{ label: 'Dismiss', kind: 'dismiss-page-copy' }],
     })
   }
 
@@ -215,6 +231,7 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
     return error ?? null
   }
   if (kind === 'dismiss-guides') return (await clearAllGuideFailures(admin)).error ?? null
+  if (kind === 'dismiss-page-copy') return (await clearAllCopyFailures(admin)).error ?? null
   if (!slug) return 'A post is required.'
   if (kind === 'dismiss-ghl') return dismissGhl(admin, slug)
   if (kind === 'retry-post') {
