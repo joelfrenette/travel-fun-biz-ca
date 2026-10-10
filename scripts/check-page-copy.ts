@@ -1,6 +1,7 @@
 // Quick self-check for the compare and best-time page copy gate and the candidate rotation (no network, no database).
 // Run: pnpm dlx tsx scripts/check-page-copy.ts
 import { copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, normalizePageCopy, pageCopyBlockers, ungroundedWordCounts, type ComposedPageCopy, type PageCopyBrief, type CopyGateContext } from '../lib/page-copy-composer'
+import { pickRowsToCheck, parseStaleState, STALE_CHECK_MAX_ROWS } from '../lib/page-copy-run'
 import { pickNextCopyCandidate, pageTypeOfPath, staleLinkedSlugs, type PageCopyCandidate } from '../lib/page-copy'
 
 let failed = 0
@@ -129,7 +130,31 @@ for (const [word, sentence] of weatherCases) {
 check('a weather word in the FAQ is blocked', has(blockersOf({ faq: [...good.faq.slice(0, 2), { q: 'Is it hot?', a: 'It depends.' }] }), /weather, crowd or season word/))
 check('a weather word in a takeaway is blocked', has(blockersOf({ key_takeaways: ['A quiet trip.', 'Two.', 'Three.'] }), /weather, crowd or season word/))
 check('a month copied from the grounding is fine', blockersOf({ intro: goodIntro.replace('for the islands', 'for the islands, which run in September') }).length === 0)
-check('"warm welcome" is a known false positive (held as a draft)', has(blockersOf({ intro: `${goodIntro} Expect a warm welcome.` }), /weather, crowd or season word/))
+check('"warm welcome" is now excused as an idiom', !has(blockersOf({ intro: `${goodIntro} Expect a warm welcome.` }), /weather, crowd or season word/))
+check('"warm" alone is still blocked', has(blockersOf({ intro: `${goodIntro} Expect warm days.` }), /weather, crowd or season word: "warm"/))
+
+const briefSummer = makeBrief('A summer cruise with a hot springs stop.')
+check('a weather word that is in the grounding (a trip summary) is excused', blockersOf({ intro: goodIntro.replace('for the islands', 'for a summer cruise') }, ctxFor(briefSummer)).length === 0)
+check('the same word is blocked when the grounding lacks it', has(blockersOf({ intro: goodIntro.replace('for the islands', 'for a summer cruise') }), /weather, crowd or season word: "summer"/))
+for (const idiom of ['fall in love', 'fall asleep', 'hot springs', 'warm welcome']) {
+  check(`idiom excused: ${idiom}`, blockersOf({ intro: `${goodIntro} You may ${idiom} here.` }).length === 0)
+}
+check('an idiom does not excuse a second weather word', has(blockersOf({ intro: `${goodIntro} A warm welcome and hot days.` }), /weather, crowd or season word: "hot"/))
+
+// --- meta title length (the page adds " | TravelFunBiz.ca") ---
+check('meta title of 42 characters passes', blockersOf({ meta_title: 'x'.repeat(42) }).length === 0)
+check('meta title of 43 characters is blocked', has(blockersOf({ meta_title: 'x'.repeat(43) }), /meta title over 42/))
+check('normalizePageCopy cuts a long meta title to 42 or less', normalizePageCopy({ ...good, meta_title: 'Italy or Tahiti: which trip suits you better this year' }, brief).meta_title.length <= 42)
+
+// --- stale check: oldest-checked first, capped ---
+const rows40 = Array.from({ length: 55 }, (_, i) => ({ path: `/compare/p${String(i).padStart(2, '0')}` }))
+const pickedAll = pickRowsToCheck(rows40, {})
+check('stale check picks at most 40 rows', pickedAll.length === STALE_CHECK_MAX_ROWS && STALE_CHECK_MAX_ROWS === 40)
+const checkedMap: Record<string, string> = Object.fromEntries(rows40.slice(0, 40).map((r) => [r.path, '2026-10-01T00:00:00Z']))
+check('never-checked rows go before checked ones', pickRowsToCheck(rows40, checkedMap, 15).every((r) => !(r.path in checkedMap)))
+check('among checked rows the oldest-checked goes first', pickRowsToCheck([{ path: '/a' }, { path: '/b' }], { '/a': '2026-10-05T00:00:00Z', '/b': '2026-10-02T00:00:00Z' })[0].path === '/b')
+check('parseStaleState tolerates garbage', (() => { const s = parseStaleState('{not json'); return s.paths.length === 0 && Object.keys(s.checked).length === 0 })())
+check('parseStaleState reads a stored state', (() => { const s = parseStaleState(JSON.stringify({ at: 'x', paths: ['/a'], checked: { '/a': 'y' } })); return s.paths[0] === '/a' && s.checked['/a'] === 'y' })())
 
 // --- verdicts ---
 for (const phrase of ['Italy edges Tahiti.', 'Tahiti outshines Italy.', 'Italy tops the list.', 'Tahiti is stronger.', 'Italy is ahead of Tahiti.', 'Italy is better suited to families.', 'Italy wins out.', 'Italy beats Tahiti.', 'Italy is the better choice.', 'Tahiti is the clear winner.']) {

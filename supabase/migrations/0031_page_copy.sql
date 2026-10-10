@@ -39,3 +39,6 @@ alter table public.page_copy enable row level security;
 -- (admin API routes and the content pipeline) may insert, update or delete.
 drop policy if exists "page_copy_public_read_published" on public.page_copy;
 create policy "page_copy_public_read_published" on public.page_copy for select using (status = 'published');
+
+-- Belt and braces: a table created from an earlier draft of this file would lack the column.
+alter table public.page_copy add column if not exists linked_slugs text[] not null default '{}';

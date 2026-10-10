@@ -161,11 +161,43 @@ const STALE_CHECK_EVERY_MS = 24 * 3_600_000
 
 /** Paths of published copy whose intro links to a trip that is no longer on the page. The page itself already hides
  * such copy at render time; this list is what Needs attention shows so someone rewrites it. */
-export async function findStaleCopyPaths(admin: SupabaseClient): Promise<string[]> {
+export interface StaleState {
+  /** When the last check ran (set even when it failed, so it runs once a day). */
+  at?: string
+  /** Paths found stale. */
+  paths: string[]
+  /** When each path was last checked (ISO), so the oldest-checked rows go first. */
+  checked: Record<string, string>
+}
+
+/** At most this many rows are checked per run (each check fetches the page's trips). */
+export const STALE_CHECK_MAX_ROWS = 40
+
+export function parseStaleState(raw: string | null): StaleState {
+  try {
+    const p = (JSON.parse(raw ?? 'null') ?? {}) as Partial<StaleState>
+    return { at: typeof p.at === 'string' ? p.at : undefined, paths: Array.isArray(p.paths) ? p.paths.filter((x): x is string => typeof x === 'string') : [], checked: p.checked && typeof p.checked === 'object' ? p.checked : {} }
+  } catch {
+    return { paths: [], checked: {} }
+  }
+}
+
+/** The rows to check this run: oldest-checked first (never checked first of all), at most STALE_CHECK_MAX_ROWS. Pure. */
+export function pickRowsToCheck<T extends { path: string }>(rows: T[], checked: Record<string, string>, max = STALE_CHECK_MAX_ROWS): T[] {
+  return [...rows].sort((a, b) => (checked[a.path] ?? '').localeCompare(checked[b.path] ?? '') || a.path.localeCompare(b.path)).slice(0, max)
+}
+
+/** Checks up to STALE_CHECK_MAX_ROWS published rows and returns the new state (previous findings for rows not
+ * checked this time are kept). */
+export async function findStaleCopyPaths(admin: SupabaseClient, previous: StaleState = { paths: [], checked: {} }): Promise<StaleState> {
   const { data, error } = await admin.from('page_copy').select('path, page_type, linked_slugs').eq('status', 'published')
   if (error) throw new Error(`could not read page copy: ${error.message}`)
+  const now = new Date().toISOString()
+  const rows = pickRowsToCheck((data ?? []) as { path: string; page_type: PageCopyType; linked_slugs: string[] | null }[], previous.checked)
   const stale: string[] = []
-  for (const row of (data ?? []) as { path: string; page_type: PageCopyType; linked_slugs: string[] | null }[]) {
+  const checked = { ...previous.checked }
+  for (const row of rows) {
+    checked[row.path] = now
     if (!row.linked_slugs?.length) continue
     let current: string[] | null = null
     if (row.page_type === 'compare') {
@@ -177,20 +209,25 @@ export async function findStaleCopyPaths(admin: SupabaseClient): Promise<string[
     }
     if (current && staleLinkedSlugs(row.linked_slugs, current).length) stale.push(row.path)
   }
-  return stale
+  const checkedNow = new Set(rows.map((r) => r.path))
+  const kept = previous.paths.filter((p) => !checkedNow.has(p))
+  return { at: now, paths: [...new Set([...kept, ...stale])], checked }
 }
 
 /** Runs findStaleCopyPaths at most once a day and remembers the answer for lib/issues.ts. Never throws. */
 async function refreshStaleCopyIfDue(admin: SupabaseClient): Promise<void> {
   try {
-    const last = await getSetting(admin, STALE_COPY_KEY)
-    if (last) {
-      const at = Date.parse((JSON.parse(last) as { at?: string }).at ?? '')
-      if (!Number.isNaN(at) && Date.now() - at < STALE_CHECK_EVERY_MS) return
+    const previous = parseStaleState(await getSetting(admin, STALE_COPY_KEY))
+    const at = Date.parse(previous.at ?? '')
+    if (!Number.isNaN(at) && Date.now() - at < STALE_CHECK_EVERY_MS) return
+    try {
+      await setSetting(admin, STALE_COPY_KEY, JSON.stringify(await findStaleCopyPaths(admin, previous)))
+    } catch {
+      // Stamp the attempt anyway so a failing check retries tomorrow, not on every 15-minute pass.
+      await setSetting(admin, STALE_COPY_KEY, JSON.stringify({ ...previous, at: new Date().toISOString() }))
     }
-    await setSetting(admin, STALE_COPY_KEY, JSON.stringify({ at: new Date().toISOString(), paths: await findStaleCopyPaths(admin) }))
   } catch {
-    // a failed check just tries again on the next pass
+    // an unreadable setting just tries again on the next pass
   }
 }
 
@@ -315,9 +352,10 @@ export async function pickNextPageCopy(admin: SupabaseClient, candidates: PageCo
  * table, failing closed), one page per call, and none at all while the failure breaker is tripped. The caller has
  * already checked that Autopilot is on and not paused. */
 export async function runPageCopyStep(admin: SupabaseClient): Promise<{ ok: boolean; note: string }> {
-  await refreshStaleCopyIfDue(admin)
   const { perDay, perWeek } = await getPageCopyCaps(admin)
   if (perDay === 0 || perWeek === 0) return { ok: true, note: 'page copy is switched off (a cap is 0)' }
+  // Not while switched off. It makes no AI call, so it runs even when AI is not configured.
+  await refreshStaleCopyIfDue(admin)
   if (!isAiConfigured()) return { ok: true, note: 'AI writing is not configured, so no page copy' }
 
   // The breaker comes before any AI call. If the log cannot be read, stay closed.

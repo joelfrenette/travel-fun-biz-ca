@@ -18,7 +18,7 @@ import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_CO
 const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
 
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale'
 
 export interface Issue {
   id: string
@@ -152,7 +152,8 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
         area: 'system',
         title: `Page copy refers to a trip no longer listed (${stale.length} page${stale.length === 1 ? '' : 's'})`,
         detail: stale.join(' | '),
-        fix: 'Those pages are showing without their written intro until it is rewritten. Delete the copy on the Autopilot page and click "Write one now".',
+        fix: 'Those pages are showing without their written intro until it is rewritten. Delete the copy on the Autopilot page and click "Write one now". Dismiss clears this note; the daily check adds a page back if it is still affected.',
+        actions: [{ label: 'Dismiss', kind: 'dismiss-page-copy-stale' }],
       })
     }
   } catch {
@@ -248,6 +249,16 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
   }
   if (kind === 'dismiss-guides') return (await clearAllGuideFailures(admin)).error ?? null
   if (kind === 'dismiss-page-copy') return (await clearAllCopyFailures(admin)).error ?? null
+  if (kind === 'dismiss-page-copy-stale') {
+    // Empties the stored list but keeps the "checked at" stamps, so the daily check resumes on schedule.
+    let state: Record<string, unknown> = {}
+    try {
+      state = JSON.parse((await getSetting(admin, STALE_COPY_KEY)) ?? '{}') ?? {}
+    } catch {
+      state = {}
+    }
+    return (await setSetting(admin, STALE_COPY_KEY, JSON.stringify({ ...state, paths: [] }))).error ?? null
+  }
   if (!slug) return 'A post is required.'
   if (kind === 'dismiss-ghl') return dismissGhl(admin, slug)
   if (kind === 'retry-post') {

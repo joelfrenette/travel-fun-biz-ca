@@ -155,7 +155,7 @@ Return ONLY minified JSON with exactly these keys:
 ${linksBlock(brief)}
 - faq: 3 to 5 real questions a searcher would ask about this page's topic. Each answer is 1 to 3 plain sentences, the first words answer the question directly, and it only repeats what the GROUNDING supports. No links in answers.
 - key_takeaways: 3 to 5 one-line takeaways (each under 140 characters), no links.
-- meta_title: under 60 characters, contains "${brief.destinations[0]?.name ?? ''}", says what the page is for.
+- meta_title: max 42 characters, no site name (the page adds " | TravelFunBiz.ca" itself), contains "${brief.destinations[0]?.name ?? ''}", says what the page is for.
 - meta_description: under 155 characters, honest, no fake urgency.
 - og_title: under 60 characters; may differ from meta_title (more curiosity) but must stay honest. og_description: under 110 characters.
 - primary_keyword: the single phrase this page should rank for (2 to 5 words).`
@@ -176,7 +176,8 @@ interface CopyJson {
   primary_keyword?: unknown
 }
 
-export const META_TITLE_MAX = 60
+// The page appends " | TravelFunBiz.ca" to the meta title, so the copy itself must stay short.
+export const META_TITLE_MAX = 42
 export const META_DESCRIPTION_MAX = 155
 export const OG_TITLE_MAX = 60
 export const OG_DESCRIPTION_MAX = 110
@@ -257,6 +258,22 @@ export function ungroundedWordCounts(text: string, grounding: string): string[] 
 // the grounding is fine) but never what the weather or the crowds are like. "warm welcome" is a known false
 // positive; the result is only a draft.
 const WEATHER_OR_CROWD = /\b(?:dr(?:y|ier|iest)|wet(?:ter|test)?|rain(?:s|y|ier|iest|fall)?|humid(?:ity)?|mild|hot(?:ter|test)?|heat(?:wave)?|cold(?:er|est)?|chilly|cool(?:er)?|warm(?:er|est|th)?|sunn(?:y|ier|iest)|sunshine|storms?|stormy|hurricanes?|typhoons?|cyclones?|monsoons?|snow(?:y)?|temperatures?|weather|climate|crowd(?:s|ed|ier)?|busy|busier|busiest|quiet(?:er|est)?|(?:peak|low|high|shoulder) seasons?|off-season|winter|summer|spring|autumn|fall)\b/i
+// Phrases where a trigger word is plainly not about weather or crowds.
+const WEATHER_IDIOMS = /\b(?:fall in love|fall asleep|hot springs|warm welcome)\b/gi
+
+/** Weather, crowd or season words in `prose` that the grounding does not already contain. A word that is part of a
+ * real trip name or summary (for example "Summer Escape") is fine, and so are the idioms above. Pure. */
+export function unexcusedWeatherWords(prose: string, grounding: string): string[] {
+  const g = grounding.toLowerCase()
+  const found: string[] = []
+  const re = new RegExp(WEATHER_OR_CROWD.source, 'gi')
+  for (const m of prose.replace(WEATHER_IDIOMS, ' ').matchAll(re)) {
+    const word = m[0].toLowerCase()
+    if (!new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(g)) found.push(word)
+  }
+  return [...new Set(found)]
+}
+
 // A verdict about which place is better. The pages say how destinations differ, never which one wins.
 const VERDICT = /\b(?:is|are|was|were) (?:the )?(?:better|cheaper|safer|nicer|superior|worse)\b|\b(?:better|cheaper|safer|nicer) (?:choice|option|value|deal|pick|bet|fit)\b|\bwins?\b|\bhands down\b|\bno contest\b|\bbeats\b|\bedges\b|\boutshines?\b|\btops\b|\bstronger\b|\bahead of\b|\bbetter suited\b|\bthe better choice\b|\bthe clear winner\b/i
 // The first sentence must not say one named destination is better, more or less than something.
@@ -343,8 +360,8 @@ export function pageCopyBlockers(copy: ComposedPageCopy, ctx: CopyGateContext): 
   if (RECENCY_PATTERNS.some((p) => p.test(all))) blockers.push('unverifiable recency claim')
   if (COUNT_CLAIM.test(all)) blockers.push('amenity or capacity count')
   if (SCHEDULE_PATTERN.test(all)) blockers.push('itinerary or schedule stated as fact')
-  const weatherWord = WEATHER_OR_CROWD.exec(prose)
-  if (weatherWord) blockers.push(`weather, crowd or season word: "${weatherWord[0]}"`)
+  const weatherWord = unexcusedWeatherWords(prose, ctx.grounding)[0]
+  if (weatherWord) blockers.push(`weather, crowd or season word: "${weatherWord}"`)
   if (firstSentence && COMPARATIVE.test(firstSentence) && ctx.destinations.some((d) => firstSentence.toLowerCase().includes(d.split(',')[0].trim().toLowerCase()))) {
     blockers.push('the first sentence compares a destination as better, more or less')
   }
