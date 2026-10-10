@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isSearchConsoleConfigured, getPageMetrics } from '@/lib/search-console'
 import { listSitePages } from '@/lib/site-pages'
-import { blogSlugFromPath, MIN_POSTS_FOR_CONFIDENCE, type StyleScore } from '@/lib/style-choice'
+import { getSetting, setSetting } from '@/lib/app-settings'
+import { blogSlugFromPath, rankScores, MIN_POSTS_FOR_CONFIDENCE, MIN_POST_AGE_DAYS, type StyleScore } from '@/lib/style-choice'
 
-export { chooseWeighted, blogSlugFromPath, MIN_POSTS_FOR_CONFIDENCE, EXPLOIT_SHARE, type StyleScore } from '@/lib/style-choice'
+export { SCORE_BASIS, NO_CLICKS_TEXT, chooseWeighted, rankScores, blogSlugFromPath, MIN_POSTS_FOR_CONFIDENCE, MIN_POST_AGE_DAYS, EXPLOIT_SHARE, type StyleScore } from '@/lib/style-choice'
 
 // Growth loop WP3: a daily per-page snapshot of what each page earned (Google clicks, visits, social
 // sends, leads), and the per-style scores built from it. Facts only: a number that cannot be read is
@@ -14,6 +15,7 @@ const LEAD_WINDOW_DAYS = 90
 const CHUNK = 500
 const PAGE = 1000
 const MAX_PAGES = 20
+const MAX_GSC_ATTEMPTS = 4
 
 /** Variant tag keys that get a score table. hook_style:<network> and caption_style:<network> match by prefix. */
 const FIXED_KEYS = ['content_style', 'cta_style', 'video_hook', 'carousel_cta', 'carousel_hook'] as const
@@ -32,13 +34,14 @@ const cleanPath = (raw: string): string => {
 
 const isMissingTable = (message: string | undefined) => !!message && /does not exist|schema cache|relation .* not found|could not find the table/i.test(message)
 
-async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<{ rows: T[]; error?: string }> {
+async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<{ rows: T[]; error?: string; capped?: boolean }> {
   const rows: T[] = []
   for (let i = 0; i < MAX_PAGES; i++) {
     const { data, error } = await build(i * PAGE, i * PAGE + PAGE - 1)
     if (error) return { rows, error: error.message }
     rows.push(...((data ?? []) as T[]))
     if ((data ?? []).length < PAGE) break
+    if (i === MAX_PAGES - 1) return { rows, capped: true }
   }
   return { rows }
 }
@@ -86,17 +89,20 @@ export async function snapshotContentPerformance(admin: SupabaseClient): Promise
       return r
     }
 
-    // Every tracked page, plus (below) anything Google reports.
-    const pages = await listSitePages(admin)
-    for (const p of pages) row(cleanPath(p.path))
-
-    // Google Search Console. Configured but empty means the call failed (or the site is too new): do not
-    // store zeros that look like measurements, try again on the next pass.
+    // Google Search Console first, so a retry costs one call. Configured but empty means the call failed
+    // (or the site is too new): never store zeros that look like measurements. Retry on the next pass, up
+    // to MAX_GSC_ATTEMPTS times in a day; after that save the snapshot with clicks left null.
     if (isSearchConsoleConfigured()) {
       const metrics = await getPageMetrics(28)
       if (!metrics.length) {
-        await release()
-        return 'Search Console returned no page data, will try again on the next pass'
+        const tryKey = `content_performance_try:${day}`
+        const attempts = (Number(await getSetting(admin, tryKey)) || 0) + 1
+        await setSetting(admin, tryKey, String(attempts))
+        if (attempts < MAX_GSC_ATTEMPTS) {
+          await release()
+          return `Search Console returned no page data (try ${attempts} of ${MAX_GSC_ATTEMPTS}), will try again on the next pass`
+        }
+        notes.push('Search Console returned no data today')
       }
       for (const m of metrics) {
         const r = row(cleanPath(m.path))
@@ -108,17 +114,23 @@ export async function snapshotContentPerformance(admin: SupabaseClient): Promise
       notes.push('Search Console is not connected, so no clicks')
     }
 
+    // Every tracked page, plus anything Google reported above.
+    const pages = await listSitePages(admin)
+    for (const p of pages) row(cleanPath(p.path))
+
     // Visits: site_visits grouped by landing path. Null everywhere when nothing is recorded at all.
     const sinceVisits = new Date(Date.now() - VISIT_WINDOW_DAYS * 864e5).toISOString()
-    const visits = await fetchAll<{ landing_path: string | null; channel: string | null }>((from, to) =>
-      admin.from('site_visits').select('landing_path, channel').gte('created_at', sinceVisits).order('created_at', { ascending: false }).range(from, to),
+    // site_visits has no internal or test flag today, so only /admin and /api landings are left out.
+    const visits = await fetchAll<{ landing_path: string | null }>((from, to) =>
+      admin.from('site_visits').select('landing_path').gte('created_at', sinceVisits).order('created_at', { ascending: false }).range(from, to),
     )
+    if (visits.capped) notes.push(`visits capped at ${MAX_PAGES * PAGE} rows`)
     if (visits.error) {
       notes.push('visits could not be read')
     } else if (visits.rows.length) {
       const counts = new Map<string, number>()
       for (const v of visits.rows) {
-        if (!v.landing_path || /^(internal|test)$/i.test(v.channel ?? '')) continue
+        if (!v.landing_path) continue
         const p = cleanPath(v.landing_path)
         if (p.startsWith('/admin') || p.startsWith('/api')) continue
         counts.set(p, (counts.get(p) ?? 0) + 1)
@@ -137,6 +149,7 @@ export async function snapshotContentPerformance(admin: SupabaseClient): Promise
       admin.from('content_pipeline').select('slug, carousel_stage, video_stage, carousel_sent, video_sent').range(from, to),
     )
     if (dist.error || pipe.error) notes.push('social numbers could not be fully read')
+    if (dist.capped || pipe.capped) notes.push('social numbers capped at the row limit')
     const social = new Map<string, { sends: number; failures: number }>()
     const bump = (slug: string, sends: number, failures: number) => {
       const cur = social.get(slug) ?? { sends: 0, failures: 0 }
@@ -162,6 +175,7 @@ export async function snapshotContentPerformance(admin: SupabaseClient): Promise
     const leads = await fetchAll<{ page_path: string | null; utm_campaign: string | null }>((from, to) =>
       admin.from('leads').select('page_path, utm_campaign').eq('is_test', false).gte('created_at', sinceLeads).range(from, to),
     )
+    if (leads.capped) notes.push('leads capped at the row limit')
     if (leads.error) {
       notes.push('leads could not be read')
     } else {
@@ -198,6 +212,10 @@ export async function snapshotContentPerformance(admin: SupabaseClient): Promise
 export interface StyleScoreTable {
   key: string
   scores: StyleScore[]
+  /** Posts with this kind of tag that are too new to judge (under 28 days old), not in any average. */
+  youngPosts: number
+  /** true when at least one judged post has measured Google clicks. False means "no Google data yet". */
+  clicksMeasured: boolean
 }
 
 export interface StyleScoreResult {
@@ -211,9 +229,11 @@ export interface StyleScoreResult {
 
 const wantedKey = (k: string) => (FIXED_KEYS as readonly string[]).includes(k) || PREFIX_KEYS.some((p) => k.startsWith(p))
 
-/** Per tag key, the score of each style value: how many posts used it and what those posts earned in the
- * latest snapshot (Search Console clicks, credited leads). Only blog posts present in the snapshot count,
- * so drafts and deleted posts do not. Never throws. */
+/** Per tag key, the score of each style value from the latest snapshot. Honest by construction:
+ * - only posts at least 28 days old are judged (younger ones are counted in `youngPosts` only);
+ * - clicks are averaged over posts whose clicks were actually measured (null is never turned into 0);
+ * - only blog posts present in the snapshot count, so drafts and deleted posts do not.
+ * Scores are ranked best first (see rankScores). Never throws. */
 export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResult> {
   try {
     const latest = await admin.from(PERFORMANCE_TABLE).select('day').order('day', { ascending: false }).limit(1)
@@ -225,10 +245,10 @@ export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResu
       admin.from(PERFORMANCE_TABLE).select('path, clicks, leads').eq('day', day).like('path', '/blog/%').range(from, to),
     )
     if (perf.error) return { ready: false, day, tables: [], note: perf.error }
-    const bySlug = new Map<string, { clicks: number; leads: number }>()
+    const bySlug = new Map<string, { clicks: number | null; leads: number }>()
     for (const p of perf.rows) {
       const slug = blogSlugFromPath(p.path)
-      if (slug) bySlug.set(slug, { clicks: p.clicks ?? 0, leads: p.leads ?? 0 })
+      if (slug) bySlug.set(slug, { clicks: p.clicks, leads: p.leads ?? 0 })
     }
 
     const variants = await fetchAll<{ slug: string; variant_tags: Record<string, unknown> | null }>((from, to) =>
@@ -236,15 +256,23 @@ export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResu
     )
     if (variants.error) return { ready: false, day, tables: [], note: variants.error }
 
+    // Post age: publish_date, else created_at. A post whose age cannot be read counts as too new.
+    const ageDays = new Map<string, number>()
+    const dates = await fetchAll<{ slug: string; created_at: string | null; publish_date: string | null }>((from, to) =>
+      admin.from('posts').select('slug, created_at, publish_date').range(from, to),
+    )
+    if (!dates.error) {
+      for (const p of dates.rows) {
+        const t = Date.parse(p.publish_date || p.created_at || '')
+        if (Number.isFinite(t)) ageDays.set(p.slug, (Date.now() - t) / 864e5)
+      }
+    }
+
     // posts.content_style (migration 0027) is a fallback for posts whose variant row lacks the tag.
     // The column may not exist yet, so a failed read is simply ignored.
     const postStyles = new Map<string, string>()
-    try {
-      const ps = await fetchAll<{ slug: string; content_style: string | null }>((from, to) => admin.from('posts').select('slug, content_style').range(from, to))
-      if (!ps.error) for (const p of ps.rows) if (p.content_style) postStyles.set(p.slug, p.content_style)
-    } catch {
-      // column not there yet
-    }
+    const ps = await fetchAll<{ slug: string; content_style: string | null }>((from, to) => admin.from('posts').select('slug, content_style').range(from, to))
+    if (!ps.error) for (const p of ps.rows) if (p.content_style) postStyles.set(p.slug, p.content_style)
 
     const tagged = new Map<string, Record<string, unknown>>()
     for (const v of variants.rows) tagged.set(v.slug, v.variant_tags ?? {})
@@ -253,17 +281,26 @@ export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResu
       if (!tags.content_style) tagged.set(slug, { ...tags, content_style: style })
     }
 
-    const acc = new Map<string, Map<string, { posts: number; clicks: number; leads: number }>>()
+    interface Acc { posts: number; young: number; measured: number; clicks: number; leads: number }
+    const acc = new Map<string, Map<string, Acc>>()
     for (const [slug, tags] of tagged) {
       const perfRow = bySlug.get(slug)
       if (!perfRow) continue
+      const old = (ageDays.get(slug) ?? 0) >= MIN_POST_AGE_DAYS
       for (const [key, value] of Object.entries(tags)) {
         if (!wantedKey(key) || typeof value !== 'string' || !value) continue
-        const byValue = acc.get(key) ?? new Map()
-        const cur = byValue.get(value) ?? { posts: 0, clicks: 0, leads: 0 }
-        cur.posts += 1
-        cur.clicks += perfRow.clicks
-        cur.leads += perfRow.leads
+        const byValue = acc.get(key) ?? new Map<string, Acc>()
+        const cur = byValue.get(value) ?? { posts: 0, young: 0, measured: 0, clicks: 0, leads: 0 }
+        if (!old) {
+          cur.young += 1
+        } else {
+          cur.posts += 1
+          cur.leads += perfRow.leads
+          if (perfRow.clicks !== null) {
+            cur.measured += 1
+            cur.clicks += perfRow.clicks
+          }
+        }
         byValue.set(value, cur)
         acc.set(key, byValue)
       }
@@ -271,23 +308,34 @@ export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResu
 
     const round = (n: number) => Math.round(n * 100) / 100
     const tables: StyleScoreTable[] = [...acc]
-      .map(([key, byValue]) => ({
-        key,
-        scores: [...byValue]
-          .map(([value, v]): StyleScore => ({
+      .map(([key, byValue]) => {
+        const scores = rankScores(
+          [...byValue].map(([value, v]): StyleScore => ({
             value,
             posts: v.posts,
+            youngPosts: v.young,
+            measuredPosts: v.measured,
             clicks: v.clicks,
-            clicksPerPost: round(v.clicks / v.posts),
+            clicksPerPost: v.measured ? round(v.clicks / v.measured) : 0,
             leads: v.leads,
-            leadsPerPost: round(v.leads / v.posts),
+            leadsPerPost: v.posts ? round(v.leads / v.posts) : 0,
             sample: v.posts < MIN_POSTS_FOR_CONFIDENCE ? 'thin' : 'ok',
-          }))
-          .sort((a, b) => b.clicksPerPost - a.clicksPerPost || b.leadsPerPost - a.leadsPerPost || b.posts - a.posts),
-      }))
+          })),
+        )
+        return { key, scores, youngPosts: scores.reduce((s, x) => s + x.youngPosts, 0), clicksMeasured: scores.some((s) => s.measuredPosts > 0) }
+      })
       .sort((a, b) => a.key.localeCompare(b.key))
     return { ready: true, day, tables }
   } catch (e) {
     return { ready: false, day: null, tables: [], note: e instanceof Error ? e.message : 'could not read performance' }
   }
 }
+
+/** The ranked scores for one tag key (for example 'content_style'), or [] when nothing is ready or the key
+ * has no tagged posts. Feeds chooseWeighted directly:
+ *   chooseWeighted(await scoresFor(admin, 'content_style'), recentStyles, STYLE_NAMES) */
+export async function scoresFor(admin: SupabaseClient, key: string): Promise<StyleScore[]> {
+  const r = await styleScores(admin)
+  return r.ready ? (r.tables.find((t) => t.key === key)?.scores ?? []) : []
+}
+

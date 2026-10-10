@@ -10,7 +10,7 @@ import { noteMailResult, notifyTo } from '@/lib/alerts'
 import { briefHtml } from '@/lib/brief-html'
 import { getGhlAccounts } from '@/lib/social-provider'
 import { styleScores } from '@/lib/content-performance'
-import { styleKeyLabel } from '@/lib/style-choice'
+import { styleKeyLabel, SCORE_BASIS, NO_CLICKS_TEXT } from '@/lib/style-choice'
 
 // The daily brief: one email at 7 am (site time) from "Aiva from TravelFunBiz.ca" with what happened
 // yesterday, what is planned today, and the few things only a person can do, each with the exact link
@@ -152,9 +152,14 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   try {
     const result = await styleScores(admin)
     for (const t of result.tables) {
-      const best = t.scores.find((s) => s.sample === 'ok' && (s.clicksPerPost > 0 || s.leadsPerPost > 0))
-      if (best) working.push(`${styleKeyLabel(t.key)}: "${best.value}" leads (${best.clicksPerPost} Google clicks and ${best.leadsPerPost} leads per post, ${best.posts} posts).`)
+      // Scores arrive ranked best first; only a style with 3 or more judged posts and a real result counts.
+      const best = t.scores[0]
+      if (best && best.sample === 'ok' && ((best.measuredPosts > 0 && best.clicksPerPost > 0) || best.leadsPerPost > 0)) {
+        working.push(`${styleKeyLabel(t.key)}: "${best.value}" leads (${best.measuredPosts ? `${best.clicksPerPost} Google clicks, ` : ''}${best.leadsPerPost} leads, ${best.posts} posts).`)
+      }
     }
+    if (working.length) working.unshift(`Numbers are ${SCORE_BASIS}.`)
+    else if (result.ready && result.tables.length && result.tables.every((t) => !t.clicksMeasured)) working.push(`${NO_CLICKS_TEXT}.`)
   } catch {
     // the section just falls back to the "not enough posts" line
   }

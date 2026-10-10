@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { styleKeyLabel } from "@/lib/style-choice"
+import { styleKeyLabel, SCORE_BASIS, NO_CLICKS_TEXT } from "@/lib/style-choice"
 
 interface Score {
   value: string
   posts: number
+  measuredPosts: number
   clicksPerPost: number
   leadsPerPost: number
   sample: "thin" | "ok"
@@ -15,7 +16,7 @@ interface Score {
 interface Result {
   ready: boolean
   day: string | null
-  tables: { key: string; scores: Score[] }[]
+  tables: { key: string; scores: Score[]; youngPosts: number; clicksMeasured: boolean }[]
   note?: string
 }
 
@@ -56,13 +57,17 @@ export function WhatIsWorkingCard() {
           <p className="text-sm text-muted-foreground">No snapshot yet. The first one is taken on the next pipeline pass.</p>
         ) : (
           <>
-            <p className="text-xs text-muted-foreground">Last snapshot: {data.day}. Clicks are Google Search clicks over the last 28 days; leads are real leads over the last 90 days.</p>
+            <p className="text-xs text-muted-foreground">Last snapshot: {data.day}. Numbers are {SCORE_BASIS}. Only posts at least 28 days old are judged.</p>
             {data.tables.length === 0 ? (
               <p className="text-sm text-muted-foreground">No styled posts to compare yet. Styles are recorded as new posts are written.</p>
             ) : (
               data.tables.map((t) => (
                 <div key={t.key} className="space-y-1">
-                  <p className="text-sm font-medium">{labelOf(t.key)}</p>
+                  <p className="text-sm font-medium">
+                    {labelOf(t.key)}
+                    {t.youngPosts > 0 && <span className="ml-2 text-xs font-normal text-muted-foreground">{t.youngPosts} too new to judge</span>}
+                  </p>
+                  {!t.clicksMeasured && <p className="text-xs text-muted-foreground">{NO_CLICKS_TEXT}</p>}
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
@@ -79,7 +84,7 @@ export function WhatIsWorkingCard() {
                           <tr key={s.value} className="border-t">
                             <td className="py-1 pr-3">{s.value}</td>
                             <td className="py-1 pr-3 text-right">{s.posts}</td>
-                            <td className="py-1 pr-3 text-right">{s.clicksPerPost}</td>
+                            <td className="py-1 pr-3 text-right">{s.measuredPosts ? s.clicksPerPost : "-"}</td>
                             <td className="py-1 pr-3 text-right">{s.leadsPerPost}</td>
                             <td className="py-1">{s.sample === "thin" && <Badge variant="outline">thin sample</Badge>}</td>
                           </tr>

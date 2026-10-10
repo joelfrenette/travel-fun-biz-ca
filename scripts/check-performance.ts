@@ -1,5 +1,5 @@
 // Offline checks for the self-improving loop's pure helpers. Run: pnpm dlx tsx scripts/check-performance.ts
-import { chooseWeighted, blogSlugFromPath, styleKeyLabel } from '../lib/style-choice'
+import { chooseWeighted, rankScores, blogSlugFromPath, styleKeyLabel } from '../lib/style-choice'
 
 let failed = 0
 function check(name: string, ok: boolean, detail = '') {
@@ -53,6 +53,27 @@ check('slug query', blogSlugFromPath('/blog/hello-world?utm_source=x') === 'hell
 check('slug not blog', blogSlugFromPath('/packages/paris') === null)
 check('slug blog index', blogSlugFromPath('/blog') === null)
 check('slug nested', blogSlugFromPath('/blog/a/b') === null)
+
+// Ranking: leads per post first when any eligible style has leads, else clicks per post.
+const withLeads = [
+  { value: 'listicle', clicksPerPost: 2, posts: 5, leadsPerPost: 1 },
+  { value: 'how-to', clicksPerPost: 9, posts: 4, leadsPerPost: 0 },
+  { value: 'faq-led', clicksPerPost: 1, posts: 3, leadsPerPost: 0.5 },
+]
+check('leads outrank clicks', chooseWeighted(withLeads, ['comparison'], CAT, () => 0) === 'listicle')
+check('rankScores leads first', rankScores(withLeads).map((s) => s.value).join() === 'listicle,faq-led,how-to')
+const noLeads = withLeads.map((s) => ({ ...s, leadsPerPost: 0 }))
+check('no leads -> clicks decide', chooseWeighted(noLeads, ['comparison'], CAT, () => 0) === 'how-to')
+const tied = [
+  { value: 'faq-led', clicksPerPost: 3, posts: 3, leadsPerPost: 0 },
+  { value: 'listicle', clicksPerPost: 3, posts: 3, leadsPerPost: 0 },
+  { value: 'how-to', clicksPerPost: 3, posts: 7, leadsPerPost: 0 },
+]
+check('tie -> more posts, then catalogue order', rankScores(tied, CAT).map((s) => s.value).join() === 'how-to,listicle,faq-led')
+// A style with 3+ posts but nothing measured is not a "best": rotate instead of exploiting a zero.
+const zeros = [{ value: 'listicle', clicksPerPost: 0, posts: 6, leadsPerPost: 0 }]
+const z = chooseWeighted(zeros, ['how-to', 'how-to', 'comparison'], CAT, () => 0)
+check('zero results -> rotation (least used)', z === 'listicle' || z === 'faq-led', z)
 
 check('label', styleKeyLabel('hook_style:instagram') === 'Hook style, instagram' && styleKeyLabel('content_style') === 'Blog post style')
 
