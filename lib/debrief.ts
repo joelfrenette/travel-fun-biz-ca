@@ -9,6 +9,8 @@ import { isAutopilotOn } from '@/lib/autopilot'
 import { noteMailResult, notifyTo } from '@/lib/alerts'
 import { briefHtml } from '@/lib/brief-html'
 import { getGhlAccounts } from '@/lib/social-provider'
+import { styleScores } from '@/lib/content-performance'
+import { styleKeyLabel } from '@/lib/style-choice'
 
 // The daily brief: one email at 7 am (site time) from "Aiva from TravelFunBiz.ca" with what happened
 // yesterday, what is planned today, and the few things only a person can do, each with the exact link
@@ -49,6 +51,8 @@ export interface Brief {
   stats: BriefStat[]
   yesterday: string[]
   today: string[]
+  /** "What is working": the top style per kind, or one line saying there are not enough posts yet. */
+  working: string[]
   healed: string[]
   trackerItems: { title: string; priority: string }[]
 }
@@ -143,9 +147,23 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   }
   trackerItems.sort((a, b) => a.priority.localeCompare(b.priority))
 
+  // What is working: the top style per kind, only where 3 or more posts back it up and it earned something.
+  const working: string[] = []
+  try {
+    const result = await styleScores(admin)
+    for (const t of result.tables) {
+      const best = t.scores.find((s) => s.sample === 'ok' && (s.clicksPerPost > 0 || s.leadsPerPost > 0))
+      if (best) working.push(`${styleKeyLabel(t.key)}: "${best.value}" leads (${best.clicksPerPost} Google clicks and ${best.leadsPerPost} leads per post, ${best.posts} posts).`)
+    }
+  } catch {
+    // the section just falls back to the "not enough posts" line
+  }
+  if (!working.length) working.push('Not enough posts yet to say what works.')
+
   return {
     dateLabel: new Intl.DateTimeFormat('en-CA', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' }).format(now),
     actions,
+    working,
     stats,
     yesterday,
     today,
@@ -169,6 +187,9 @@ export function renderBrief(b: Brief): { subject: string; html: string; text: st
     '',
     'TODAY',
     ...b.today.map((t) => `- ${t}`),
+    '',
+    'WHAT IS WORKING',
+    ...b.working.map((t) => `- ${t}`),
     ...(b.healed.length ? ['', 'FIXED BY ITSELF', ...b.healed.map((t) => `- ${t}`)] : []),
     ...(b.trackerItems.length ? ['', 'WAITING ON YOU (not urgent)', ...b.trackerItems.map((t) => `- ${t.priority}: ${t.title}`), `Tracker: ${TRACKER_URL}`] : []),
     '',
