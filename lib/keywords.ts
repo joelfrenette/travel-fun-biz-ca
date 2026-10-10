@@ -67,6 +67,8 @@ export interface LookupResult {
   costUsd: number
   /** Real account balance in USD after this call, or null if it couldn't be read. */
   balanceUsd: number | null
+  /** Phrases left out because Google Ads would reject them (over 10 words or 80 characters). */
+  skipped?: string[]
 }
 
 export function isKeywordDataConfigured(): boolean {
@@ -171,7 +173,13 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
   for (const row of existing || []) {
     if (!force && new Date(row.fetched_at).getTime() > freshSince) fresh.set(row.keyword, row)
   }
-  const toFetch = keywords.filter((kw) => !fresh.has(kw))
+  // Google Ads (behind DataForSEO's search_volume endpoint) rejects a phrase over 10 words or 80 characters,
+  // and one bad phrase fails the WHOLE batch ("Invalid Field: 'keywords'. Keyword text has too many words",
+  // seen on the first engine run 2026-10-10 with a People Also Ask question). Such phrases are left out of
+  // the request, never retried for volume, and reported in `skipped`.
+  const tooLong = (kw: string) => kw.length > 80 || kw.split(' ').length > 10
+  const skipped = keywords.filter((kw) => !fresh.has(kw) && tooLong(kw))
+  const toFetch = keywords.filter((kw) => !fresh.has(kw) && !tooLong(kw))
 
   let costUsd = 0
   let balanceUsd: number | null = null
@@ -254,6 +262,7 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
     cached: fresh.size,
     costUsd: Math.round(costUsd * 1e6) / 1e6,
     balanceUsd,
+    skipped,
   }
 }
 
