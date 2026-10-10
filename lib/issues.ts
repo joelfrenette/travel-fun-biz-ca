@@ -10,6 +10,8 @@ import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
 import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
+import { readHealSummary } from '@/lib/content-heal-run'
+import { HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -145,6 +147,23 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
       fix: `A guide is skipped after ${MAX_GUIDE_ATTEMPTS} failed tries so it cannot keep spending AI credits. Check ANTHROPIC_API_KEY in Vercel; click Dismiss to let them be tried again.`,
       actions: [{ label: 'Dismiss', kind: 'dismiss-guides' }],
     })
+  }
+
+  // Drafts the safety checks held back for a reason only a person should judge (WP10). The count comes from the last
+  // daily heal; the item clears itself when the drafts are published or deleted and the next heal recounts.
+  try {
+    const heal = await readHealSummary(admin)
+    if (heal && heal.hardWaiting > 0) {
+      issues.push({
+        id: HARD_WAITING_ISSUE_ID,
+        area: 'system',
+        title: `${heal.hardWaiting} draft${heal.hardWaiting === 1 ? '' : 's'} held back for a person to check`,
+        detail: `The safety checks held ${heal.hardWaiting === 1 ? 'a page' : 'these pages'} back for something only a person should judge (a first-person claim, a price or date, a link to another website, placeholder text, a named person). Nothing on them was changed automatically. Counted ${new Date(heal.at).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}.`,
+        fix: 'Read the red reason on each draft (guide pages and page copy cards on this page, blog drafts on the Blog page), fix or remove that part, then Publish or Delete.',
+      })
+    }
+  } catch {
+    // an unreadable note is not worth an alert
   }
 
   // Compare and best-time page copy that could not be written. One item lists them all.

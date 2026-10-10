@@ -18,6 +18,10 @@ export interface PlainAction {
   paste?: string
 }
 
+/** The Needs attention item for drafts the safety checks held back for a person (WP10). Lives here, not in
+ * lib/issues.ts, because the Autopilot page (a client component) imports this file and must not pull in the server code. */
+export const HARD_WAITING_ISSUE_ID = 'system:content-hard-waiting'
+
 /** The page anchor of one issue on the Content Autopilot page, so an email can link straight to it. */
 export const issueAnchor = (id: string) => `issue-${id.replace(/[^a-z0-9]+/gi, '-')}`
 
@@ -118,6 +122,28 @@ export function plainAction(i: Issue): PlainAction {
       url: autopilot(i.id),
       urlLabel: 'Open this problem',
       paste,
+    }
+  }
+  if (i.id === HARD_WAITING_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'The site wrote these pages but its safety checks would not let them go live. The reason is something only a person should judge: a "we went there" claim, a price or a date, a link to another website, or a named person. The site did not change them.',
+      steps: ['Open the Content Autopilot page with the link below.', 'Scroll to the guide pages card and the compare and best-time page copy card. Each draft shows, in red, why it was held back.', 'Open the draft with "Preview", fix or remove the part named in red, then click "Publish". Or click "Delete" if you do not want it.', 'Blog posts that were held back are on the Blog page in the admin, under Drafts.', 'You do not need to do anything for the pages the site fixed by itself. Those are listed under Content edits, each with an Undo button.'],
+      url: autopilot(i.id),
+      urlLabel: 'Open the Autopilot page',
+      paste,
+    }
+  }
+  if (i.id === 'system:step-heal-content' && /migration 0033/i.test(text)) {
+    return {
+      id: i.id,
+      title: 'Self-healing needs one database update',
+      why: 'The site can fix its own pages (reword a banned phrase, add a missing FAQ, mend a broken link) and keep a list of every change so you can undo it. That list needs one new table in Supabase. Until then it changes nothing on its own.',
+      steps: ['Open Supabase and sign in.', 'Open your project, then click "SQL Editor" on the left.', 'Ask Claude for the contents of the file supabase/migrations/0033_content_edits.sql, paste it in, and click Run.', 'Open the Content Autopilot page and click "Heal now" on the Self-healing card.'],
+      url: 'https://supabase.com/dashboard',
+      urlLabel: 'Open Supabase',
+      paste: 'Please give me the contents of supabase/migrations/0033_content_edits.sql so I can run it in the Supabase SQL editor.',
     }
   }
   if (i.id === 'system:keyword-engine') {

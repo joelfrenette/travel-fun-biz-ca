@@ -12,9 +12,10 @@ import { sendThrottledAlert } from '@/lib/alerts'
 import { selfHeal } from '@/lib/heal'
 import { runDebriefIfDue } from '@/lib/debrief'
 import { snapshotContentPerformance } from '@/lib/content-performance'
-import { plainAction } from '@/lib/plain-steps'
+import { plainAction, HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
 import { runGuidesStep } from '@/lib/guide-run'
 import { runPageCopyStep } from '@/lib/page-copy-run'
+import { runHealContentIfDue } from '@/lib/content-heal-run'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -27,6 +28,7 @@ import { runPageCopyStep } from '@/lib/page-copy-run'
 //   2. POST    the post itself to social, with a caption written for each network.
 //   3. REPURPOSE  carousel, then the short video (script, stock footage, voiceover, captions,
 //              render), then post both; plus housekeeping (delete old Shotstack renders).
+//   4. HEAL CONTENT  once a day: SEO-score every published page and fix the cheap reasons (WP10).
 // Each pass does whatever is due, so a slow video render never blocks the next post, and a pass that
 // runs out of time simply continues on the next one. Nothing here is a new capability: it is the
 // existing engines, sequenced, so there is nothing to click between steps.
@@ -41,6 +43,9 @@ const WRITE_START_BY_MS = 60_000
 const GUIDES_START_BY_MS = 100_000
 // The page copy step makes one AI call (80 second limit), so it must start before this.
 const COPY_START_BY_MS = 60_000
+// The heal step scores everything in a few seconds, then fixes a handful of pages (each at most one 45 second call);
+// it stops starting pages after 60 seconds, so it must start before this to end well inside the 300 second route limit.
+const HEAL_START_BY_MS = 120_000
 
 export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 
@@ -123,7 +128,8 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     run.steps.push({ step: 'guides', ok: true, note: 'continues on the next pass' })
   } else {
     try {
-      const result = await runGuidesStep(admin)
+      // The route is killed at 300 seconds: the self-repair only starts a model call with enough time left before then.
+      const result = await runGuidesStep(admin, { deadlineMs: startedAt + 280_000 })
       run.steps.push({ step: 'guides', ok: result.ok, note: result.note })
     } catch (e) {
       run.steps.push({ step: 'guides', ok: false, note: e instanceof Error ? e.message : 'guides step failed' })
@@ -137,7 +143,7 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     run.steps.push({ step: 'copy', ok: true, note: 'continues on the next pass' })
   } else {
     try {
-      const result = await runPageCopyStep(admin)
+      const result = await runPageCopyStep(admin, { deadlineMs: startedAt + 280_000 })
       run.steps.push({ step: 'copy', ok: result.ok, note: result.note })
     } catch (e) {
       run.steps.push({ step: 'copy', ok: false, note: e instanceof Error ? e.message : 'page copy step failed' })
@@ -172,13 +178,31 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     }
   }
 
+  // 4. HEAL CONTENT (WP10): once a day, score every published post, guide and page copy for SEO (no AI), then fix the
+  // cheap reasons on pages under 70 (dashes, over-long meta text, dead links, a link to a real page about the same
+  // destination, and one grounded call that writes MISSING meta text, FAQ or takeaways). Last on purpose, after the
+  // posting steps, so it can never delay a post; it sits here and not in housekeeping() because it can spend AI
+  // credits, so it must respect Autopilot being on and not paused. The daily claim is inside; a pass that is not
+  // the first of the day (or has little time left) adds nothing. It never fails the pipeline: a problem is a
+  // step note, which Needs attention shows.
+  if (!overBudget() && Date.now() - startedAt <= HEAL_START_BY_MS) {
+    try {
+      const healed = await runHealContentIfDue(admin)
+      if (healed) run.steps.push({ step: 'heal-content', ok: healed.ok, note: healed.note })
+    } catch (e) {
+      run.steps.push({ step: 'heal-content', ok: false, note: e instanceof Error ? e.message : 'the content heal failed' })
+    }
+  }
+
   await housekeeping(admin, run)
   await setSetting(admin, PIPELINE_LAST_RUN_KEY, JSON.stringify(run))
 
   // One alert email built from the single issue list (setup items are left out: those are not
   // failures). Throttled to one email per 6 hours however often the pipeline runs.
   try {
-    const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup')
+    // Pages held for a person are shown on the page and in the daily brief; they are not an emergency, so they do not
+    // re-send this email every six hours for as long as they wait.
+    const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup' && i.id !== HARD_WAITING_ISSUE_ID)
     if (open.length) {
       await sendThrottledAlert(admin, `Autopilot: ${open.length} thing${open.length === 1 ? '' : 's'} need attention`, [
         ...open.flatMap((i) => {
