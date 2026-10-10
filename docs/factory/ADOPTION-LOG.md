@@ -235,3 +235,44 @@ test for the first three.
 
 **Deviations from the spec, and why:** none from the vanilla Nomad spec; this phase is this
 project's own automation layer on top of the ported engines.
+
+## Autopilot hardening, daily brief, consent, keyword-first topics (2026-10-09)
+
+**Runaway found and stopped.** On 9 Oct the pipeline wrote 7 near-identical Rhine posts in 4 hours (cap is
+1 a day, 3 a week). Cause: decisions made from stale database reads. Fix: `lib/supabase-admin.ts` forces
+no-store; `lib/autoblog-run.ts` has a fresh fail-closed daily count (before compose and again before save),
+a one-post-per-package-per-30-days guard with a 4-skips-a-day cap. Verified at the 17:30 UTC pass. Five
+extras unpublished (301 to the kept post in `next.config.mjs`), nothing deleted.
+
+**Shipped (all on main):**
+- Video: Shotstack `stroke` placement and `rich-caption` fixes (9c59eb6); TikTok video now uploaded as a file
+  to GHL media (cbf94cd). Instagram reel and TikTok video confirmed published.
+- Leads: GHL v2 contacts/upsert + opportunity (Bookings Pipeline, New Lead), saved before forwarding, newsletter
+  backed up, `leads.is_test` (migration 0026) and `lib/test-data.ts` exclude test data everywhere.
+- Self-heal (`lib/heal.ts`): unsent leads x3, Shotstack 429/503 videos x1, orphaned carousels/videos cancelled
+  (confirmed live 20:30 UTC), stale GHL errors auto-hide (reads 8 pages).
+- Daily brief from "Aiva from TravelFunBiz.ca" (`lib/debrief.ts`, `brief-html.ts`, `plain-steps.ts`): 7 am ET
+  via Resend (domain m1.travelfunbiz.ca), grade-5 steps, Outlook-safe layout, Copy for Claude button on the
+  Autopilot page, counts only ticked accounts (it once counted other businesses' posts: the "37").
+- Consent-first tracking: cookie banner, GA and attribution only after yes, CASL newsletter box, French
+  wording; privacy policy DRAFT in `docs/legal/privacy-policy-draft.md` (not published, not legal advice).
+- Payment webhook records only `site-ca` contacts (the GHL location also holds members and client invoices).
+- Keyword work: Search Rankings and Keyword Research track every package/destination/blog page; keyword to
+  ranking-page connection (auto daily); keyword scoring + clustering (`lib/keyword-score.ts`) drives the
+  next blog topic; ideas from Google autocomplete, People Also Ask, Reddit (needs keys) and customer
+  questions; Google Trends peak months feed the timing score (`lib/keyword-ideas.ts`).
+- Content map on the Autopilot page; one-network Retry button REMOVED (QA: double-post risk).
+
+**Spend today:** DataForSEO about $0.22 (balance about $50.13). Every automatic step stays capped.
+
+**Not merged, local only:** branches `qa/overnight-r1..r3` and `qa/growth-r1` (worktrees under
+`.claude/worktrees`). Only shotstack.ts, social-provider.ts, app-settings.ts and the growth prompt commit
+were taken. Their autopilot.ts changes (retry markers, back-offs) were judged too complex for a live pipeline.
+
+**Open, Joel's side:** pick/confirm Rhine social copies to delete; delete test contact "TEST LEAD Claude"
+in GHL; add `site-ca` tag filter to the GHL payment workflow; legal review of banner/checkbox and fill the
+privacy-policy brackets; tick Facebook, LinkedIn, YouTube in "Where it posts"; Reddit keys added (untested);
+`GOHIGHLEVEL_WEBHOOK_SECRET` set and tested.
+
+**Unverified:** Search Rankings and Keyword Research screens were never viewed (admin login); the first
+keyword-led post (Mon 12 Oct, 9 am ET); the new brief layout in Outlook; Reddit connection.
