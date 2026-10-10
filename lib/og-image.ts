@@ -5,9 +5,9 @@
 import { getPublishedPostBySlug } from '@/lib/posts'
 import { getPublishedPackageBySlug } from '@/lib/packages'
 import { getPublishedGuide, isGuideKind, guideKinds } from '@/lib/guides'
-import { getDestinationPage } from '@/lib/destinations'
-import { getComparePage } from '@/lib/compare-destinations'
-import { getBestTimeToVisitPage } from '@/lib/best-time-to-visit'
+import { getDestinationPage, getDestinationSlugs } from '@/lib/destinations'
+import { getComparePage, getComparePairSlugs } from '@/lib/compare-destinations'
+import { getBestTimeToVisitPage, getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { SITE_NAME } from '@/lib/site'
 import { cleanTitle, isAllowedPhotoUrl, parseOgPath, type OgTarget } from '@/lib/og-path'
 
@@ -18,6 +18,18 @@ export interface OgContent {
   kindLabel: string
   /** An https URL on an allowed host, or null (the renderer then draws the brand background). */
   photoUrl: string | null
+}
+
+// A miss (a made-up slug) must not load every package. The valid slug lists are kept in memory for a few
+// minutes, so a miss is one Set lookup and only a valid slug loads the page's packages.
+const SLUG_SET_TTL_MS = 5 * 60 * 1000
+const slugSets = new Map<string, { at: number; slugs: Set<string> }>()
+async function validSlugs(key: string, load: () => Promise<string[]>): Promise<Set<string>> {
+  const hit = slugSets.get(key)
+  if (hit && Date.now() - hit.at < SLUG_SET_TTL_MS) return hit.slugs
+  const slugs = new Set(await load())
+  slugSets.set(key, { at: Date.now(), slugs })
+  return slugs
 }
 
 function firstPhoto(...urls: (string | null | undefined)[]): string | null {
@@ -45,6 +57,9 @@ export async function resolveOgTarget(target: OgTarget): Promise<OgContent | nul
   }
 
   if (prefix === 'compare') {
+    if (!slug.includes('-vs-')) return null
+    const known = await validSlugs('compare', async () => (await getComparePairSlugs()).map((p) => p.pairSlug))
+    if (!known.has(slug)) return null
     const page = await getComparePage(slug)
     if (!page) return null
     const photo = firstPhoto(...page.a.packages.map((p) => p.image_url), ...page.b.packages.map((p) => p.image_url))
@@ -52,6 +67,8 @@ export async function resolveOgTarget(target: OgTarget): Promise<OgContent | nul
   }
 
   if (prefix === 'best-time-to-visit') {
+    const known = await validSlugs('best-time', async () => (await getBestTimeToVisitSlugs()).map((d) => d.slug))
+    if (!known.has(slug)) return null
     const page = await getBestTimeToVisitPage(slug)
     if (!page) return null
     return { title: `Best time to visit ${page.destination}`, kindLabel: 'Best time', photoUrl: firstPhoto(...page.packages.map((p) => p.image_url)) }
@@ -68,6 +85,8 @@ export async function resolveOgTarget(target: OgTarget): Promise<OgContent | nul
     }
     // A destination page exists without a guide: it is the trip listing for that place.
     if (prefix === 'destinations') {
+      const known = await validSlugs('destinations', async () => (await getDestinationSlugs()).map((d) => d.slug))
+      if (!known.has(slug)) return null
       const page = await getDestinationPage(slug)
       if (!page) return null
       return {

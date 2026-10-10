@@ -1,6 +1,6 @@
 // Pure checks for the growth loop WP6 share-image path parser, photo allow-list and title wrapper.
 // No database, no network. Run: pnpm dlx tsx scripts/check-og-paths.ts
-import { parseOgPath, OG_PREFIXES, ogImageUrl, ogImageEntry, isAllowedPhotoUrl, wrapTitle, fitTitle, cleanTitle, OG_WIDTH, OG_HEIGHT } from '../lib/og-path'
+import { parseOgPath, OG_PREFIXES, ogImageUrl, ogImageEntry, isAllowedPhotoUrl, wrapTitle, fitTitle, cleanTitle, OG_WIDTH, OG_HEIGHT, allowedRedirectTarget, exceedsPhotoCap, hostOf, MAX_PHOTO_BYTES } from '../lib/og-path'
 
 let failures = 0
 function check(name: string, ok: boolean, detail = '') {
@@ -57,6 +57,21 @@ check('rejects credentials in the URL', !isAllowedPhotoUrl('https://user:pw@imag
 check('rejects data URLs', !isAllowedPhotoUrl('data:image/png;base64,AAAA'))
 check('rejects empty and null', !isAllowedPhotoUrl('') && !isAllowedPhotoUrl(null) && !isAllowedPhotoUrl(undefined))
 check('rejects garbage', !isAllowedPhotoUrl('not a url'))
+
+// ---- redirect target, size cap, log host ----
+{
+  const from = 'https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/a/b.jpg'
+  check('follows a redirect to an allowed host', allowedRedirectTarget('https://images.pexels.com/photos/1/x.jpeg', from) === 'https://images.pexels.com/photos/1/x.jpeg')
+  check('resolves a relative redirect on the same host', allowedRedirectTarget('/storage/v1/object/public/a/c.jpg', from) === 'https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/a/c.jpg')
+  check('refuses a redirect to a foreign host', allowedRedirectTarget('https://evil.example.com/x.jpg', from) === null)
+  check('refuses a redirect to http', allowedRedirectTarget('http://images.pexels.com/x.jpg', from) === null)
+  check('refuses a missing Location', allowedRedirectTarget(null, from) === null && allowedRedirectTarget('', from) === null)
+}
+check('content-length above the cap is rejected', exceedsPhotoCap(String(MAX_PHOTO_BYTES + 1)))
+check('content-length at the cap is accepted', !exceedsPhotoCap(String(MAX_PHOTO_BYTES)))
+check('missing or junk content-length is not rejected here', !exceedsPhotoCap(null) && !exceedsPhotoCap('abc'))
+check('hostOf returns the host only', hostOf('https://images.pexels.com/photos/1/x.jpeg?token=secret') === 'images.pexels.com')
+check('hostOf survives garbage', hostOf('nope') === 'unknown' && hostOf(null) === 'unknown')
 
 // ---- wrapTitle ----
 {

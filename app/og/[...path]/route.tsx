@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og'
 import { DEFAULT_OG_IMAGE, SITE_NAME } from '@/lib/site'
-import { resolveOgPath, fitTitle, isAllowedPhotoUrl, OG_WIDTH, OG_HEIGHT, type OgContent } from '@/lib/og-image'
+import { resolveOgPath, fitTitle, isAllowedPhotoUrl, allowedRedirectTarget, exceedsPhotoCap, hostOf, MAX_PHOTO_BYTES, OG_WIDTH, OG_HEIGHT, type OgContent } from '@/lib/og-image'
 
 // Social share image for every public page (growth loop WP6): /og/blog/<slug>, /og/destinations/<slug>,
 // /og/hotels/<slug>, /og/packages/<slug>, /og/compare/<pair>, /og/best-time-to-visit/<slug>, and so on.
@@ -11,48 +11,95 @@ import { resolveOgPath, fitTitle, isAllowedPhotoUrl, OG_WIDTH, OG_HEIGHT, type O
 // with) needs a TTF/OTF buffer, so Inter is fetched from Google's CSS exactly like the carousel route does;
 // if that fetch fails the built-in default font is used. Default (nodejs) runtime on purpose: unlike the
 // carousel route this one does not need the edge-only Windows workaround to run on Vercel.
-// Cached: the page is regenerated at most daily, and the CDN may keep a copy for a day.
-export const revalidate = 86400
+// Cached by headers only: the CDN may keep a 200 for a day, a 404 or fallback redirect for five minutes.
+// force-dynamic on purpose: the route is never stored by Next's own page cache, so only the Cache-Control
+// headers below decide caching. A 404 for a page that is not published yet can then never be kept for a day.
+export const dynamic = 'force-dynamic'
 
 const RED = '#d81f26'
 const DARK = '#1a1515'
-const MAX_PHOTO_BYTES = 6 * 1024 * 1024
 const PHOTO_TIMEOUT_MS = 5000
+const FONT_TIMEOUT_MS = 3000
+const FONT_FAILURE_TTL_MS = 5 * 60 * 1000
 const CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'
+const SHORT_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=60'
 
+// One fetch per font key, shared by concurrent cold renders; a failure is remembered for 5 minutes (the
+// default font is used meanwhile) so a Google outage does not add a 3 second wait to every request.
 const fontCache = new Map<string, ArrayBuffer>()
-async function loadGoogleFont(family: string, weight: number): Promise<ArrayBuffer> {
-  const cacheKey = `${family}:${weight}`
-  const cached = fontCache.get(cacheKey)
-  if (cached) return cached
-  const cssRes = await fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weight}`)
+const fontInFlight = new Map<string, Promise<ArrayBuffer>>()
+const fontFailedAt = new Map<string, number>()
+
+async function fetchGoogleFont(family: string, weight: number): Promise<ArrayBuffer> {
+  const cssRes = await fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weight}`, { signal: AbortSignal.timeout(FONT_TIMEOUT_MS) })
   const css = await cssRes.text()
   const match = css.match(/src: url\(([^)]+)\) format\('(?:opentype|truetype)'\)/)
   if (!match) throw new Error(`Could not find a TTF/OTF link for ${family} ${weight} in Google Fonts' CSS`)
-  const fontRes = await fetch(match[1])
+  const fontRes = await fetch(match[1], { signal: AbortSignal.timeout(FONT_TIMEOUT_MS) })
   if (!fontRes.ok) throw new Error(`Could not download font file (${fontRes.status})`)
-  const buf = await fontRes.arrayBuffer()
-  fontCache.set(cacheKey, buf)
-  return buf
+  return fontRes.arrayBuffer()
+}
+
+function loadGoogleFont(family: string, weight: number): Promise<ArrayBuffer> {
+  const key = `${family}:${weight}`
+  const cached = fontCache.get(key)
+  if (cached) return Promise.resolve(cached)
+  const failedAt = fontFailedAt.get(key)
+  if (failedAt && Date.now() - failedAt < FONT_FAILURE_TTL_MS) return Promise.reject(new Error('font recently failed'))
+  let pending = fontInFlight.get(key)
+  if (!pending) {
+    pending = fetchGoogleFont(family, weight)
+      .then((buf) => {
+        fontCache.set(key, buf)
+        fontFailedAt.delete(key)
+        return buf
+      })
+      .catch((err) => {
+        fontFailedAt.set(key, Date.now())
+        throw err
+      })
+      .finally(() => {
+        fontInFlight.delete(key)
+      })
+    fontInFlight.set(key, pending)
+  }
+  return pending
+}
+
+function skipped(url: string, reason: string): null {
+  console.warn('[og] photo skipped', hostOf(url), reason)
+  return null
 }
 
 /** The photo as a data URI Satori can draw (JPEG, PNG or GIF), or null on any problem: the brand background is used. */
 async function loadPhoto(url: string | null): Promise<string | null> {
-  if (!url || !isAllowedPhotoUrl(url)) return null
+  if (!url) return null
+  if (!isAllowedPhotoUrl(url)) return skipped(url, 'host not allowed')
   try {
     let src = url
     // Pexels serves originals of several MB; ask for a web-sized copy when the URL carries no options.
     const u = new URL(url)
     if (u.hostname === 'images.pexels.com' && !u.search) src = `${url}?auto=compress&cs=tinysrgb&w=1400`
-    const res = await fetch(src, { signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS), redirect: 'error' })
-    if (!res.ok) return null
+    const fetchOnce = (target: string) => fetch(target, { signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS), redirect: 'manual' })
+    let res = await fetchOnce(src)
+    // At most one redirect, and only to another allow-listed host (Supabase and Pexels can redirect to a CDN).
+    if (res.status >= 300 && res.status < 400) {
+      const next = allowedRedirectTarget(res.headers.get('location'), src)
+      if (!next) return skipped(url, `redirect to a host that is not allowed (${res.status})`)
+      res = await fetchOnce(next)
+      if (res.status >= 300 && res.status < 400) return skipped(url, 'second redirect')
+    }
+    if (!res.ok) return skipped(url, `status ${res.status}`)
     const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
-    if (type !== 'image/jpeg' && type !== 'image/png' && type !== 'image/gif') return null
+    if (type === 'image/webp') return skipped(url, 'webp is not supported')
+    if (type !== 'image/jpeg' && type !== 'image/png' && type !== 'image/gif') return skipped(url, `content type ${type || 'missing'}`)
+    if (exceedsPhotoCap(res.headers.get('content-length'))) return skipped(url, 'too large (content-length)')
     const buf = await res.arrayBuffer()
-    if (buf.byteLength === 0 || buf.byteLength > MAX_PHOTO_BYTES) return null
+    if (buf.byteLength === 0) return skipped(url, 'empty body')
+    if (buf.byteLength > MAX_PHOTO_BYTES) return skipped(url, 'too large')
     return `data:${type};base64,${Buffer.from(buf).toString('base64')}`
-  } catch {
-    return null
+  } catch (err) {
+    return skipped(url, err instanceof Error ? err.name : 'fetch failed')
   }
 }
 
@@ -89,10 +136,15 @@ function render(content: OgContent, photo: string | null, fonts: { name: string;
   )
 }
 
-export async function GET(_request: Request, { params }: { params: { path: string[] } }) {
+export async function GET(request: Request, { params }: { params: { path: string[] } }) {
+  // Any query string names the same picture as the plain path: send it there so the CDN keeps one copy
+  // (a cache-buster like ?v=123 cannot make the server render again). Relative Location, same host.
+  const url = new URL(request.url)
+  if (url.search) return new Response(null, { status: 308, headers: { Location: url.pathname, 'Cache-Control': 'public, s-maxage=86400' } })
+
   const content = await resolveOgPath(params.path)
   // Unknown prefix, bad slug or an unpublished page: not an image. Short cache so a page published a minute later works.
-  if (!content) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'public, max-age=300' } })
+  if (!content) return new Response('Not found', { status: 404, headers: { 'Cache-Control': SHORT_CACHE_CONTROL } })
 
   let fonts: { name: string; data: ArrayBuffer; weight: 400 | 700; style: 'normal' }[] = []
   try {
@@ -118,7 +170,7 @@ export async function GET(_request: Request, { params }: { params: { path: strin
     try {
       return await draw(null)
     } catch {
-      return Response.redirect(DEFAULT_OG_IMAGE, 302)
+      return new Response(null, { status: 302, headers: { Location: DEFAULT_OG_IMAGE, 'Cache-Control': SHORT_CACHE_CONTROL } })
     }
   }
 }

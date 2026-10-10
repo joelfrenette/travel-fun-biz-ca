@@ -86,6 +86,35 @@ export function isAllowedPhotoUrl(raw: string | null | undefined): boolean {
   return host.endsWith('.supabase.co')
 }
 
+export const MAX_PHOTO_BYTES = 6 * 1024 * 1024
+
+/** The redirect target to follow for a photo, or null when it is missing, unparsable or off the allow-list. */
+export function allowedRedirectTarget(location: string | null | undefined, from: string): string | null {
+  if (!location) return null
+  try {
+    const target = new URL(location, from).toString()
+    return isAllowedPhotoUrl(target) ? target : null
+  } catch {
+    return null
+  }
+}
+
+/** True when a content-length header value is a number above the photo cap (so the body is never downloaded). */
+export function exceedsPhotoCap(contentLength: string | null | undefined): boolean {
+  if (!contentLength) return false
+  const n = Number(contentLength)
+  return Number.isFinite(n) && n > MAX_PHOTO_BYTES
+}
+
+/** Host only, for logs: never the full URL (it may carry a token or a path worth keeping private). */
+export function hostOf(raw: string | null | undefined): string {
+  try {
+    return raw ? new URL(raw).hostname : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Title wrapping. Satori has no reliable line clamp across versions, so lines are cut here.
 // ---------------------------------------------------------------------------------------------------
