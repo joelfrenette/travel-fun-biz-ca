@@ -383,3 +383,63 @@ WP10 additions (Joel, 2026-10-10 evening):
   the "held" rule from WP7 unless Joel changes it later.
 - The 7 am brief gets an "Edits made" section: one line per automatic edit in the last 24 hours (what, where,
   reason, method) with a link to the Content edits admin list, and the count of items waiting on a human.
+
+### WP11 (2026-10-10, Joel's ask): trip pages are light; admin drops a screenshot, PDF, link or text and the site fills the page (migration 0034)
+
+Facts found 2026-10-10: all 9 published packages have NO full_description, 0 highlights, 0 itinerary, no
+price_includes / not_included, 0 ai_faqs, 0 gallery, no video. booking_url is the generic funnel root
+(info.travelfunbiz.com) for 8 of 9; the 9th links to a Collette group page that now says "Tour Cancelled".
+Joel's words: he, as admin, drops a screenshot of a Facebook post or event, or a supplier PDF, and Claude
+extracts the details; the site prompts him when a trip page has too little text.
+
+Owner files: new `lib/package-sources.ts`, new `lib/package-enrich.ts`, new `lib/package-completeness.ts`
+(pure), new `lib/source-watch.ts`, `lib/package-extract.ts` (extend: image and PDF inputs; the grounding
+stays), `app/admin/packages/**` (an "Add details" drop zone and a review diff per package),
+`app/api/admin/packages/[id]/sources/**`, `lib/issues.ts`, `lib/plain-steps.ts`, `lib/debrief.ts`,
+`lib/brief-html.ts`, `lib/pipeline.ts` (one weekly `source-watch` step in housekeeping),
+`supabase/migrations/0034_package_sources.sql`, `scripts/check-package-completeness.ts`.
+
+Table `package_sources`: id uuid pk, package_id uuid references travel_packages(id) on delete cascade,
+kind text check in ('screenshot','pdf','url','text'), storage_path text, public_url text, source_url text,
+extracted_text text, extracted_fields jsonb, applied_fields text[], status text check in
+('uploaded','extracted','applied','failed'), error text, created_at, updated_at. RLS on, no policy.
+Uploads go to a PRIVATE Supabase storage bucket `package-sources` (create in the migration or via the
+storage API on first use; the service role signs short-lived URLs for the admin preview). Never public.
+
+Completeness score (`lib/package-completeness.ts`, pure, 0-100 with reasons): full_description 400+ words
+(30), highlights 4+ (15), price_includes (10), not_included (5), itinerary 3+ days or a dated outline (15),
+ai_faqs 3+ (10), gallery 3+ images (10), departure dates or available_from/to (5). Under 60 = "thin".
+
+Intake flow (admin, per package): drop zone accepts PNG/JPG (screenshot of a Facebook post or event; sent
+to the model as an image block through `callAnthropic`, which already takes content blocks), PDF (sent as
+a document block, or text-extracted first; pick what `lib/ai-verify.ts` supports and say which), a URL
+(existing `fetchSourceText`), or pasted text. Each source is stored, then `extractPackageDraft` runs with
+the same grounding rules as today (every number and date must appear in the source; otherwise dropped and
+listed). Result: a review diff that shows, per field, current value vs proposed value with the evidence
+snippet. Apply rules: FACT fields (prices, dates, duration, inclusions, not included, itinerary, max/min
+people, supplier, departure dates) are applied automatically ONLY when the current value is empty AND the
+value is grounded in the source; a non-empty fact field is never overwritten automatically (shown as
+"differs, click to replace"). COPY fields (full_description, highlights, meta, keywords) are generated
+from the source plus the existing WP4-style gate (no superlatives, no invented numbers, no agency claims,
+no dashes) and applied automatically when empty. Gallery: images found in the source (a supplier page's
+photos, or the screenshot itself cropped? no: never use the screenshot as a gallery image) go through
+`uploadImagePackageVariants` only when they are real trip photos from a supplier URL; otherwise nothing.
+FAQs: reuse the existing generate-faqs path after the description exists. Every applied change is logged
+to `content_edits` (WP10's table; if WP10 is not merged yet, write a small `package_edits` jsonb column
+on package_sources and say so) with Revert.
+
+Nudges: a Needs attention item per thin published package: "The <name> trip page is thin (score 42):
+drop a screenshot, PDF or link" with grade-5 steps and a link to that package's Add details box; one
+line per thin trip in the 7 am brief ("3 trip pages need more details"); the Packages admin list shows
+the score as a pill and sorts thin first.
+
+Source watch (`lib/source-watch.ts`, weekly, free): for each published package whose booking_url or
+more_info_url is a real supplier page (not the funnel root), fetch it and look for "cancelled",
+"canceled", "sold out", "waitlist", "no longer available", or a date range that differs from the row;
+raise a Needs attention item "Supplier page says this trip is cancelled or changed" with the snippet.
+NEVER unpublish or edit automatically; this is Joel's decision. Run once on the first deploy so the
+Collette finding shows up.
+
+Rules: no fact ever enters the database without a stored source; the model never sees a source without
+the grounding check; the admin can delete a source and revert its edits; `isAuthorized` on every route;
+file size cap 10MB, PDF pages cap 30, image cap 5; cost per extraction shown; no new vendor.
