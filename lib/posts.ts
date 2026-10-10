@@ -16,6 +16,14 @@ export interface Post {
   publish_date: string | null
   meta_title: string | null
   meta_description: string | null
+  // Growth loop WP1 (migration 0027). All optional: posts written before it have none of these.
+  content_style?: string | null
+  faq?: { q: string; a: string }[] | null
+  key_takeaways?: string[] | null
+  og_title?: string | null
+  og_description?: string | null
+  primary_keyword?: string | null
+  secondary_keywords?: string[] | null
   created_at: string
   updated_at: string
 }
@@ -57,28 +65,46 @@ export async function listPostsAdmin(): Promise<Post[]> {
 
 export type PostInput = Partial<Omit<Post, 'id' | 'created_at' | 'updated_at'>>
 
-export async function createPost(input: PostInput): Promise<Post> {
+/** `seoColumnsMissing` is true only when migration 0027 is not applied and the post was saved
+ * without its FAQ, takeaways and other SEO fields (the caller must surface that). */
+export async function createPost(input: PostInput): Promise<Post & { seoColumnsMissing?: boolean }> {
   if (!input.title?.trim()) throw new Error('Title is required')
   if (!input.slug?.trim()) throw new Error('Slug is required')
-  const { data, error } = await getSupabaseAdmin()
-    .from('posts')
-    .insert({
-      title: input.title.trim(),
-      slug: input.slug.trim(),
-      body: input.body ?? '',
-      cover_image_url: input.cover_image_url || null,
-      alt_text: input.alt_text || null,
-      tags: input.tags ?? [],
-      related_package_id: input.related_package_id || null,
-      status: input.status === 'published' ? 'published' : 'draft',
-      publish_date: input.publish_date || null,
-      meta_title: input.meta_title || null,
-      meta_description: input.meta_description || null,
-    })
-    .select()
-    .single()
+  const baseRow = {
+    title: input.title.trim(),
+    slug: input.slug.trim(),
+    body: input.body ?? '',
+    cover_image_url: input.cover_image_url || null,
+    alt_text: input.alt_text || null,
+    tags: input.tags ?? [],
+    related_package_id: input.related_package_id || null,
+    status: input.status === 'published' ? 'published' : 'draft',
+    publish_date: input.publish_date || null,
+    meta_title: input.meta_title || null,
+    meta_description: input.meta_description || null,
+  }
+  // Only sent when present, so callers that never set them (the admin editor) behave exactly as before.
+  const seoRow: Record<string, unknown> = {}
+  if (input.content_style) seoRow.content_style = input.content_style
+  if (input.faq?.length) seoRow.faq = input.faq
+  if (input.key_takeaways?.length) seoRow.key_takeaways = input.key_takeaways
+  if (input.og_title) seoRow.og_title = input.og_title
+  if (input.og_description) seoRow.og_description = input.og_description
+  if (input.primary_keyword) seoRow.primary_keyword = input.primary_keyword
+  if (input.secondary_keywords?.length) seoRow.secondary_keywords = input.secondary_keywords
+
+  const admin = getSupabaseAdmin()
+  let seoColumnsMissing = false
+  let { data, error } = await admin.from('posts').insert({ ...baseRow, ...seoRow }).select().single()
+  // Safety net while migration 0027 has not been applied yet: the post is more valuable than its
+  // extra fields, so retry once without them rather than losing the run.
+  if (error && Object.keys(seoRow).length > 0 && /column|schema cache/i.test(error.message)) {
+    console.error('[posts] SEO columns missing (apply migration 0027); saving without them:', error.message)
+    ;({ data, error } = await admin.from('posts').insert(baseRow).select().single())
+    if (!error) seoColumnsMissing = true
+  }
   if (error) throw new Error(error.message)
-  return data
+  return seoColumnsMissing ? { ...data, seoColumnsMissing: true } : data
 }
 
 export async function updatePost(id: string, patch: PostInput): Promise<Post> {

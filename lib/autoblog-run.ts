@@ -2,7 +2,12 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
-import { composeFullPost, autoPublishBlockers } from '@/lib/blog-composer'
+import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
+import { pickStyle, pickCtaStyle, CTA_STYLES, appendStyledCta } from '@/lib/content-styles'
+import { tagVariant } from '@/lib/content-variants'
+import { listSitePages } from '@/lib/site-pages'
+import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
+import { generateSlug } from '@/lib/utils'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { enrollIfDue } from '@/lib/distribution'
 import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
@@ -19,13 +24,48 @@ import type { PackageGrounding } from '@/lib/blog-topics'
 // autoblog's composition already is - a real matched package's slug when one exists, a generic
 // link to the trip listing otherwise. Never invents a destination or package the post isn't
 // actually about.
-function appendCta(body: string, pkg: PackageGrounding | null): string {
-  // Package names are free-text (set by Joel in the admin), not controlled to avoid Markdown link
-  // syntax - a stray "[" or "]" in a name would otherwise truncate/corrupt the generated link.
-  const cta = pkg
-    ? `Ready to see the real dates and details? [Check out the ${pkg.name.replace(/[[\]]/g, '')} trip](/packages/${pkg.slug}).`
-    : `Ready to start planning? [Browse our trips](/) or [get in touch](/#contact) and we'll help you find the right one.`
-  return `${body.trimEnd()}\n\n---\n\n${cta}`
+// Growth loop WP1: the closing call to action is now style-aware (lib/content-styles.ts ctaFor, five
+// variants, all still grounded: the real package page, the contact section or the home page only).
+
+/** Next CTA style: rotates off the cta_style tagged on the last ten posts (content_variants). If that
+ * cannot be read, falls back to a plain count-based rotation. Never throws. */
+async function pickRecentCtaStyle(admin: ReturnType<typeof getSupabaseAdmin>, recentSlugs: string[], fallbackIndex: number) {
+  try {
+    const { data, error } = await admin.from('content_variants').select('slug, variant_tags').in('slug', recentSlugs)
+    if (error) throw new Error(error.message)
+    const bySlug = new Map((data ?? []).map((r: { slug: string; variant_tags: { cta_style?: string } | null }) => [r.slug, r.variant_tags?.cta_style]))
+    return pickCtaStyle(recentSlugs.map((s) => bySlug.get(s)))
+  } catch {
+    return CTA_STYLES[fallbackIndex % CTA_STYLES.length]
+  }
+}
+
+/** The pages the composer may link to from the body, each confirmed to exist right now: the matched
+ * package, its destination page (only when a published package gives it one), and its
+ * best-time-to-visit page (only when that page really exists). No package means no links, so the
+ * writer cannot reach for a page that is not there. Never throws. */
+async function buildAllowedLinks(admin: ReturnType<typeof getSupabaseAdmin>, pkg: PackageGrounding | null): Promise<AllowedLink[]> {
+  if (!pkg?.slug) return []
+  const links: AllowedLink[] = [{ path: `/packages/${pkg.slug}`, label: `the ${pkg.name.replace(/[[\]]/g, '')} trip page` }]
+  const destSlug = pkg.destination ? generateSlug(pkg.destination) : ''
+  if (!destSlug) return links
+  try {
+    const pages = await listSitePages(admin)
+    if (pages.some((p) => p.type === 'destination' && p.path === `/destinations/${destSlug}`)) {
+      links.push({ path: `/destinations/${destSlug}`, label: `our ${pkg.destination} destination page` })
+    }
+  } catch (err) {
+    console.error('[autoblog] could not list destination pages:', err instanceof Error ? err.message : err)
+  }
+  try {
+    const bestTime = await getBestTimeToVisitSlugs()
+    if (bestTime.some((b) => b.slug === destSlug)) {
+      links.push({ path: `/best-time-to-visit/${destSlug}`, label: `the best time to visit ${pkg.destination} page` })
+    }
+  } catch (err) {
+    console.error('[autoblog] could not list best-time pages:', err instanceof Error ? err.message : err)
+  }
+  return links
 }
 
 // Ported from Nomad Escape Plan's modules/marketing/autoblog-run.ts (Factory Phase 2:
@@ -53,9 +93,9 @@ export interface AutoblogResult {
 }
 
 const RUN_LOCK_KEY = 'autoblog_run_lock'
-// Generous vs. the composer's own ~290s worst case - a lock older than this is treated as
-// abandoned (a crashed run) rather than still in progress, so a stuck lock can't wedge autoblog
-// forever.
+// The routes that run this are killed at 300s (maxDuration) and composing is told to finish within
+// 240s (deadlineMs below), so a lock older than 10 minutes is certainly abandoned (a crashed run)
+// rather than in progress. That way a stuck lock can't wedge autoblog forever.
 const RUN_LOCK_STALE_MS = 10 * 60 * 1000
 
 /** Best-effort lock so the admin "run now" button and the daily cron can't both create a post in
@@ -199,7 +239,16 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
 
   const groundedAngle = groundAngleInPackage(topic.angle, groundingPackage)
 
-  const composed = await composeFullPost(groundedAngle, topic.keyword)
+  // Rotate the writing style off the last ten posts (existingPosts is newest first) and work out which
+  // internal pages the post may link to.
+  const style = pickStyle(existingPosts.slice(0, 10).map((p) => p.content_style))
+  const ctaStyle = await pickRecentCtaStyle(admin, existingPosts.slice(0, 10).map((p) => p.slug), existingPosts.length)
+  const allowedLinks = await buildAllowedLinks(admin, groundingPackage)
+
+  // The routes that call this are killed at 300s. Compose and repair are told to wrap up by 240s from
+  // now: the optional steps (FAQ/takeaways, the repair call) are skipped when too little time is left.
+  const deadlineMs = Date.now() + 240_000
+  const composed = await composeFullPost(groundedAngle, topic.keyword, { style, allowedLinks, deadlineMs })
   if (!composed) {
     if (queueRowId) {
       const attempts = await recordComposeFailure(admin, queueRowId)
@@ -228,7 +277,15 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     if (again === null || again > 0) return { ran: false, mode, note: 'a post was written while this one was being composed, so this one was dropped' }
   }
 
-  const blockers = mode === 'publish' ? autoPublishBlockers(composed) : []
+  // The gate, with at most ONE automatic repair call when the only problem is a number or link the
+  // writer was not allowed to use (see gateWithRepair). Still blocked after that means a saved draft.
+  let final = composed
+  let blockers: string[] = []
+  if (mode === 'publish') {
+    const gated = await gateWithRepair(composed, new Date(), { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs })
+    final = gated.post
+    blockers = gated.blockers
+  }
   const publishing = mode === 'publish' && blockers.length === 0
   // Use the composed post's own tags (derived from its actual keywords) rather than the
   // pre-composition topic.keyword - the composer's 'idea' step can land on an article that
@@ -238,17 +295,27 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   const image = await attachAutoblogCoverImage(admin, imageSearchTerm, composed.slug)
 
   const post = await createPost({
-    title: composed.title,
-    slug: composed.slug,
-    body: appendCta(composed.body, groundingPackage),
-    tags: composed.tags,
+    title: final.title,
+    slug: final.slug,
+    body: appendStyledCta(final.body, ctaStyle.id, groundingPackage),
+    tags: final.tags,
     cover_image_url: image?.cover_image_url ?? null,
     alt_text: image?.alt_text ?? null,
     status: publishing ? 'published' : 'draft',
     publish_date: publishing ? new Date().toISOString().slice(0, 10) : null,
-    meta_title: composed.seo_title,
-    meta_description: composed.seo_description,
+    meta_title: final.seo_title,
+    meta_description: final.seo_description,
+    content_style: final.content_style || style.id,
+    faq: final.faq,
+    key_takeaways: final.key_takeaways,
+    og_title: final.og_title,
+    og_description: final.og_description,
+    primary_keyword: final.primary_keyword,
+    secondary_keywords: final.secondary_keywords,
   })
+  // Record the choices so a later step can compare styles against real clicks, visits and leads. A held
+  // draft also records why, which the morning brief reads.
+  await tagVariant(admin, post.slug, { content_style: style.id, cta_style: ctaStyle.id, ...(blockers.length ? { held_reasons: blockers.join('; ') } : {}) })
 
   if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', { used_slug: post.slug })
   // Close the loop: the keyword this post was written for now points at it, so it is not picked again and
@@ -265,7 +332,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   return {
     ran: true,
     mode,
-    note: blockers.length ? `wrote a draft - quality gate held it back: ${blockers.join('; ')}` : 'ok',
+    note: (blockers.length ? `wrote a draft - quality gate held it back: ${blockers.join('; ')}` : 'ok') + (post.seoColumnsMissing ? ' | saved without FAQ/takeaways: run migration 0027' : ''),
     postId: post.id,
     postSlug: post.slug,
     published: publishing,
