@@ -1,4 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
+import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
 // Per-platform caption generation + mechanical limit enforcement (factory spec: "one model call
 // writes every network's caption at once, each tailored to that network's actual constraints" +
@@ -63,20 +64,87 @@ export function fitCaptionWithLink(body: string, link: string, limit: number): s
  * caption feel native to the network instead of a generic blurb pasted everywhere. Kept as data,
  * not scattered through the prompt string, so adding a network is one line. */
 const PLATFORM_VOICE: Record<string, string> = {
-  twitter: 'punchy, no more than 1-2 hashtags, a link reads fine inline',
-  x: 'punchy, no more than 1-2 hashtags, a link reads fine inline',
-  instagram: 'warm and conversational, hashtags at the end (3-8), a link in the text will not be clickable so do not tell the reader to "click the link" - say "link in bio" style phrasing instead',
-  tiktok: 'casual and energetic, 1-3 hashtags, short sentences',
+  twitter: 'punchy, a link reads fine inline',
+  x: 'punchy, a link reads fine inline',
+  instagram: 'warm and conversational, a link in the text will not be clickable so do not tell the reader to "click the link", say "link in bio" style phrasing instead',
+  tiktok: 'casual and energetic, short sentences',
   linkedin: 'professional but still warm (this is a travel agency, not a law firm), no hashtag stuffing, can be the longest/most detailed of the set',
   facebook: 'friendly, conversational, a real link is fine and expected',
   threads: 'short, conversational, like a tweet but a bit more relaxed',
-  bluesky: 'short, conversational, minimal hashtags',
+  bluesky: 'short, conversational',
   pinterest: 'descriptive and keyword-rich (people search Pinterest like a search engine), can read a bit more like a caption+description than a casual post',
   youtube: 'can be the most detailed - this is a video description, not a quick caption',
 }
 
 export interface PlatformCaptions {
   [platform: string]: string
+}
+
+/** Optional per-network steering for generatePlatformCaptions. Every field is optional and keyed by
+ * the exact platform string passed in `platforms`; a network with no entry is written exactly as it
+ * was before this existed. */
+export interface CaptionOpts {
+  hookStyles?: Record<string, HookStyle>
+  ctaStyles?: Record<string, CtaStyle>
+  /** The link to put in each network's caption (already UTM-tagged for that network). Falls back to
+   * the shared `link` argument for a network with no entry. */
+  links?: Record<string, string>
+  /** The post's FAQ and key takeaways as plain text. Only used so numbers in them count as real. */
+  grounding?: string
+}
+
+/** The long dash character, built from its code so this file never contains one itself. */
+const EM_DASH = String.fromCharCode(8212)
+
+/** Networks whose caption link is plain text, not clickable, so a missing link is not a defect. */
+const LINK_NOT_CLICKABLE = ['instagram', 'tiktok']
+const networkSupportsLinks = (network: string) => !LINK_NOT_CLICKABLE.includes(network.toLowerCase())
+
+const normNumber = (n: string) => n.replace(/^0+(?=\d)/, '')
+const numbersIn = (text: string) => (text.replace(/(\d)[,\s](?=\d{3}\b)/g, '$1').match(/\d+/g) ?? []).map(normNumber)
+const stripUrls = (text: string) => text.replace(/https?:\/\/\S+/gi, ' ')
+const normaliseLine = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+/** Plain-code quality gate for one network's caption (never trusts the model). Returns a list of
+ * problems, empty when the caption is fine to send:
+ *  - longer than the network's real character limit
+ *  - the first line is just the post title again (no hook)
+ *  - a number that is not in the post title, summary or grounding text (links are ignored)
+ *  - no link on a network where links are clickable
+ *  - an em dash anywhere */
+export function captionProblems(
+  caption: string,
+  ctx: { title: string; summary: string | null; network: string; link: string; grounding?: string | null },
+): string[] {
+  const problems: string[] = []
+  const limit = PLATFORM_CHAR_LIMITS[ctx.network.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
+  if (caption.length > limit) problems.push(`over the ${limit} character limit (${caption.length})`)
+
+  const firstLine = caption.split('\n').find((l) => l.trim()) ?? ''
+  if (normaliseLine(firstLine) && normaliseLine(firstLine) === normaliseLine(ctx.title)) problems.push('opening line is identical to the post title')
+
+  const known = new Set(numbersIn(`${ctx.title} ${ctx.summary ?? ''} ${ctx.grounding ?? ''}`))
+  const stray = numbersIn(stripUrls(caption)).filter((n) => !known.has(n))
+  if (stray.length) problems.push(`number not in the post: ${[...new Set(stray)].join(', ')}`)
+
+  if (ctx.link && networkSupportsLinks(ctx.network) && !caption.includes(ctx.link)) problems.push('link is missing')
+  if (caption.includes(EM_DASH)) problems.push('contains an em dash')
+  return problems
+}
+
+/** Cuts a too-long caption down without ever cutting the link (see fitCaptionWithLink). */
+function fitKeepingLink(text: string, link: string, limit: number): string {
+  if (text.length <= limit) return text
+  if (link && text.includes(link)) {
+    const body = text.replace(link, '').replace(/\n{3,}/g, '\n\n').trim()
+    return fitCaptionWithLink(body, link, limit)
+  }
+  return fitCaption(text, limit)
 }
 
 /** One model call writes every requested platform's caption at once (same post, same facts, each
@@ -88,29 +156,41 @@ export async function generatePlatformCaptions(
   postDescription: string | null,
   link: string,
   platforms: string[],
+  opts: CaptionOpts = {},
 ): Promise<PlatformCaptions | null> {
   if (!isAiConfigured() || platforms.length === 0) return null
 
+  const linkFor = (p: string) => opts.links?.[p] || link
   const platformRules = platforms
     .map((p) => {
       const key = p.toLowerCase()
       const limit = PLATFORM_CHAR_LIMITS[key] ?? DEFAULT_CHAR_LIMIT
       const voice = PLATFORM_VOICE[key] ?? 'clear and friendly, no specific platform convention known - keep it generic but not robotic'
-      return `- ${p}: under ${limit} characters. Voice: ${voice}.`
+      const hook = opts.hookStyles?.[p]
+      const cta = opts.ctaStyles?.[p]
+      const hashtags = HASHTAG_RULES[key]
+      return [
+        `- ${p}: under ${limit} characters. Voice: ${voice}.`,
+        hook ? `  Hook style (first line): ${hook}, meaning ${HOOK_STYLE_PROMPTS[hook]}.` : '',
+        cta ? `  Call to action style: ${cta}, meaning ${CTA_STYLE_PROMPTS[cta]}.` : '',
+        hashtags ? `  Hashtags: ${hashtags}.` : '',
+        `  Link to include for ${p}, copied exactly as written: ${linkFor(p)}`,
+      ]
+        .filter(Boolean)
+        .join('\n')
     })
     .join('\n')
 
   const prompt = `You write social media captions for a travel agency's blog post, one per platform, each genuinely adapted to that platform's real conventions - never the same text copy-pasted across platforms.
 
 Post title: ${postTitle}
-${postDescription ? `Post summary: ${postDescription}\n` : ''}Link to include: ${link}
-
+${postDescription ? `Post summary: ${postDescription}\n` : ''}${opts.grounding ? `Facts from the post you may rely on:\n${opts.grounding}\n` : ''}
 Write one caption for each of these platforms, following its own rules:
 ${platformRules}
 
-End every caption with exactly one concrete next step the reader can take on the post page, such as read the full guide, or ask us about this trip. Plain words, no urgency, no promised discounts, availability or replies. Do not promise anything the post does not offer.
+Structure of every caption: a hook line first (in the hook style named for that platform, and never just the post title repeated), then a short body adapted to the network, then one call to action line, then that platform's link on its own line, then hashtags last if the platform uses any. The call to action is exactly one concrete next step the reader can take on the post page, in plain words, with no urgency, no promised discounts, availability or replies. Do not promise anything the post does not offer.
 
-Never invent a claim, price, date or detail not in the post title/summary above - these captions only ever describe a real blog post, nothing more. Return ONLY minified JSON of this exact shape: {"captions":{"<platform>":"<caption text>", ...}} with exactly one entry per platform listed above, using the same platform name as given.`
+Never use an em dash (the long dash character); use a comma or a full stop instead. Never write a number that is not in the post title, summary or facts above. Never invent a claim, price, date or detail not given above, and never claim to have visited, tried or booked anything - these captions only ever describe a real blog post, nothing more. Return ONLY minified JSON of this exact shape: {"captions":{"<platform>":"<caption text>", ...}} with exactly one entry per platform listed above, using the same platform name as given.`
 
   try {
     const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000 })
@@ -121,12 +201,20 @@ Never invent a claim, price, date or detail not in the post title/summary above 
     // Model output is untrusted: only keep entries for platforms actually requested, with real
     // non-empty string values, and mechanically re-fit each to its own real limit regardless of
     // what the model thought it was doing - same "never trust the model got the number right" rule.
+    // A caption that then fails the plain-code gate (captionProblems) is left out of the result, so
+    // that network falls back to the shared generic caption in lib/distribution.ts: the post still
+    // goes out, only with the safer text.
     const result: PlatformCaptions = {}
     for (const p of platforms) {
-      const text = captions[p]
-      if (typeof text === 'string' && text.trim()) {
-        result[p] = fitCaption(text.trim(), PLATFORM_CHAR_LIMITS[p.toLowerCase()] ?? DEFAULT_CHAR_LIMIT)
-      }
+      const raw = captions[p]
+      if (typeof raw !== 'string' || !raw.trim()) continue
+      const limit = PLATFORM_CHAR_LIMITS[p.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
+      // An em dash is repaired rather than failed: swapping it for a comma changes no fact.
+      const cleaned = raw.trim().replace(new RegExp(`\\s*${EM_DASH}\\s*`, 'g'), ', ')
+      const fitted = fitKeepingLink(cleaned, linkFor(p), limit)
+      const problems = captionProblems(fitted, { title: postTitle, summary: postDescription, network: p, link: linkFor(p), grounding: opts.grounding })
+      if (problems.length === 0) result[p] = fitted
+      else console.warn(`[social-captions] ${p} caption dropped, using the shared caption: ${problems.join('; ')}`)
     }
     return Object.keys(result).length > 0 ? result : null
   } catch {

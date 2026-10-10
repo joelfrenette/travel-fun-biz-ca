@@ -7,6 +7,24 @@ import { utmLink } from '@/lib/utm'
 import { SITE_URL } from '@/lib/site'
 import { fitCaption, tightestLimit, generatePlatformCaptions, type PlatformCaptions } from '@/lib/social-captions'
 import type { UploadPostSendResult } from '@/lib/upload-post'
+import { tagVariant } from '@/lib/content-variants'
+import { HOOK_STYLES, CTA_STYLES, rotateStyle, readRecentVariantValues, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+
+/** The post's FAQ and key takeaways as plain text, so numbers in them count as real when captions
+ * are checked. Those columns arrive with a later migration, so this tolerates them not existing
+ * (a failed read just means no extra grounding) and never throws. */
+async function loadGrounding(admin: SupabaseClient, slug: string): Promise<string | undefined> {
+  try {
+    const { data, error } = await admin.from('posts').select('faq, key_takeaways').eq('slug', slug).maybeSingle()
+    if (error || !data) return undefined
+    const faq = Array.isArray(data.faq) ? (data.faq as Array<{ q?: unknown; a?: unknown }>).map((f) => `${typeof f.q === 'string' ? f.q : ''} ${typeof f.a === 'string' ? f.a : ''}`.trim()) : []
+    const takeaways = Array.isArray(data.key_takeaways) ? (data.key_takeaways as unknown[]).filter((t): t is string => typeof t === 'string') : []
+    const text = [...takeaways.map((t) => `- ${t}`), ...faq.map((f) => `- ${f}`)].join('\n').slice(0, 1500)
+    return text || undefined
+  } catch {
+    return undefined
+  }
+}
 
 // Factory Phase 12: the dormant distribution ledger + mode gate. See migration 0011 for why the
 // provider-specific columns (video, per-network post ids, captions) are deliberately not here yet
@@ -283,7 +301,31 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // explicitly turned this on (distribution_tailored_captions) - off, or AI unconfigured, or
       // the call failed, all mean every platform falls back to the shared caption above. Never
       // blocks distribution over this, same rule as every other AI step in this project.
-      const tailored = tailoredCaptionsOn ? await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms) : null
+      // Hook and CTA style per network rotate over that network's recent history (content_variants),
+      // and each network gets its own UTM-tagged link (source = network, content = hook style). This
+      // only changes the TEXT handed to the same single send per network below.
+      let tailored: PlatformCaptions | null = null
+      if (tailoredCaptionsOn) {
+        const hookStyles: Record<string, HookStyle> = {}
+        const ctaStyles: Record<string, CtaStyle> = {}
+        const links: Record<string, string> = {}
+        for (const p of platforms) {
+          // 12 values of history: only the last 5 count for "least used", the rest breaks ties by age.
+          hookStyles[p] = rotateStyle(await readRecentVariantValues(admin, `hook_style:${p}`, 12), HOOK_STYLES)
+          ctaStyles[p] = rotateStyle(await readRecentVariantValues(admin, `cta_style:${p}`, 12), CTA_STYLES)
+          links[p] = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: p, medium: 'social', campaign: row.slug, content: hookStyles[p] })
+        }
+        tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding: await loadGrounding(admin, row.slug) })
+        // Record only the styles that actually reached a caption (a dropped caption used none).
+        const patch: Record<string, string> = {}
+        for (const p of platforms) {
+          if (!tailored?.[p]) continue
+          patch[`hook_style:${p}`] = hookStyles[p]
+          patch[`caption_style:${p}`] = hookStyles[p]
+          patch[`cta_style:${p}`] = ctaStyles[p]
+        }
+        if (Object.keys(patch).length) await tagVariant(admin, row.slug, patch)
+      }
       const send = (p: string[], text: string) =>
         post?.cover_image_url ? target.sendPhotos(p, text, [post.cover_image_url]) : target.sendText(p, text)
       const result = await sendTailored(send, platforms, tailored, sharedCaption)
