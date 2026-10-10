@@ -160,15 +160,15 @@ export default function KeywordsPage() {
     }
   }
 
-  // "Add a phrase": free tracking by default; the second button also looks up its Google volume (a fraction of a cent).
-  async function addPhrase(lookup: boolean) {
+  // "Add a phrase" is free tracking only; the engine looks the volume up inside its weekly budget.
+  async function addPhrase() {
     if (!intel || phrase.trim().length < 2) return
     setAdding(true); setError(""); setStatus("")
     try {
-      const res = await fetch("/api/admin/keywords", { method: "POST", headers: authHeaders(), body: JSON.stringify({ keywords: phrase, country: intel.country, ...(lookup ? {} : { track_only: true }) }) })
+      const res = await fetch("/api/admin/keywords", { method: "POST", headers: authHeaders(), body: JSON.stringify({ keywords: phrase, country: intel.country, track_only: true }) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      setStatus(lookup ? `${data.fetched} looked up ($${Number(data.costUsd ?? 0).toFixed(4)}), ${data.cached} served from cache.` : "Added. The next engine run will score it.")
+      setStatus("Added. The next engine run looks up its Google volume and scores it.")
       setPhrase("")
       await load(true)
     } catch (e) {
@@ -308,12 +308,11 @@ export default function KeywordsPage() {
               type="text"
               value={phrase}
               onChange={(e) => setPhrase(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") addPhrase(false) }}
+              onKeyDown={(e) => { if (e.key === "Enter") addPhrase() }}
               placeholder="Add a phrase, e.g. rhine river cruise from canada"
               className="h-8 min-w-[260px] flex-1 rounded-md border bg-background px-3 text-sm"
             />
-            <Button size="sm" variant="outline" onClick={() => addPhrase(false)} disabled={adding || phrase.trim().length < 2} title="Free: starts tracking the phrase"><Plus className="mr-1 h-3 w-3" />Add</Button>
-            <Button size="sm" variant="outline" onClick={() => addPhrase(true)} disabled={adding || phrase.trim().length < 2 || !sources.dataforseo} title="Adds the phrase and looks up its Google volume now (a small fraction of a cent per phrase; phrases looked up in the last 30 days are free)">Add and look up volume</Button>
+            <Button size="sm" variant="outline" onClick={() => addPhrase()} disabled={adding || phrase.trim().length < 2} title="Free. Starts tracking the phrase; the next engine run looks up its Google volume inside the weekly budget."><Plus className="mr-1 h-3 w-3" />Add</Button>
           </div>
         </div>
       </div>
@@ -375,7 +374,7 @@ export default function KeywordsPage() {
                           </>
                         )}
                         {idea.status === "approved" && (
-                          <Button size="sm" variant="outline" onClick={() => setIdeaStatus(idea.id, "rejected")} disabled={busy}><X className="mr-1 h-3 w-3" />Un-approve</Button>
+                          <Button size="sm" variant="outline" onClick={() => setIdeaStatus(idea.id, "suggested")} disabled={busy}><X className="mr-1 h-3 w-3" />Un-approve</Button>
                         )}
                         {scheduling === idea.id ? (
                           <>
@@ -567,7 +566,7 @@ export default function KeywordsPage() {
                             <div className="max-w-[200px] truncate font-medium" title={suggestion.path}>{suggestion.title}</div>
                             <Button variant="outline" size="sm" className="h-6 px-2 text-[10px]" onClick={() => saveRow(row, { target_path: suggestion.path })} disabled={!!saving[row.id]}>Use suggestion</Button>
                           </div>
-                        ) : <span className="text-muted-foreground">—</span>}
+                        ) : <span className="text-muted-foreground">n/a</span>}
                       </td>
                       <td className="p-2" title={[k.reason, ...k.reasons].filter(Boolean).join(". ")}>
                         <OppBadge opp={k.opportunity} reason={k.reason} />

@@ -104,6 +104,14 @@ export async function readEngineRun(admin: SupabaseClient): Promise<EngineRun | 
   }
 }
 
+/** Once migration 0032 is applied, a saved "run the migration" note is stale: forget it, so the Needs attention
+ * item clears and the engine may run this week. Call only after migrationReady() passed. */
+async function clearStaleMigrationNote(admin: SupabaseClient, last: EngineRun | null): Promise<EngineRun | null> {
+  if (!last?.needsMigration) return last
+  await admin.from('app_settings').delete().eq('key', ENGINE_LAST_KEY)
+  return null
+}
+
 async function saveEngineRun(admin: SupabaseClient, run: EngineRun): Promise<void> {
   try {
     await setSetting(admin, ENGINE_LAST_KEY, JSON.stringify(run))
@@ -309,6 +317,11 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
     let remaining = Math.max(0, budget - before)
     const dataforseo = isKeywordDataConfigured()
     const searchConsole = isSearchConsoleConfigured()
+    // Every paid stage writes its own spend-log line the moment it finishes, so a kill or a throw later in
+    // the run can never hide spend from the next press of the button.
+    const logSpend = async (usd: number, added: number, seeds: string[]) => {
+      if (usd > 0 || added > 0 || seeds.length) await logKeywordSpend(admin, { at: new Date().toISOString(), spentUsd: roundUsd(usd), added, seeds })
+    }
     const startedAt = Date.now()
     const late = () => Date.now() - startedAt > ENGINE_SOFT_LIMIT_MS
     const canSpend = () => dataforseo && remaining > 0
@@ -349,6 +362,7 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
           const r = await runKeywordResearch(admin, { budgetLeftUsd: remaining, seedPool })
           spent += r.spent
           spend(r.spent)
+          await logSpend(r.spent, r.added, r.seeds)
           addedKeywords += r.added
           researchedSeeds.push(...r.seeds)
           notes.push(`keyword ideas for ${r.seeds.length} seed${r.seeds.length === 1 ? '' : 's'}, ${r.added} new phrase${r.added === 1 ? '' : 's'}`)
@@ -367,6 +381,7 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
             const cost = spentIn(note)
             spent += cost
             spend(cost)
+            await logSpend(cost, 0, [])
             if (note) notes.push(note)
           } catch (e) {
             ok = false
@@ -375,10 +390,11 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
         } else notes.push('not enough budget left for autocomplete and question ideas')
         if (!late() && remaining >= TRENDS_MIN_BUDGET_USD) {
           try {
-            const note = await refreshTrendPeaksIfDue(admin)
+            const note = await refreshTrendPeaksIfDue(admin, { budgetUsd: remaining })
             const cost = spentIn(note)
             spent += cost
             spend(cost)
+            await logSpend(cost, 0, [])
             if (note) notes.push(note)
           } catch (e) {
             ok = false
@@ -428,6 +444,7 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
             const res = await lookupKeywords(never, COUNTRY)
             spent += res.costUsd
             spend(res.costUsd)
+            await logSpend(res.costUsd, 0, [])
             notes.push(`Google volume looked up for ${res.fetched} phrase${res.fetched === 1 ? '' : 's'} in one batch`)
           } else notes.push('every phrase already has its Google volume')
         } catch (e) {
@@ -466,7 +483,7 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
       try {
         const [postsRes, queueRes] = await Promise.all([
           admin.from('posts').select('title, primary_keyword, secondary_keywords').limit(400),
-          admin.from('blog_topic_queue').select('keyword, keywords, cluster_id, status'),
+          admin.from('blog_topic_queue').select('keyword, keywords, cluster_id, status').limit(500),
         ])
         const posts = postsRes.error ? (((await admin.from('posts').select('title').limit(400)).data ?? []) as { title: string }[]) : ((postsRes.data ?? []) as { title: string; primary_keyword: string | null; secondary_keywords: string[] | null }[])
         const queue = (queueRes.data ?? []) as { keyword: string; keywords: string[] | null; cluster_id: string | null; status: string }[]
@@ -540,8 +557,8 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
       stage('TRACK', false, errMsg(e, 'saving failed'))
     }
 
-    const entry = { at: new Date().toISOString(), spentUsd: roundUsd(run.spentUsd), added: addedKeywords, seeds: researchedSeeds }
-    await logKeywordSpend(admin, entry)
+    // Spend was already logged stage by stage; this zero line only stamps "last ran".
+    await logKeywordSpend(admin, { at: new Date().toISOString(), spentUsd: 0, added: 0, seeds: [] })
     const failedStages = run.stages.filter((s) => !s.ok)
     run.note = failedStages.length
       ? `Keyword engine finished with ${failedStages.length} problem${failedStages.length === 1 ? '' : 's'}: ${failedStages.map((s) => `${s.stage}: ${s.note}`).slice(0, 2).join(' | ')}`
@@ -572,7 +589,7 @@ export async function runKeywordEngineIfDue(admin: SupabaseClient): Promise<Engi
     if (!previous || previous.note !== run.note) await saveEngineRun(admin, run)
     return run
   }
-  const last = await readEngineRun(admin)
+  const last = await clearStaleMigrationNote(admin, await readEngineRun(admin))
   const lastAt = last ? Date.parse(last.at) : NaN
   // Independent of the week claim: never again within ENGINE_MIN_GAP_DAYS of the last finished run.
   if (Number.isFinite(lastAt) && last && !last.needsMigration && last.stages.length > 0 && Date.now() - lastAt < ENGINE_MIN_GAP_DAYS * 86_400_000) return null
@@ -718,7 +735,7 @@ export interface IntelPayload {
 }
 
 export async function buildKeywordIntel(admin: SupabaseClient): Promise<IntelPayload> {
-  const [rows, pages, ranked, migration, last, budget, info, peaks, balanceUsd, pkRes, queueRes] = await Promise.all([
+  let [rows, pages, ranked, migration, last, budget, info, peaks, balanceUsd, pkRes, queueRes] = await Promise.all([
     listKeywords(),
     listSitePages(admin),
     rankedPageByKeyword(),
@@ -732,6 +749,7 @@ export async function buildKeywordIntel(admin: SupabaseClient): Promise<IntelPay
     admin.from('blog_topic_queue').select('*').order('created_at', { ascending: false }).limit(200),
   ])
   const queue = (queueRes.data ?? []) as BlogTopicQueueRow[]
+  if (migration.ready) last = await clearStaleMigrationNote(admin, last)
   const mine = rows.filter((r) => r.country === COUNTRY)
   const built = buildClusters(mine, (pkRes.data ?? []) as ScorePackage[], new Date(), peaks)
   const classOf = new Map(built.keywords.map((c) => [c.keyword, c]))

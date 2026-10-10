@@ -19,6 +19,14 @@ const SEEDS_PER_RUN = 3
 const KEEP_PER_SEED = 8
 const MIN_VOLUME = 10
 
+const SEED_OFFSET_KEY = 'keyword_seed_offset'
+
+/** `count` seeds starting at `offset`, wrapping round the list. Pure. */
+export function pickSeeds(seeds: string[], offset: number, count: number): string[] {
+  if (!seeds.length) return []
+  return Array.from({ length: Math.min(count, seeds.length) }, (_, i) => seeds[(offset + i) % seeds.length])
+}
+
 export async function getKeywordBudget(admin: SupabaseClient): Promise<number> {
   const raw = await getSetting(admin, KEYWORD_BUDGET_KEY)
   const n = raw === null ? DEFAULT_KEYWORD_BUDGET_USD : Number(raw)
@@ -92,7 +100,7 @@ export function spentLastWeek(log: KeywordRefreshInfo['log'], now = Date.now()):
 export async function logKeywordSpend(admin: SupabaseClient, entry: KeywordRefreshInfo['log'][number]): Promise<void> {
   try {
     const info = await readKeywordRefreshInfo(admin)
-    await setSetting(admin, KEYWORD_SPEND_LOG_KEY, JSON.stringify([entry, ...info.log].slice(0, 12)))
+    await setSetting(admin, KEYWORD_SPEND_LOG_KEY, JSON.stringify([entry, ...info.log].slice(0, 30)))
     await setSetting(admin, KEYWORD_LAST_RUN_KEY, entry.at) // shown as "last ran" on the Autopilot page
   } catch {
     // a logging problem must never fail a run that already finished
@@ -122,11 +130,15 @@ export async function releaseKeywordWeek(admin: SupabaseClient, key: string): Pr
  * into keyword_research. No cadence and no claim in here (the caller owns both); it stops as soon as
  * `budgetLeftUsd` is used up. */
 export async function runKeywordResearch(admin: SupabaseClient, opts: { budgetLeftUsd: number; seedPool?: string[] }): Promise<{ spent: number; added: number; seeds: string[]; error?: string }> {
-  const seeds = opts.seedPool ?? (await seedPhrases(admin))
+  const all = opts.seedPool ?? (await seedPhrases(admin))
+  // Never repeat a seed researched in the last 7 days (the spend log records them), and advance a stored
+  // offset on every run (not once a week), so repeated button presses walk through new seeds.
+  const recent = new Set((await readKeywordRefreshInfo(admin)).log.filter((e) => Date.now() - Date.parse(e.at) < REFRESH_EVERY_MS).flatMap((e) => e.seeds))
+  const seeds = all.filter((s) => !recent.has(s))
   if (!seeds.length) return { spent: 0, added: 0, seeds: [] }
-  // Rotate through the seed list week by week so different destinations get researched over time.
-  const weekIndex = Math.floor(Date.now() / REFRESH_EVERY_MS)
-  const chosen = Array.from({ length: Math.min(SEEDS_PER_RUN, seeds.length) }, (_, i) => seeds[(weekIndex * SEEDS_PER_RUN + i) % seeds.length])
+  const offset = Number(await getSetting(admin, SEED_OFFSET_KEY)) || 0
+  const chosen = pickSeeds(seeds, offset, SEEDS_PER_RUN)
+  await setSetting(admin, SEED_OFFSET_KEY, String(offset + chosen.length))
 
   const country = SITE_ID as KeywordCountry
   const { data: existingRows } = await admin.from('keyword_research').select('keyword').eq('country', country)

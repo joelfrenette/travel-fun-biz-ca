@@ -17,7 +17,7 @@ import {
   SHOOT_FOR_MIN_SCORE,
   type KeywordCluster,
 } from '../lib/keyword-cluster'
-import { claimKeywordWeek } from '../lib/keyword-refresh'
+import { claimKeywordWeek, pickSeeds } from '../lib/keyword-refresh'
 import type { ScoreKeyword, ScorePackage } from '../lib/keyword-score'
 
 let failed = 0
@@ -141,6 +141,10 @@ check('a wrong primary is rejected', !validatePlanItem({ ...good, primary_keywor
 check('a price in the text is rejected', !validatePlanItem({ ...good, angle: 'Learn what a Rhine cruise really costs, from $2,000 per person.' }, cluster, slugs).ok)
 check('an invented number is rejected', !validatePlanItem({ ...good, title_idea: 'Seven reasons to book a Rhine river cruise' + ' 2031' }, cluster, slugs, 'Rhine River Cruise').ok)
 check('a number found in the package text is allowed', validatePlanItem({ ...good, title_idea: 'Rhine river cruise in 2027: is it for your group?' }, cluster, slugs, 'Rhine River Cruise April 2027').ok)
+check('an invented number word is rejected', !validatePlanItem({ ...good, title_idea: 'Seven reasons a Rhine river cruise suits groups' }, cluster, slugs, 'Rhine River Cruise').ok)
+check('number words in angle and who-for are rejected too', !validatePlanItem({ ...good, angle: 'A guide to the best two weeks on a Rhine river cruise for groups.' }, cluster, slugs).ok && !validatePlanItem({ ...good, who_for: 'Ten friends planning a trip' }, cluster, slugs).ok)
+check('a number word present in the package text is allowed', validatePlanItem({ ...good, title_idea: 'Is a seven night Rhine river cruise right for you?' }, cluster, slugs, 'Rhine River Cruise seven night sailing').ok)
+check('a word that merely contains a number word is fine', validatePlanItem({ ...good, title_idea: 'Is a Rhine river cruise right for your tennis group?' }, cluster, slugs).ok)
 check('a missing title is rejected', !validatePlanItem({ ...good, title_idea: '' }, cluster, slugs).ok)
 check('a non-object is rejected', !validatePlanItem('nope', cluster, slugs).ok && !validatePlanItem(null, cluster, slugs).ok)
 {
@@ -183,6 +187,14 @@ check('next run: not before the Monday after, and not within 5 days', (() => {
   const n = nextEngineRunAt(new Date('2026-10-05T09:00:00Z'), now) // ran on a Monday
   return n.getTime() >= new Date('2026-10-10T09:00:00Z').getTime() && isoWeekKey(n) === '2026-W42'
 })())
+
+// ---- seed rotation ----
+{
+  const seeds = ['a', 'b', 'c', 'd', 'e']
+  check('seeds: first run takes the first three', pickSeeds(seeds, 0, 3).join() === 'a,b,c')
+  check('seeds: the offset advances per run, wrapping round', pickSeeds(seeds, 3, 3).join() === 'd,e,a')
+  check('seeds: an empty list gives nothing', pickSeeds([], 7, 3).length === 0)
+}
 
 // ---- the atomic weekly claim ----
 async function claimTest() {

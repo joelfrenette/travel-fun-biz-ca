@@ -218,7 +218,8 @@ export function mechanicalPlanItem(cluster: KeywordCluster): PlanDraft {
   }
 }
 
-const numbersIn = (s: string) => s.match(/\d+/g) ?? []
+const NUMBER_WORDS = /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|hundred|thousand)\b/g
+const numbersIn =(s: string) => s.match(/\d+/g) ?? []
 
 export type PlanCheck = { ok: true; item: PlanDraft; fixes: string[] } | { ok: false; problems: string[] }
 
@@ -249,6 +250,10 @@ export function validatePlanItem(raw: unknown, cluster: KeywordCluster, validSlu
 
   const allowedNumbers = new Set(numbersIn(`${cluster.members.join(' ')} ${packageText}`))
   const stray = numbersIn(`${title} ${angle} ${who}`).filter((n) => !allowedNumbers.has(n))
+  // Number words count too ("seven reasons", "two weeks"): allowed only when the keywords or package say them.
+  const haystack = ` ${norm(`${cluster.members.join(' ')} ${packageText}`).replace(/[^a-z0-9 ]/g, ' ')} `
+  const strayWords = (`${title} ${angle} ${who}`.toLowerCase().match(NUMBER_WORDS) ?? []).filter((w) => !haystack.includes(` ${w} `))
+  stray.push(...strayWords)
   if (stray.length) problems.push(`uses a number that is not in the keywords or the package (${[...new Set(stray)].join(', ')})`)
 
   if (problems.length) return { ok: false, problems }

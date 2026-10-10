@@ -274,8 +274,14 @@ export async function pickKeywordTopic(admin: SupabaseClient, existing: { title:
   if (!rows?.length || !pk?.length) return null
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
   const peaks = await readTrendPeaks(admin)
+  // Phrases already inside a waiting idea's keyword set belong to that idea (an engine idea may be approved
+  // any time), so they are not picked a second time. Falls back to the single keyword column before 0032.
+  const open = await admin.from('blog_topic_queue').select('keyword, keywords').in('status', ['suggested', 'approved']).limit(500)
+  const openRows = (open.error ? ((await admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved']).limit(500)).data ?? []) : (open.data ?? [])) as { keyword: string; keywords?: string[] | null }[]
+  const inQueue = new Set(openRows.flatMap((q) => [q.keyword, ...(q.keywords ?? [])]).map((k) => k.toLowerCase()))
   for (const c of nextUp(rankKeywords(rows as ScoreKeyword[], pk as ScorePackage[], new Date(), peaks), 12)) {
     if (findDuplicate(c.keyword, existing)) continue
+    if ([c.keyword, ...c.secondary].some((k) => inQueue.has(k.toLowerCase()))) continue
     if (c.packageSlug) {
       const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${c.packageSlug}%`)
       if (error || (count ?? 0) > 0) continue

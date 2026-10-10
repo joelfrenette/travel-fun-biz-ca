@@ -303,7 +303,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   let final = composed
   let blockers: string[] = []
   if (mode === 'publish') {
-    const gated = await gateWithRepair(composed, new Date(), { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${seedKeywords.join(' ')}`, deadlineMs })
+    const gated = await gateWithRepair(composed, new Date(), { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs })
     final = gated.post
     blockers = gated.blockers
   }
