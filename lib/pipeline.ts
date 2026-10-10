@@ -13,12 +13,15 @@ import { sendThrottledAlert } from '@/lib/alerts'
 import { selfHeal } from '@/lib/heal'
 import { runDebriefIfDue } from '@/lib/debrief'
 import { plainAction } from '@/lib/plain-steps'
+import { runGuidesStep } from '@/lib/guide-run'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
 //   1. WRITE   topic (Search Console near-misses and cached keyword research feed it), the post, its
 //              title, SEO title and description, slug, tags, call-to-action link, cover image and
 //              thumbnail, then publish it (all inside runAutoblog).
+//   1b. GUIDES  at most a few capped guide pages a week (destinations, hotels, resorts, cruise lines, ships,
+//              river cruises, yachts), published only when the quality gate passes.
 //   2. POST    the post itself to social, with a caption written for each network.
 //   3. REPURPOSE  carousel, then the short video (script, stock footage, voiceover, captions,
 //              render), then post both; plus housekeeping (delete old Shotstack renders).
@@ -30,6 +33,8 @@ import { plainAction } from '@/lib/plain-steps'
 const PUBLISH_HOUR_UTC = 13
 // Past this much elapsed time a pass skips its remaining steps; the next pass picks them up.
 const TIME_BUDGET_MS = 200_000
+// The guides step can use about 140 seconds (two AI calls), the route allows 300, so it must start before this.
+const GUIDES_START_BY_MS = 100_000
 
 export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 
@@ -95,6 +100,21 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
       const note = e instanceof Error ? e.message : 'write step failed'
       run.steps.push({ step: 'write', ok: false, note })
       await recordCronRun('autoblog', { ok: false, note })
+    }
+  }
+
+  // 1b. GUIDES (destination, hotel, resort, cruise line, ship, river cruise and yacht pages). At most
+  // guides_per_day and guides_per_week (counted from the guides table, failing closed). Writing one takes up
+  // to about two minutes, so it only starts early in the pass; a late pass leaves it for the next one and
+  // never delays the posting steps below beyond that.
+  if (overBudget() || Date.now() - startedAt > GUIDES_START_BY_MS) {
+    run.steps.push({ step: 'guides', ok: true, note: 'continues on the next pass' })
+  } else {
+    try {
+      const result = await runGuidesStep(admin)
+      run.steps.push({ step: 'guides', ok: result.ok, note: result.note })
+    } catch (e) {
+      run.steps.push({ step: 'guides', ok: false, note: e instanceof Error ? e.message : 'guides step failed' })
     }
   }
 
