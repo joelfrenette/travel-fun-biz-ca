@@ -8,6 +8,7 @@ import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/
 import { isAutopilotOn } from '@/lib/autopilot'
 import { noteMailResult, notifyTo } from '@/lib/alerts'
 import { briefHtml } from '@/lib/brief-html'
+import { getGhlAccounts } from '@/lib/social-provider'
 
 // The daily brief: one email at 7 am (site time) from "Aiva from TravelFunBiz.ca" with what happened
 // yesterday, what is planned today, and the few things only a person can do, each with the exact link
@@ -74,7 +75,10 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
 
   // What really went out on social, from GoHighLevel's own records
   try {
-    const live = (await ghlListPublishedPosts(3)).filter((p) => p.at >= start && p.at < end)
+    // Only the accounts ticked in "Where it posts". The same GoHighLevel location holds other
+    // businesses' accounts, and counting those once made the brief say 37 posts when ours were far fewer.
+    const ours = new Set((await getGhlAccounts(admin)).map((a) => a.id))
+    const live = (await ghlListPublishedPosts(3)).filter((p) => ours.has(p.accountId) && p.at >= start && p.at < end)
     const byNet = new Map<string, number>()
     for (const p of live) byNet.set(p.platform, (byNet.get(p.platform) ?? 0) + 1)
     stats.push({ value: String(live.length), label: 'Posts live on social' })
