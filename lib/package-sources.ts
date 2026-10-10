@@ -100,28 +100,30 @@ export async function getSource(admin: SupabaseClient, packageId: string, source
   return (data as PackageSourceRow | null) ?? null
 }
 
-/** Stores an uploaded screenshot or PDF in the private bucket and adds its row. Nothing is read by the model yet. */
-export async function createFileSource(admin: SupabaseClient, packageId: string, file: { name: string; bytes: Buffer }): Promise<SourceResult<PackageSourceRow>> {
-  if (file.bytes.length === 0) return fail(400, 'That file is empty.')
-  if (file.bytes.length > MAX_FILE_BYTES) return fail(413, 'That file is larger than 10 MB. Save a smaller copy and try again.')
-  const detected = detectFile(file.bytes)
+/** Size, type, page and count checks shared by both upload paths. */
+async function validateFile(admin: SupabaseClient, packageId: string, bytes: Buffer): Promise<SourceResult<DetectedFile>> {
+  if (bytes.length === 0) return fail(400, 'That file is empty.')
+  if (bytes.length > MAX_FILE_BYTES) return fail(413, 'That file is larger than 10 MB. Save a smaller copy and try again.')
+  const detected = detectFile(bytes)
   if (!detected) return fail(400, 'Only PNG, JPG, WebP screenshots and PDF files are accepted.')
   if (detected.kind === 'pdf') {
-    const pages = pdfPageCount(file.bytes)
+    const pages = pdfPageCount(bytes)
     if (pages > MAX_PDF_PAGES) return fail(413, `That PDF has ${pages} pages. The limit is ${MAX_PDF_PAGES}. Save just the pages about this trip and try again.`)
   } else {
     const { count } = await admin.from('package_sources').select('id', { count: 'exact', head: true }).eq('package_id', packageId).eq('kind', 'screenshot')
     if ((count ?? 0) >= MAX_IMAGES_PER_PACKAGE) return fail(409, `This trip already has ${MAX_IMAGES_PER_PACKAGE} screenshots. Delete one before adding another.`)
   }
+  return { ok: true, value: detected }
+}
 
-  const path = `${packageId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${detected.ext}`
-  const up = await admin.storage.from(SOURCES_BUCKET).upload(path, file.bytes, { contentType: detected.mediaType, upsert: false })
-  if (up.error) {
-    return fail(500, /bucket not found/i.test(up.error.message) ? 'The private storage bucket package-sources is missing: run migration 0034 in the Supabase SQL editor.' : up.error.message)
-  }
+function bucketMessage(message: string): string {
+  return /bucket not found/i.test(message) ? 'The private storage bucket package-sources is missing: run migration 0034 in the Supabase SQL editor.' : message
+}
+
+async function insertFileRow(admin: SupabaseClient, packageId: string, path: string, name: string, detected: DetectedFile, size: number): Promise<SourceResult<PackageSourceRow>> {
   const { data, error } = await admin
     .from('package_sources')
-    .insert({ package_id: packageId, kind: detected.kind, storage_path: path, file_name: cleanName(file.name) || `upload.${detected.ext}`, mime_type: detected.mediaType, file_bytes: file.bytes.length, status: 'uploaded' })
+    .insert({ package_id: packageId, kind: detected.kind, storage_path: path, file_name: cleanName(name) || `upload.${detected.ext}`, mime_type: detected.mediaType, file_bytes: size, status: 'uploaded' })
     .select('*')
     .single()
   if (error || !data) {
@@ -129,6 +131,42 @@ export async function createFileSource(admin: SupabaseClient, packageId: string,
     return fail(500, error?.message ?? 'Could not save the source.')
   }
   return { ok: true, value: data as PackageSourceRow }
+}
+
+/** Stores an uploaded screenshot or PDF (sent to the server in the request) in the private bucket and adds
+ * its row. Nothing is read by the model yet. Used for small files; see createSignedUpload for big ones. */
+export async function createFileSource(admin: SupabaseClient, packageId: string, file: { name: string; bytes: Buffer }): Promise<SourceResult<PackageSourceRow>> {
+  const ok = await validateFile(admin, packageId, file.bytes)
+  if (!ok.ok) return ok
+  const path = `${packageId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ok.value.ext}`
+  const up = await admin.storage.from(SOURCES_BUCKET).upload(path, file.bytes, { contentType: ok.value.mediaType, upsert: false })
+  if (up.error) return fail(500, bucketMessage(up.error.message))
+  return insertFileRow(admin, packageId, path, file.name, ok.value, file.bytes.length)
+}
+
+/** Step 1 of the big-file path: a one-time upload link straight to the private bucket, because a request to
+ * this server is limited to about 4.5 MB on Vercel. The browser uploads with it, then calls registerUploadedFile. */
+export async function createSignedUpload(admin: SupabaseClient, packageId: string): Promise<SourceResult<{ path: string; token: string }>> {
+  const path = `${packageId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.upload`
+  const { data, error } = await admin.storage.from(SOURCES_BUCKET).createSignedUploadUrl(path)
+  if (error || !data) return fail(500, bucketMessage(error?.message ?? 'Could not prepare the upload.'))
+  return { ok: true, value: { path, token: data.token } }
+}
+
+/** Step 2 of the big-file path: reads the file the browser put in the bucket, applies every check, and adds its
+ * row. A file that fails a check is deleted from the bucket. */
+export async function registerUploadedFile(admin: SupabaseClient, packageId: string, path: string, name: string): Promise<SourceResult<PackageSourceRow>> {
+  if (!path.startsWith(`${packageId}/`) || path.includes('..')) return fail(400, 'That upload does not belong to this trip.')
+  const { data: existing } = await admin.from('package_sources').select('id').eq('storage_path', path).maybeSingle()
+  if (existing) return fail(409, 'That upload was already added.')
+  const bytes = await downloadSourceFile(admin, { storage_path: path })
+  if (!bytes) return fail(404, 'The uploaded file was not found. Try the upload again.')
+  const ok = await validateFile(admin, packageId, bytes)
+  if (!ok.ok) {
+    await admin.storage.from(SOURCES_BUCKET).remove([path])
+    return ok
+  }
+  return insertFileRow(admin, packageId, path, name, ok.value, bytes.length)
 }
 
 /** A link source. The page is fetched when extraction runs, not now. Only public http(s) links. */
