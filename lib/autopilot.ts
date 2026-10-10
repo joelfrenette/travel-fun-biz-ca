@@ -5,7 +5,9 @@ import { AUTOBLOG_MODE_KEY } from '@/lib/autoblog-run'
 import { setAutoblogAiImageFallback } from '@/lib/blog-image'
 import { getDistributionMode, setDistributionMode, getDistributionAccounts, getDistributionPlatforms, setTailoredCaptionsEnabled } from '@/lib/distribution'
 import { generateAndSaveCarousel, carouselKey, type CarouselSlide } from '@/lib/carousel'
-import { generateVideoScript, capScriptDuration, coverTitleFor } from '@/lib/video-script'
+import { generateVideoScript, capScriptDuration, coverTitleFor, detectHookFormula, HOOK_FORMULAS } from '@/lib/video-script'
+import { tagVariant } from '@/lib/content-variants'
+import { rotateStyle, readRecentVariantValues, readVariantTag } from '@/lib/hook-styles'
 import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, type BeatVisual } from '@/lib/shotstack'
 import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
 import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
@@ -180,10 +182,12 @@ async function postingTarget(admin: SupabaseClient): Promise<AutopilotTarget | n
   }
 }
 
-// Every link carries the post it points to (campaign) and the format that carried it (content), so a
-// signup or lead can be credited to the post and the carousel or video that produced it. The network is
-// not tagged: one caption set is sent per provider run, so the network is not known here.
-const postLink = (slug: string, format: 'carousel' | 'video') => utmLink(`${SITE_URL}/blog/${slug}`, { source: 'social', medium: 'social', campaign: slug, content: format })
+// Every link carries the post it points to (campaign), the format that carried it (source) and the
+// style variant used (content), so a signup or lead can be credited to the post and to the carousel
+// or video style that produced it. The network is not tagged: a carousel or video goes to all its
+// networks in ONE send with ONE caption, so the network is not known when the caption is built.
+const postLink = (slug: string, format: 'carousel' | 'video', variant?: string | null) =>
+  utmLink(`${SITE_URL}/blog/${slug}`, { source: format, medium: 'social', campaign: slug, content: variant ? `${format}-${variant}` : format })
 
 
 /** Housekeeping, independent of the Autopilot switch: deletes Shotstack's hosted files for any
@@ -286,7 +290,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       const raw = await getSetting(admin, carouselKey(row.slug))
       const slides = raw ? (JSON.parse(raw) as CarouselSlide[]) : []
       if (post && slides.length) {
-        const caption = fitCaptionWithLink([post.title, post.meta_description].filter(Boolean).join('\n\n'), postLink(row.slug, 'carousel'), tightestLimit(carouselTargets))
+        const caption = fitCaptionWithLink([post.title, post.meta_description].filter(Boolean).join('\n\n'), postLink(row.slug, 'carousel', await readVariantTag(admin, row.slug, 'carousel_cta')), tightestLimit(carouselTargets))
         const result = await target.target.sendPhotos(carouselTargets, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
         await settlePost(row, 'carousel', result, carouselTargets, save, fail, notes)
       }
@@ -298,7 +302,9 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       const post = await loadPost(admin, row.slug)
       if (post) {
         try {
-          const script = await generateVideoScript(post.title, post.meta_description || '')
+          // The hook formula rotates over the last 5 videos so consecutive videos do not open the same way.
+          const preferred = rotateStyle(await readRecentVariantValues(admin, 'video_hook', 12), HOOK_FORMULAS)
+          const script = await generateVideoScript(post.title, post.meta_description || '', preferred)
           if (!script) {
             await fail(row, 'video', 'could not write a video script', false)
           } else {
@@ -309,7 +315,9 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             if (submitted.ok && submitted.renderId) {
               videoSlots--
               const tail = [capped.title, capped.description, capped.hashtags.join(' ')].filter(Boolean).join('\n\n')
-              await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: fitCaptionWithLink(tail, postLink(row.slug, 'video'), tightestLimit(VIDEO_PLATFORMS)) })
+              const hookUsed = capped.usedFallback ? 'fallback' : (detectHookFormula(capped.hook, preferred) ?? 'fallback')
+              await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: fitCaptionWithLink(tail, postLink(row.slug, 'video', hookUsed), tightestLimit(VIDEO_PLATFORMS)) })
+              await tagVariant(admin, row.slug, { video_hook: hookUsed, hook_style_at: new Date().toISOString() })
             } else if (submitted.status === 401 || submitted.status === 403) {
               await setSetting(admin, VIDEO_BLOCK_KEY, new Date(Date.now() + VIDEO_BLOCK_MS).toISOString())
               notes.push(`Shotstack rejected the API key (${submitted.error}) - check SHOTSTACK_API_KEY. Video steps paused for 6 hours.`)
