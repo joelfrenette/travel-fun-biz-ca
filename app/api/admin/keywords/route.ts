@@ -3,6 +3,7 @@ import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { listSitePages } from '@/lib/site-pages'
 import { connectKeywordsToRankingPages, rankedPageByKeyword } from '@/lib/keyword-pages'
+import { nextUp, rankKeywords, type ScorePackage } from '@/lib/keyword-score'
 import { getAccountBalance, isKeywordDataConfigured, listKeywords, lookupKeywords, normalizeKeywords, trackKeyword } from '@/lib/keywords'
 
 export async function GET(request: Request) {
@@ -16,7 +17,11 @@ export async function GET(request: Request) {
     ])
     // pages: every package, destination and blog page (for the target dropdown); rankedOn: the page
     // Google really shows for each keyword (from Search Console), keyed by lowercase keyword.
-    return NextResponse.json({ keywords, balanceUsd, configured: isKeywordDataConfigured(), pages, rankedOn: Object.fromEntries(ranked) })
+    // The score (lib/keyword-score.ts) for every phrase, and the topics that would be written next.
+    const { data: pk } = await getSupabaseAdmin().from('travel_packages').select('slug, name, destination, available_from, available_to').eq('status', 'published')
+    const scored = rankKeywords(keywords.filter((k) => k.country === 'ca' || k.country === 'us'), (pk ?? []) as ScorePackage[])
+    const scores = Object.fromEntries(scored.map((s) => [s.keyword, { score: s.score, parts: s.parts, eligible: s.eligible, reasons: s.reasons, packageName: s.packageName, primary: s.primary, secondary: s.secondary }]))
+    return NextResponse.json({ keywords, balanceUsd, configured: isKeywordDataConfigured(), pages, rankedOn: Object.fromEntries(ranked), scores, nextUp: nextUp(scored, 5) })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }

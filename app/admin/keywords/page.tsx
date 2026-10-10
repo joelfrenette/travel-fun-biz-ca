@@ -44,6 +44,9 @@ export default function KeywordsPage() {
   const [pages, setPages] = useState<SitePage[]>([])
   const [rankedOn, setRankedOn] = useState<Record<string, string>>({})
   const [connecting, setConnecting] = useState(false)
+  // Score per phrase (winnability, demand, intent, timing) and the topics that would be written next.
+  const [scores, setScores] = useState<Record<string, { score: number; parts: { winnability: number; demand: number; intent: number; timing: number }; eligible: boolean; reasons: string[]; packageName: string | null; primary: string; secondary: string[] }>>({})
+  const [nextUpList, setNextUpList] = useState<{ keyword: string; score: number; packageName: string | null; secondary: string[]; parts: { winnability: number; demand: number; intent: number; timing: number } }[]>([])
   const [loading, setLoading] = useState(true)
   const [input, setInput] = useState("")
   const [country, setCountry] = useState<"ca" | "us">("ca")
@@ -79,6 +82,8 @@ export default function KeywordsPage() {
         setConfigured(kw.data.configured !== false)
         setPages(Array.isArray(kw.data.pages) ? kw.data.pages : [])
         setRankedOn(kw.data.rankedOn && typeof kw.data.rankedOn === "object" ? kw.data.rankedOn : {})
+        setScores(kw.data.scores && typeof kw.data.scores === "object" ? kw.data.scores : {})
+        setNextUpList(Array.isArray(kw.data.nextUp) ? kw.data.nextUp : [])
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -390,6 +395,28 @@ export default function KeywordsPage() {
           </CardContent>
         </Card>
 
+        {nextUpList.length > 0 && (
+          <Card>
+            <CardContent className="space-y-2 p-4">
+              <div>
+                <h2 className="font-semibold">Next blog posts (best first)</h2>
+                <p className="text-xs text-muted-foreground">Score out of 100: winnability 40% (low competition, a specific phrase, Google already showing you), demand 25%, intent to book 20%, timing 15% (publish 3 to 12 months before departure). Only phrases about a trip you really sell, that nothing covers yet. A volume of 0 means Google does not report small numbers, not that nobody searches.</p>
+              </div>
+              <ol className="space-y-1 text-sm">
+                {nextUpList.map((n, i) => (
+                  <li key={n.keyword} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                    <span className="w-5 text-muted-foreground">{i + 1}.</span>
+                    <span className="font-medium">{n.keyword}</span>
+                    <Badge variant="outline">{n.score}/100</Badge>
+                    {n.packageName && <span className="text-xs text-muted-foreground">about {n.packageName}</span>}
+                    {n.secondary.length > 0 && <span className="text-xs text-muted-foreground">+ also covers: {n.secondary.slice(0, 3).join(", ")}</span>}
+                  </li>
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+        )}
+
         {untracked.length > 0 && (
           <Card>
             <CardContent className="p-4">
@@ -449,6 +476,7 @@ export default function KeywordsPage() {
                   <th className="p-3 text-left">12-month trend</th>
                   <th className="p-3 text-right" title="Search Console, last 28 days: impressions / clicks / average position"><button onClick={() => toggleSort("gsc_impressions")}>Google 28d<SortIcon field="gsc_impressions" /></button></th>
                   <th className="p-3 text-right" title="Bing Webmaster: impressions on Bing in the latest month"><button onClick={() => toggleSort("bing_impressions")}>Bing / mo<SortIcon field="bing_impressions" /></button></th>
+                  <th className="p-3 text-right" title="How good a blog topic this phrase is, out of 100 (hover a score for the reasons)">Score</th>
                   <th className="p-3 text-left" title="The page Google really shows for this phrase (Search Console, last 28 days)">Ranks on (Google)</th>
                   <th className="p-3 text-left">Target page</th>
                   <th className="w-10 p-3"></th>
@@ -474,6 +502,14 @@ export default function KeywordsPage() {
                       )}
                     </td>
                     <td className="p-3 text-right tabular-nums">{row.bing_impressions == null ? "—" : row.bing_impressions.toLocaleString()}</td>
+                    <td className="p-3 text-right tabular-nums" title={(scores[row.keyword]?.reasons ?? []).join(". ")}>
+                      {scores[row.keyword] ? (
+                        <>
+                          <div className={scores[row.keyword].eligible ? "font-semibold" : "text-muted-foreground"}>{scores[row.keyword].score}</div>
+                          <div className="text-[10px] text-muted-foreground">{scores[row.keyword].eligible ? "usable" : "not usable"}</div>
+                        </>
+                      ) : "—"}
+                    </td>
                     <td className="p-3 text-xs">
                       {(() => {
                         const ranked = rankedOn[row.keyword.toLowerCase()]

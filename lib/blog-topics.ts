@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { findDuplicate } from '@/lib/content-dedupe'
+import { nextUp, rankKeywords, type ScoreKeyword, type ScorePackage } from '@/lib/keyword-score'
 import { getNearMissKeywords } from '@/lib/search-console'
 import { SITE_ID } from '@/lib/site'
 
@@ -242,26 +243,29 @@ export function groundAngleInPackage(angle: string, pkg: PackageGrounding | null
   return `${angle}\n\n${facts.join(' ')}`
 }
 
-/** KEYWORD FIRST: the next blog post is about the highest-volume researched keyword that no page
- * targets yet (so it earns real search demand), unless it was already covered or was skipped before.
- * Only real recorded volumes are used; nothing is invented. Returns null when no such keyword exists,
- * and the caller falls back to an AI-chosen topic. Once the post is written the caller connects the
- * keyword to it, so it is not picked again. */
+
+/** KEYWORD FIRST: the next blog post is about the best-scoring usable researched keyword (lib/keyword-score.ts:
+ * winnability, demand, intent and timing, gated to trips we really sell and phrases nothing covers yet),
+ * skipping any whose trip already has a post in the last 30 days so a pass is not wasted. Near-duplicate
+ * phrases ride along as secondary phrases of the same post. Returns null when nothing qualifies, and the
+ * caller falls back to an AI-chosen topic. Once the post is written the caller connects the main phrase to
+ * it, so it is not picked again. */
 export async function pickKeywordTopic(admin: SupabaseClient, existing: { title: string }[]): Promise<TopicIdea | null> {
-  const { data } = await admin
-    .from('keyword_research')
-    .select('keyword, volume, note')
-    .eq('country', SITE_ID)
-    .is('target_path', null)
-    .not('volume', 'is', null)
-    .gt('volume', 0)
-    .order('volume', { ascending: false })
-    .limit(40)
-  for (const row of (data ?? []) as { keyword: string; volume: number; note: string | null }[]) {
-    if (/^skipped/i.test(row.note ?? '')) continue
-    const angle = `A blog post that answers the search "${row.keyword}" for someone deciding whether and which trip to book with us`
-    if (findDuplicate(angle, existing) || findDuplicate(row.keyword, existing)) continue
-    return { angle, keyword: row.keyword, why: `Real search demand (${row.volume} searches a month) and no page targets it yet`, source: 'keyword research' }
+  const [{ data: rows }, { data: pk }] = await Promise.all([
+    admin.from('keyword_research').select('keyword, volume, cpc, competition, gsc_impressions, gsc_position, target_path, note').eq('country', SITE_ID),
+    admin.from('travel_packages').select('slug, name, destination, available_from, available_to').eq('status', 'published'),
+  ])
+  if (!rows?.length || !pk?.length) return null
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
+  for (const c of nextUp(rankKeywords(rows as ScoreKeyword[], pk as ScorePackage[]), 12)) {
+    if (findDuplicate(c.keyword, existing)) continue
+    if (c.packageSlug) {
+      const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${c.packageSlug}%`)
+      if (error || (count ?? 0) > 0) continue
+    }
+    const also = c.secondary.length ? ` Also work in these related searches: ${c.secondary.slice(0, 4).join(', ')}.` : ''
+    const angle = `A blog post that answers the search "${c.keyword}" for someone deciding whether and which trip to book with us.${also}`
+    return { angle, keyword: c.keyword, why: `Keyword score ${c.score}/100 (winnability ${c.parts.winnability}, demand ${c.parts.demand}, intent ${c.parts.intent}, timing ${c.parts.timing})${c.packageName ? `, about "${c.packageName}"` : ''}`, source: 'keyword research' }
   }
   return null
 }

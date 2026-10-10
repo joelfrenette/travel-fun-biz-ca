@@ -58,6 +58,27 @@ async function seedPhrases(admin: SupabaseClient): Promise<string[]> {
       seeds.push(seed)
     }
   }
+  // What real customers ask about: when a lead's message names one of our destinations together with a
+  // question topic (cost, itinerary, singles, payment plan...), that pairing becomes a seed phrase. Only
+  // the destination and the topic word are kept, never the message, so nothing personal is ever copied.
+  // Test leads are ignored. Dormant until real leads write messages.
+  const dests = [...new Set(((data ?? []) as { destination: string | null }[]).map((p) => p.destination?.trim().toLowerCase()).filter((d): d is string => !!d))]
+  const TOPICS = ['cost', 'price', 'itinerary', 'included', 'cabin', 'single supplement', 'solo', 'singles', 'couples', 'women', 'payment plan', 'insurance', 'visa', 'best time', 'excursions', 'flights']
+  const { data: leads } = await admin.from('leads').select('message').eq('is_test', false).not('message', 'is', null).gte('created_at', new Date(Date.now() - 90 * 86_400_000).toISOString()).limit(200)
+  for (const l of (leads ?? []) as { message: string | null }[]) {
+    const text = (l.message ?? '').toLowerCase()
+    for (const d of dests) {
+      if (!text.includes(d)) continue
+      for (const t of TOPICS) {
+        if (!text.includes(t)) continue
+        const seed = `${d} ${t}`
+        if (!seen.has(seed)) {
+          seen.add(seed)
+          seeds.push(seed)
+        }
+      }
+    }
+  }
   return seeds.sort()
 }
 
