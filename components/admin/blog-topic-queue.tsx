@@ -206,8 +206,9 @@ export default function BlogTopicQueue() {
             <Card key={t.id}>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
                 <div className="min-w-[220px] flex-1">
-                  <p className="text-sm font-medium">{t.angle}</p>
+                  <p className="text-sm font-medium">{t.title_idea || t.angle}</p>
                   <p className="text-xs text-muted-foreground">{t.keyword}{t.why ? ` · ${t.why}` : ""}{t.used_slug ? ` · wrote /blog/${t.used_slug}` : ""}</p>
+                  {t.keywords && t.keywords.length > 1 && <p className="text-xs text-muted-foreground">Also shooting for: {t.keywords.slice(1).join(", ")}</p>}
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={t.status === "approved" ? "default" : t.status === "used" ? "secondary" : t.status === "rejected" ? "outline" : "secondary"}>{t.status}</Badge>
