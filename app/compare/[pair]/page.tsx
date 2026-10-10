@@ -11,7 +11,8 @@ import { displayPackagePrice, type Currency } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
 import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import type { DbPackage } from "@/lib/packages"
-import { getPublishedPageCopy, comparePath } from "@/lib/page-copy"
+import { comparePath } from "@/lib/page-copy"
+import { getUsablePageCopy } from "@/lib/page-copy-render"
 import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
 
 export const revalidate = 300
@@ -23,8 +24,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!page) return { title: `Comparison not found | ${SITE_NAME}`, robots: { index: false } }
 
   // Written copy (when a published row exists) supplies the meta and OG text; otherwise the text below is used as before.
-  const copy = await getPublishedPageCopy(comparePath(params.pair))
-  const title = copy?.meta_title || `${page.a.destination} vs ${page.b.destination} Trips | ${SITE_NAME}`
+  const copy = await getUsablePageCopy(comparePath(params.pair), [...page.a.packages, ...page.b.packages].map((p) => p.slug))
+  const title = (copy?.meta_title ? `${copy.meta_title} | ${SITE_NAME}` : null) || `${page.a.destination} vs ${page.b.destination} Trips | ${SITE_NAME}`
   const description = copy?.meta_description || `See what our real ${page.a.destination} and ${page.b.destination} trips include side by side - duration, price and highlights, straight from our current trip list.`
   const ogTitle = copy?.og_title || title
   const ogDescription = copy?.og_description || description
@@ -58,7 +59,7 @@ export default async function ComparePage({ params }: Props) {
     absoluteUrl,
   )
   // Written copy, when a published row exists. Adds FAQPage and BreadcrumbList next to the CollectionPage above.
-  const copy = await getPublishedPageCopy(comparePath(params.pair))
+  const copy = await getUsablePageCopy(comparePath(params.pair), [...page.a.packages, ...page.b.packages].map((p) => p.slug), true)
   const structuredData: object[] = [...jsonLd]
   if (copy) {
     structuredData.push(buildBreadcrumbJsonLd([

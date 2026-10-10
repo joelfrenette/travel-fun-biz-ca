@@ -33,6 +33,7 @@ interface Data {
   usage: { today: number | null; week: number | null }
   counts: { published: number; draft: number; missing: number; total: number }
   failures: Record<string, { n: number; path: string; last: string }>
+  publishMode: "draft" | "publish"
 }
 
 const TYPE_LABEL = { compare: "Compare", "best-time": "Best time" } as const
@@ -83,6 +84,7 @@ export function PageCopyPanel() {
   if (error) return <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
   if (!data) return <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
 
+  const setMode = (mode: "draft" | "publish") => call("mode", "/api/admin/page-copy", { method: "PATCH", body: JSON.stringify({ publishMode: mode }) }, mode === "draft" ? "Page copy now waits for your review" : "Clean page copy can now go live")
   const rows = showAll ? data.rows : data.rows.slice(0, INITIAL_ROWS)
   return (
     <Card>
@@ -94,6 +96,18 @@ export function PageCopyPanel() {
           </div>
           <Button size="sm" disabled={!!busy || !data.next} onClick={() => post("next", { action: "write-next" }, "Page copy written")} title="Writes the next page in the rotation right now. Ignores the daily and weekly caps. Takes up to a minute.">
             {busy === "next" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Write one now
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+          <p className="min-w-[240px] flex-1 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{data.publishMode === "draft" ? "Review mode (recommended at first): " : "Publish mode: "}</span>
+            {data.publishMode === "draft"
+              ? "every new page copy is saved as a draft and nothing goes live until you click Publish."
+              : "copy that passes every check goes live by itself; copy that fails a check is still saved as a draft."}
+          </p>
+          <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setMode(data.publishMode === "draft" ? "publish" : "draft")}>
+            {busy === "mode" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{data.publishMode === "draft" ? "Switch to publish mode" : "Switch back to review mode"}
           </Button>
         </div>
 

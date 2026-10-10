@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { listPageCopyAdmin, listPageCopyCandidates, pageTypeOfPath } from '@/lib/page-copy'
-import { getPageCopyCaps, setPageCopyCaps, readCopyCapUsage, writePageCopy, pickNextPageCopy } from '@/lib/page-copy-run'
+import { getPageCopyCaps, setPageCopyCaps, readCopyCapUsage, writePageCopy, pickNextPageCopy, getPageCopyPublishMode, setPageCopyPublishMode } from '@/lib/page-copy-run'
 import { readCopyFailures } from '@/lib/page-copy-failures'
 
 // Writing page copy is one AI call (about a minute at the outside).
@@ -13,12 +13,13 @@ export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [rows, candidates, caps, usage, failures] = await Promise.all([
+    const [rows, candidates, caps, usage, failures, publishMode] = await Promise.all([
       listPageCopyAdmin(admin),
       listPageCopyCandidates(admin),
       getPageCopyCaps(admin),
       readCopyCapUsage(admin),
       readCopyFailures(admin),
+      getPageCopyPublishMode(admin),
     ])
     const counts = {
       published: rows.filter((r) => r.status === 'published').length,
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
     }
     const missing = candidates.filter((c) => !c.hasRow)
     const next = (await pickNextPageCopy(admin, candidates)).cand
-    return NextResponse.json({ rows, missing, next, caps, usage, counts, failures })
+    return NextResponse.json({ rows, missing, next, caps, usage, counts, failures, publishMode })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
@@ -72,6 +73,19 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ error: 'Nothing to do. Pass {action: "write"}, {action: "write-next"} or {action: "caps"}.' }, { status: 400 })
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
+  }
+}
+
+// PATCH { publishMode: 'draft' | 'publish' }  the one-click switch on the Autopilot page-copy card. Anything else is refused.
+export async function PATCH(request: Request) {
+  if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const body = await request.json().catch(() => ({}))
+    const { error } = await setPageCopyPublishMode(getSupabaseAdmin(), String(body.publishMode ?? ''))
+    if (error) return NextResponse.json({ error }, { status: 400 })
+    return NextResponse.json({ ok: true, publishMode: body.publishMode })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }

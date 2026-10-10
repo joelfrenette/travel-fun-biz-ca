@@ -10,7 +10,8 @@ import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
 import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
-import { getPublishedPageCopy, bestTimePath } from "@/lib/page-copy"
+import { bestTimePath } from "@/lib/page-copy"
+import { getUsablePageCopy } from "@/lib/page-copy-render"
 import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
 
 export const revalidate = 300
@@ -22,8 +23,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!page) return { title: `Destination not found | ${SITE_NAME}`, robots: { index: false } }
 
   // Written copy (when a published row exists) supplies the meta and OG text; otherwise the text below is used as before.
-  const copy = await getPublishedPageCopy(bestTimePath(params.destination))
-  const title = copy?.meta_title || `Best Time to Visit ${page.destination} | ${SITE_NAME}`
+  const copy = await getUsablePageCopy(bestTimePath(params.destination), page.packages.map((p) => p.slug))
+  const title = (copy?.meta_title ? `${copy.meta_title} | ${SITE_NAME}` : null) || `Best Time to Visit ${page.destination} | ${SITE_NAME}`
   const description = copy?.meta_description || `The real dates our trips to ${page.destination} run, pulled straight from our current trip calendar, so you can see when a seat is actually available.`
   const ogTitle = copy?.og_title || title
   const ogDescription = copy?.og_description || description
@@ -57,7 +58,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
     absoluteUrl,
   )
   // Written copy, when a published row exists. Adds FAQPage and BreadcrumbList next to the CollectionPage above.
-  const copy = await getPublishedPageCopy(bestTimePath(params.destination))
+  const copy = await getUsablePageCopy(bestTimePath(params.destination), page.packages.map((p) => p.slug), true)
   const structuredData: object[] = [...jsonLd]
   if (copy) {
     structuredData.push(buildBreadcrumbJsonLd([
