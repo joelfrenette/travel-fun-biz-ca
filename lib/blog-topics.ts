@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { nextUp, rankKeywords, type ScoreKeyword, type ScorePackage } from '@/lib/keyword-score'
+import { readTrendPeaks } from '@/lib/keyword-ideas'
 import { getNearMissKeywords } from '@/lib/search-console'
 import { SITE_ID } from '@/lib/site'
 
@@ -257,7 +258,8 @@ export async function pickKeywordTopic(admin: SupabaseClient, existing: { title:
   ])
   if (!rows?.length || !pk?.length) return null
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
-  for (const c of nextUp(rankKeywords(rows as ScoreKeyword[], pk as ScorePackage[]), 12)) {
+  const peaks = await readTrendPeaks(admin)
+  for (const c of nextUp(rankKeywords(rows as ScoreKeyword[], pk as ScorePackage[], new Date(), peaks), 12)) {
     if (findDuplicate(c.keyword, existing)) continue
     if (c.packageSlug) {
       const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${c.packageSlug}%`)

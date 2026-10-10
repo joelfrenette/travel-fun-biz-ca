@@ -46,6 +46,9 @@ export default function KeywordsPage() {
   const [connecting, setConnecting] = useState(false)
   // Score per phrase (winnability, demand, intent, timing) and the topics that would be written next.
   const [scores, setScores] = useState<Record<string, { score: number; parts: { winnability: number; demand: number; intent: number; timing: number }; eligible: boolean; reasons: string[]; packageName: string | null; primary: string; secondary: string[] }>>({})
+  // Ideas from autocomplete, People Also Ask and Reddit, saved for you to track; and whether the weekly search happened.
+  const [ideas, setIdeas] = useState<{ phrase: string; source: string; seed: string }[]>([])
+  const [finding, setFinding] = useState(false)
   const [nextUpList, setNextUpList] = useState<{ keyword: string; score: number; packageName: string | null; secondary: string[]; parts: { winnability: number; demand: number; intent: number; timing: number } }[]>([])
   const [loading, setLoading] = useState(true)
   const [input, setInput] = useState("")
@@ -84,6 +87,7 @@ export default function KeywordsPage() {
         setRankedOn(kw.data.rankedOn && typeof kw.data.rankedOn === "object" ? kw.data.rankedOn : {})
         setScores(kw.data.scores && typeof kw.data.scores === "object" ? kw.data.scores : {})
         setNextUpList(Array.isArray(kw.data.nextUp) ? kw.data.nextUp : [])
+        setIdeas(Array.isArray(kw.data.ideas) ? kw.data.ideas : [])
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -247,6 +251,39 @@ export default function KeywordsPage() {
   const groups = (["home", "package", "destination", "blog"] as PageType[]).map((type) => ({ type, items: pages.filter((p) => p.type === type) })).filter((g) => g.items.length)
   // A target saved earlier that is not in the list (a page since removed) still shows, so it is never hidden.
   const orphanTargets = Array.from(new Set(rows.map((r) => r.target_path).filter((t): t is string => !!t && !pageByPath.has(t))))
+
+  async function findIdeas() {
+    setFinding(true); setError(""); setStatus("")
+    try {
+      const res = await fetch("/api/admin/keywords", { method: "POST", headers: authHeaders(), body: JSON.stringify({ collectIdeas: true }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      if (Array.isArray(data.ideas)) setIdeas(data.ideas)
+      setStatus(data.note || "Done.")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not find ideas")
+    } finally {
+      setFinding(false)
+    }
+  }
+
+  // Track an idea (free: it joins the list; look it up later to get volume), then remove it from the ideas.
+  async function trackIdea(phrase: string) {
+    setTracking((t) => ({ ...t, [phrase]: true }))
+    try {
+      const res = await fetch("/api/admin/keywords", { method: "POST", headers: authHeaders(), body: JSON.stringify({ keywords: [phrase], country, track_only: true }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      const added: KeywordRow[] = Array.isArray(data.rows) ? data.rows : []
+      setRows((rs) => { const byKey = new Map(rs.map((r) => [r.id, r])); added.forEach((r) => byKey.set(r.id, r)); return Array.from(byKey.values()) })
+      await fetch("/api/admin/keywords", { method: "POST", headers: authHeaders(), body: JSON.stringify({ dropIdea: phrase }) })
+      setIdeas((l) => l.filter((i) => i.phrase !== phrase))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not track")
+    } finally {
+      setTracking((t) => ({ ...t, [phrase]: false }))
+    }
+  }
 
   async function connectAll() {
     setConnecting(true); setError(""); setStatus("")
@@ -416,6 +453,34 @@ export default function KeywordsPage() {
             </CardContent>
           </Card>
         )}
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="font-semibold">Keyword ideas ({ideas.length})</h2>
+                <p className="text-xs text-muted-foreground">What people really type into Google (autocomplete), the questions Google shows under searches (People Also Ask), and Reddit questions once Reddit is connected. Found automatically once a week for a couple of cents. Track one to add it to your list for free; look it up later to get its search volume.</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={findIdeas} disabled={finding || !configured} title="Costs about 2 to 4 cents">
+                {finding ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1 h-4 w-4" />}Find ideas now
+              </Button>
+            </div>
+            {ideas.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No ideas waiting. Press &quot;Find ideas now&quot; or wait for the weekly search.</p>
+            ) : (
+              <ul className="max-h-[320px] space-y-1 overflow-y-auto text-sm">
+                {ideas.map((i) => (
+                  <li key={i.phrase} className="flex flex-wrap items-center justify-between gap-2 border-t pt-1 first:border-t-0 first:pt-0">
+                    <span><span className="font-medium">{i.phrase}</span> <Badge variant="outline" className="ml-1 text-[10px]">{i.source === "question" ? "question" : i.source === "reddit" ? "Reddit" : "autocomplete"}</Badge> <span className="text-xs text-muted-foreground">from &quot;{i.seed}&quot;</span></span>
+                    <Button variant="outline" size="sm" className="h-7" onClick={() => trackIdea(i.phrase)} disabled={!!tracking[i.phrase]}>
+                      {tracking[i.phrase] ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}Track
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
 
         {untracked.length > 0 && (
           <Card>

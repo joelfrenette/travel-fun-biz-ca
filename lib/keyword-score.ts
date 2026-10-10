@@ -86,7 +86,7 @@ function matchPackage(keyword: string, packages: ScorePackage[]): ScorePackage |
   return best?.p ?? null
 }
 
-function scoreOne(k: ScoreKeyword, packages: ScorePackage[], now: Date): Omit<KeywordScore, 'primary' | 'secondary'> {
+function scoreOne(k: ScoreKeyword, packages: ScorePackage[], now: Date, peaks: Record<string, { peak: number }>): Omit<KeywordScore, 'primary' | 'secondary'> {
   const reasons: string[] = []
   const words = tokens(k.keyword)
   const pkg = matchPackage(k.keyword, packages)
@@ -121,6 +121,16 @@ function scoreOne(k: ScoreKeyword, packages: ScorePackage[], now: Date): Omit<Ke
   let timing = 0.4
   if (m != null) timing = m >= 3 && m <= 12 ? 1 : m > 12 && m <= 24 ? 0.6 : m > 24 ? 0.35 : m >= 0 ? 0.7 : 0
   if (pkg && left != null && left < 0) timing = 0
+  // Google Trends: when this destination is searched most. Publishing 1 to 4 months BEFORE that peak gives
+  // the page time to be found; being in the peak month already is late.
+  const peak = pkg?.destination ? peaks[pkg.destination.trim().toLowerCase()]?.peak : undefined
+  if (peak && timing > 0) {
+    const toPeak = (peak - (now.getUTCMonth() + 1) + 12) % 12
+    if (toPeak >= 1 && toPeak <= 4) {
+      timing = 1
+      reasons.push(`Interest in ${pkg?.destination} peaks in about ${toPeak} month${toPeak === 1 ? '' : 's'}: a good time to publish`)
+    } else if (toPeak === 0) timing = Math.min(timing, 0.5)
+  }
 
   // Gate
   let eligible = true
@@ -150,8 +160,8 @@ function scoreOne(k: ScoreKeyword, packages: ScorePackage[], now: Date): Omit<Ke
 
 /** Scores every keyword, groups near-duplicates (a group is covered if ANY phrase in it is), and returns
  * them best first, one entry per keyword with its group's main phrase. */
-export function rankKeywords(rows: ScoreKeyword[], packages: ScorePackage[], now = new Date()): KeywordScore[] {
-  const scored = rows.map((r) => scoreOne(r, packages, now)).sort((a, b) => b.score - a.score)
+export function rankKeywords(rows: ScoreKeyword[], packages: ScorePackage[], now = new Date(), peaks: Record<string, { peak: number }> = {}): KeywordScore[] {
+  const scored = rows.map((r) => scoreOne(r, packages, now, peaks)).sort((a, b) => b.score - a.score)
   const groups: { members: typeof scored; sig: Set<string> }[] = []
   for (const s of scored) {
     const sig = stems(s.keyword)

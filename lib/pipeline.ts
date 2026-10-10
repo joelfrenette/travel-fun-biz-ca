@@ -6,6 +6,7 @@ import { isAutopilotOn, runAutopilotTick } from '@/lib/autopilot'
 import { runAutoblog } from '@/lib/autoblog-run'
 import { runDistribution } from '@/lib/distribution'
 import { refreshKeywordsIfDue } from '@/lib/keyword-refresh'
+import { collectIdeas, refreshTrendPeaksIfDue } from '@/lib/keyword-ideas'
 import { PIPELINE_LAST_RUN_KEY, type PipelineRun } from '@/lib/pipeline-log'
 import { collectIssues } from '@/lib/issues'
 import { sendThrottledAlert } from '@/lib/alerts'
@@ -72,6 +73,14 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     if (note) run.steps.push({ step: 'keywords', ok: true, note })
   } catch (e) {
     run.steps.push({ step: 'keywords', ok: false, note: e instanceof Error ? e.message : 'keyword research failed' })
+  }
+
+  // 0b. KEYWORD IDEAS and TREND PEAKS (weekly and every 90 days; each under a few-cent cap, silent otherwise)
+  try {
+    const note = [await collectIdeas(admin), await refreshTrendPeaksIfDue(admin)].filter(Boolean).join(' | ')
+    if (note) run.steps.push({ step: 'keywords', ok: true, note })
+  } catch (e) {
+    run.steps.push({ step: 'keywords', ok: false, note: e instanceof Error ? e.message : 'keyword ideas failed' })
   }
 
   // 1. WRITE
