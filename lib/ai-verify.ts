@@ -145,6 +145,7 @@ export type AnthropicContent =
   | (
       | { type: 'text'; text: string }
       | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/webp'; data: string } }
+      | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
     )[]
 
 /** POST to Anthropic, trying preferred models in order; falls through only when the model itself
