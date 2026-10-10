@@ -173,7 +173,6 @@ check('grounded digit in the title is allowed', run({ ...good, title: 'The Rhine
 
 // 5. Word numbers.
 check('word number with a unit is caught', has(run({ ...good, body: good.body + '\n\nIt is a three-night stay.' }), 'word number'))
-check('couple of + unit is caught', has(run({ ...good, key_takeaways: ['Spend a couple of days', 'b', 'c'] }), 'word number'))
 check('word number allowed when the facts say it in words', autoPublishBlockers({ ...good, body: good.body + '\n\nIt is a three nights stay.' }, now, { ...ctx, groundingText: ctx.groundingText + ' three nights on board' }).length === 0)
 check('word number allowed when the facts say it in digits', autoPublishBlockers({ ...good, body: good.body + '\n\nIt is a three night stay.' }, now, { ...ctx, groundingText: ctx.groundingText + ' 3 nights on board' }).length === 0)
 check('word number without a unit is not a claim', run({ ...good, body: good.body + '\n\nThere are two ways to see it.' }).length === 0)
@@ -203,7 +202,32 @@ check('our-team and award claims are blocked', has(run({ ...good, body: good.bod
 check('only the last ten posts count', pickStyle([...Array(STYLE_WINDOW).fill(null), 'listicle', 'listicle']).id === CONTENT_STYLES[0].id)
 check('pickCtaStyle never repeats the latest', CTA_STYLES.every((c) => pickCtaStyle([c.id]).id !== c.id))
 
+// ---- fix round 2 ----
+check('"a couple of days" and "a dozen ports" are not flagged', run({ ...good, key_takeaways: ['Spend a couple of days', 'a dozen ports', 'c'] }).length === 0)
+check('word number needs the same unit in the facts', has(autoPublishBlockers({ ...good, body: good.body + '\n\nIt is a three day stay.' }, now, { ...ctx, groundingText: ctx.groundingText + ' 3 nights on board' }), 'word number'))
+{
+  check('a leading dash is dropped, not turned into a comma', fixDashes(EM + ' Start here') === 'Start here' && fixDashes('a\n' + EN + ' b') === 'a\nb', JSON.stringify(fixDashes('a\n' + EN + ' b')))
+  check('a trailing dash leaves no dangling comma', fixDashes('Wait ' + EM) === 'Wait' && fixDashes('Wait ' + EM + '\nnext') === 'Wait\nnext')
+  check('a dash in the middle still becomes a comma', fixDashes('one ' + EM + ' two') === 'one, two')
+}
+{
+  const withList = { ...good, body: good.body + '\n\n- The ship holds 180 guests.\n1. Another 99 things.\n## 4 reasons to go\n\nPlain text.' }
+  const off = findOffenders(withList, ctx)
+  const bullet = off.find((o) => o.text.includes('180'))
+  check('list and heading markers are separated from the sentence', bullet?.prefix === '- ' && off.some((o) => o.prefix === '1. ') && off.every((o) => !o.prefix || o.text.startsWith(o.prefix)), JSON.stringify(off.map((o) => [o.prefix, o.text])))
+  const fixed = applyRewrites(withList, off, off.map((o, id) => ({ id, text: o.prefix ? o.prefix + 'A general point.' : 'A general point.' })))
+  check('markers are re-attached once and never doubled', fixed.body.includes('\n- A general point.') && !fixed.body.includes('- - ') && !fixed.body.includes('1. 1. '))
+  const kept = applyRewrites(withList, off, off.map((_, id) => ({ id, text: '  ' })))
+  check('an empty rewrite keeps the original sentence', kept.body === withList.body)
+}
+check('a post that skipped enrich is held with its own reason', has(run({ ...good, faq: [], key_takeaways: [], skipped_enrich: true }), 'ran out of time for FAQ'))
+
 ;(async () => {
+  const late = await gateWithRepair({ ...good, body: good.body + '\n\nThe ship holds 180 guests.' }, now, { ...ctx, deadlineMs: Date.now() + 10_000 })
+  check('repair is skipped when little time is left', late.repaired === false && has(late.blockers, 'number not in'))
+  const timedOut = await gateWithRepair({ ...good, faq: [], key_takeaways: [], skipped_enrich: true }, now, ctx)
+  check('a time-skipped post is never sent for repair', timedOut.repaired === false)
+
   // Single retry: with no AI configured the repair cannot run, so the blockers come back unchanged and unrepaired.
   const r = await gateWithRepair({ ...good, body: good.body + '\n\nThe ship holds 180 guests.' }, now, ctx)
   check('gateWithRepair makes no change when it cannot repair', r.repaired === false && has(r.blockers, 'number not in'))

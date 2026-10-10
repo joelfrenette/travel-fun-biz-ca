@@ -75,9 +75,13 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
     // A draft the quality gate held back records why (autoblog-run tags held_reasons); show it.
     let why = ''
     if (p.status !== 'published') {
-      const { data: v } = await admin.from('content_variants').select('variant_tags').eq('slug', p.slug).maybeSingle()
-      const reasons = (v?.variant_tags as { held_reasons?: string } | null)?.held_reasons
-      if (reasons) why = ` (held back: ${reasons})`
+      try {
+        const { data: v } = await admin.from('content_variants').select('variant_tags').eq('slug', p.slug).maybeSingle()
+        const reasons = (v?.variant_tags as { held_reasons?: string } | null)?.held_reasons
+        if (reasons) why = ` (held back: ${reasons})`
+      } catch {
+        // The reason is a nice-to-have; the brief must still build without it.
+      }
     }
     yesterday.push(`Blog post ${p.status === 'published' ? 'published' : 'saved as a draft'}: ${p.title} - ${SITE_URL}/blog/${p.slug}${why}`)
   }

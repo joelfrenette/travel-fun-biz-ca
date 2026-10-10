@@ -31,7 +31,8 @@ import type { PackageGrounding } from '@/lib/blog-topics'
  * cannot be read, falls back to a plain count-based rotation. Never throws. */
 async function pickRecentCtaStyle(admin: ReturnType<typeof getSupabaseAdmin>, recentSlugs: string[], fallbackIndex: number) {
   try {
-    const { data } = await admin.from('content_variants').select('slug, variant_tags').in('slug', recentSlugs)
+    const { data, error } = await admin.from('content_variants').select('slug, variant_tags').in('slug', recentSlugs)
+    if (error) throw new Error(error.message)
     const bySlug = new Map((data ?? []).map((r: { slug: string; variant_tags: { cta_style?: string } | null }) => [r.slug, r.variant_tags?.cta_style]))
     return pickCtaStyle(recentSlugs.map((s) => bySlug.get(s)))
   } catch {
@@ -92,9 +93,9 @@ export interface AutoblogResult {
 }
 
 const RUN_LOCK_KEY = 'autoblog_run_lock'
-// Generous vs. the composer's own ~290s worst case - a lock older than this is treated as
-// abandoned (a crashed run) rather than still in progress, so a stuck lock can't wedge autoblog
-// forever.
+// The routes that run this are killed at 300s (maxDuration) and composing is told to finish within
+// 240s (deadlineMs below), so a lock older than 10 minutes is certainly abandoned (a crashed run)
+// rather than in progress. That way a stuck lock can't wedge autoblog forever.
 const RUN_LOCK_STALE_MS = 10 * 60 * 1000
 
 /** Best-effort lock so the admin "run now" button and the daily cron can't both create a post in
@@ -244,7 +245,10 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   const ctaStyle = await pickRecentCtaStyle(admin, existingPosts.slice(0, 10).map((p) => p.slug), existingPosts.length)
   const allowedLinks = await buildAllowedLinks(admin, groundingPackage)
 
-  const composed = await composeFullPost(groundedAngle, topic.keyword, { style, allowedLinks })
+  // The routes that call this are killed at 300s. Compose and repair are told to wrap up by 240s from
+  // now: the optional steps (FAQ/takeaways, the repair call) are skipped when too little time is left.
+  const deadlineMs = Date.now() + 240_000
+  const composed = await composeFullPost(groundedAngle, topic.keyword, { style, allowedLinks, deadlineMs })
   if (!composed) {
     if (queueRowId) {
       const attempts = await recordComposeFailure(admin, queueRowId)
@@ -278,7 +282,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   let final = composed
   let blockers: string[] = []
   if (mode === 'publish') {
-    const gated = await gateWithRepair(composed, new Date(), { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}` })
+    const gated = await gateWithRepair(composed, new Date(), { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs })
     final = gated.post
     blockers = gated.blockers
   }

@@ -37,6 +37,8 @@ export interface ComposedPost {
   primary_keyword: string
   secondary_keywords: string[]
   content_style: string
+  /** True when the enrich step (FAQ, takeaways, social text) was skipped for lack of time. */
+  skipped_enrich?: boolean
 }
 
 export interface AllowedLink {
@@ -49,7 +51,14 @@ export interface AllowedLink {
 export interface ComposeOptions {
   style?: ContentStyle
   allowedLinks?: AllowedLink[]
+  /** Absolute time (Date.now() scale) by which composing should be wrapping up. The function that
+   * calls this has a hard limit, so optional steps are skipped when the time left is short. */
+  deadlineMs?: number
 }
+
+/** Optional steps are skipped when fewer than this many ms remain before the caller's deadline. */
+export const ENRICH_MIN_MS = 50_000
+export const REPAIR_MIN_MS = 70_000
 
 type Step = 'keywords' | 'idea' | 'body' | 'title' | 'enrich'
 
@@ -168,7 +177,10 @@ export async function composeFullPost(angle: string, seedKeyword?: string, opts:
   if (!titleResult || typeof titleResult !== 'object' || !titleResult.title) return null
   ctx.title = titleResult.title
 
-  const enrich = await runComposerStep<EnrichResult>('enrich', ctx)
+  // Optional when time is short: the post is still returned (as a draft, see analyse) rather than
+  // risking the whole function being killed mid-call and losing the body.
+  const skipEnrich = opts.deadlineMs !== undefined && opts.deadlineMs - Date.now() < ENRICH_MIN_MS
+  const enrich = skipEnrich ? null : await runComposerStep<EnrichResult>('enrich', ctx)
   const extra: EnrichResult = enrich && typeof enrich === 'object' ? enrich : {}
   const seoTitle = titleResult.seo_title ?? titleResult.title
   const secondary = asTextList(extra.secondary_keywords, 6)
@@ -187,6 +199,7 @@ export async function composeFullPost(angle: string, seedKeyword?: string, opts:
     primary_keyword: asText(extra.primary_keyword) || ctx.keywords[0],
     secondary_keywords: secondary.length ? secondary : ctx.keywords.slice(1, 5),
     content_style: opts.style?.id ?? '',
+    ...(skipEnrich ? { skipped_enrich: true } : {}),
   })
 }
 
@@ -204,9 +217,13 @@ export function cutAtWord(text: string, max: number): string {
 /** Long dashes read as machine-written. A dash used as a break becomes a comma; one between two
  * digits (a range) becomes "to". Spaces and tabs only, so line breaks in markdown survive. */
 export function fixDashes(text: string): string {
+  const dash = `[${EM_DASH}${EN_DASH}]`
   return text
     .replace(new RegExp(`(\\d)${EN_DASH}(\\d)`, 'g'), '$1 to $2')
-    .replace(new RegExp(`[ \\t]*[${EM_DASH}${EN_DASH}][ \\t]*`, 'g'), ', ')
+    // A dash that starts a line is just dropped; one that ends a line leaves no dangling comma.
+    .replace(new RegExp(`^[ \\t]*${dash}[ \\t]*`, 'gm'), '')
+    .replace(new RegExp(`[ \\t]*${dash}[ \\t]*$`, 'gm'), '')
+    .replace(new RegExp(`[ \\t]*${dash}[ \\t]*`, 'g'), ', ')
 }
 
 /** Mechanical clean-up of the model's output, so a cosmetic slip never blocks a publish: dashes
@@ -266,10 +283,10 @@ export function numbersIn(text: string): string[] {
 
 const WORD_NUMBERS: Record<string, number> = {
   two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
-  twenty: 20, thirty: 30, forty: 40, fifty: 50, hundred: 100, thousand: 1000, dozen: 12, 'couple of': 2,
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, hundred: 100, thousand: 1000,
 }
 const WORD_NUMBER_RE =
-  /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|dozen|couple of)[- ](night|day|week|hour|star|passenger|guest|port|stop|country|ship|mile|km|minute)s?\b/gi
+  /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand)[- ](night|day|week|hour|star|passenger|guest|port|stop|country|ship|mile|km|minute)s?\b/gi
 
 /** Number words attached to a unit ("three nights", "two-hour"), the way a made-up count usually
  * sounds. */
@@ -295,6 +312,9 @@ export interface PublishGateContext {
    * number may only appear in the post if it appears here. The AI's own title, tags and keywords
    * do NOT count as a source. */
   groundingText?: string
+  /** Absolute time (Date.now() scale) the caller must finish by; the repair call is skipped when
+   * fewer than REPAIR_MIN_MS remain. */
+  deadlineMs?: number
 }
 
 interface Grounding {
@@ -369,7 +389,12 @@ export interface Offender {
   /** The exact text to rewrite (a sentence for the body, the whole value for the other fields). */
   text: string
   why: string
+  /** List or heading marker at the start of the text ("- ", "1. ", "## "), kept out of the repair
+   * prompt and put back on the rewrite. Empty for everything but body sentences. */
+  prefix: string
 }
+
+const LEADING_MARKER = /^\s*(?:[-*]\s+|\d+[.)]\s+|#{1,6}\s+)/
 
 function whyText(p: Problems, faqLink = false): string {
   const parts: string[] = []
@@ -403,8 +428,12 @@ function analyse(post: ComposedPost, now: Date, ctx: PublishGateContext): Analys
 
   const faq = post.faq ?? []
   const takeaways = post.key_takeaways ?? []
-  if (faq.length < 3) blockers.push('missing FAQ (needs at least 3 questions)')
-  if (takeaways.length < 3) blockers.push('missing key takeaways (needs at least 3)')
+  if (post.skipped_enrich) {
+    blockers.push('ran out of time for FAQ')
+  } else {
+    if (faq.length < 3) blockers.push('missing FAQ (needs at least 3 questions)')
+    if (takeaways.length < 3) blockers.push('missing key takeaways (needs at least 3)')
+  }
 
   const numbers = new Set<string>()
   const wordNums = new Set<string>()
@@ -435,7 +464,7 @@ function analyse(post: ComposedPost, now: Date, ctx: PublishGateContext): Analys
     if (hasLink) faqLink = true
     if (!noProblems(p) || hasLink) {
       collect(p)
-      offenders.push({ field, index, text, why: whyText(p, hasLink) })
+      offenders.push({ field, index, text, why: whyText(p, hasLink), prefix: '' })
     }
   }
 
@@ -449,10 +478,10 @@ function analyse(post: ComposedPost, now: Date, ctx: PublishGateContext): Analys
       const sp = unitProblems(s, g, true)
       if (!noProblems(sp)) {
         flagged = true
-        offenders.push({ field: 'body', text: s, why: whyText(sp) })
+        offenders.push({ field: 'body', text: s, why: whyText(sp), prefix: s.match(LEADING_MARKER)?.[0] ?? '' })
       }
     }
-    if (!flagged) offenders.push({ field: 'body', text: line, why: whyText(lineP) })
+    if (!flagged) offenders.push({ field: 'body', text: line, why: whyText(lineP), prefix: line.match(LEADING_MARKER)?.[0] ?? '' })
   }
 
   if (numbers.size) blockers.push(`number not in the source facts (${[...numbers].join(', ')})`)
@@ -488,12 +517,15 @@ export function applyRewrites(post: ComposedPost, offenders: Offender[], rewrite
   const next: ComposedPost = { ...post, faq: post.faq.map((f) => ({ ...f })), key_takeaways: [...post.key_takeaways] }
   for (const r of rewrites) {
     const o = offenders[r.id]
-    const text = typeof r.text === 'string' ? r.text.trim() : ''
+    // The model saw the sentence without its list/heading marker. If it still added one, drop it
+    // before re-attaching the original, so the marker is never doubled.
+    const raw = typeof r.text === 'string' ? r.text.trim() : ''
+    const text = o?.prefix ? raw.replace(LEADING_MARKER, '').trim() : raw
     if (!o || !text) continue
     switch (o.field) {
       case 'body': {
         const at = next.body.indexOf(o.text)
-        if (at !== -1) next.body = next.body.slice(0, at) + text + next.body.slice(at + o.text.length)
+        if (at !== -1) next.body = next.body.slice(0, at) + o.prefix + text + next.body.slice(at + o.text.length)
         break
       }
       case 'faq_q': if (o.index !== undefined && next.faq[o.index]) next.faq[o.index].q = text; break
@@ -524,7 +556,12 @@ export async function gateWithRepair(
     return { post, blockers: first.blockers, repaired: false }
   }
 
-  const list = offenders.map((o, i) => `${i}. [${o.why}] ${o.text}`).join('\n')
+  // Not enough time left before the caller's deadline: keep the draft rather than risk a killed run.
+  if (ctx.deadlineMs !== undefined && ctx.deadlineMs - Date.now() < REPAIR_MIN_MS) {
+    return { post, blockers: first.blockers, repaired: false }
+  }
+
+  const list = offenders.map((o, i) => `${i}. [${o.why}] ${o.text.slice(o.prefix.length)}`).join('\n')
   const prompt = `Rewrite each numbered text below so it no longer has the problem named in the square brackets. Keep the meaning, tone, markdown formatting and length as close as you can. Do not add any number, count, number word, date, price or link. Where a number or count is removed, say it in general terms instead (for example "a few", "several", "most"). Never use the long dash character.\n\n${list}\n\nReturn ONLY minified JSON with the rewritten text for every number: {"rewrites":[{"id":0,"text":"..."}]}`
   let rewrites: { id: number; text: string }[] = []
   try {
@@ -541,6 +578,8 @@ export async function gateWithRepair(
   }
   if (rewrites.length === 0) return { post, blockers: first.blockers, repaired: false }
 
-  const fixed = normalizePost(applyRewrites(post, offenders, rewrites))
+  const rewritten = normalizePost(applyRewrites(post, offenders, rewrites))
+  // The slug follows the final title (a rewritten title must not keep a slug with its old digits).
+  const fixed = rewritten.title !== post.title ? { ...rewritten, slug: slugify(rewritten.title) || post.slug } : rewritten
   return { post: fixed, blockers: analyse(fixed, now, ctx).blockers, repaired: true }
 }
