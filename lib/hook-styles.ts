@@ -144,11 +144,13 @@ const NUMBER_WORD_RE = new RegExp(`\\b(${Object.keys(NUMBER_WORDS).join('|')})\\
  * appear in `source` as a digit or a word. "one" is left alone on purpose (too common in plain
  * English). Links in `text` are ignored. */
 export function ungroundedNumbers(text: string, source: string): string[] {
-  const digits = (s: string) => (s.replace(/(\d)[,\s](?=\d{3}\b)/g, '$1').match(/\d+/g) ?? []).map((n) => n.replace(/^0+(?=\d)/, ''))
+  // Only a comma-grouped number ("1,200") is joined; "Day 3 100 people" stays 3 and 100.
+  const digits = (s: string) => (s.replace(/\b\d{1,3}(?:,\d{3})+\b/g, (m) => m.replace(/,/g, '')).match(/\d+/g) ?? []).map((n) => n.replace(/^0+(?=\d)/, ''))
   const words = (s: string) => (s.match(NUMBER_WORD_RE) ?? []).map((w) => w.toLowerCase())
   const known = new Set<string>([...digits(source), ...words(source).map((w) => NUMBER_WORDS[w])])
-  const body = text.replace(/https?:\/\/\S+/gi, ' ')
-  const stray = [...digits(body), ...words(body).map((w) => NUMBER_WORDS[w])].filter((n) => !known.has(n))
+  // Links and #hashtags are ignored; a plain year from 2025 to 2030 is allowed.
+  const body = text.replace(/https?:\/\/\S+/gi, ' ').replace(/#\S+/g, ' ')
+  const stray = [...digits(body), ...words(body).map((w) => NUMBER_WORDS[w])].filter((n) => !known.has(n) && !(n.length === 4 && +n >= 2025 && +n <= 2030))
   return [...new Set(stray)]
 }
 
