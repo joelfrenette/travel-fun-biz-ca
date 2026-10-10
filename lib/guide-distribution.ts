@@ -12,6 +12,9 @@ import type { GuideKind } from '@/lib/guides'
 /** The most guides enrolled for social posting per UTC day, across every kind. */
 export const GUIDE_ENROLMENTS_PER_DAY = 1
 
+/** Kinds that name a real business. Their social posts are enrolled as `held` whatever distribution_mode is. */
+export const HELD_GUIDE_KINDS: readonly GuideKind[] = ['hotels', 'resorts', 'ships', 'river-cruises', 'yachts']
+
 /** 00:00 UTC of the day `now` falls in, as an ISO string. */
 export function utcDayStart(now: Date = new Date()): string {
   return `${now.toISOString().slice(0, 10)}T00:00:00.000Z`
@@ -56,6 +59,8 @@ export interface GuideToEnrol {
   slug: string
   name: string
   status: string
+  /** Gate or review notes. A guide with notes was held back by the quality gate and is never promoted. */
+  quality_notes?: string | null
 }
 
 /** Enrols a just-published guide for social posting, once. A no-op (and never an error) when: the guide is not
@@ -66,6 +71,8 @@ export interface GuideToEnrol {
 export async function enrollGuideIfDue(admin: SupabaseClient, guide: GuideToEnrol): Promise<'enrolled' | 'skipped'> {
   try {
     if (guide.status !== 'published') return 'skipped'
+    // A guide the quality gate held back (an admin force-published it) is not promoted on social.
+    if (guide.quality_notes && guide.quality_notes.trim()) return 'skipped'
     const mode = await getDistributionMode(admin)
     if (mode === 'off') return 'skipped'
     if (await isAutomationPaused(admin)) return 'skipped'
@@ -83,7 +90,8 @@ export async function enrollGuideIfDue(admin: SupabaseClient, guide: GuideToEnro
       slug,
       title: guide.name,
       path: guideDistributionPath(guide.kind, guide.slug),
-      stage: mode === 'prepare' ? 'held' : 'queued',
+      // Named properties always wait for Joel to release them from the Distribution screen, in any mode.
+      stage: mode === 'prepare' || HELD_GUIDE_KINDS.includes(guide.kind) ? 'held' : 'queued',
     })
     if (error) return 'skipped'
 

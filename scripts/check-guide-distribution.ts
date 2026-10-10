@@ -91,11 +91,11 @@ async function main() {
   const base = (): Db => ({ tables: { app_settings: [setting('distribution_mode', 'auto')], post_distribution: [] } })
 
   let db = base()
-  check('auto mode enrols a published guide', (await enrollGuideIfDue(fakeAdmin(db), guide('resorts', 'one'))) === 'enrolled')
+  check('auto mode enrols a published guide', (await enrollGuideIfDue(fakeAdmin(db), guide('destinations', 'one'))) === 'enrolled')
   const row = db.tables.post_distribution[0]
-  check('the row is queued with the guide slug, path and name', row.stage === 'queued' && row.slug === 'guide-resorts-one' && row.path === '/resorts/one' && row.title === 'one' && row.content_type === 'post')
+  check('the row is queued with the guide slug, path and name', row.stage === 'queued' && row.slug === 'guide-destinations-one' && row.path === '/destinations/one' && row.title === 'one' && row.content_type === 'post')
   check('a second guide the same day is NOT enrolled', (await enrollGuideIfDue(fakeAdmin(db), guide('hotels', 'two'))) === 'skipped' && db.tables.post_distribution.length === 1)
-  check('the same guide is never enrolled twice', (await enrollGuideIfDue(fakeAdmin(db), guide('resorts', 'one'))) === 'skipped' && db.tables.post_distribution.length === 1)
+  check('the same guide is never enrolled twice', (await enrollGuideIfDue(fakeAdmin(db), guide('destinations', 'one'))) === 'skipped' && db.tables.post_distribution.length === 1)
 
   db = base()
   db.tables.post_distribution.push({ slug: 'guide-hotels-old', path: '/hotels/old', created_at: new Date(Date.now() - 86_400_000 * 1.5).toISOString() })
@@ -109,6 +109,19 @@ async function main() {
   db.tables.app_settings = [setting('distribution_mode', 'prepare')]
   await enrollGuideIfDue(fakeAdmin(db), guide('resorts', 'held-one'))
   check('prepare mode enrols into held', db.tables.post_distribution[0]?.stage === 'held')
+
+  for (const k of ['hotels', 'resorts', 'ships', 'river-cruises', 'yachts'] as const) {
+    db = base()
+    await enrollGuideIfDue(fakeAdmin(db), { kind: k, slug: 'p', name: 'p', status: 'published' })
+    check(`${k} guide is enrolled held even in auto mode`, db.tables.post_distribution[0]?.stage === 'held')
+  }
+  for (const k of ['destinations', 'cruise-lines'] as const) {
+    db = base()
+    await enrollGuideIfDue(fakeAdmin(db), { kind: k, slug: 'p', name: 'p', status: 'published' })
+    check(`${k} guide keeps normal auto semantics (queued)`, db.tables.post_distribution[0]?.stage === 'queued')
+  }
+  db = base()
+  check('a guide with quality_notes is not enrolled', (await enrollGuideIfDue(fakeAdmin(db), { kind: 'destinations', slug: 'p', name: 'p', status: 'published', quality_notes: 'number not in the grounding: 450' })) === 'skipped' && db.tables.post_distribution.length === 0)
 
   db = base()
   db.tables.app_settings = [setting('distribution_mode', 'off')]
