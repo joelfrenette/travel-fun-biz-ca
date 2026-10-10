@@ -3,7 +3,26 @@ import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
-import { pickStyle, pickCtaStyle, CTA_STYLES, appendStyledCta } from '@/lib/content-styles'
+import { pickStyle, pickCtaStyle, CTA_STYLES, CONTENT_STYLES, styleById, appendStyledCta, type ContentStyle } from '@/lib/content-styles'
+import { scoresFor, chooseWeighted } from '@/lib/content-performance'
+
+// Growth loop WP3 closes the loop here: once a writing style has 3 or more posts old enough to have
+// Google data, the writer leans toward the best-earning style 70% of the time and keeps exploring the
+// rest of the time. With no scores yet (new site, Search Console off, migration not run) it is the
+// plain rotation from WP1. `recent` is newest first. Never throws: any problem falls back to rotation.
+async function pickStyleWithScores(admin: ReturnType<typeof getSupabaseAdmin>, recent: (string | null | undefined)[]): Promise<ContentStyle> {
+  try {
+    const scores = await scoresFor(admin, 'content_style')
+    if (scores.length) {
+      const known = recent.filter((s): s is string => typeof s === 'string' && s.length > 0)
+      const chosen = styleById(chooseWeighted(scores, known, CONTENT_STYLES.map((s) => s.id)))
+      if (chosen) return chosen
+    }
+  } catch {
+    // scores are a bonus, never a blocker
+  }
+  return pickStyle(recent)
+}
 import { tagVariant } from '@/lib/content-variants'
 import { listSitePages } from '@/lib/site-pages'
 import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
@@ -241,7 +260,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
 
   // Rotate the writing style off the last ten posts (existingPosts is newest first) and work out which
   // internal pages the post may link to.
-  const style = pickStyle(existingPosts.slice(0, 10).map((p) => p.content_style))
+  const style = await pickStyleWithScores(admin, existingPosts.slice(0, 10).map((p) => p.content_style))
   const ctaStyle = await pickRecentCtaStyle(admin, existingPosts.slice(0, 10).map((p) => p.slug), existingPosts.length)
   const allowedLinks = await buildAllowedLinks(admin, groundingPackage)
 
