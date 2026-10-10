@@ -12,6 +12,7 @@ import {
   nextEngineRunAt,
   opportunityOf,
   planDuplicateReason,
+  pruneSpendLog,
   summarizeHistory,
   validatePlanItem,
   SHOOT_FOR_MIN_SCORE,
@@ -187,6 +188,18 @@ check('next run: not before the Monday after, and not within 5 days', (() => {
   const n = nextEngineRunAt(new Date('2026-10-05T09:00:00Z'), now) // ran on a Monday
   return n.getTime() >= new Date('2026-10-10T09:00:00Z').getTime() && isoWeekKey(n) === '2026-W42'
 })())
+
+// ---- spend log pruning ----
+{
+  const t = Date.parse('2026-10-10T12:00:00Z')
+  const iso = (daysAgo: number, hours = 0) => new Date(t - daysAgo * 86_400_000 - hours * 3_600_000).toISOString()
+  const real = { at: iso(3), spentUsd: 0.4, added: 5, seeds: ['a'] }
+  const zeros = Array.from({ length: 40 }, (_, i) => ({ at: iso(0, i), spentUsd: 0, added: 0, seeds: [] as string[] }))
+  const pruned = pruneSpendLog([...zeros, real], t)
+  check('40 zero-cost runs in a week do not evict a real spend entry', pruned.includes(real) && pruned.length === 41)
+  check('spend older than 10 days is dropped by age', pruneSpendLog([real, { at: iso(11), spentUsd: 1, added: 0, seeds: [] }], t).length === 1)
+  check('the hard cap only limits size (200)', pruneSpendLog(Array.from({ length: 500 }, (_, i) => ({ at: iso(0, i % 24) })), t).length === 200)
+}
 
 // ---- seed rotation ----
 {

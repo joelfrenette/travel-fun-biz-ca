@@ -228,7 +228,12 @@ export default function AutopilotPage() {
               <h2 className="font-semibold">Keyword research per week</h2>
               <p className="text-xs text-muted-foreground">
                 {state.keyword.configured
-                  ? `Once a week it researches new keywords for your trips and feeds them into topic picking. This is the most it will spend. ${state.keyword.log[0] ? `Last run: ${new Date(state.keyword.log[0].at).toLocaleDateString("en-CA")}, spent about $${state.keyword.log[0].spentUsd.toFixed(2)}, added ${state.keyword.log[0].added}.` : "Has not run yet."}`
+                  ? `Once a week it researches new keywords for your trips and feeds them into topic picking. This is the most it will spend. ${(() => {
+                      const week = state.keyword.log.filter((e) => Date.now() - Date.parse(e.at) < 7 * 86_400_000)
+                      return week.length || state.keyword.lastRunAt
+                        ? `${state.keyword.lastRunAt ? `Last run: ${new Date(state.keyword.lastRunAt).toLocaleDateString("en-CA")}. ` : ""}Last 7 days: spent about $${week.reduce((s, e) => s + (e.spentUsd || 0), 0).toFixed(2)}, added ${week.reduce((s, e) => s + (e.added || 0), 0)} phrases.`
+                        : "Has not run yet."
+                    })()}`
                   : "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD are not set, so there is no keyword research."}
               </p>
             </div>

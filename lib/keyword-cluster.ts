@@ -219,7 +219,7 @@ export function mechanicalPlanItem(cluster: KeywordCluster): PlanDraft {
 }
 
 const NUMBER_WORDS = /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|hundred|thousand)\b/g
-const numbersIn =(s: string) => s.match(/\d+/g) ?? []
+const numbersIn = (s: string) => s.match(/\d+/g) ?? []
 
 export type PlanCheck = { ok: true; item: PlanDraft; fixes: string[] } | { ok: false; problems: string[] }
 
@@ -324,6 +324,14 @@ export function chooseClustersToPlan(clusters: KeywordCluster[], ctx: PlanDedupe
     else chosen.push(c)
   }
   return { chosen, skipped }
+}
+
+/** The spend log is pruned by AGE (entries older than SPEND_LOG_KEEP_DAYS go), never by a small count, so a burst
+ * of cheap runs can never push a real spend entry out of the 7-day budget maths. The hard cap only guards size. */
+export const SPEND_LOG_KEEP_DAYS = 10
+export const SPEND_LOG_HARD_CAP = 200
+export function pruneSpendLog<T extends { at: string }>(log: T[], now = Date.now()): T[] {
+  return log.filter((e) => now - Date.parse(e.at) <= SPEND_LOG_KEEP_DAYS * 86_400_000).slice(0, SPEND_LOG_HARD_CAP)
 }
 
 // ---- dates and ranking progress -------------------------------------------------------------------------

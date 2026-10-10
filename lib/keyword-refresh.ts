@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { SITE_ID } from '@/lib/site'
 import { isKeywordDataConfigured, suggestKeywords, saveSuggestedKeyword, type KeywordCountry } from '@/lib/keywords'
-import { isoWeekKey } from '@/lib/keyword-cluster'
+import { isoWeekKey, pruneSpendLog } from '@/lib/keyword-cluster'
 
 // A capped weekly keyword refresh so topics follow real new search demand without a click. This is
 // the one credit-costing step the pipeline takes on its own, so it is bounded three ways: a weekly
@@ -100,7 +100,7 @@ export function spentLastWeek(log: KeywordRefreshInfo['log'], now = Date.now()):
 export async function logKeywordSpend(admin: SupabaseClient, entry: KeywordRefreshInfo['log'][number]): Promise<void> {
   try {
     const info = await readKeywordRefreshInfo(admin)
-    await setSetting(admin, KEYWORD_SPEND_LOG_KEY, JSON.stringify([entry, ...info.log].slice(0, 30)))
+    await setSetting(admin, KEYWORD_SPEND_LOG_KEY, JSON.stringify(pruneSpendLog([entry, ...info.log])))
     await setSetting(admin, KEYWORD_LAST_RUN_KEY, entry.at) // shown as "last ran" on the Autopilot page
   } catch {
     // a logging problem must never fail a run that already finished

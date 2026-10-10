@@ -206,6 +206,7 @@ export async function refreshTrendPeaksIfDue(admin: SupabaseClient, opts: { forc
   if (!authHeader()) return null
   const last = Date.parse((await getSetting(admin, TRENDS_LAST_KEY)) ?? '')
   if (!opts.force && Number.isFinite(last) && Date.now() - last < TRENDS_MS) return null
+  // Stamped now so overlapping passes cannot both spend; un-stamped below if the budget cut the run short.
   await setSetting(admin, TRENDS_LAST_KEY, new Date().toISOString())
   const { data } = await admin.from('travel_packages').select('destination').eq('status', 'published')
   const dests = [...new Set(((data ?? []) as { destination: string | null }[]).map((p) => p.destination?.trim().toLowerCase()).filter((d): d is string => !!d))]
@@ -246,5 +247,7 @@ export async function refreshTrendPeaksIfDue(admin: SupabaseClient, opts: { forc
   // A run cut short by the budget merges into the peaks already known instead of replacing them.
   const merged = stoppedForBudget ? { ...(await readTrendPeaks(admin)), ...peaks } : peaks
   await setSetting(admin, TRENDS_KEY, JSON.stringify(merged))
+  // Cut short by the budget: forget the stamp so the skipped destinations are retried next week.
+  if (stoppedForBudget) await admin.from('app_settings').delete().eq('key', TRENDS_LAST_KEY)
   return `search-interest peaks found for ${Object.keys(peaks).length} of ${dests.length} destinations${stoppedForBudget ? ' (stopped at the budget)' : ''} (spent about $${spent.toFixed(3)})`
 }

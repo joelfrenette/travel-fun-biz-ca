@@ -3,7 +3,7 @@ import { getSetting, setSetting } from '@/lib/app-settings'
 import { SITE_ID } from '@/lib/site'
 import { anthropicText, callAnthropic, isAiConfigured, parseModelJson } from '@/lib/ai-verify'
 import { getAccountBalance, isKeywordDataConfigured, listKeywords, lookupKeywords, type KeywordCountry, type KeywordRow } from '@/lib/keywords'
-import { claimKeywordWeek, getKeywordBudget, logKeywordSpend, readKeywordRefreshInfo, refreshKeywordsIfDue, releaseKeywordWeek, runKeywordResearch, seedPhrases, spentLastWeek } from '@/lib/keyword-refresh'
+import { claimKeywordWeek, KEYWORD_LAST_RUN_KEY, getKeywordBudget, logKeywordSpend, readKeywordRefreshInfo, refreshKeywordsIfDue, releaseKeywordWeek, runKeywordResearch, seedPhrases, spentLastWeek } from '@/lib/keyword-refresh'
 import { collectIdeas, IDEAS_KEY, readIdeas, readTrendPeaks, refreshTrendPeaksIfDue } from '@/lib/keyword-ideas'
 import { getSearchConsoleQueries, isSearchConsoleConfigured } from '@/lib/search-console'
 import { rankedPageByKeyword } from '@/lib/keyword-pages'
@@ -557,8 +557,8 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
       stage('TRACK', false, errMsg(e, 'saving failed'))
     }
 
-    // Spend was already logged stage by stage; this zero line only stamps "last ran".
-    await logKeywordSpend(admin, { at: new Date().toISOString(), spentUsd: 0, added: 0, seeds: [] })
+    // Spend was already logged stage by stage. "Last ran" is only a stamp: it never goes into the spend log.
+    await setSetting(admin, KEYWORD_LAST_RUN_KEY, new Date().toISOString())
     const failedStages = run.stages.filter((s) => !s.ok)
     run.note = failedStages.length
       ? `Keyword engine finished with ${failedStages.length} problem${failedStages.length === 1 ? '' : 's'}: ${failedStages.map((s) => `${s.stage}: ${s.note}`).slice(0, 2).join(' | ')}`
@@ -583,7 +583,9 @@ export async function runKeywordEngineIfDue(admin: SupabaseClient): Promise<Engi
   const mig = await migrationReady(admin)
   if (!mig.ready) {
     // Keep the older weekly research and ideas running, and say loudly that the migration is missing.
-    const notes = [await refreshKeywordsIfDue(admin).catch(() => null), await collectIdeas(admin).catch(() => null), await refreshTrendPeaksIfDue(admin).catch(() => null)].filter(Boolean)
+    // Only the older budgeted weekly research keeps running. Autocomplete/question ideas and trends are skipped
+    // until 0032 is applied: they sit outside the spend log, so running them unattended every 15 minutes is not safe.
+    const notes = [await refreshKeywordsIfDue(admin).catch(() => null)].filter(Boolean)
     const run: EngineRun = { at: new Date().toISOString(), trigger: 'schedule', ok: false, needsMigration: true, spentUsd: 0, ideasAdded: 0, stages: [], note: `${MIGRATION_NOTE} (${mig.detail ?? 'columns missing'})${notes.length ? ` Meanwhile the older weekly research ran: ${notes.join(' | ')}` : ''}` }
     const previous = await readEngineRun(admin)
     if (!previous || previous.note !== run.note) await saveEngineRun(admin, run)
