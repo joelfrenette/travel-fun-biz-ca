@@ -85,11 +85,12 @@ async function questionsFor(seed: string): Promise<{ phrases: string[]; cost: nu
   return { phrases: out, cost }
 }
 
-/** Reddit question titles about a seed, via Reddit's official API. Empty (and free) until the two keys are set. */
-async function redditQuestionsFor(seed: string): Promise<string[]> {
+/** Reddit question titles about a seed, via Reddit's official API, and a plain status for the note. Empty
+ * (and free) until the two keys are set. */
+async function redditQuestionsFor(seed: string): Promise<{ titles: string[]; status: 'off' | 'login-failed' | 'ok' }> {
   const id = process.env.REDDIT_CLIENT_ID?.trim()
   const secret = process.env.REDDIT_CLIENT_SECRET?.trim()
-  if (!id || !secret) return []
+  if (!id || !secret) return { titles: [], status: 'off' }
   const agent = 'travelfunbiz-ca-research/1.0 (keyword ideas; contact: site owner)'
   const tokenRes = await fetch('https://www.reddit.com/api/v1/access_token', {
     method: 'POST',
@@ -98,10 +99,11 @@ async function redditQuestionsFor(seed: string): Promise<string[]> {
     signal: AbortSignal.timeout(15_000),
   })
   const token = ((await tokenRes.json().catch(() => ({}))) as { access_token?: string }).access_token
-  if (!token) return []
+  if (!token) return { titles: [], status: 'login-failed' }
   const res = await fetch(`https://oauth.reddit.com/r/solotravel+cruise+travel+Cruise+TravelHacks/search?restrict_sr=1&sort=top&t=year&limit=25&q=${encodeURIComponent(seed)}`, { headers: { Authorization: `Bearer ${token}`, 'User-Agent': agent }, signal: AbortSignal.timeout(15_000) })
   const json = (await res.json().catch(() => ({}))) as { data?: { children?: { data?: { title?: string } }[] } }
-  return (json.data?.children ?? []).map((c) => c.data?.title ?? '').filter((t) => t.includes('?') && wordCount(clean(t)) <= 14)
+  const titles = (json.data?.children ?? []).map((c) => c.data?.title ?? '').filter((t) => t.includes('?') && wordCount(clean(t)) <= 14)
+  return { titles, status: 'ok' }
 }
 
 /** The seeds are the destination of each published trip plus "cruise" or "group trip", the same as the
@@ -137,6 +139,7 @@ export async function collectIdeas(admin: SupabaseClient, opts: { force?: boolea
   const found: KeywordIdea[] = []
   let spent = 0
   const failures: string[] = []
+  let redditStatus: 'off' | 'login-failed' | 'ok' = 'off'
   const at = new Date().toISOString()
   const add = (phrases: string[], source: KeywordIdea['source'], seed: string) => {
     for (const raw of phrases) {
@@ -165,10 +168,17 @@ export async function collectIdeas(admin: SupabaseClient, opts: { force?: boolea
         failures.push(`questions: ${e instanceof Error ? e.message : 'error'}`)
       }
     }
-    add(await redditQuestionsFor(seed).catch(() => []), 'reddit', seed)
+    try {
+      const rd = await redditQuestionsFor(seed)
+      redditStatus = rd.status
+      add(rd.titles, 'reddit', seed)
+    } catch {
+      redditStatus = 'login-failed'
+    }
   }
   await setSetting(admin, IDEAS_KEY, JSON.stringify([...found, ...existing].slice(0, MAX_IDEAS)))
-  return `${found.length} new keyword ideas from ${chosen.join(', ')} (spent about $${spent.toFixed(3)})${failures.length ? `; ${failures.length} lookup${failures.length === 1 ? '' : 's'} had no result (${[...new Set(failures)].slice(0, 2).join('; ')})` : ''}`
+  const reddit = redditStatus === 'off' ? 'Reddit: not connected (keys not set)' : redditStatus === 'login-failed' ? 'Reddit: keys set but Reddit refused them (check both values, no spaces)' : `Reddit: connected, ${found.filter((f) => f.source === 'reddit').length} question ideas`
+  return `${reddit}. ${found.length} new keyword ideas from ${chosen.join(', ')} (spent about $${spent.toFixed(3)})${failures.length ? `; ${failures.length} lookup${failures.length === 1 ? '' : 's'} had no result (${[...new Set(failures)].slice(0, 2).join('; ')})` : ''}`
 }
 
 /** Removes an idea from the list (after it is tracked, or when it is not wanted). */
