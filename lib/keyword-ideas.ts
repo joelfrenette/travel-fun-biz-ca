@@ -202,16 +202,23 @@ export async function readTrendPeaks(admin: SupabaseClient): Promise<TrendPeaks>
 
 /** Once every 90 days, finds the calendar month each trip destination is searched most (5 years of Google
  * Trends, Canada), so the keyword score can favour publishing 1 to 4 months before that peak. */
-export async function refreshTrendPeaksIfDue(admin: SupabaseClient, opts: { force?: boolean } = {}): Promise<string | null> {
+export async function refreshTrendPeaksIfDue(admin: SupabaseClient, opts: { force?: boolean; budgetUsd?: number } = {}): Promise<string | null> {
   if (!authHeader()) return null
   const last = Date.parse((await getSetting(admin, TRENDS_LAST_KEY)) ?? '')
   if (!opts.force && Number.isFinite(last) && Date.now() - last < TRENDS_MS) return null
+  // Stamped now so overlapping passes cannot both spend; un-stamped below if the budget cut the run short.
   await setSetting(admin, TRENDS_LAST_KEY, new Date().toISOString())
   const { data } = await admin.from('travel_packages').select('destination').eq('status', 'published')
   const dests = [...new Set(((data ?? []) as { destination: string | null }[]).map((p) => p.destination?.trim().toLowerCase()).filter((d): d is string => !!d))]
   const peaks: TrendPeaks = {}
   let spent = 0
+  let stoppedForBudget = false
   for (let i = 0; i < dests.length; i += 5) {
+    // Stop chunking once the caller's budget is used up; what was found so far is kept below.
+    if (opts.budgetUsd != null && spent >= opts.budgetUsd) {
+      stoppedForBudget = true
+      break
+    }
     const chunk = dests.slice(i, i + 5)
     try {
       const { cost, result } = await dfs('/keywords_data/google_trends/explore/live', [{ keywords: chunk, location_code: CANADA, language_code: 'en', time_range: 'past_5_years', item_types: ['google_trends_graph'] }])
@@ -233,9 +240,14 @@ export async function refreshTrendPeaksIfDue(admin: SupabaseClient, opts: { forc
         peaks[dest] = { peak: curve.indexOf(Math.max(...curve)) + 1, curve }
       })
     } catch (e) {
-      return `trend refresh stopped: ${e instanceof Error ? e.message : 'error'}`
+      // The cost so far is reported even on an error, so the caller can record it.
+      return `trend refresh stopped: ${e instanceof Error ? e.message : 'error'} (spent about $${spent.toFixed(3)})`
     }
   }
-  await setSetting(admin, TRENDS_KEY, JSON.stringify(peaks))
-  return `search-interest peaks found for ${Object.keys(peaks).length} of ${dests.length} destinations (spent about $${spent.toFixed(3)})`
+  // A run cut short by the budget merges into the peaks already known instead of replacing them.
+  const merged = stoppedForBudget ? { ...(await readTrendPeaks(admin)), ...peaks } : peaks
+  await setSetting(admin, TRENDS_KEY, JSON.stringify(merged))
+  // Cut short by the budget: forget the stamp so the skipped destinations are retried next week.
+  if (stoppedForBudget) await admin.from('app_settings').delete().eq('key', TRENDS_LAST_KEY)
+  return `search-interest peaks found for ${Object.keys(peaks).length} of ${dests.length} destinations${stoppedForBudget ? ' (stopped at the budget)' : ''} (spent about $${spent.toFixed(3)})`
 }

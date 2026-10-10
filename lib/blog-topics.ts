@@ -18,6 +18,9 @@ export interface TopicIdea {
   keyword: string
   why: string
   source: string
+  /** The keyword set the post is shooting for: primary first (same as `keyword`), then secondary phrases of
+   * the same topic. Absent on ideas that are about a single phrase. */
+  keywords?: string[]
 }
 
 export interface BlogTopicQueueRow {
@@ -31,6 +34,18 @@ export interface BlogTopicQueueRow {
   used_slug: string | null
   used_at: string | null
   created_at: string
+  /** Migration 0032 columns: null/absent on older rows or before the migration is applied. */
+  keywords?: string[] | null
+  cluster_id?: string | null
+  title_idea?: string | null
+  score?: number | null
+}
+
+/** The keyword set of a queue row: its `keywords` when recorded, otherwise just its one phrase. */
+export function keywordSetOf(row: { keyword: string; keywords?: string[] | null }): string[] {
+  const set = (row.keywords ?? []).map((k) => k.trim()).filter(Boolean)
+  if (!set.length) return [row.keyword]
+  return set[0].toLowerCase() === row.keyword.toLowerCase() ? set : [row.keyword, ...set]
 }
 
 // A trip-focused starting point when the AI is unconfigured or returns nothing usable. Not a
@@ -259,15 +274,21 @@ export async function pickKeywordTopic(admin: SupabaseClient, existing: { title:
   if (!rows?.length || !pk?.length) return null
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
   const peaks = await readTrendPeaks(admin)
+  // Phrases already inside a waiting idea's keyword set belong to that idea (an engine idea may be approved
+  // any time), so they are not picked a second time. Falls back to the single keyword column before 0032.
+  const open = await admin.from('blog_topic_queue').select('keyword, keywords').in('status', ['suggested', 'approved']).limit(500)
+  const openRows = (open.error ? ((await admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved']).limit(500)).data ?? []) : (open.data ?? [])) as { keyword: string; keywords?: string[] | null }[]
+  const inQueue = new Set(openRows.flatMap((q) => [q.keyword, ...(q.keywords ?? [])]).map((k) => k.toLowerCase()))
   for (const c of nextUp(rankKeywords(rows as ScoreKeyword[], pk as ScorePackage[], new Date(), peaks), 12)) {
     if (findDuplicate(c.keyword, existing)) continue
+    if ([c.keyword, ...c.secondary].some((k) => inQueue.has(k.toLowerCase()))) continue
     if (c.packageSlug) {
       const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${c.packageSlug}%`)
       if (error || (count ?? 0) > 0) continue
     }
     const also = c.secondary.length ? ` Also work in these related searches: ${c.secondary.slice(0, 4).join(', ')}.` : ''
     const angle = `A blog post that answers the search "${c.keyword}" for someone deciding whether and which trip to book with us.${also}`
-    return { angle, keyword: c.keyword, why: `Keyword score ${c.score}/100 (winnability ${c.parts.winnability}, demand ${c.parts.demand}, intent ${c.parts.intent}, timing ${c.parts.timing})${c.packageName ? `, about "${c.packageName}"` : ''}`, source: 'keyword research' }
+    return { angle, keyword: c.keyword, keywords: [c.keyword, ...c.secondary.slice(0, 5)], why: `Keyword score ${c.score}/100 (winnability ${c.parts.winnability}, demand ${c.parts.demand}, intent ${c.parts.intent}, timing ${c.parts.timing})${c.packageName ? `, about "${c.packageName}"` : ''}`, source: 'keyword research' }
   }
   return null
 }

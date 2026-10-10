@@ -7,6 +7,7 @@ import { judgeAllCrons } from '@/lib/cron-health'
 import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { getProvider, getGhlAccounts } from '@/lib/social-provider'
 import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
+import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 
@@ -112,7 +113,21 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
   const guideItemCovers = !guideRead.error && Object.keys(guideRead.failures).length > 0
   const copyRead = await readCopyFailuresChecked(admin)
   const copyItemCovers = !copyRead.error && Object.keys(copyRead.failures).length > 0
+  // The keyword engine keeps its own last-run record (it can also be run by the button), so a problem is shown
+  // once, as its own item, and the generic "keywords step failed" item is left out while it is open.
+  const engine = await readEngineRun(admin).catch(() => null)
+  const engineProblem = !!engine && !engine.ok
+  if (engine && engineProblem) {
+    issues.push({
+      id: 'system:keyword-engine',
+      area: 'system',
+      title: engine.needsMigration ? 'The keyword engine needs one database update' : 'The keyword engine had a problem',
+      detail: engine.note,
+      fix: engine.needsMigration ? 'Run migration 0032 (supabase/migrations/0032_keyword_intel.sql) in the Supabase SQL editor, then press "Run the engine now" on the Keyword Research page.' : adviceFor(engine.note),
+    })
+  }
   for (const st of last?.steps ?? []) {
+    if (st.step === 'keywords' && engineProblem) continue
     // An email delivery failure is shown once, as "Emails from Aiva are not being delivered" below.
     // A failed guide WRITE has its own item below (it names the guide and the reason); any other guides-step
     // failure (for example the table cannot be read) still shows here.

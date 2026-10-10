@@ -5,8 +5,7 @@ import { recordCronRun } from '@/lib/cron-heartbeat'
 import { isAutopilotOn, runAutopilotTick } from '@/lib/autopilot'
 import { runAutoblog } from '@/lib/autoblog-run'
 import { runDistribution } from '@/lib/distribution'
-import { refreshKeywordsIfDue } from '@/lib/keyword-refresh'
-import { collectIdeas, refreshTrendPeaksIfDue } from '@/lib/keyword-ideas'
+import { runKeywordEngineIfDue } from '@/lib/keyword-intel'
 import { PIPELINE_LAST_RUN_KEY, type PipelineRun } from '@/lib/pipeline-log'
 import { collectIssues } from '@/lib/issues'
 import { sendThrottledAlert } from '@/lib/alerts'
@@ -36,6 +35,8 @@ import { runPageCopyStep } from '@/lib/page-copy-run'
 const PUBLISH_HOUR_UTC = 13
 // Past this much elapsed time a pass skips its remaining steps; the next pass picks them up.
 const TIME_BUDGET_MS = 200_000
+// A scheduled pass only starts writing the post if it has used less than this much of its time already.
+const WRITE_START_BY_MS = 60_000
 // The guides step can use about 140 seconds (two AI calls), the route allows 300, so it must start before this.
 const GUIDES_START_BY_MS = 100_000
 // The page copy step makes one AI call (80 second limit), so it must start before this.
@@ -84,25 +85,24 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     return run
   }
 
-  // 0. KEYWORDS (weekly, capped; silent on every pass where nothing is due)
+  // 0. KEYWORDS: the keyword engine, once a week inside the dollar cap (research, autocomplete and question
+  // ideas, trend peaks, Search Console numbers, topics, the next blog ideas). The week is claimed atomically
+  // before any spend; silent on every pass where nothing is due. Before migration 0032 is applied it keeps
+  // the older weekly research running and reports the missing migration instead.
   try {
-    const note = await refreshKeywordsIfDue(admin)
-    if (note) run.steps.push({ step: 'keywords', ok: true, note })
+    const engine = await runKeywordEngineIfDue(admin)
+    if (engine) run.steps.push({ step: 'keywords', ok: engine.ok, note: engine.note })
   } catch (e) {
     run.steps.push({ step: 'keywords', ok: false, note: e instanceof Error ? e.message : 'keyword research failed' })
-  }
-
-  // 0b. KEYWORD IDEAS and TREND PEAKS (weekly and every 90 days; each under a few-cent cap, silent otherwise)
-  try {
-    const note = [await collectIdeas(admin), await refreshTrendPeaksIfDue(admin)].filter(Boolean).join(' | ')
-    if (note) run.steps.push({ step: 'keywords', ok: true, note })
-  } catch (e) {
-    run.steps.push({ step: 'keywords', ok: false, note: e instanceof Error ? e.message : 'keyword ideas failed' })
   }
 
   // 1. WRITE
   if (!opts.force && new Date().getUTCHours() < PUBLISH_HOUR_UTC) {
     run.steps.push({ step: 'write', ok: true, note: `waiting for ${PUBLISH_HOUR_UTC}:00 UTC` })
+  } else if (!opts.force && Date.now() - startedAt > WRITE_START_BY_MS) {
+    // The weekly keyword engine ran long. Writing takes up to four minutes and the route is killed at five,
+    // so the post waits for the next pass (15 minutes) rather than risk being cut off half written.
+    run.steps.push({ step: 'write', ok: true, note: 'continues on the next pass (the weekly keyword engine ran long)' })
   } else {
     try {
       const result = await runAutoblog({ scheduled: !opts.force })

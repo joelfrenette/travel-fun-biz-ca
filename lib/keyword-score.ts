@@ -52,14 +52,32 @@ const STOP = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'to', 'fo
 const INTENT = new Set(['trip', 'trips', 'tour', 'tours', 'cruise', 'cruises', 'package', 'packages', 'book', 'price', 'cost', 'itinerary', 'group', 'singles', 'women', "women's", 'girls', 'getaway', 'vacation', 'vacations', 'canada', 'yacht', 'sailing', 'river', 'women', 'girl', 'week'])
 
 const tokens = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s'-]/g, ' ').split(/[\s]+/).filter((w) => w.length > 1 && !STOP.has(w))
-const stem = (w: string) => w.replace(/'s$/, '').replace(/(es|s)$/, '')
-const stems = (s: string) => new Set(tokens(s).map(stem).filter((w) => w.length > 2))
+// The trailing-e strip makes "cruise" and "cruises" the same stem (both "cruis"), so singular and plural
+// phrases land in one group.
+const stem = (w: string) => w.replace(/'s$/, '').replace(/(es|s)$/, '').replace(/e$/, '')
+export const stems = (s: string) => new Set(tokens(s).map(stem).filter((w) => w.length > 2))
 
-function jaccard(a: Set<string>, b: Set<string>): number {
+export function jaccard(a: Set<string>, b: Set<string>): number {
   let inter = 0
   for (const x of a) if (b.has(x)) inter++
   const union = a.size + b.size - inter
   return union ? inter / union : 0
+}
+
+/** Two phrases whose meaningful words overlap by at least this much (Jaccard) are one topic. */
+export const GROUP_SIMILARITY = 0.5
+
+/** Groups items whose phrases are near-duplicates. The first item of each group is its seed, so pass the
+ * items best first. This is THE grouping used by rankKeywords and by lib/keyword-cluster.ts. */
+export function groupBySimilarity<T>(items: T[], phraseOf: (item: T) => string): T[][] {
+  const groups: { members: T[]; sig: Set<string> }[] = []
+  for (const item of items) {
+    const sig = stems(phraseOf(item))
+    const home = groups.find((g) => jaccard(g.sig, sig) >= GROUP_SIMILARITY)
+    if (home) home.members.push(item)
+    else groups.push({ members: [item], sig })
+  }
+  return groups.map((g) => g.members)
 }
 
 function monthsUntil(date: string | null, now: Date): number | null {
@@ -162,22 +180,15 @@ function scoreOne(k: ScoreKeyword, packages: ScorePackage[], now: Date, peaks: R
  * them best first, one entry per keyword with its group's main phrase. */
 export function rankKeywords(rows: ScoreKeyword[], packages: ScorePackage[], now = new Date(), peaks: Record<string, { peak: number }> = {}): KeywordScore[] {
   const scored = rows.map((r) => scoreOne(r, packages, now, peaks)).sort((a, b) => b.score - a.score)
-  const groups: { members: typeof scored; sig: Set<string> }[] = []
-  for (const s of scored) {
-    const sig = stems(s.keyword)
-    const home = groups.find((g) => jaccard(g.sig, sig) >= 0.5)
-    if (home) home.members.push(s)
-    else groups.push({ members: [s], sig })
-  }
   const byKeyword = new Map<string, KeywordScore>()
-  for (const g of groups) {
-    const covered = g.members.some((m) => m.reasons.some((r) => /^Already (targeted|on page one)/.test(r)))
-    const primary = g.members.find((m) => m.eligible) ?? g.members[0]
-    for (const m of g.members) {
+  for (const members of groupBySimilarity(scored, (s) => s.keyword)) {
+    const covered = members.some((m) => m.reasons.some((r) => /^Already (targeted|on page one)/.test(r)))
+    const primary = members.find((m) => m.eligible) ?? members[0]
+    for (const m of members) {
       const reasons = [...m.reasons]
       const eligible = m.eligible && !covered
       if (m.eligible && covered) reasons.push('A near-duplicate phrase in its group is already covered')
-      byKeyword.set(m.keyword, { ...m, reasons, eligible, primary: primary.keyword, secondary: g.members.filter((x) => x.keyword !== primary.keyword).map((x) => x.keyword) })
+      byKeyword.set(m.keyword, { ...m, reasons, eligible, primary: primary.keyword, secondary: members.filter((x) => x.keyword !== primary.keyword).map((x) => x.keyword) })
     }
   }
   return scored.map((s) => byKeyword.get(s.keyword) as KeywordScore)

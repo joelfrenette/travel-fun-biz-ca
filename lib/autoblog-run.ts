@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
-import { dueApprovedTopics, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
+import { dueApprovedTopics, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
 import { pickStyle, pickCtaStyle, CTA_STYLES, CONTENT_STYLES, styleById, appendStyledCta, type ContentStyle } from '@/lib/content-styles'
 import { scoresFor, chooseWeighted } from '@/lib/content-performance'
@@ -223,7 +223,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
       await setTopicStatus(admin, row.id, 'used', {})
       continue
     }
-    topic = { angle: row.angle, keyword: row.keyword, why: row.why, source: row.source }
+    topic = { angle: row.angle, keyword: row.keyword, why: row.why, source: row.source, keywords: keywordSetOf(row) }
     queueRowId = row.id
     break
   }
@@ -267,7 +267,9 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // The routes that call this are killed at 300s. Compose and repair are told to wrap up by 240s from
   // now: the optional steps (FAQ/takeaways, the repair call) are skipped when too little time is left.
   const deadlineMs = Date.now() + 240_000
-  const composed = await composeFullPost(groundedAngle, topic.keyword, { style, allowedLinks, deadlineMs })
+  // The post is written for the topic's whole keyword set (primary first), not just one phrase.
+  const seedKeywords = topic.keywords?.length ? topic.keywords : [topic.keyword]
+  const composed = await composeFullPost(groundedAngle, seedKeywords, { style, allowedLinks, deadlineMs })
   if (!composed) {
     if (queueRowId) {
       const attempts = await recordComposeFailure(admin, queueRowId)
@@ -339,8 +341,10 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', { used_slug: post.slug })
   // Close the loop: the keyword this post was written for now points at it, so it is not picked again and
   // the Keyword Research and Search Rankings pages show which page serves which keyword.
-  if (keywordLed) {
-    await admin.from('keyword_research').update({ target_path: `/blog/${post.slug}`, updated_at: new Date().toISOString() }).eq('keyword', topic.keyword).eq('country', SITE_ID).is('target_path', null)
+  // The whole keyword set the post was written for points at it (an approved engine idea counts too), so
+  // the Keyword Research page moves those phrases from "shoot for" to "has a page" and then to "ranking".
+  if (keywordLed || (queueRowId && seedKeywords.length > 1)) {
+    await admin.from('keyword_research').update({ target_path: `/blog/${post.slug}`, updated_at: new Date().toISOString() }).in('keyword', seedKeywords).eq('country', SITE_ID).is('target_path', null)
   }
   if (publishing) {
     await enrollIfDue(admin, post.slug, post.title)
