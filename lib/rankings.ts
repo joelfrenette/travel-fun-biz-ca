@@ -43,7 +43,7 @@ export function trackedPathOf(pageUrl: string): string | null {
     path = pageUrl.startsWith('/') ? pageUrl : ''
   }
   path = path.replace(/\/+$/, '')
-  return /^\/(blog|packages)\/[^/]+$/.test(path) ? path : null
+  return /^\/(blog|packages|destinations)\/[^/]+$/.test(path) ? path : null
 }
 
 export interface RankPoint {

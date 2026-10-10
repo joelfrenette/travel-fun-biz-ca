@@ -119,7 +119,7 @@ export async function getQueryPagePairs(days = 28): Promise<QueryPagePair[]> {
       .map((r) => {
         let path = ''
         try {
-          path = new URL(String(r.keys?.[1] ?? '')).pathname.replace(/\/+$/, '')
+          path = new URL(String(r.keys?.[1] ?? '')).pathname.replace(/\/+$/, '') || '/'
         } catch {
           path = ''
         }
@@ -128,6 +128,46 @@ export async function getQueryPagePairs(days = 28): Promise<QueryPagePair[]> {
       .filter((r) => r.query && r.path)
     pairCache = { rows, at: Date.now() }
     return rows
+  } catch {
+    return []
+  }
+}
+
+export interface PageMetrics {
+  path: string
+  /** Impression-weighted average position over the last 28 days (lower is better). */
+  position: number
+  clicks: number
+  impressions: number
+}
+
+let pageCache: { rows: PageMetrics[]; at: number } | null = null
+
+/** Every page Google reports for this site (any page type) with its real 28-day numbers, grouped by
+ * path so a page seen under two address spellings counts once. Cached an hour; [] when Search Console is
+ * not configured or the call fails. */
+export async function getPageMetrics(days = 28): Promise<PageMetrics[]> {
+  if (!isSearchConsoleConfigured()) return []
+  if (pageCache && Date.now() - pageCache.at < CACHE_MS) return pageCache.rows
+  try {
+    const rows = await dimensionReport('page', days)
+    const byPath = new Map<string, { clicks: number; impressions: number; weighted: number }>()
+    for (const r of rows) {
+      let path = ''
+      try {
+        path = new URL(r.key).pathname.replace(/\/+$/, '') || '/'
+      } catch {
+        continue
+      }
+      const cur = byPath.get(path) ?? { clicks: 0, impressions: 0, weighted: 0 }
+      cur.clicks += r.clicks
+      cur.impressions += r.impressions
+      cur.weighted += r.position * r.impressions
+      byPath.set(path, cur)
+    }
+    const out = [...byPath].map(([path, v]) => ({ path, position: v.impressions ? Math.round((v.weighted / v.impressions) * 10) / 10 : 0, clicks: Math.round(v.clicks), impressions: Math.round(v.impressions) }))
+    pageCache = { rows: out, at: Date.now() }
+    return out
   } catch {
     return []
   }

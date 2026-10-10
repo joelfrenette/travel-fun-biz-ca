@@ -4,6 +4,54 @@ import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, TrendingUp, TrendingDown, LineChart } from "lucide-react"
 import { googlePageOf, movementOf } from "@/lib/rankings"
+import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { PAGE_TYPE_LABEL, pageTypeOf, type PageType, type SitePage } from "@/lib/site-pages"
+
+interface RankedPage extends SitePage {
+  position: number | null
+  clicks: number
+  impressions: number
+  topKeyword: string | null
+}
+
+// Same column widths for the header and every row of the "every page" table.
+const PAGE_COLS = "grid grid-cols-[minmax(0,2fr)_90px_minmax(0,1.4fr)_84px_84px_64px_80px] items-center gap-3"
+
+function AllPagesTable({ pages }: { pages: RankedPage[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <div className="min-w-[800px]">
+        <div className={`${PAGE_COLS} border-b pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>
+          <span>Page</span>
+          <span>Type</span>
+          <span>Top keyword</span>
+          <span className="text-center">Google page</span>
+          <span className="text-center">Position (1-100)</span>
+          <span className="text-right">Clicks</span>
+          <span className="text-right">Impressions</span>
+        </div>
+        {pages.map((p) => {
+          const pos = p.position != null ? Math.round(p.position) : 0
+          return (
+            <div key={p.path} className={`${PAGE_COLS} border-t py-2 first:border-t-0`}>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium" title={p.title}>{p.title}</p>
+                <p className="truncate text-xs text-muted-foreground" title={p.path}>{p.path}</p>
+              </div>
+              <Badge variant="outline" className="w-fit text-[10px]">{PAGE_TYPE_LABEL[p.type].replace(/s$/, "")}</Badge>
+              <p className="truncate text-sm text-muted-foreground" title={p.topKeyword ?? "Not reported by Google yet"}>{p.topKeyword ?? "-"}</p>
+              <span className="text-center text-xl font-bold">{pos >= 1 ? `Page ${googlePageOf(p.position as number)}` : "-"}</span>
+              <span className="text-center text-2xl font-bold">{pos >= 1 ? pos : <span className="text-sm font-normal text-muted-foreground">not ranking yet</span>}</span>
+              <span className="text-right text-sm tabular-nums">{p.clicks}</span>
+              <span className="text-right text-sm tabular-nums">{p.impressions}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 interface RankDayRow {
   day: string
@@ -100,6 +148,9 @@ export default function RankingsPage() {
   const [days, setDays] = useState<RankDayRow[]>([])
   const [queryMovers, setQueryMovers] = useState<Mover[]>([])
   const [pageMovers, setPageMovers] = useState<Mover[]>([])
+  const [pages, setPages] = useState<RankedPage[]>([])
+  // One dropdown filters all three tables by kind of page.
+  const [typeFilter, setTypeFilter] = useState<"all" | PageType>("all")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -111,12 +162,19 @@ export default function RankingsPage() {
         setDays(data.days || [])
         setQueryMovers(data.queryMovers || [])
         setPageMovers(data.pageMovers || [])
+        setPages(Array.isArray(data.pages) ? data.pages : [])
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
   }, [])
 
   const latest = days[days.length - 1]
+  const matches = (path: string | null | undefined) => typeFilter === "all" || (!!path && pageTypeOf(path) === typeFilter)
+  const visiblePages = pages
+    .filter((p) => matches(p.path))
+    .sort((a, b) => (a.position != null ? 0 : 1) - (b.position != null ? 0 : 1) || (a.position ?? 0) - (b.position ?? 0) || a.title.localeCompare(b.title))
+  const visibleQueryMovers = queryMovers.filter((m) => matches(m.other))
+  const visiblePageMovers = pageMovers.filter((m) => matches(m.key))
 
   return (
     <div>
@@ -158,13 +216,39 @@ export default function RankingsPage() {
               </div>
             )}
 
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm font-medium">Show</span>
+              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as "all" | PageType)}>
+                <SelectTrigger className="h-9 w-[220px] text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All pages</SelectItem>
+                  <SelectItem value="package">Packages ({pages.filter((p) => p.type === "package").length})</SelectItem>
+                  <SelectItem value="destination">Destinations ({pages.filter((p) => p.type === "destination").length})</SelectItem>
+                  <SelectItem value="blog">Blog posts ({pages.filter((p) => p.type === "blog").length})</SelectItem>
+                  <SelectItem value="home">Home page</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">Every package, destination and blog page is tracked, ranking or not.</span>
+            </div>
+
+            <Card>
+              <CardContent className="p-4">
+                <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Every page ({visiblePages.length})</h2>
+                {visiblePages.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No pages of this kind yet.</p>
+                ) : (
+                  <AllPagesTable pages={visiblePages} />
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardContent className="p-4">
                 <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Biggest keyword movers</h2>
-                {queryMovers.length === 0 ? (
+                {visibleQueryMovers.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Not enough history yet - check back after a few more days of snapshots.</p>
                 ) : (
-                  <MoverTable movers={queryMovers} nameLabel="Keyword" otherLabel="Page" emptyOther="Not reported by Google yet" />
+                  <MoverTable movers={visibleQueryMovers} nameLabel="Keyword" otherLabel="Page" emptyOther="Not reported by Google yet" />
                 )}
               </CardContent>
             </Card>
@@ -172,10 +256,10 @@ export default function RankingsPage() {
             <Card>
               <CardContent className="p-4">
                 <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Biggest page movers</h2>
-                {pageMovers.length === 0 ? (
+                {visiblePageMovers.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Not enough history yet - check back after a few more days of snapshots.</p>
                 ) : (
-                  <MoverTable movers={pageMovers} nameLabel="Page" otherLabel="Top keyword" emptyOther="Not reported by Google yet" />
+                  <MoverTable movers={visiblePageMovers} nameLabel="Page" otherLabel="Top keyword" emptyOther="Not reported by Google yet" />
                 )}
               </CardContent>
             </Card>

@@ -3,6 +3,7 @@ import { cronUnauthorized } from '@/lib/cron-auth'
 import { withCronHeartbeat } from '@/lib/cron-heartbeat'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { takeRankingSnapshot } from '@/lib/rankings-snapshot'
+import { connectKeywordsToRankingPages } from '@/lib/keyword-pages'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
 // CRON_SECRET must be set (cronUnauthorized 503s until then), and Search Console itself must be
@@ -18,7 +19,16 @@ async function handle(request: Request) {
   if (denied) return denied
   try {
     const note = await takeRankingSnapshot(getSupabaseAdmin())
-    return NextResponse.json({ ok: true, result: note })
+    // Then connect every keyword that has no target page yet to the page Google really shows for it.
+    // A failure here never fails the snapshot itself.
+    let connected = ''
+    try {
+      const n = await connectKeywordsToRankingPages(getSupabaseAdmin())
+      if (n) connected = `; connected ${n} keyword${n === 1 ? '' : 's'} to the page they rank on`
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] keyword connection failed:', e)
+    }
+    return NextResponse.json({ ok: true, result: `${note}${connected}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found

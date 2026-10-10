@@ -6,10 +6,10 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, Search, Trash2, ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, Plus, Sparkles } from "lucide-react"
 import type { KeywordRow, KeywordSuggestion, LookupResult } from "@/lib/keywords"
-import type { DbPackage } from "@/lib/packages"
+import { PAGE_TYPE_LABEL, suggestPage, type PageType, type SitePage } from "@/lib/site-pages"
 
 const NO_TARGET = "__none__"
 type SortField = "keyword" | "volume" | "cpc" | "competition" | "gsc_impressions" | "bing_impressions"
@@ -39,7 +39,11 @@ export default function KeywordsPage() {
   const [rows, setRows] = useState<KeywordRow[]>([])
   const [balanceUsd, setBalanceUsd] = useState<number | null>(null)
   const [configured, setConfigured] = useState(true)
-  const [packages, setPackages] = useState<Pick<DbPackage, "id" | "name" | "slug" | "status">[]>([])
+  // Every package, destination and blog page (the target dropdown), and the page Google really shows
+  // for each keyword (keyed by lowercase keyword).
+  const [pages, setPages] = useState<SitePage[]>([])
+  const [rankedOn, setRankedOn] = useState<Record<string, string>>({})
+  const [connecting, setConnecting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [input, setInput] = useState("")
   const [country, setCountry] = useState<"ca" | "us">("ca")
@@ -66,16 +70,15 @@ export default function KeywordsPage() {
   const [savingSuggestion, setSavingSuggestion] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/admin/keywords", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
-      fetch("/api/admin/packages", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
-    ])
-      .then(([kw, pk]) => {
+    fetch("/api/admin/keywords", { headers: authHeaders() })
+      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+      .then((kw) => {
         if (!kw.ok) throw new Error(kw.data.error || "Could not load keywords")
         setRows(kw.data.keywords || [])
         setBalanceUsd(kw.data.balanceUsd ?? null)
         setConfigured(kw.data.configured !== false)
-        if (pk.ok) setPackages(pk.data.packages || [])
+        setPages(Array.isArray(kw.data.pages) ? kw.data.pages : [])
+        setRankedOn(kw.data.rankedOn && typeof kw.data.rankedOn === "object" ? kw.data.rankedOn : {})
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -233,10 +236,27 @@ export default function KeywordsPage() {
     else setError((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
   }
 
-  const targetOptions = [
-    { value: "/", label: "Home page" },
-    ...packages.map((p) => ({ value: `/packages/${p.slug}`, label: `${p.name}${p.status !== "published" ? ` (${p.status})` : ""}` })),
-  ]
+  // The dropdown lists EVERY page of the site, grouped: home, packages, destinations, blog posts.
+  const pageByPath = new Map(pages.map((p) => [p.path, p]))
+  const labelOf = (p: SitePage) => `${p.title}${p.status && p.status !== "published" ? ` (${p.status})` : ""}`
+  const groups = (["home", "package", "destination", "blog"] as PageType[]).map((type) => ({ type, items: pages.filter((p) => p.type === type) })).filter((g) => g.items.length)
+  // A target saved earlier that is not in the list (a page since removed) still shows, so it is never hidden.
+  const orphanTargets = Array.from(new Set(rows.map((r) => r.target_path).filter((t): t is string => !!t && !pageByPath.has(t))))
+
+  async function connectAll() {
+    setConnecting(true); setError(""); setStatus("")
+    try {
+      const res = await fetch("/api/admin/keywords", { method: "POST", headers: authHeaders(), body: JSON.stringify({ connectAll: true }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      if (Array.isArray(data.keywords)) setRows(data.keywords)
+      setStatus(data.connected ? `Connected ${data.connected} keyword${data.connected === 1 ? "" : "s"} to the page they rank on.` : "Nothing to connect: every keyword that ranks already has a target page.")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not connect")
+    } finally {
+      setConnecting(false)
+    }
+  }
   const pageCounts = rows.reduce<Record<string, number>>((acc, r) => { if (r.target_path) acc[r.target_path] = (acc[r.target_path] || 0) + 1; return acc }, {})
   const searchDataAvailable = !!(searchConfigured?.searchConsole || searchConfigured?.bing)
   const lastSearchFetch = rows.reduce<string | null>((latest, r) => {
@@ -255,6 +275,9 @@ export default function KeywordsPage() {
             <p className="text-sm text-muted-foreground">Search volume from DataForSEO, your real Google and Bing numbers, and the page each phrase should rank for.</p>
           </div>
           <div className="flex items-center gap-3 text-sm">
+            <Button variant="outline" size="sm" onClick={connectAll} disabled={connecting || rows.length === 0} title="Set the target page of every keyword that has none to the page Google really shows for it. Pages you chose by hand are never changed. This also runs by itself every day.">
+              {connecting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Search className="mr-1 h-4 w-4" />}Connect keywords to their pages
+            </Button>
             <Button variant="outline" size="sm" onClick={refreshSearchData} disabled={refreshing || !searchDataAvailable || rows.length === 0} title={searchDataAvailable ? "Pull the last 28 days from Search Console and Bing" : "Set up Search Console or Bing first"}>
               {refreshing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}Refresh search data
             </Button>
@@ -426,6 +449,7 @@ export default function KeywordsPage() {
                   <th className="p-3 text-left">12-month trend</th>
                   <th className="p-3 text-right" title="Search Console, last 28 days: impressions / clicks / average position"><button onClick={() => toggleSort("gsc_impressions")}>Google 28d<SortIcon field="gsc_impressions" /></button></th>
                   <th className="p-3 text-right" title="Bing Webmaster: impressions on Bing in the latest month"><button onClick={() => toggleSort("bing_impressions")}>Bing / mo<SortIcon field="bing_impressions" /></button></th>
+                  <th className="p-3 text-left" title="The page Google really shows for this phrase (Search Console, last 28 days)">Ranks on (Google)</th>
                   <th className="p-3 text-left">Target page</th>
                   <th className="w-10 p-3"></th>
                 </tr>
@@ -450,13 +474,45 @@ export default function KeywordsPage() {
                       )}
                     </td>
                     <td className="p-3 text-right tabular-nums">{row.bing_impressions == null ? "—" : row.bing_impressions.toLocaleString()}</td>
+                    <td className="p-3 text-xs">
+                      {(() => {
+                        const ranked = rankedOn[row.keyword.toLowerCase()]
+                        if (ranked) {
+                          const match = row.target_path === ranked
+                          return (
+                            <div className="space-y-1">
+                              <div className="max-w-[220px] truncate font-medium" title={ranked}>{pageByPath.get(ranked)?.title ?? ranked}</div>
+                              {match ? <Badge variant="outline" className="text-[10px]">target matches</Badge> : (
+                                <Button variant="outline" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setTarget(row, ranked)} disabled={!!saving[row.id]}>{row.target_path ? "Different from target: use this" : "Use as target"}</Button>
+                              )}
+                            </div>
+                          )
+                        }
+                        const suggestion = row.target_path ? null : suggestPage(row.keyword, pages)
+                        return suggestion ? (
+                          <div className="space-y-1">
+                            <div className="text-muted-foreground">Not ranking yet. Best fit:</div>
+                            <div className="max-w-[220px] truncate font-medium" title={suggestion.path}>{suggestion.title}</div>
+                            <Button variant="outline" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setTarget(row, suggestion.path)} disabled={!!saving[row.id]}>Use suggestion</Button>
+                          </div>
+                        ) : <span className="text-muted-foreground">Not ranking yet</span>
+                      })()}
+                    </td>
                     <td className="p-3">
                       <Select value={row.target_path || NO_TARGET} onValueChange={(v) => setTarget(row, v === NO_TARGET ? null : v)} disabled={!!saving[row.id]}>
-                        <SelectTrigger className="h-8 w-[220px] text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
+                        <SelectTrigger className="h-8 w-[240px] text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent className="max-h-[360px]">
                           <SelectItem value={NO_TARGET}>Not assigned</SelectItem>
-                          {targetOptions.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>{o.label}{pageCounts[o.value] ? ` · ${pageCounts[o.value]}` : ""}</SelectItem>
+                          {groups.map((g) => (
+                            <SelectGroup key={g.type}>
+                              <SelectLabel>{PAGE_TYPE_LABEL[g.type]} ({g.items.length})</SelectLabel>
+                              {g.items.map((p) => (
+                                <SelectItem key={p.path} value={p.path}>{labelOf(p)}{pageCounts[p.path] ? ` · ${pageCounts[p.path]}` : ""}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          ))}
+                          {orphanTargets.map((t) => (
+                            <SelectItem key={t} value={t}>{t}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
