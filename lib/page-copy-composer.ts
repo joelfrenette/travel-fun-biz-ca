@@ -96,7 +96,7 @@ const NO_FABRICATION = `Never claim personal experience, a specific past trip, a
 
 const RULES = `Rules, all mandatory:
 - Write no digits (0-9) at all unless the exact same number appears in the GROUNDING. Keep other amounts vague and in words ("a couple of days", "most travellers"). State no prices, dates, availability, distances, temperatures, rainfall, counts or other exact statistics.
-- Say nothing about weather, temperature, rain, humidity, hurricanes, snow, crowds, prices by season or "high" or "low" season. The only seasonal fact you may state is when the trips in the GROUNDING run (the months listed there), and you must say those are the trips we list now, not the only time to go.
+- Say nothing about weather, temperature, rain, humidity, hurricanes, snow, crowds, prices by season, "high", "low", "peak" or "shoulder" season, or the season words winter, summer, spring, autumn and fall (name the months from the GROUNDING instead). Do not call anything dry, wet, mild, hot, cold, warm, sunny, busy or quiet. The only seasonal fact you may state is when the trips in the GROUNDING run (the months listed there), and you must say those are the trips we list now, not the only time to go.
 - Never use these words about a place or trip: best (except in the phrase "best time to visit"), number one, #1, award-winning, awards, 5-star, five-star, any star rating, top-rated, world-class, finest, luxury, iconic, famous, renowned, must-see, most popular, biggest, largest.
 - Do not say one destination or trip is better, cheaper, safer or nicer than another. Describe how they differ and who each suits, using only the GROUNDING.
 - The agency may only offer help ("we can help you plan"). Never describe what the agency has done, or does regularly, or what its travellers said or did.
@@ -252,11 +252,25 @@ export function ungroundedWordCounts(text: string, grounding: string): string[] 
   return [...new Set(out)]
 }
 
-const MONTH_WORD = /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\b/
-const SEASON_WORD = /\bseasons?\b/i
-const WEATHER_OR_CROWD = /\b(?:rain|rainy|rainfall|monsoon|hurricanes?|typhoons?|cyclones?|humid|humidity|hot|heat|heatwave|cold|chilly|cool|warm|warmest|snow|snowy|sunny|sunshine|temperatures?|weather|climate|crowds?|crowded|busy|busiest|quiet|quieter|peak|shoulder|off-season|dry)\b/i
+// Weather, climate, crowd and season words. Checked in ALL prose (intro, FAQ, takeaways, meta text) with no other
+// condition: the page may state when the listed trips run (month names are not in this list, so copying them from
+// the grounding is fine) but never what the weather or the crowds are like. "warm welcome" is a known false
+// positive; the result is only a draft.
+const WEATHER_OR_CROWD = /\b(?:dr(?:y|ier|iest)|wet(?:ter|test)?|rain(?:s|y|ier|iest|fall)?|humid(?:ity)?|mild|hot(?:ter|test)?|heat(?:wave)?|cold(?:er|est)?|chilly|cool(?:er)?|warm(?:er|est|th)?|sunn(?:y|ier|iest)|sunshine|storms?|stormy|hurricanes?|typhoons?|cyclones?|monsoons?|snow(?:y)?|temperatures?|weather|climate|crowd(?:s|ed|ier)?|busy|busier|busiest|quiet(?:er|est)?|(?:peak|low|high|shoulder) seasons?|off-season|winter|summer|spring|autumn|fall)\b/i
 // A verdict about which place is better. The pages say how destinations differ, never which one wins.
-const VERDICT = /\b(?:is|are|was|were) (?:the )?(?:better|cheaper|safer|nicer|superior|worse)\b|\b(?:better|cheaper|safer|nicer) (?:choice|option|value|deal|pick|bet)\b|\bwins?\b|\bhands down\b|\bno contest\b|\bbeats\b/i
+const VERDICT = /\b(?:is|are|was|were) (?:the )?(?:better|cheaper|safer|nicer|superior|worse)\b|\b(?:better|cheaper|safer|nicer) (?:choice|option|value|deal|pick|bet|fit)\b|\bwins?\b|\bhands down\b|\bno contest\b|\bbeats\b|\bedges\b|\boutshines?\b|\btops\b|\bstronger\b|\bahead of\b|\bbetter suited\b|\bthe better choice\b|\bthe clear winner\b/i
+// The first sentence must not say one named destination is better, more or less than something.
+const COMPARATIVE = /\b(?:better|more|less|worse)\b/i
+
+/** Slugs of the /packages/<slug> trips a piece of markdown links to, without duplicates. */
+export function linkedPackageSlugs(markdown: string): string[] {
+  const out: string[] = []
+  for (const path of internalLinksIn(markdown)) {
+    const m = /^\/packages\/([^/]+)$/.exec(path)
+    if (m && !out.includes(m[1])) out.push(m[1])
+  }
+  return out
+}
 
 function sentencesOfText(text: string): string[] {
   return text.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean)
@@ -329,8 +343,11 @@ export function pageCopyBlockers(copy: ComposedPageCopy, ctx: CopyGateContext): 
   if (RECENCY_PATTERNS.some((p) => p.test(all))) blockers.push('unverifiable recency claim')
   if (COUNT_CLAIM.test(all)) blockers.push('amenity or capacity count')
   if (SCHEDULE_PATTERN.test(all)) blockers.push('itinerary or schedule stated as fact')
-  const weatherSentence = sentencesOfText(prose).find((s) => (MONTH_WORD.test(s) || SEASON_WORD.test(s)) && WEATHER_OR_CROWD.test(s))
-  if (weatherSentence) blockers.push(`weather, crowd or season claim: "${weatherSentence.slice(0, 80)}"`)
+  const weatherWord = WEATHER_OR_CROWD.exec(prose)
+  if (weatherWord) blockers.push(`weather, crowd or season word: "${weatherWord[0]}"`)
+  if (firstSentence && COMPARATIVE.test(firstSentence) && ctx.destinations.some((d) => firstSentence.toLowerCase().includes(d.split(',')[0].trim().toLowerCase()))) {
+    blockers.push('the first sentence compares a destination as better, more or less')
+  }
 
   // The agency may offer help, never describe its own history.
   const claims = agencyClaims([copy.intro, faqText, takeText].join('\n'))
@@ -353,10 +370,15 @@ export function pageCopyBlockers(copy: ComposedPageCopy, ctx: CopyGateContext): 
   return blockers
 }
 
-/** Whether gate-clean copy goes live, and if not, why it is held. These pages name no hotels, so a clean result
- * publishes by itself. Pure, so it can be tested. */
-export function copyPublishDecision(blockers: string[]): { publish: boolean; note: string | null } {
-  return blockers.length ? { publish: false, note: blockers.join('; ') } : { publish: true, note: null }
+export type PageCopyPublishMode = 'draft' | 'publish'
+
+/** Whether gate-clean copy goes live, and if not, why it is held. Blockers always hold it. In 'draft' mode (the
+ * default) even clean copy is held for review; only 'publish' lets a clean result go live. These pages name no
+ * hotels, so there is no per-kind rule on top of the mode. Pure, so it can be tested. */
+export function copyPublishDecision(blockers: string[], mode: PageCopyPublishMode): { publish: boolean; note: string | null } {
+  if (blockers.length) return { publish: false, note: blockers.join('; ') }
+  if (mode !== 'publish') return { publish: false, note: 'held for review (page_copy_publish_mode=draft)' }
+  return { publish: true, note: null }
 }
 
 export { MAX_BRIEF_PACKAGES_PER_DESTINATION }

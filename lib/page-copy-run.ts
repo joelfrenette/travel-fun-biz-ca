@@ -1,17 +1,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getSetting, setSetting } from '@/lib/app-settings'
+import { getSetting, getSettingStrict, setSetting } from '@/lib/app-settings'
 import { isAiConfigured } from '@/lib/ai-verify'
 import { pingIndexNow } from '@/lib/indexnow'
 import { getComparePage } from '@/lib/compare-destinations'
 import { getBestTimeToVisitPage } from '@/lib/best-time-to-visit'
 import { getPublishedGuide } from '@/lib/guides'
 import type { DbPackage } from '@/lib/packages'
-import { composePageCopy, copyGroundingText, copyPublishDecision, monthRange, pageCopyBlockers, MAX_BRIEF_PACKAGES_PER_DESTINATION, type CopyBriefDestination, type PageCopyBrief } from '@/lib/page-copy-composer'
-import { clearCopyFailure, readCopyFailures, readCopyFailuresChecked, recentCopyFailureCount, recordCopyFailure, MAX_COPY_ATTEMPTS, COPY_BREAKER_FAILURES, COPY_BREAKER_HOURS } from '@/lib/page-copy-failures'
+import { composePageCopy, copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, pageCopyBlockers, MAX_BRIEF_PACKAGES_PER_DESTINATION, type CopyBriefDestination, type PageCopyBrief, type PageCopyPublishMode } from '@/lib/page-copy-composer'
+import { STALE_COPY_KEY, clearCopyFailure, readCopyFailures, readCopyFailuresChecked, recentCopyFailureCount, recordCopyFailure, MAX_COPY_ATTEMPTS, COPY_BREAKER_FAILURES, COPY_BREAKER_HOURS } from '@/lib/page-copy-failures'
 import {
   getPageCopyAdmin,
   listPageCopyCandidates,
   pageCopyCreatedSince,
+  staleLinkedSlugs,
   pickNextCopyCandidate,
   savePageCopy,
   type PageCopy,
@@ -135,6 +136,65 @@ export async function buildCopyBrief(admin: SupabaseClient, cand: Pick<PageCopyC
 }
 
 // ---------------------------------------------------------------------------------------------------
+// Publish mode: what happens to copy that passed the quality gate
+// ---------------------------------------------------------------------------------------------------
+
+export const PAGE_COPY_PUBLISH_MODE_KEY = 'page_copy_publish_mode'
+
+/** `app_settings.page_copy_publish_mode`: 'draft' (the default, also when unset or unreadable) saves every page as
+ * a draft for review; 'publish' lets copy that passed the gate go live. Strict equality, same as guides. */
+export async function getPageCopyPublishMode(admin: SupabaseClient): Promise<PageCopyPublishMode> {
+  const { value, error } = await getSettingStrict(admin, PAGE_COPY_PUBLISH_MODE_KEY)
+  return !error && value === 'publish' ? 'publish' : 'draft'
+}
+
+export async function setPageCopyPublishMode(admin: SupabaseClient, mode: string): Promise<{ error?: string }> {
+  if (mode !== 'draft' && mode !== 'publish') return { error: 'mode must be "draft" or "publish"' }
+  return setSetting(admin, PAGE_COPY_PUBLISH_MODE_KEY, mode)
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Published copy that links to a trip the page no longer lists (checked about once a day)
+// ---------------------------------------------------------------------------------------------------
+
+const STALE_CHECK_EVERY_MS = 24 * 3_600_000
+
+/** Paths of published copy whose intro links to a trip that is no longer on the page. The page itself already hides
+ * such copy at render time; this list is what Needs attention shows so someone rewrites it. */
+export async function findStaleCopyPaths(admin: SupabaseClient): Promise<string[]> {
+  const { data, error } = await admin.from('page_copy').select('path, page_type, linked_slugs').eq('status', 'published')
+  if (error) throw new Error(`could not read page copy: ${error.message}`)
+  const stale: string[] = []
+  for (const row of (data ?? []) as { path: string; page_type: PageCopyType; linked_slugs: string[] | null }[]) {
+    if (!row.linked_slugs?.length) continue
+    let current: string[] | null = null
+    if (row.page_type === 'compare') {
+      const page = await getComparePage(row.path.replace(/^\/compare\//, ''))
+      if (page) current = [...page.a.packages, ...page.b.packages].map((p) => p.slug)
+    } else {
+      const page = await getBestTimeToVisitPage(row.path.replace(/^\/best-time-to-visit\//, ''))
+      if (page) current = page.packages.map((p) => p.slug)
+    }
+    if (current && staleLinkedSlugs(row.linked_slugs, current).length) stale.push(row.path)
+  }
+  return stale
+}
+
+/** Runs findStaleCopyPaths at most once a day and remembers the answer for lib/issues.ts. Never throws. */
+async function refreshStaleCopyIfDue(admin: SupabaseClient): Promise<void> {
+  try {
+    const last = await getSetting(admin, STALE_COPY_KEY)
+    if (last) {
+      const at = Date.parse((JSON.parse(last) as { at?: string }).at ?? '')
+      if (!Number.isNaN(at) && Date.now() - at < STALE_CHECK_EVERY_MS) return
+    }
+    await setSetting(admin, STALE_COPY_KEY, JSON.stringify({ at: new Date().toISOString(), paths: await findStaleCopyPaths(admin) }))
+  } catch {
+    // a failed check just tries again on the next pass
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
 // Writing one page
 // ---------------------------------------------------------------------------------------------------
 
@@ -184,7 +244,7 @@ export async function writePageCopy(
     const copy = composed.copy
 
     blockers = pageCopyBlockers(copy, { grounding: copyGroundingText(brief), destinations: brief.destinations.map((d) => d.name), names: brief.links.map((l) => l.label), allowedPaths })
-    const decision = copyPublishDecision(blockers)
+    const decision = copyPublishDecision(blockers, await getPageCopyPublishMode(admin))
     publishing = decision.publish
 
     const stop = opts.beforeSave ? await opts.beforeSave() : null
@@ -197,6 +257,7 @@ export async function writePageCopy(
       intro: copy.intro,
       faq: copy.faq,
       key_takeaways: copy.key_takeaways,
+      linked_slugs: linkedPackageSlugs(copy.intro),
       meta_title: copy.meta_title,
       meta_description: copy.meta_description,
       og_title: copy.og_title,
@@ -254,6 +315,7 @@ export async function pickNextPageCopy(admin: SupabaseClient, candidates: PageCo
  * table, failing closed), one page per call, and none at all while the failure breaker is tripped. The caller has
  * already checked that Autopilot is on and not paused. */
 export async function runPageCopyStep(admin: SupabaseClient): Promise<{ ok: boolean; note: string }> {
+  await refreshStaleCopyIfDue(admin)
   const { perDay, perWeek } = await getPageCopyCaps(admin)
   if (perDay === 0 || perWeek === 0) return { ok: true, note: 'page copy is switched off (a cap is 0)' }
   if (!isAiConfigured()) return { ok: true, note: 'AI writing is not configured, so no page copy' }

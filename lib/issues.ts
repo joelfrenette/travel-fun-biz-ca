@@ -8,7 +8,7 @@ import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { getProvider, getGhlAccounts } from '@/lib/social-provider'
 import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
-import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS } from '@/lib/page-copy-failures'
+import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -141,6 +141,22 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
       fix: `A page is skipped after ${MAX_COPY_ATTEMPTS} failed tries so it cannot keep spending AI credits. Check ANTHROPIC_API_KEY in Vercel; click Dismiss to let them be tried again.`,
       actions: [{ label: 'Dismiss', kind: 'dismiss-page-copy' }],
     })
+  }
+
+  // Published page copy that links to a trip its page no longer lists (the page already hides it; someone should rewrite it).
+  try {
+    const stale = (JSON.parse((await getSetting(admin, STALE_COPY_KEY)) ?? 'null') as { paths?: string[] } | null)?.paths ?? []
+    if (Array.isArray(stale) && stale.length) {
+      issues.push({
+        id: 'system:page-copy-stale',
+        area: 'system',
+        title: `Page copy refers to a trip no longer listed (${stale.length} page${stale.length === 1 ? '' : 's'})`,
+        detail: stale.join(' | '),
+        fix: 'Those pages are showing without their written intro until it is rewritten. Delete the copy on the Autopilot page and click "Write one now".',
+      })
+    }
+  } catch {
+    // an unreadable note is not worth an alert
   }
 
   // Posts GoHighLevel accepted and then failed to publish (the network's rejection arrives later), for

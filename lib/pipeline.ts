@@ -39,7 +39,7 @@ const TIME_BUDGET_MS = 200_000
 // The guides step can use about 140 seconds (two AI calls), the route allows 300, so it must start before this.
 const GUIDES_START_BY_MS = 100_000
 // The page copy step makes one AI call (80 second limit), so it must start before this.
-const COPY_START_BY_MS = 90_000
+const COPY_START_BY_MS = 60_000
 
 export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 

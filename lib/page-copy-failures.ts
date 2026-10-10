@@ -8,6 +8,9 @@ import { getSetting, getSettingStrict, setSetting } from '@/lib/app-settings'
 export const COPY_FAILURES_KEY = 'page_copy_compose_failures'
 // Every failure time, newest last, NOT cleared by a later success. This is what the breaker counts.
 export const COPY_FAILURE_LOG_KEY = 'page_copy_failure_log'
+/** JSON {at, paths}: published copy that links to a trip its page no longer lists, from the daily check in
+ * lib/page-copy-run.ts. lib/issues.ts turns a non-empty list into a "Needs attention" item. */
+export const STALE_COPY_KEY = 'page_copy_stale_paths'
 export const MAX_COPY_ATTEMPTS = 2
 /** This many failures in the last COPY_BREAKER_HOURS pauses the step before any AI call. */
 export const COPY_BREAKER_FAILURES = 3

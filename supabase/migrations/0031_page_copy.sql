@@ -12,6 +12,9 @@ create table if not exists public.page_copy (
   intro text not null default '',
   faq jsonb not null default '[]'::jsonb,
   key_takeaways text[] not null default '{}',
+  -- Slugs of the /packages/<slug> trips the intro links to. At render time, if any is no longer among the
+  -- page's current trips, the page shows no copy at all (see lib/page-copy-render.ts).
+  linked_slugs text[] not null default '{}',
   meta_title text,
   meta_description text,
   og_title text,

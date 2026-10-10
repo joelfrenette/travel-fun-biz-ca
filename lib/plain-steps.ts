@@ -109,6 +109,17 @@ export function plainAction(i: Issue): PlainAction {
       paste,
     }
   }
+  if (i.id === 'system:page-copy-stale') {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'A Compare or Best time to visit page has written text that mentions a trip you no longer list. The site hides that text for now, so visitors never see the old trip.',
+      steps: ['Open the Content Autopilot page with the link below.', 'Read the grey line. It lists the page addresses.', 'In the page copy card, find each of those addresses and click "Delete" on its row.', 'Click "Write one now" so a new intro is written from the trips you list today.', 'If you have turned the trip back on, you can skip this: the problem clears itself within a day.'],
+      url: autopilot(i.id),
+      urlLabel: 'Open this problem',
+      paste,
+    }
+  }
   if (i.id === 'system:leads-not-forwarded') {
     return {
       id: i.id,

@@ -1,7 +1,7 @@
 // Quick self-check for the compare and best-time page copy gate and the candidate rotation (no network, no database).
 // Run: pnpm dlx tsx scripts/check-page-copy.ts
-import { copyGroundingText, copyPublishDecision, monthRange, normalizePageCopy, pageCopyBlockers, ungroundedWordCounts, type ComposedPageCopy, type PageCopyBrief, type CopyGateContext } from '../lib/page-copy-composer'
-import { pickNextCopyCandidate, pageTypeOfPath, type PageCopyCandidate } from '../lib/page-copy'
+import { copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, normalizePageCopy, pageCopyBlockers, ungroundedWordCounts, type ComposedPageCopy, type PageCopyBrief, type CopyGateContext } from '../lib/page-copy-composer'
+import { pickNextCopyCandidate, pageTypeOfPath, staleLinkedSlugs, type PageCopyCandidate } from '../lib/page-copy'
 
 let failed = 0
 function check(label: string, ok: boolean) {
@@ -53,7 +53,10 @@ const has = (list: string[], re: RegExp) => list.some((b) => re.test(b))
 // --- the baseline passes ---
 const base = pageCopyBlockers(good, ctx)
 check(`clean copy has no blockers (${base.join('; ') || 'none'})`, base.length === 0)
-check('clean copy publishes', copyPublishDecision(base).publish === true)
+check('clean copy publishes in publish mode', copyPublishDecision(base, 'publish').publish === true)
+check('clean copy is held in draft mode, with the standard note', (() => { const d = copyPublishDecision(base, 'draft'); return d.publish === false && d.note === 'held for review (page_copy_publish_mode=draft)' })())
+check('blockers win over draft mode (the real reasons are kept)', (() => { const d = copyPublishDecision(['em dash present'], 'draft'); return d.publish === false && d.note === 'em dash present' })())
+check('an unknown mode behaves as draft', copyPublishDecision([], 'oops' as unknown as 'draft').publish === false)
 
 // --- numbers ---
 check('grounded digit (7-night) is allowed', blockersOf({ intro: goodIntro.replace('for the islands', 'for a 7-night trip') }).length === 0)
@@ -108,7 +111,39 @@ check('OG title over 60 characters is blocked by the gate', has(blockersOf({ og_
 const longOg = normalizePageCopy({ ...good, og_title: 'Italy or Tahiti, which trip fits you best this year, a long honest look', og_description: `${'Two destinations and two kinds of trip. '.repeat(5)}` }, brief)
 check('OG lengths are repaired (title <= 60, description <= 110)', longOg.og_title.length <= 60 && longOg.og_description.length <= 110 && longOg.og_title.length > 0)
 check('meta title is replaced when it does not name the destination', normalizePageCopy({ ...good, meta_title: 'Travel with us' }, brief).meta_title === 'Italy vs Tahiti')
-check('a held copy is a draft with notes', (() => { const d = copyPublishDecision(['em dash present']); return d.publish === false && d.note === 'em dash present' })())
+check('a held copy is a draft with notes', (() => { const d = copyPublishDecision(['em dash present'], 'publish'); return d.publish === false && d.note === 'em dash present' })())
+
+// --- weather and crowd words: blocked anywhere, no month or season needed ---
+const weatherCases: [string, string][] = [
+  ['dry', 'The islands are dry and pleasant.'], ['drier', 'It is drier inland.'], ['wet', 'Expect it to be wet.'], ['rain', 'Bring a coat for the rain.'],
+  ['rainy', 'A rainy stretch.'], ['humid', 'It can feel humid.'], ['mild', 'Mild days.'], ['hot', 'It gets hot.'], ['hottest', 'The hottest part.'],
+  ['cold', 'A cold coast.'], ['colder', 'It is colder up north.'], ['warm', 'A warm coast.'], ['warmer', 'It is warmer there.'], ['sunny', 'A sunny stay.'],
+  ['storm', 'A storm may pass.'], ['hurricane', 'Hurricane risk.'], ['crowds', 'Fewer crowds.'], ['crowded', 'It feels crowded.'], ['busy', 'A busy port.'],
+  ['busier', 'A busier town.'], ['quiet', 'A quiet bay.'], ['quieter', 'A quieter week.'], ['peak season', 'It is peak season then.'],
+  ['low season', 'A low season stay.'], ['high season', 'High season rates.'], ['shoulder season', 'A shoulder season trip.'],
+  ['winter', 'A winter escape.'], ['summer', 'A summer trip.'], ['spring', 'A spring break.'], ['autumn', 'An autumn trip.'], ['fall', 'A fall getaway.'],
+]
+for (const [word, sentence] of weatherCases) {
+  check(`weather or season word blocked: ${word}`, has(blockersOf({ intro: `${goodIntro} ${sentence}` }), /weather, crowd or season word/))
+}
+check('a weather word in the FAQ is blocked', has(blockersOf({ faq: [...good.faq.slice(0, 2), { q: 'Is it hot?', a: 'It depends.' }] }), /weather, crowd or season word/))
+check('a weather word in a takeaway is blocked', has(blockersOf({ key_takeaways: ['A quiet trip.', 'Two.', 'Three.'] }), /weather, crowd or season word/))
+check('a month copied from the grounding is fine', blockersOf({ intro: goodIntro.replace('for the islands', 'for the islands, which run in September') }).length === 0)
+check('"warm welcome" is a known false positive (held as a draft)', has(blockersOf({ intro: `${goodIntro} Expect a warm welcome.` }), /weather, crowd or season word/))
+
+// --- verdicts ---
+for (const phrase of ['Italy edges Tahiti.', 'Tahiti outshines Italy.', 'Italy tops the list.', 'Tahiti is stronger.', 'Italy is ahead of Tahiti.', 'Italy is better suited to families.', 'Italy wins out.', 'Italy beats Tahiti.', 'Italy is the better choice.', 'Tahiti is the clear winner.']) {
+  check(`verdict blocked: ${phrase}`, has(blockersOf({ intro: `${goodIntro} ${phrase}` }), /verdict/))
+}
+check('a comparative first sentence about a named destination is blocked', has(blockersOf({ intro: goodIntro.replace('Italy and Tahiti suit different kinds of trips, and the trips we list for each show how.', 'Italy offers more variety than the other trip we list.') }), /first sentence compares/))
+check('a comparative later in the intro is not a first-sentence block', !has(blockersOf({ intro: `${goodIntro} Some people want more time.` }), /first sentence compares/))
+
+// --- stale links at render time ---
+check('linkedPackageSlugs lists the package links only', JSON.stringify(linkedPackageSlugs(goodIntro)) === JSON.stringify(['rome-highlights']))
+check('linkedPackageSlugs removes duplicates', linkedPackageSlugs('[a](/packages/x) and [b](/packages/x) and [c](/destinations/y)').length === 1)
+check('a copy whose linked trips are all still listed is not stale', staleLinkedSlugs(['rome-highlights'], ['rome-highlights', 'tahiti-escape']).length === 0)
+check('a copy linking to an unlisted trip is stale', JSON.stringify(staleLinkedSlugs(['rome-highlights', 'gone-trip'], ['rome-highlights'])) === JSON.stringify(['gone-trip']))
+check('a legacy row with no linked slugs is not stale', staleLinkedSlugs(null, ['a']).length === 0)
 
 // --- helpers ---
 check('monthRange: one month', monthRange('2027-04-10', '2027-04-17') === 'April')

@@ -23,6 +23,8 @@ export interface PageCopy {
   intro: string
   faq: PageCopyFaq[]
   key_takeaways: string[]
+  /** Slugs of the trips the intro links to (/packages/<slug>). */
+  linked_slugs: string[]
   meta_title: string | null
   meta_description: string | null
   og_title: string | null
@@ -38,7 +40,7 @@ export interface PageCopy {
 /** What a visitor gets: no admin notes, no source. */
 export type PublicPageCopy = Omit<PageCopy, 'quality_notes' | 'source'>
 
-const PUBLIC_COLUMNS = 'id, path, page_type, intro, faq, key_takeaways, meta_title, meta_description, og_title, og_description, primary_keyword, status, created_at, updated_at'
+const PUBLIC_COLUMNS = 'id, path, page_type, intro, faq, key_takeaways, linked_slugs, meta_title, meta_description, og_title, og_description, primary_keyword, status, created_at, updated_at'
 const ADMIN_COLUMNS = `${PUBLIC_COLUMNS}, source, quality_notes`
 /** The admin list does not need the long intro or the FAQ. */
 const SUMMARY_COLUMNS = 'id, path, page_type, status, source, quality_notes, created_at, updated_at'
@@ -71,6 +73,13 @@ export async function getPublishedPageCopy(path: string): Promise<PublicPageCopy
     return null
   }
   return (data as unknown as PublicPageCopy | null) ?? null
+}
+
+/** The slugs the copy links to that are NOT among the page's current trips. Empty means the copy is safe to show.
+ * Pure, so it can be tested. */
+export function staleLinkedSlugs(linkedSlugs: string[] | null | undefined, currentSlugs: string[]): string[] {
+  const current = new Set(currentSlugs)
+  return (linkedSlugs ?? []).filter((s) => !current.has(s))
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -107,7 +116,9 @@ export async function savePageCopy(admin: SupabaseClient, row: PageCopyWrite): P
 }
 
 export async function setPageCopyStatus(admin: SupabaseClient, id: string, status: 'draft' | 'published'): Promise<{ copy?: PageCopySummary; error?: string }> {
-  const { data, error } = await admin.from('page_copy').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select(SUMMARY_COLUMNS).maybeSingle()
+  // Publishing is the admin's decision, so the "held back" reasons stop being true: clear them.
+  const patch = status === 'published' ? { status, quality_notes: null, updated_at: new Date().toISOString() } : { status, updated_at: new Date().toISOString() }
+  const { data, error } = await admin.from('page_copy').update(patch).eq('id', id).select(SUMMARY_COLUMNS).maybeSingle()
   if (error) return { error: error.message }
   if (!data) return { error: 'That page copy no longer exists.' }
   return { copy: data as PageCopySummary }
