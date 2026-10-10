@@ -8,7 +8,7 @@ import { SITE_URL } from '@/lib/site'
 import { fitCaption, tightestLimit, generatePlatformCaptions, type PlatformCaptions } from '@/lib/social-captions'
 import type { UploadPostSendResult } from '@/lib/upload-post'
 import { tagVariant } from '@/lib/content-variants'
-import { HOOK_STYLES, CTA_STYLES, rotateStyle, readRecentVariantValues, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { HOOK_STYLES, CTA_STYLES, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
 /** The post's FAQ and key takeaways as plain text, so numbers in them count as real when captions
  * are checked. Those columns arrive with a later migration, so this tolerates them not existing
@@ -265,6 +265,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
   if (error) throw new Error(`post_distribution: ${error.message}`)
   if (!rows || rows.length === 0) return 'nothing queued'
 
+  // Style history is read once per pass (not per network per row) and filtered in memory.
+  const variantRows: VariantRow[] = tailoredCaptionsOn ? await readRecentVariantRows(admin) : []
   let posted = 0
   let failed = 0
   let needsReview = 0
@@ -309,10 +311,12 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         const hookStyles: Record<string, HookStyle> = {}
         const ctaStyles: Record<string, CtaStyle> = {}
         const links: Record<string, string> = {}
-        for (const p of platforms) {
+        for (const [i, p] of platforms.entries()) {
           // 12 values of history: only the last 5 count for "least used", the rest breaks ties by age.
-          hookStyles[p] = rotateStyle(await readRecentVariantValues(admin, `hook_style:${p}`, 12), HOOK_STYLES)
-          ctaStyles[p] = rotateStyle(await readRecentVariantValues(admin, `cta_style:${p}`, 12), CTA_STYLES)
+          // The network's position offsets the tie-break so an empty history does not give every
+          // account the same opening style.
+          hookStyles[p] = rotateStyle(valuesFromRows(variantRows, `hook_style:${p}`, 12), HOOK_STYLES, i)
+          ctaStyles[p] = rotateStyle(valuesFromRows(variantRows, `cta_style:${p}`, 12), CTA_STYLES, i)
           links[p] = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: p, medium: 'social', campaign: row.slug, content: hookStyles[p] })
         }
         tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding: await loadGrounding(admin, row.slug) })
@@ -324,7 +328,12 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           patch[`caption_style:${p}`] = hookStyles[p]
           patch[`cta_style:${p}`] = ctaStyles[p]
         }
-        if (Object.keys(patch).length) await tagVariant(admin, row.slug, patch)
+        if (Object.keys(patch).length) {
+          const stamped = { ...patch, hook_style_at: new Date().toISOString() }
+          await tagVariant(admin, row.slug, stamped)
+          // Keep this pass's in-memory history current for the next queued row.
+          variantRows.unshift({ variant_tags: stamped, updated_at: stamped.hook_style_at })
+        }
       }
       const send = (p: string[], text: string) =>
         post?.cover_image_url ? target.sendPhotos(p, text, [post.cover_image_url]) : target.sendText(p, text)

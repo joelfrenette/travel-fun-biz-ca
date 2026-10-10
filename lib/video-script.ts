@@ -1,4 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
+import { ungroundedNumbers, repairDashes } from '@/lib/hook-styles'
 
 // Short-form video script generation (factory item 1/6, video pipeline): one model call produces
 // a hook, a sequence of beats (scene description + on-screen text + the spoken voiceover line for
@@ -27,6 +28,8 @@ export interface VideoScript {
   title: string
   description: string
   hashtags: string[]
+  /** True when no model hook passed the checks and the title-based hook was used instead. */
+  usedFallback?: boolean
 }
 
 const NO_FABRICATION = `Never claim personal experience, a specific past trip, a named traveler, a specific date, or a price - you are a marketing writer, not someone who has been on this trip. Write from general travel-planning knowledge and what a first-time visitor would want to know.`
@@ -123,7 +126,7 @@ async function runScriptStep(postTitle: string, postSummary: string, formulaHint
   const rawCover = typeof parsed.coverTitle === 'string' ? parsed.coverTitle.trim().replace(/\s+/g, ' ') : ''
   const coverTitle = rawCover && rawCover.length <= 60 && (rawCover.match(/\d+/g) ?? []).every((n) => knownNumbers.has(n)) ? rawCover : undefined
   // No em dashes in anything the viewer sees or hears: a comma says the same thing.
-  const noDash = (s: string) => s.replace(new RegExp(`\\s*${String.fromCharCode(8212)}\\s*`, 'g'), ', ')
+  const noDash = repairDashes
   return {
     hook: noDash(parsed.hook),
     coverTitle: coverTitle ? noDash(coverTitle) : undefined,
@@ -142,8 +145,8 @@ export async function generateVideoScript(postTitle: string, postSummary: string
   if (!isAiConfigured()) return null
 
   // A hook with a number that is not in the post is never kept (same rule the cover headline has).
-  const knownNumbers = new Set(`${postTitle} ${postSummary}`.match(/\d+/g) ?? [])
-  const hookOk = (s: VideoScript) => (s.hook.match(/\d+/g) ?? []).every((n) => knownNumbers.has(n)) && !!detectHookFormula(s.hook, preferredFormula)
+  // Spelled-out numbers (two..twelve, dozen, hundred, thousand) count too.
+  const hookOk = (s: VideoScript) => ungroundedNumbers(s.hook, `${postTitle} ${postSummary}`).length === 0 && !!detectHookFormula(s.hook, preferredFormula)
 
   const first = await runScriptStep(postTitle, postSummary, preferredFormula)
   if (!first) return null
@@ -158,7 +161,7 @@ export async function generateVideoScript(postTitle: string, postSummary: string
   // (prefer the retry's beats if it succeeded at all) but swap in the safe title-derived hook
   // rather than shipping a weak, unclassifiable opener.
   const best = retry ?? first
-  return { ...best, hook: fallbackHook(postTitle) }
+  return { ...best, hook: fallbackHook(postTitle), usedFallback: true }
 }
 
 // Real narration runs slower than reading speed - 2.5 words/second is the working estimate

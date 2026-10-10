@@ -55,11 +55,15 @@ export const HASHTAG_RULES: Record<string, string> = {
  * list (never used counts as longest ago, so callers should pass about 12 values, not 5, or the
  * last catalogue entries can starve); remaining ties go to catalogue order. No randomness, so it is repeatable and
  * testable. Values not in the catalogue are ignored. */
-export function rotateStyle<T extends string>(recent: readonly string[], catalogue: readonly T[]): T {
+export function rotateStyle<T extends string>(recent: readonly string[], catalogue: readonly T[], offset = 0): T {
   if (catalogue.length === 0) throw new Error('rotateStyle needs a non-empty catalogue')
   const window = recent.slice(0, 5)
   const last = recent.find((v) => (catalogue as readonly string[]).includes(v))
-  const pool = catalogue.length > 1 ? catalogue.filter((s) => s !== last) : [...catalogue]
+  // `offset` (for example the network's position in the platform list) rotates the catalogue used
+  // for the final tie-break only, so networks with empty history do not all open the same way.
+  const shift = ((offset % catalogue.length) + catalogue.length) % catalogue.length
+  const ordered = [...catalogue.slice(shift), ...catalogue.slice(0, shift)]
+  const pool = catalogue.length > 1 ? ordered.filter((s) => s !== last) : [...ordered]
   let best = pool[0]
   let bestCount = Infinity
   let bestAge = -1
@@ -92,17 +96,68 @@ export async function readVariantTag(admin: SupabaseClient, slug: string, key: s
  * skipped (a post that did not go to that network), so a wider window of rows is read and then cut
  * to `limit` values. Never throws: an empty list just means "no history, start anywhere". */
 export async function readRecentVariantValues(admin: SupabaseClient, key: string, limit = 5): Promise<string[]> {
+  return valuesFromRows(await readRecentVariantRows(admin), key, limit)
+}
+
+export interface VariantRow {
+  variant_tags: Record<string, unknown> | null
+  updated_at?: string | null
+}
+
+/** Reads the most recent content_variants rows once, so a caller that needs many keys can filter in
+ * memory (valuesFromRows) instead of querying per key. Never throws; [] means no history. */
+export async function readRecentVariantRows(admin: SupabaseClient, rows = 80): Promise<VariantRow[]> {
   try {
-    const { data, error } = await admin.from('content_variants').select('variant_tags, updated_at').order('updated_at', { ascending: false }).limit(Math.max(limit * 6, 30))
+    const { data, error } = await admin.from('content_variants').select('variant_tags, updated_at').order('updated_at', { ascending: false }).limit(rows)
     if (error || !data) return []
-    const out: string[] = []
-    for (const row of data as Array<{ variant_tags: Record<string, unknown> | null }>) {
-      const v = row.variant_tags?.[key]
-      if (typeof v === 'string' && v) out.push(v)
-      if (out.length >= limit) break
-    }
-    return out
+    return data as VariantRow[]
   } catch {
     return []
   }
+}
+
+/** Newest-first values stored under `key`. Rows are ordered by their `hook_style_at` stamp when the
+ * row has one (so a later, unrelated tag write cannot reorder history), else by updated_at. */
+export function valuesFromRows(rows: readonly VariantRow[], key: string, limit = 5): string[] {
+  const stamp = (r: VariantRow) => {
+    const at = r.variant_tags?.hook_style_at
+    const t = Date.parse(typeof at === 'string' ? at : (r.updated_at ?? ''))
+    return Number.isFinite(t) ? t : 0
+  }
+  const sorted = [...rows].sort((a, b) => stamp(b) - stamp(a))
+  const out: string[] = []
+  for (const row of sorted) {
+    const v = row.variant_tags?.[key]
+    if (typeof v === 'string' && v) out.push(v)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+const NUMBER_WORDS: Record<string, string> = {
+  two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9', ten: '10', eleven: '11', twelve: '12',
+  dozen: '12', hundred: '100', thousand: '1000',
+}
+const NUMBER_WORD_RE = new RegExp(`\\b(${Object.keys(NUMBER_WORDS).join('|')})\\b`, 'gi')
+
+/** Numbers in `text` (digits, and the spelled-out two..twelve, dozen, hundred, thousand) that do not
+ * appear in `source` as a digit or a word. "one" is left alone on purpose (too common in plain
+ * English). Links in `text` are ignored. */
+export function ungroundedNumbers(text: string, source: string): string[] {
+  const digits = (s: string) => (s.replace(/(\d)[,\s](?=\d{3}\b)/g, '$1').match(/\d+/g) ?? []).map((n) => n.replace(/^0+(?=\d)/, ''))
+  const words = (s: string) => (s.match(NUMBER_WORD_RE) ?? []).map((w) => w.toLowerCase())
+  const known = new Set<string>([...digits(source), ...words(source).map((w) => NUMBER_WORDS[w])])
+  const body = text.replace(/https?:\/\/\S+/gi, ' ')
+  const stray = [...digits(body), ...words(body).map((w) => NUMBER_WORDS[w])].filter((n) => !known.has(n))
+  return [...new Set(stray)]
+}
+
+/** Swaps the long dash characters and spaced double hyphens for a comma. No fact changes. */
+export function repairDashes(text: string): string {
+  const em = String.fromCharCode(8212)
+  const en = String.fromCharCode(8211)
+  return text
+    .replace(new RegExp(`\\s*${em}\\s*`, 'g'), ', ')
+    .replace(new RegExp(`\\s${en}\\s`, 'g'), ', ')
+    .replace(/\s--\s/g, ', ')
 }

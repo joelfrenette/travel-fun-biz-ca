@@ -1,5 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
-import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
 // Per-platform caption generation + mechanical limit enforcement (factory spec: "one model call
 // writes every network's caption at once, each tailored to that network's actual constraints" +
@@ -100,8 +100,6 @@ const EM_DASH = String.fromCharCode(8212)
 const LINK_NOT_CLICKABLE = ['instagram', 'tiktok']
 const networkSupportsLinks = (network: string) => !LINK_NOT_CLICKABLE.includes(network.toLowerCase())
 
-const normNumber = (n: string) => n.replace(/^0+(?=\d)/, '')
-const numbersIn = (text: string) => (text.replace(/(\d)[,\s](?=\d{3}\b)/g, '$1').match(/\d+/g) ?? []).map(normNumber)
 const stripUrls = (text: string) => text.replace(/https?:\/\/\S+/gi, ' ')
 const normaliseLine = (s: string) =>
   s
@@ -126,11 +124,15 @@ export function captionProblems(
   if (caption.length > limit) problems.push(`over the ${limit} character limit (${caption.length})`)
 
   const firstLine = caption.split('\n').find((l) => l.trim()) ?? ''
-  if (normaliseLine(firstLine) && normaliseLine(firstLine) === normaliseLine(ctx.title)) problems.push('opening line is identical to the post title')
+  const firstNorm = normaliseLine(firstLine)
+  const titleNorm = normaliseLine(ctx.title)
+  if (firstNorm && titleNorm && (firstNorm === titleNorm || firstNorm.startsWith(titleNorm))) problems.push('opening line is the post title again')
 
-  const known = new Set(numbersIn(`${ctx.title} ${ctx.summary ?? ''} ${ctx.grounding ?? ''}`))
-  const stray = numbersIn(stripUrls(caption)).filter((n) => !known.has(n))
-  if (stray.length) problems.push(`number not in the post: ${[...new Set(stray)].join(', ')}`)
+  const stray = ungroundedNumbers(caption, `${ctx.title} ${ctx.summary ?? ''} ${ctx.grounding ?? ''}`)
+  if (stray.length) problems.push(`number not in the post: ${stray.join(', ')}`)
+
+  // After the link and hashtags are removed there must be real words left (a trimmed caption can end up as just the link).
+  if (stripUrls(caption).replace(/#\S+/g, '').trim().length < 25) problems.push('no text besides the link')
 
   if (ctx.link && networkSupportsLinks(ctx.network) && !caption.includes(ctx.link)) problems.push('link is missing')
   if (caption.includes(EM_DASH)) problems.push('contains an em dash')
@@ -210,7 +212,7 @@ Never use an em dash (the long dash character); use a comma or a full stop inste
       if (typeof raw !== 'string' || !raw.trim()) continue
       const limit = PLATFORM_CHAR_LIMITS[p.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
       // An em dash is repaired rather than failed: swapping it for a comma changes no fact.
-      const cleaned = raw.trim().replace(new RegExp(`\\s*${EM_DASH}\\s*`, 'g'), ', ')
+      const cleaned = repairDashes(raw.trim())
       const fitted = fitKeepingLink(cleaned, linkFor(p), limit)
       const problems = captionProblems(fitted, { title: postTitle, summary: postDescription, network: p, link: linkFor(p), grounding: opts.grounding })
       if (problems.length === 0) result[p] = fitted

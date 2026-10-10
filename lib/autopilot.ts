@@ -315,9 +315,9 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             if (submitted.ok && submitted.renderId) {
               videoSlots--
               const tail = [capped.title, capped.description, capped.hashtags.join(' ')].filter(Boolean).join('\n\n')
-              const hookUsed = detectHookFormula(capped.hook, preferred) ?? 'fallback'
+              const hookUsed = capped.usedFallback ? 'fallback' : (detectHookFormula(capped.hook, preferred) ?? 'fallback')
               await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: fitCaptionWithLink(tail, postLink(row.slug, 'video', hookUsed), tightestLimit(VIDEO_PLATFORMS)) })
-              await tagVariant(admin, row.slug, { video_hook: hookUsed })
+              await tagVariant(admin, row.slug, { video_hook: hookUsed, hook_style_at: new Date().toISOString() })
             } else if (submitted.status === 401 || submitted.status === 403) {
               await setSetting(admin, VIDEO_BLOCK_KEY, new Date(Date.now() + VIDEO_BLOCK_MS).toISOString())
               notes.push(`Shotstack rejected the API key (${submitted.error}) - check SHOTSTACK_API_KEY. Video steps paused for 6 hours.`)
