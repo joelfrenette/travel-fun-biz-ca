@@ -267,3 +267,61 @@ the grounding, superlatives, named venues, agency claims, dashes, dead links). P
 publish when the gate passes (these pages name no hotels, so publish is allowed), else draft with notes. Pages
 render the intro above the package grid, takeaways, FAQ (FAQPage JSON-LD), BreadcrumbList, and use og fields;
 with no row they render exactly as today. A `scripts/check-page-copy.ts` offline check for the gate.
+
+### WP9 (2026-10-10, Joel's ask): the keyword intelligence engine behind the Keyword Research page (migration 0032)
+
+Joel's words, in plain English: on the Keyword Research page we do not need Bing, only Google volume, sorted
+highest first because that is where we want to be. Reddit should not be a visible section; it is one signal in
+the back end. The page should produce the END RESULT: which keywords we SHOULD shoot for and which we already
+RANK for; keywords, phrases, long-tail, trends and topics all culminate in the NEXT BLOG IDEAS, each with the
+keyword set that post is shooting for; then we track ranking and progress.
+
+Owner files: new `lib/keyword-intel.ts` (engine orchestrator), new `lib/keyword-cluster.ts` (pure: clustering,
+intent, funnel stage, opportunity label), `lib/keyword-score.ts` (extend, keep pure), `lib/keyword-refresh.ts`
+(atomic once-a-week claim; the spend log shows it fired every 15 minutes on 2026-10-08, so the claim must be a
+compare-and-set like `debrief_sent`), `lib/keyword-ideas.ts` (callers only; Reddit stays a back-end source),
+`lib/blog-topics.ts` (queue rows carry the keyword set; `pickKeywordTopic` uses the cluster), `lib/autoblog-run.ts`
+(additive: pass the cluster's keyword set to `composeFullPost` as seed keywords; keep every guard),
+`lib/blog-composer.ts` (accept `seedKeywords: string[]` in place of the single seed; primary = first), the page
+`app/admin/keywords/page.tsx` (redesign), API routes under `app/api/admin/keywords/`, `lib/admin-nav.ts` only
+if a label changes, `supabase/migrations/0032_keyword_intel.sql`.
+
+Engine stages (one weekly run inside the existing dollar cap, plus a "Run the engine now" button):
+1. SEEDS: real packages (name, destination, category), destinations, published guides, the customer questions
+   already used, and Search Console queries (near-misses and anything with impressions).
+2. EXPAND: DataForSEO keyword ideas/related for each seed (existing lookup), Google autocomplete, People Also Ask,
+   Reddit question titles when keys exist, Trends peak months. Everything capped by the existing budget;
+   batch requests; never more than the budget per week.
+3. ENRICH: Google volume, CPC, competition (DataForSEO), our position/impressions/clicks (GSC), trend peak.
+4. CLUSTER: near-duplicate phrases become one topic with a primary phrase and secondary phrases (reuse the
+   grouping in keyword-score.ts), intent (informational / commercial / transactional), funnel stage, and a
+   plain-English opportunity label: RANKING (position 1-10), ALMOST (11-30), SHOOT FOR (eligible, not targeted,
+   score high), TARGETED (has a page, not ranking yet), SKIP (not our trips, or skipped), with the reason.
+5. PLAN: the top N (default 6) SHOOT FOR clusters become NEXT BLOG IDEAS: one AI call per week (bounded tokens)
+   turns each cluster into a working title, an angle, the primary keyword and 3-6 secondary keywords, who it is
+   for, and which real package it sells. Saved to `blog_topic_queue` as `suggested` with `keywords text[]`,
+   `cluster_id`, `title_idea`, `score`. Approve in the admin as today; the autoblog prefers approved rows, then
+   the best suggested cluster (keyword-first), as today. Dedupe against used/rejected keywords and existing posts.
+6. TRACK: `keyword_research` rows get `cluster_id`, `intent`, `opportunity`, `score`, `score_reasons`,
+   `engine_updated_at`. Progress per idea/post: the keyword set, current GSC position per keyword, change vs 7
+   and 28 days ago (from `gsc_ranking_days`), clicks. Shown on the page and on the Posts side if cheap.
+
+Page (app/admin/keywords/page.tsx), top to bottom, Google only, no Bing column or Bing text anywhere:
+- Header with one button "Run the engine now" (cost line: budget left this week, last run, next run) and the
+  existing lookup/track box folded into a small "Add a phrase" input.
+- "Next blog ideas" (the plan): cards with title idea, primary + secondary keywords as chips, why, package,
+  score, Approve / Reject / Schedule (existing queue API).
+- "Keywords we rank for" (RANKING + ALMOST): keyword, position, change, impressions, clicks, page. Sorted by
+  impressions.
+- "Keywords we should shoot for" (SHOOT FOR): keyword cluster (primary + count of secondary), Google volume,
+  competition, intent, score, reason. Sorted by Google volume desc.
+- "All keywords" table sorted by Google volume desc by default: keyword, volume, CPC, competition, position,
+  impressions, clicks, page, opportunity label, cluster. Filters by opportunity label and intent. Same row
+  actions as today (target page, note, delete).
+- Footer line "Sources": DataForSEO, Search Console, Google autocomplete, People Also Ask, Reddit (connected
+  or not, one phrase), Google Trends. No separate Reddit or ideas sections; ideas feed the engine.
+
+Caps and safety: engine run once a week (atomic claim), inside `autopilot_keyword_budget_usd`; the button
+ignores the weekly cadence but not the budget; one AI call per run for the plan; Needs attention item on failure;
+everything else keeps working when DataForSEO or GSC is unconfigured (sections show "not connected" lines).
+Offline checks: `scripts/check-keyword-intel.ts` for clustering, intent, opportunity labels and plan dedupe.
