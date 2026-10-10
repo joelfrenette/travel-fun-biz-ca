@@ -181,13 +181,12 @@ export async function getRelatedPackages(relatedPackageId: string | null, limit 
   }
 
   if (results.length < limit) {
-    const { data, error } = await supabase
-      .from('travel_packages')
-      .select('*')
-      .eq('status', 'published')
-      .neq('id', relatedPackageId ?? '')
-      .order('available_from', { ascending: true, nullsFirst: false })
-      .limit(limit)
+    // Found 2026-10-10 in a browser pass: `.neq('id', '')` on a uuid column is a Postgres error
+    // ("invalid input syntax for type uuid"), so every post without a linked package (all autoblog
+    // posts) silently showed no trip cards at all. Only exclude an id when there is one.
+    let query = supabase.from('travel_packages').select('*').eq('status', 'published')
+    if (relatedPackageId) query = query.neq('id', relatedPackageId)
+    const { data, error } = await query.order('available_from', { ascending: true, nullsFirst: false }).limit(limit)
     if (error) {
       console.error('Failed to fetch related packages:', error)
     } else {
