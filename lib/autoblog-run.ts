@@ -2,7 +2,9 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
-import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
+import { composeFullPost, type AllowedLink } from '@/lib/blog-composer'
+import { deleteEdits } from '@/lib/content-edits'
+import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters'
 import { pickStyle, pickCtaStyle, CTA_STYLES, CONTENT_STYLES, styleById, appendStyledCta, type ContentStyle } from '@/lib/content-styles'
 import { scoresFor, chooseWeighted } from '@/lib/content-performance'
 
@@ -298,14 +300,26 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     if (again === null || again > 0) return { ran: false, mode, note: 'a post was written while this one was being composed, so this one was dropped' }
   }
 
-  // The gate, with at most ONE automatic repair call when the only problem is a number or link the
-  // writer was not allowed to use (see gateWithRepair). Still blocked after that means a saved draft.
+  // The gate, with the shared self-repair (WP10, lib/content-repair.ts): plain-code fixers, then at most ONE model
+  // call (the same limit and deadline as before) that rewords or removes the sentences behind a number, link or
+  // missing-FAQ blocker, then a deterministic delete. A HARD blocker (an experience claim, a price, an outside
+  // link) is never touched. Every change is logged for the Content edits list before it is used. Still blocked
+  // after that means a saved draft.
   let final = composed
   let blockers: string[] = []
+  let repairLogIds: string[] = []
   if (mode === 'publish') {
-    const gated = await gateWithRepair(composed, new Date(), { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs })
-    final = gated.post
+    const gated = await repairComposedPost(
+      admin,
+      composed,
+      new Date(),
+      { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs },
+      // The saved body has the closing call to action appended; the audit log must hold what is saved.
+      { storedBody: (body) => appendStyledCta(body, ctaStyle.id, groundingPackage) },
+    )
+    final = gated.value
     blockers = gated.blockers
+    repairLogIds = gated.logIds
   }
   const publishing = mode === 'publish' && blockers.length === 0
   // Use the composed post's own tags (derived from its actual keywords) rather than the
@@ -315,25 +329,33 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   const imageSearchTerm = composed.tags[0] || composed.title
   const image = await attachAutoblogCoverImage(admin, imageSearchTerm, composed.slug)
 
-  const post = await createPost({
-    title: final.title,
-    slug: final.slug,
-    body: appendStyledCta(final.body, ctaStyle.id, groundingPackage),
-    tags: final.tags,
-    cover_image_url: image?.cover_image_url ?? null,
-    alt_text: image?.alt_text ?? null,
-    status: publishing ? 'published' : 'draft',
-    publish_date: publishing ? new Date().toISOString().slice(0, 10) : null,
-    meta_title: final.seo_title,
-    meta_description: final.seo_description,
-    content_style: final.content_style || style.id,
-    faq: final.faq,
-    key_takeaways: final.key_takeaways,
-    og_title: final.og_title,
-    og_description: final.og_description,
-    primary_keyword: final.primary_keyword,
-    secondary_keywords: final.secondary_keywords,
-  })
+  let post: Awaited<ReturnType<typeof createPost>>
+  try {
+    post = await createPost({
+      title: final.title,
+      slug: final.slug,
+      body: appendStyledCta(final.body, ctaStyle.id, groundingPackage),
+      tags: final.tags,
+      cover_image_url: image?.cover_image_url ?? null,
+      alt_text: image?.alt_text ?? null,
+      status: publishing ? 'published' : 'draft',
+      publish_date: publishing ? new Date().toISOString().slice(0, 10) : null,
+      meta_title: final.seo_title,
+      meta_description: final.seo_description,
+      content_style: final.content_style || style.id,
+      faq: final.faq,
+      key_takeaways: final.key_takeaways,
+      og_title: final.og_title,
+      og_description: final.og_description,
+      primary_keyword: final.primary_keyword,
+      secondary_keywords: final.secondary_keywords,
+    })
+  } catch (err) {
+    // The post was never saved, so its audit rows would point at nothing.
+    await deleteEdits(admin, repairLogIds).catch(() => undefined)
+    throw err
+  }
+  await finalizeEdits(admin, repairLogIds, { id: post.id, path: `/blog/${post.slug}`, published: publishing })
   // Record the choices so a later step can compare styles against real clicks, visits and leads. A held
   // draft also records why, which the morning brief reads.
   await tagVariant(admin, post.slug, { content_style: style.id, cta_style: ctaStyle.id, ...(blockers.length ? { held_reasons: blockers.join('; ') } : {}) })

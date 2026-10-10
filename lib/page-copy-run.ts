@@ -5,6 +5,8 @@ import { pingIndexNow } from '@/lib/indexnow'
 import { getComparePage } from '@/lib/compare-destinations'
 import { getBestTimeToVisitPage } from '@/lib/best-time-to-visit'
 import { getPublishedGuide } from '@/lib/guides'
+import { deleteEdits } from '@/lib/content-edits'
+import { finalizeEdits, repairComposedCopy } from '@/lib/content-repair-adapters'
 import type { DbPackage } from '@/lib/packages'
 import { composePageCopy, copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, pageCopyBlockers, MAX_BRIEF_PACKAGES_PER_DESTINATION, type CopyBriefDestination, type PageCopyBrief, type PageCopyPublishMode } from '@/lib/page-copy-composer'
 import { STALE_COPY_KEY, clearCopyFailure, readCopyFailures, readCopyFailuresChecked, recentCopyFailureCount, recordCopyFailure, MAX_COPY_ATTEMPTS, COPY_BREAKER_FAILURES, COPY_BREAKER_HOURS } from '@/lib/page-copy-failures'
@@ -253,9 +255,12 @@ export interface WritePageCopyResult {
 export async function writePageCopy(
   admin: SupabaseClient,
   cand: Pick<PageCopyCandidate, 'path' | 'type' | 'label'>,
-  opts: { source: 'pipeline' | 'admin'; beforeSave?: () => Promise<string | null> },
+  opts: { source: 'pipeline' | 'admin'; beforeSave?: () => Promise<string | null>; deadlineMs?: number },
 ): Promise<WritePageCopyResult> {
   if (!isAiConfigured()) return { ok: false, note: 'AI writing is not configured (ANTHROPIC_API_KEY is not set)' }
+  // The routes that run this are killed at 300 seconds. The self-repair only starts a model call with enough time left.
+  const deadlineMs = opts.deadlineMs ?? Date.now() + 270_000
+  let repairLogIds: string[] = []
   const earlier = (await readCopyFailures(admin))[cand.path]
   if (earlier && earlier.n >= MAX_COPY_ATTEMPTS) return { ok: false, note: `"${cand.label}" failed ${earlier.n} times, so it is skipped. Click Dismiss on the Needs attention item to try it again.` }
   // The breaker applies to the admin button too: after repeated failures, stop spending until someone looks.
@@ -278,15 +283,28 @@ export async function writePageCopy(
       const n = await recordCopyFailure(admin, cand.path, composed.error)
       return { ok: false, failed: true, note: `could not write "${cand.label}" (${composed.error}); attempt ${n} of ${MAX_COPY_ATTEMPTS}` }
     }
-    const copy = composed.copy
+    let copy = composed.copy
 
-    blockers = pageCopyBlockers(copy, { grounding: copyGroundingText(brief), destinations: brief.destinations.map((d) => d.name), names: brief.links.map((l) => l.label), allowedPaths })
+    const gateCtx = { grounding: copyGroundingText(brief), destinations: brief.destinations.map((d) => d.name), names: brief.links.map((l) => l.label), allowedPaths }
+    blockers = pageCopyBlockers(copy, gateCtx)
+    // Self-healing (WP10): reword or remove the phrases behind a REPAIRABLE blocker (a weather word, a verdict, a
+    // number that is not in the trips), then judge again. A HARD blocker is never touched. Every change is logged
+    // before it is used; nothing here can add a fact.
+    if (blockers.length) {
+      const fixed = await repairComposedCopy(admin, copy, gateCtx, { path: cand.path, links: brief.links, deadlineMs })
+      copy = fixed.value
+      blockers = fixed.blockers
+      repairLogIds = fixed.logIds
+    }
     const decision = copyPublishDecision(blockers, await getPageCopyPublishMode(admin))
     publishing = decision.publish
 
     const stop = opts.beforeSave ? await opts.beforeSave() : null
     // A pass dropped because a cap was reached while composing is not a failure: it must not feed the breaker.
-    if (stop) return { ok: false, note: stop }
+    if (stop) {
+      await deleteEdits(admin, repairLogIds)
+      return { ok: false, note: stop }
+    }
 
     saved = await savePageCopy(admin, {
       path: cand.path,
@@ -306,6 +324,8 @@ export async function writePageCopy(
     })
   } catch (e) {
     const reason = e instanceof Error ? e.message : 'unknown error'
+    // The copy was never saved, so its audit rows would point at nothing.
+    await deleteEdits(admin, repairLogIds).catch(() => undefined)
     await recordCopyFailure(admin, cand.path, reason).catch(() => undefined)
     return { ok: false, failed: true, note: `could not write "${cand.label}": ${reason}` }
   } finally {
@@ -315,6 +335,7 @@ export async function writePageCopy(
   // The copy is saved. Nothing below may turn that into a "could not write".
   try {
     await clearCopyFailure(admin, cand.path)
+    await finalizeEdits(admin, repairLogIds, { id: saved.id, path: cand.path, published: publishing })
     if (publishing) await pingIndexNow([cand.path, '/sitemap.xml'])
   } catch {
     // housekeeping only
@@ -351,7 +372,7 @@ export async function pickNextPageCopy(admin: SupabaseClient, candidates: PageCo
 /** The pipeline's copy step: at most `page_copy_per_day` and `page_copy_per_week` (counted from the page_copy
  * table, failing closed), one page per call, and none at all while the failure breaker is tripped. The caller has
  * already checked that Autopilot is on and not paused. */
-export async function runPageCopyStep(admin: SupabaseClient): Promise<{ ok: boolean; note: string }> {
+export async function runPageCopyStep(admin: SupabaseClient, opts: { deadlineMs?: number } = {}): Promise<{ ok: boolean; note: string }> {
   const { perDay, perWeek } = await getPageCopyCaps(admin)
   if (perDay === 0 || perWeek === 0) return { ok: true, note: 'page copy is switched off (a cap is 0)' }
   // Not while switched off. It makes no AI call, so it runs even when AI is not configured.
@@ -376,6 +397,7 @@ export async function runPageCopyStep(admin: SupabaseClient): Promise<{ ok: bool
 
   const result = await writePageCopy(admin, cand, {
     source: 'pipeline',
+    deadlineMs: opts.deadlineMs,
     // Composing takes a while: look at the caps again right before saving, so two runs cannot both write.
     beforeSave: async () => {
       const again = await readCopyCapUsage(admin)

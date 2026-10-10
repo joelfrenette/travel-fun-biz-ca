@@ -7,6 +7,8 @@ import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { SITE_ID } from '@/lib/site'
 import { generateSlug } from '@/lib/utils'
 import { composeGuide, guideBlockers, groundingText, type GuideBrief, type BriefPackage } from '@/lib/guide-composer'
+import { deleteEdits } from '@/lib/content-edits'
+import { finalizeEdits, repairComposedGuide } from '@/lib/content-repair-adapters'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
 import { clearGuideFailure, readGuideFailures, recordGuideFailure, recentGuideFailureCount, MAX_GUIDE_ATTEMPTS, BREAKER_FAILURES, BREAKER_HOURS } from '@/lib/guide-failures'
 import {
@@ -182,10 +184,12 @@ export async function buildBrief(admin: SupabaseClient, cand: GuideCandidate): P
 
 export type GuidePublishMode = 'draft' | 'publish'
 export const GUIDES_PUBLISH_MODE_KEY = 'guides_publish_mode'
-/** Kinds the pipeline may ever publish by itself (in publish mode). Named properties (hotels, resorts, ships,
- * river cruises, yachts) always wait for an admin to click Publish, because a wrong claim about a real, named
- * business is the costly kind of mistake. */
-export const AUTO_PUBLISH_KINDS: readonly GuideKind[] = ['destinations', 'cruise-lines']
+/** Kinds that name a real business (hotels, resorts, ships, river cruises, yachts). Until WP10 these always waited
+ * for an admin to click Publish. Joel's call (2026-10-10): they may now go live by themselves in publish mode, but
+ * ONLY when the gate is clean after the self-repair (nothing on the HARD list, nothing left to reword). Their social
+ * posts are still enrolled as held (lib/guide-distribution.ts HELD_GUIDE_KINDS), so nothing about a named business
+ * is posted to a network without a click. Kept as data so the admin text and the offline check can name them. */
+export const NAMED_PROPERTY_KINDS: readonly GuideKind[] = ['hotels', 'resorts', 'ships', 'river-cruises', 'yachts']
 
 /** `app_settings.guides_publish_mode`: 'draft' (the default, also when unset or unreadable) saves every guide as
  * a draft for review; 'publish' lets a guide that passed the gate go live. */
@@ -199,12 +203,15 @@ export async function setGuidePublishMode(admin: SupabaseClient, mode: string): 
   return setSetting(admin, GUIDES_PUBLISH_MODE_KEY, mode)
 }
 
-/** Whether a gate-clean guide goes live, and if not, why it is held. Pure, so it can be tested. */
+/** Whether a gate-clean guide goes live, and if not, why it is held. `blockers` are what is left AFTER the
+ * self-repair. Every kind, named properties included, goes live when the mode is 'publish' and no blocker is left.
+ * Pure, so it can be tested. (`kind` and `source` no longer change the answer; they stay in the signature so a
+ * future per-kind rule is a one-line change.) */
 export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source: 'pipeline' | 'admin', blockers: string[]): { publish: boolean; note: string | null } {
+  void kind
+  void source
   if (blockers.length) return { publish: false, note: blockers.join('; ') }
   if (mode !== 'publish') return { publish: false, note: 'held for review (guides_publish_mode=draft)' }
-  // Named places are drafts whatever the source: an admin reads the Preview, then clicks Publish.
-  if (!AUTO_PUBLISH_KINDS.includes(kind)) return { publish: false, note: `held for review (${guideKinds[kind].label.toLowerCase()} guides name a real business, so they are always saved as drafts; use Preview then Publish)` }
   return { publish: true, note: null }
 }
 
@@ -230,9 +237,12 @@ export interface WriteGuideResult {
 export async function writeGuide(
   admin: SupabaseClient,
   cand: GuideCandidate,
-  opts: { source: 'pipeline' | 'admin'; beforeSave?: () => Promise<string | null> },
+  opts: { source: 'pipeline' | 'admin'; beforeSave?: () => Promise<string | null>; deadlineMs?: number },
 ): Promise<WriteGuideResult> {
   if (!isAiConfigured()) return { ok: false, note: 'AI writing is not configured (ANTHROPIC_API_KEY is not set)' }
+  // The routes that run this are killed at 300 seconds. The self-repair only starts a model call with enough time left.
+  const deadlineMs = opts.deadlineMs ?? Date.now() + 270_000
+  let repairLogIds: string[] = []
   if (!cand.slug) return { ok: false, note: 'that name has no usable web address' }
   const failureKey = `${cand.kind}:${cand.slug}`
   const earlier = (await readGuideFailures(admin))[failureKey]
@@ -255,15 +265,27 @@ export async function writeGuide(
       const n = await recordGuideFailure(admin, failureKey, { name: cand.name, kind: cand.kind, reason: composed.error })
       return { ok: false, failed: true, note: `could not write "${cand.name}" (${composed.error}); attempt ${n} of ${MAX_GUIDE_ATTEMPTS}` }
     }
-    const guide = composed.guide
+    let guide = composed.guide
 
-    blockers = guideBlockers(guide, { grounding: groundingText(brief), allowedPaths, names: [...(brief.parentName ? [brief.parentName] : []), ...brief.links.map((l) => l.label)] })
+    const gateCtx = { grounding: groundingText(brief), allowedPaths, names: [...(brief.parentName ? [brief.parentName] : []), ...brief.links.map((l) => l.label)] }
+    blockers = guideBlockers(guide, gateCtx)
+    // Self-healing (WP10): reword or remove the phrases behind a REPAIRABLE blocker, then judge again. A HARD
+    // blocker is never touched. Every change is logged before it is used; nothing here can add a fact.
+    if (blockers.length) {
+      const fixed = await repairComposedGuide(admin, guide, gateCtx, { kind: cand.kind, slug: cand.slug, path: guidePath(cand.kind, cand.slug), links: brief.links, deadlineMs })
+      guide = fixed.value
+      blockers = fixed.blockers
+      repairLogIds = fixed.logIds
+    }
     const decision = publishDecision(cand.kind, await getGuidePublishMode(admin), opts.source, blockers)
     publishing = decision.publish
 
     const stop = opts.beforeSave ? await opts.beforeSave() : null
     // A pass dropped because a cap was reached while composing is not a failure: it must not feed the breaker.
-    if (stop) return { ok: false, note: stop }
+    if (stop) {
+      await deleteEdits(admin, repairLogIds)
+      return { ok: false, note: stop }
+    }
 
     const info = guideKinds[cand.kind]
     const query = cand.kind === 'destinations' ? guide.hero_query || cand.name : `${info.stockPhotoQuery}${brief.parentName ? ` ${brief.parentName}` : ''}`
@@ -294,6 +316,8 @@ export async function writeGuide(
     })
   } catch (e) {
     const reason = e instanceof Error ? e.message : 'unknown error'
+    // The guide was never saved, so its audit rows would point at nothing.
+    await deleteEdits(admin, repairLogIds).catch(() => undefined)
     await recordGuideFailure(admin, failureKey, { name: cand.name, kind: cand.kind, reason }).catch(() => undefined)
     return { ok: false, failed: true, note: `could not write "${cand.name}": ${reason}` }
   } finally {
@@ -304,6 +328,7 @@ export async function writeGuide(
   const info = guideKinds[cand.kind]
   try {
     await clearGuideFailure(admin, failureKey)
+    await finalizeEdits(admin, repairLogIds, { id: saved.id, path: guidePath(saved.kind, saved.slug), published: publishing })
     // A published guide is enrolled for social posting (one guide a day, mode-gated; never throws).
     if (publishing) await enrollGuideIfDue(admin, saved)
     if (publishing) await pingIndexNow([guidePath(saved.kind, saved.slug), info.urlPrefix, '/sitemap.xml'])
@@ -352,7 +377,7 @@ export async function pickNextCandidate(admin: SupabaseClient, candidates: Guide
 /** The pipeline's guides step: at most `guides_per_day` and `guides_per_week` (counted from the guides table,
  * failing closed), one guide per call, and none at all while the failure breaker is tripped. The caller has
  * already checked that Autopilot is on and not paused. */
-export async function runGuidesStep(admin: SupabaseClient): Promise<{ ok: boolean; note: string }> {
+export async function runGuidesStep(admin: SupabaseClient, opts: { deadlineMs?: number } = {}): Promise<{ ok: boolean; note: string }> {
   const { perDay, perWeek } = await getGuideCaps(admin)
   if (perDay === 0 || perWeek === 0) return { ok: true, note: 'guides are switched off (a cap is 0)' }
   if (!isAiConfigured()) return { ok: true, note: 'AI writing is not configured, so no guides' }
@@ -374,6 +399,7 @@ export async function runGuidesStep(admin: SupabaseClient): Promise<{ ok: boolea
 
   const result = await writeGuide(admin, cand, {
     source: 'pipeline',
+    deadlineMs: opts.deadlineMs,
     // Composing takes a while: look at the caps again right before saving, so two runs cannot both write.
     beforeSave: async () => {
       const again = await readCapUsage(admin)
