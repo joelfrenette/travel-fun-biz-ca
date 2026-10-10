@@ -9,7 +9,9 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
-import { jsonLdHtml, buildCollectionPageJsonLd } from "@/lib/jsonld"
+import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
+import { getPublishedPageCopy, bestTimePath } from "@/lib/page-copy"
+import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
 
 export const revalidate = 300
 
@@ -19,16 +21,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const page = await getBestTimeToVisitPage(params.destination)
   if (!page) return { title: `Destination not found | ${SITE_NAME}`, robots: { index: false } }
 
-  const title = `Best Time to Visit ${page.destination} | ${SITE_NAME}`
-  const description = `The real dates our trips to ${page.destination} run, pulled straight from our current trip calendar, so you can see when a seat is actually available.`
+  // Written copy (when a published row exists) supplies the meta and OG text; otherwise the text below is used as before.
+  const copy = await getPublishedPageCopy(bestTimePath(params.destination))
+  const title = copy?.meta_title || `Best Time to Visit ${page.destination} | ${SITE_NAME}`
+  const description = copy?.meta_description || `The real dates our trips to ${page.destination} run, pulled straight from our current trip calendar, so you can see when a seat is actually available.`
+  const ogTitle = copy?.og_title || title
+  const ogDescription = copy?.og_description || description
   const url = absoluteUrl(`/best-time-to-visit/${params.destination}`)
 
   return {
     title,
     description,
     alternates: { canonical: url },
-    openGraph: { title, description, url, type: "website", images: [{ url: DEFAULT_OG_IMAGE, alt: page.destination }] },
-    twitter: { card: "summary_large_image", title, description, images: [DEFAULT_OG_IMAGE] },
+    openGraph: { title: ogTitle, description: ogDescription, url, type: "website", images: [{ url: DEFAULT_OG_IMAGE, alt: page.destination }] },
+    twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription, images: [DEFAULT_OG_IMAGE] },
   }
 }
 
@@ -50,12 +56,24 @@ export default async function BestTimeToVisitPage({ params }: Props) {
     page.packages,
     absoluteUrl,
   )
+  // Written copy, when a published row exists. Adds FAQPage and BreadcrumbList next to the CollectionPage above.
+  const copy = await getPublishedPageCopy(bestTimePath(params.destination))
+  const structuredData: object[] = [...jsonLd]
+  if (copy) {
+    structuredData.push(buildBreadcrumbJsonLd([
+      { name: "Home", url: absoluteUrl("/") },
+      { name: "Destinations", url: absoluteUrl("/destinations") },
+      { name: page.destination, url: absoluteUrl(`/destinations/${params.destination}`) },
+      { name: `Best time to visit ${page.destination}`, url: pageUrl },
+    ]))
+    if (copy.faq.length > 0) structuredData.push(buildFaqPageJsonLd(copy.faq))
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(copy ? structuredData : jsonLd) }} />
         <div className="border-b bg-muted/30">
           <div className="container mx-auto px-4 py-10">
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Best Time to Visit</p>
@@ -67,6 +85,12 @@ export default async function BestTimeToVisitPage({ params }: Props) {
         </div>
 
         <div className="container mx-auto space-y-6 px-4 py-10">
+          {copy && (
+            <div className="space-y-6">
+              <PageCopyIntro copy={copy} />
+              <PageCopyTakeaways copy={copy} />
+            </div>
+          )}
           <section>
             <h2 className="mb-4 text-xl font-bold uppercase text-foreground">
               {page.packages.length === 1 ? "Trip dates" : "Trip dates and departures"} for {page.destination}
@@ -107,6 +131,8 @@ export default async function BestTimeToVisitPage({ params }: Props) {
               , including past-trip recaps.
             </p>
           </section>
+
+          {copy && copy.faq.length > 0 && <PageCopyFaq copy={copy} />}
         </div>
       </main>
       <Footer language={language} />
