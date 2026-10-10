@@ -276,3 +276,55 @@ privacy-policy brackets; tick Facebook, LinkedIn, YouTube in "Where it posts"; R
 
 **Unverified:** Search Rankings and Keyword Research screens were never viewed (admin login); the first
 keyword-led post (Mon 12 Oct, 9 am ET); the new brief layout in Outlook; Reddit connection.
+
+## Growth loop, wave 1: SEO/GEO/AEO posts, social hooks, guide pages, performance scores (2026-10-09 to 2026-10-10, overnight)
+
+**How it was built.** Joel asked for an unattended multi-agent loop: Sonnet builders in isolated git worktrees,
+critical Sonnet QA agents reading the whole diff, builder fix rounds, and the Fable 5.1 orchestrator deciding what
+merges. Contract: `docs/factory/GROWTH-LOOP-BRIEF.md`. Four work packages, each 1 to 2 QA rounds, all merged
+to `main` the same night: WP2 (512623b), WP3 (8fc54d8), WP1 (75195ac + ff534b6 wiring), WP4 (ae78a27), plus
+f061bfb. Migrations 0027, 0028, 0029 applied. Every WP ships an offline check script under `scripts/`
+(`check-content-styles`, `check-captions`, `check-performance`, `check-guide-gate`, run with `pnpm dlx tsx`).
+
+**Shipped (all on main):**
+- WP1 Blog posts for SEO + GEO + AEO: 7 content styles rotated (`lib/content-styles.ts`), 5 CTA styles, Quick
+  answer line, definition sentence, FAQ (FAQPage JSON-LD), key takeaways (speakable), OG title/description,
+  primary/secondary keywords, internal links only to real pages, BreadcrumbList, Article wordCount/keywords. Gate:
+  numbers only from the grounding text (digits and word-numbers), dead or external links, em dashes (auto-repaired),
+  OG length (auto-repaired), ONE repair model call for number/link slips, a 240s compose deadline. Held drafts
+  carry `held_reasons` in content_variants and show in the daily brief. Posts table: migration 0027.
+- WP2 Social: hook style per network rotated with a per-network offset (`lib/hook-styles.ts`), per-network hashtag
+  rules, caption gate (limit, link-only, title repeat, ungrounded digits and spelled numbers, em dash), every link
+  UTM-tagged (source = network, medium = social, campaign = slug, content = hook style), video hook formulas
+  question/story added and rotated, carousel hook/CTA rotated, tags `hook_style:<network>`, `caption_style:<network>`,
+  `cta_style:<network>`, `video_hook`, `carousel_hook`, `carousel_cta`. Send path byte-identical to before (QA-audited).
+- WP3 Tracking and self-improvement: daily `content_performance` snapshot in housekeeping (GSC 28-day clicks per
+  page, social sends/failures, 90-day leads, visits null until consent tracking writes), `styleScores` per tag key
+  (only posts 28+ days old, null clicks never counted as 0, thin-sample label under 3 posts), "What is working" card
+  on /admin/autopilot and a brief section, and `chooseWeighted` wired into the composer: 70% best style (leads first,
+  then clicks) once a style has 3 measured posts, rotation otherwise. Migration 0029.
+- WP4 Guide pages: `guides` table (migration 0028, RLS, anon reads published only), kinds destinations, hotels,
+  resorts, cruise-lines, ships, river-cruises, yachts; routes `/<kind>` and `/<kind>/<slug>` (destinations keep
+  `/destinations/<slug>`), one shared page component, TouristDestination or Article+about JSON-LD, FAQPage,
+  BreadcrumbList, sitemap, Guides page type in Keyword Research/Search Rankings. Composer with a strict gate:
+  numbers, superlatives, recency, named venues/people not in the brief, agency "we offer/our hosts" claims, dashes.
+  Pipeline step `guides` (1/day, 5/week, kind rotation, 2 tries per candidate, 3 failures in 24h pauses everything).
+  `guides_publish_mode` defaults to draft (Joel: review the first week); hotels/resorts/ships/river cruises/yachts
+  are NEVER auto-published. Admin: guides panel on Autopilot and Destinations, Preview page for drafts, Write buttons.
+- Fix found in the browser pass: related trip cards never rendered on posts without a linked package
+  (`.neq('id','')` on uuid). Pre-existing funnel leak on every autoblog post.
+- Rhine duplicates: Joel kept the published post; the 5 drafts and their ledger rows were deleted.
+
+**Verified:** tsc clean after every merge; all four check scripts pass on main; local browser pass of
+/blog/<slug>, /destinations, /hotels, /destinations/rhine-river, sitemap (200s, correct JSON-LD, noindex on empty
+index). NOT verified: any real model output from the new prompts (first real post is Mon 12 Oct 13:00 UTC), the
+first AI guide draft, the Autopilot page and Preview page in a browser (admin login), Outlook rendering of the new
+brief section, the live Vercel deploy of ae78a27+.
+
+**Spend:** no paid calls made by the loop itself. New automatic spend: at most 2 Anthropic calls per guide,
+1 guide/day, plus one repair call per post at most.
+
+**Open, Joel:** review the first guide drafts via Preview and decide `guides_publish_mode`; delete duplicate
+Rhine social posts in GHL; tick Facebook/LinkedIn/YouTube; the Reddit line; everything from the 2026-10-09 entry.
+**Open, Claude (filed in the tracker):** tune the named-venue check from week-1 quality_notes; measure the real
+auto-publish rate over the first 6 posts; Pexels photographer credit column for guides.
