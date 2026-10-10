@@ -454,3 +454,6 @@ export function guideBlockers(guide: ComposedGuide, ctx: GateContext): string[] 
 
   return blockers
 }
+
+// Shared with lib/page-copy-composer.ts, which applies the same rules to compare and best-time copy.
+export { numbersIn, proseOf, clamp, strings, callText, PLACEHOLDER_PATTERNS, REFUSAL_PATTERNS, EXPERIENCE_CLAIM_PATTERNS, SUPERLATIVE_PATTERNS, RECENCY_PATTERNS, COUNT_CLAIM, SCHEDULE_PATTERN }
