@@ -242,6 +242,40 @@ export function groundAngleInPackage(angle: string, pkg: PackageGrounding | null
   return `${angle}\n\n${facts.join(' ')}`
 }
 
+/** KEYWORD FIRST: the next blog post is about the highest-volume researched keyword that no page
+ * targets yet (so it earns real search demand), unless it was already covered or was skipped before.
+ * Only real recorded volumes are used; nothing is invented. Returns null when no such keyword exists,
+ * and the caller falls back to an AI-chosen topic. Once the post is written the caller connects the
+ * keyword to it, so it is not picked again. */
+export async function pickKeywordTopic(admin: SupabaseClient, existing: { title: string }[]): Promise<TopicIdea | null> {
+  const { data } = await admin
+    .from('keyword_research')
+    .select('keyword, volume, note')
+    .eq('country', SITE_ID)
+    .is('target_path', null)
+    .not('volume', 'is', null)
+    .gt('volume', 0)
+    .order('volume', { ascending: false })
+    .limit(40)
+  for (const row of (data ?? []) as { keyword: string; volume: number; note: string | null }[]) {
+    if (/^skipped/i.test(row.note ?? '')) continue
+    const angle = `A blog post that answers the search "${row.keyword}" for someone deciding whether and which trip to book with us`
+    if (findDuplicate(angle, existing) || findDuplicate(row.keyword, existing)) continue
+    return { angle, keyword: row.keyword, why: `Real search demand (${row.volume} searches a month) and no page targets it yet`, source: 'keyword research' }
+  }
+  return null
+}
+
+/** Remember that a keyword could not be used right now, so the next pass moves on to the next one. */
+export async function markKeywordSkipped(admin: SupabaseClient, keyword: string, reason: string): Promise<void> {
+  await admin
+    .from('keyword_research')
+    .update({ note: `skipped ${new Date().toISOString().slice(0, 10)}: ${reason}`, updated_at: new Date().toISOString() })
+    .eq('keyword', keyword)
+    .eq('country', SITE_ID)
+    .is('target_path', null)
+}
+
 /** No admin-approved topic due today: ask the AI for one fresh idea not already covered, falling
  * back to a static cluster only if the AI is unconfigured or returns nothing. Never blocks a run
  * on human approval - approval gates the *queue*, not whether autoblog can write anything at all. */

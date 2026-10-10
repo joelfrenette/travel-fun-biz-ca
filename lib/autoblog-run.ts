@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
-import { dueApprovedTopics, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
+import { dueApprovedTopics, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, autoPublishBlockers } from '@/lib/blog-composer'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { enrollIfDue } from '@/lib/distribution'
@@ -9,6 +9,7 @@ import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { attachAutoblogCoverImage } from '@/lib/blog-image'
 import { pingIndexNow } from '@/lib/indexnow'
+import { SITE_ID } from '@/lib/site'
 import type { PackageGrounding } from '@/lib/blog-topics'
 
 // Found 2026-10-03: lib/blog-composer.ts's body prompt explicitly tells the AI "do not include a
@@ -167,8 +168,12 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     queueRowId = row.id
     break
   }
+  // Order of choice: a topic you approved, then the best researched keyword nothing targets yet (keyword
+  // first), then an AI-suggested topic as the last resort.
+  if (!topic) topic = await pickKeywordTopic(admin, existingPosts).catch(() => null)
   if (!topic) topic = await pickOneTopic(admin, existingPosts.map((p) => p.title))
   if (!topic) return { ran: false, mode, note: 'no topic available' }
+  const keywordLed = topic.source === 'keyword research'
 
   // Ground the angle in the real travel_packages row (if the topic actually matches one) before
   // composing - without this, composeFullPost's AI steps only ever see the free-text angle/keyword
@@ -186,6 +191,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     if (error) return { ran: false, mode, note: 'could not check whether this package was already covered, so nothing was written' }
     if (count && count > 0) {
       if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', {})
+      if (keywordLed) await markKeywordSkipped(admin, topic.keyword, 'its package already has a recent post')
       await setSetting(admin, skipKey, String(skips + 1))
       return { ran: false, mode, note: `skipped - a post about "${groundingPackage.name}" was already written in the last 30 days (${skips + 1} of 4 repeats allowed today)` }
     }
@@ -212,6 +218,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // instead and let the next scheduled/admin-triggered run pick a different topic.
   if (findDuplicate(composed.title, existingPosts)) {
     if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', {})
+    if (keywordLed) await markKeywordSkipped(admin, topic.keyword, 'the post written for it duplicated an existing one')
     return { ran: false, mode, note: `skipped - duplicate of an existing post: "${composed.title}"` }
   }
 
@@ -244,6 +251,11 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   })
 
   if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', { used_slug: post.slug })
+  // Close the loop: the keyword this post was written for now points at it, so it is not picked again and
+  // the Keyword Research and Search Rankings pages show which page serves which keyword.
+  if (keywordLed) {
+    await admin.from('keyword_research').update({ target_path: `/blog/${post.slug}`, updated_at: new Date().toISOString() }).eq('keyword', topic.keyword).eq('country', SITE_ID).is('target_path', null)
+  }
   if (publishing) {
     await enrollIfDue(admin, post.slug, post.title)
     // Tell Bing a new public blog page appeared. Never blocks or fails the post above.
