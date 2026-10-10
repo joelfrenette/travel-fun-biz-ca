@@ -179,16 +179,24 @@ async function listPostsByStatus(status: 'failed' | 'published', days: number): 
   if (!ghlSocialConfigured()) return []
   try {
     const now = new Date()
-    const res = await fetch(`${BASE}/social-media-posting/${loc()}/posts/list`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ type: status, skip: '0', limit: '50', includeUsers: 'false', fromDate: new Date(now.getTime() - days * 86_400_000).toISOString(), toDate: new Date(now.getTime() + 86_400_000).toISOString() }),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(20_000),
-    })
-    if (!res.ok) return []
-    const json = (await res.json().catch(() => null)) as { results?: { posts?: Array<Record<string, unknown>> } } | null
-    return (json?.results?.posts ?? [])
+    // This GoHighLevel location also holds other businesses' accounts, so the posts that matter are
+    // easily pushed past the first 50. Read up to 8 pages (400 posts) so a list is never cut short.
+    const all: Array<Record<string, unknown>> = []
+    for (let page = 0; page < 8; page++) {
+      const res = await fetch(`${BASE}/social-media-posting/${loc()}/posts/list`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({ type: status, skip: String(page * 50), limit: '50', includeUsers: 'false', fromDate: new Date(now.getTime() - days * 86_400_000).toISOString(), toDate: new Date(now.getTime() + 86_400_000).toISOString() }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(20_000),
+      })
+      if (!res.ok) break
+      const json = (await res.json().catch(() => null)) as { results?: { posts?: Array<Record<string, unknown>> } } | null
+      const batch = json?.results?.posts ?? []
+      all.push(...batch)
+      if (batch.length < 50) break
+    }
+    return all
       .filter((x) => x.status === status && x.deleted !== true && typeof x.postId === 'string')
       .map((x) => ({
         id: x.postId as string,
