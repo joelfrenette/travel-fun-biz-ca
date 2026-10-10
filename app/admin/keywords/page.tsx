@@ -248,7 +248,7 @@ export default function KeywordsPage() {
   // The dropdown lists EVERY page of the site, grouped: home, packages, destinations, blog posts.
   const pageByPath = new Map(pages.map((p) => [p.path, p]))
   const labelOf = (p: SitePage) => `${p.title}${p.status && p.status !== "published" ? ` (${p.status})` : ""}`
-  const groups = (["home", "package", "destination", "blog"] as PageType[]).map((type) => ({ type, items: pages.filter((p) => p.type === type) })).filter((g) => g.items.length)
+  const groups = (["home", "package", "destination", "guide", "blog"] as PageType[]).map((type) => ({ type, items: pages.filter((p) => p.type === type) })).filter((g) => g.items.length)
   // A target saved earlier that is not in the list (a page since removed) still shows, so it is never hidden.
   const orphanTargets = Array.from(new Set(rows.map((r) => r.target_path).filter((t): t is string => !!t && !pageByPath.has(t))))
 

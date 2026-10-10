@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Sparkles, Save, Trash2, MapPin } from "lucide-react"
+import { GuidesPanel } from "@/components/admin/guides-panel"
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -141,6 +142,16 @@ export default function DestinationsAdminPage() {
           </Card>
         ))}
         {rows.length === 0 && <p className="text-sm text-muted-foreground">No destinations yet - add a package with a destination first.</p>}
+      </div>
+
+      <div className="space-y-2 border-t pt-6">
+        <div>
+          <h2 className="text-xl font-bold">Guide pages</h2>
+          <p className="text-sm text-muted-foreground">
+            Full guides for destinations, hotels, resorts, cruise lines, ships, river cruises and yachts. A destination guide appears on its /destinations page above; the others get their own page.
+          </p>
+        </div>
+        <GuidesPanel variant="full" />
       </div>
     </div>
   )

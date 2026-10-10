@@ -7,6 +7,7 @@ import { judgeAllCrons } from '@/lib/cron-health'
 import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { getProvider, getGhlAccounts } from '@/lib/social-provider'
 import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
+import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -16,7 +17,7 @@ import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
 const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
 
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides'
 
 export interface Issue {
   id: string
@@ -102,9 +103,28 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
 
   // Steps of the last pass that failed (the carousel/video step is covered by the rows above).
   const last = await readLastPipelineRun(admin)
+  // The dedicated guide item below replaces the step item only when the failure list was readable and has
+  // entries; otherwise the step item is the only trace, so it stays.
+  const guideRead = await readGuideFailuresChecked(admin)
+  const guideItemCovers = !guideRead.error && Object.keys(guideRead.failures).length > 0
   for (const st of last?.steps ?? []) {
     // An email delivery failure is shown once, as "Emails from Aiva are not being delivered" below.
-    if (!st.ok && st.step !== 'repurpose' && !(st.step === 'debrief' && /Resend said/.test(st.note))) issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
+    // A failed guide WRITE has its own item below (it names the guide and the reason); any other guides-step
+    // failure (for example the table cannot be read) still shows here.
+    if (!st.ok && st.step !== 'repurpose' && !(st.step === 'guides' && guideItemCovers && /^could not write/.test(st.note)) && !(st.step === 'debrief' && /Resend said/.test(st.note))) issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
+  }
+
+  // Guide pages (destinations, hotels, ships ...) that could not be written. One item lists them all.
+  const guideFailures = Object.values(await readGuideFailures(admin))
+  if (guideFailures.length) {
+    issues.push({
+      id: 'system:guides-failing',
+      area: 'system',
+      title: `${guideFailures.length} guide page${guideFailures.length === 1 ? '' : 's'} could not be written`,
+      detail: guideFailures.map((f) => `${f.name} (${f.kind}, tried ${f.n} time${f.n === 1 ? '' : 's'}): ${f.last}`).join(' | '),
+      fix: `A guide is skipped after ${MAX_GUIDE_ATTEMPTS} failed tries so it cannot keep spending AI credits. Check ANTHROPIC_API_KEY in Vercel; click Dismiss to let them be tried again.`,
+      actions: [{ label: 'Dismiss', kind: 'dismiss-guides' }],
+    })
   }
 
   // Posts GoHighLevel accepted and then failed to publish (the network's rejection arrives later), for
@@ -194,6 +214,7 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
     const { error } = await setSetting(admin, VIDEO_BLOCK_KEY, '')
     return error ?? null
   }
+  if (kind === 'dismiss-guides') return (await clearAllGuideFailures(admin)).error ?? null
   if (!slug) return 'A post is required.'
   if (kind === 'dismiss-ghl') return dismissGhl(admin, slug)
   if (kind === 'retry-post') {
