@@ -121,5 +121,17 @@ blocked('I have stayed is blocked', 'I have stayed nearby.')
 blocked('our staff have is blocked', 'Our staff have returned often.')
 check('we can help you take the ferry stays allowed', guideBlockers(withBody('We can help you take the ferry.'), ctx).length === 0)
 
+// WP7 gate fix: a spelled-out count is excused when the grounding has the same count with the same unit.
+const montego = { ...ctx, grounding: `${ctx.grounding}\n- "Montego Bay Escape" is a 4-night trip` }
+check('Montego Bay: "4-night" in the grounding excuses "four-night"', guideBlockers(withBody('Our four-night escape is easy to plan.'), montego).length === 0)
+blocked('Montego Bay: without it in the grounding "four-night" still blocks', 'Our four-night escape is easy to plan.')
+check('grounding "4 nights" excuses "four-night"', guideBlockers(withBody('A four-night stay.'), { ...ctx, grounding: `${ctx.grounding}\n- runs 4 nights` }).length === 0)
+check('grounding "four nights" excuses "four-night"', guideBlockers(withBody('A four-night stay.'), { ...ctx, grounding: `${ctx.grounding}\n- runs four nights` }).length === 0)
+check('a different count is not excused ("five-night" vs 4-night)', guideBlockers(withBody('A five-night stay.'), montego).length > 0)
+check('a different unit is not excused ("four-day" vs 4-night)', guideBlockers(withBody('A four-day stay.'), montego).length > 0)
+check('a stray digit elsewhere does not excuse it', guideBlockers(withBody('A four-night stay.'), { ...ctx, grounding: `${ctx.grounding}\n- 4 ports of call` }).length > 0)
+check('amenity counts stay blocked even with a grounded count', guideBlockers(withBody('There are four restaurants on board.'), { ...ctx, grounding: `${ctx.grounding}\n- 4 restaurants` }).length > 0)
+check('hundreds is still blocked', guideBlockers(withBody('Hundreds of guests visit.'), montego).length > 0)
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`)
 process.exit(failed === 0 ? 0 : 1)
