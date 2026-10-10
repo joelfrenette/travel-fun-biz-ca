@@ -111,9 +111,15 @@ check('blockers are the note', /superlative/.test(publishDecision('destinations'
 check('publish mode lets a clean destination go live', publishDecision('destinations', 'publish', 'pipeline', []).publish)
 check('publish mode lets a clean cruise line go live', publishDecision('cruise-lines', 'publish', 'pipeline', []).publish)
 for (const k of ['hotels', 'resorts', 'ships', 'river-cruises', 'yachts'] as const) {
-  check(k + ' never auto-published by the pipeline', !publishDecision(k, 'publish', 'pipeline', []).publish)
+  check(k + ' never published by the pipeline', !publishDecision(k, 'publish', 'pipeline', []).publish)
 }
-check('admin write may publish a clean hotel in publish mode', publishDecision('hotels', 'publish', 'admin', []).publish)
+check('admin write never publishes a clean hotel', !publishDecision('hotels', 'publish', 'admin', []).publish)
+for (const k of ['hotels', 'resorts', 'ships', 'river-cruises', 'yachts'] as const) check(k + ' draft for admin source too', !publishDecision(k, 'publish', 'admin', []).publish)
+blocked('we can host groups every spring is blocked', 'We can host groups every spring.')
+blocked('our advisors visited is blocked', 'Our advisors visited the island.')
+blocked('I have stayed is blocked', 'I have stayed nearby.')
+blocked('our staff have is blocked', 'Our staff have returned often.')
+check('we can help you take the ferry stays allowed', guideBlockers(withBody('We can help you take the ferry.'), ctx).length === 0)
 
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`)
 process.exit(failed === 0 ? 0 : 1)

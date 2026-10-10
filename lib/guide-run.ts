@@ -202,7 +202,8 @@ export async function setGuidePublishMode(admin: SupabaseClient, mode: string): 
 export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source: 'pipeline' | 'admin', blockers: string[]): { publish: boolean; note: string | null } {
   if (blockers.length) return { publish: false, note: blockers.join('; ') }
   if (mode !== 'publish') return { publish: false, note: 'held for review (guides_publish_mode=draft)' }
-  if (source === 'pipeline' && !AUTO_PUBLISH_KINDS.includes(kind)) return { publish: false, note: `held for review (${guideKinds[kind].label.toLowerCase()} guides name a real business, so an admin publishes them)` }
+  // Named places are drafts whatever the source: an admin reads the Preview, then clicks Publish.
+  if (!AUTO_PUBLISH_KINDS.includes(kind)) return { publish: false, note: `held for review (${guideKinds[kind].label.toLowerCase()} guides name a real business, so they are always saved as drafts; use Preview then Publish)` }
   return { publish: true, note: null }
 }
 
@@ -235,6 +236,10 @@ export async function writeGuide(
   const failureKey = `${cand.kind}:${cand.slug}`
   const earlier = (await readGuideFailures(admin))[failureKey]
   if (earlier && earlier.n >= MAX_GUIDE_ATTEMPTS) return { ok: false, note: `"${cand.name}" failed ${earlier.n} times, so it is skipped. Click Dismiss on the Needs attention item to try it again.` }
+  // The breaker applies to the admin buttons too: after repeated failures, stop spending until someone looks.
+  const recent = await recentGuideFailureCount(admin)
+  if (recent === null) return { ok: false, note: 'could not check recent guide failures, so nothing was written' }
+  if (recent >= BREAKER_FAILURES) return { ok: false, note: `paused after ${recent} failures in ${BREAKER_HOURS}h. Click Dismiss on the Needs attention item on the Autopilot page to resume.` }
   if (!(await acquireLock(admin))) return { ok: false, note: 'another guide is being written right now' }
 
   let saved!: Guide
@@ -256,11 +261,8 @@ export async function writeGuide(
     publishing = decision.publish
 
     const stop = opts.beforeSave ? await opts.beforeSave() : null
-    if (stop) {
-      // The money was spent and nothing was saved: that counts as a failure for the breaker.
-      await recordGuideFailure(admin, failureKey, { name: cand.name, kind: cand.kind, reason: stop })
-      return { ok: false, failed: true, note: `could not write "${cand.name}": ${stop}` }
-    }
+    // A pass dropped because a cap was reached while composing is not a failure: it must not feed the breaker.
+    if (stop) return { ok: false, note: stop }
 
     const info = guideKinds[cand.kind]
     const query = cand.kind === 'destinations' ? guide.hero_query || cand.name : `${info.stockPhotoQuery}${brief.parentName ? ` ${brief.parentName}` : ''}`

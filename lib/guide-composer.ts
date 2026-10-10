@@ -302,10 +302,12 @@ const WORD_NUMBER_PATTERNS = [
 // Itinerary or schedule stated as fact.
 const SCHEDULE_PATTERN = /\bevery (?:week|day|month|sailing|departure)\b/i
 // The agency speaking about its own history. Only offers of help are allowed.
-const AGENCY_SUBJECT = /\b(?:we|our (?:team|hosts|guides|groups|travell?ers|clients|guests))\b/i
+const AGENCY_SUBJECT = /\b(?:we|I|I['’](?:ve|d|m)|our (?:team|hosts|guides|groups|travell?ers|clients|guests|advisors|agents|staff|company))\b/i
 const AGENCY_VERB = /\b(?:offer|offered|run|ran|sail|sailed|host|hosted|know|have|had|visit|visited|take|took|bring|brought|love|loved|return|partner)\b/i
 const AGENCY_TIME = /\bevery (?:year|season|spring|summer|fall|winter)\b|\beach (?:year|season)\b|\bmany times\b|\byears of\b/i
-const AGENCY_OFFER = /\b(?:we can help|we can|our team can|ask us|we will help|our advisors can)\b/gi
+const AGENCY_OFFER = /\b(?:we can help|we can|our team can|ask us|we will help|our advisors can)\b/i
+// After an offer of help, any of these makes the sentence a claim after all ("we can host groups every spring").
+const PAST_OR_HABITUAL = /\b(?:offered|ran|sailed|hosted|visited|took|brought|loved|had|knew|returned|partnered|often|regularly|always|usually|many times|years of|every (?:year|season|spring|summer|fall|winter|week|day)|each (?:year|season))\b/i
 const COUNT_CLAIM = /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred|hundreds|thousand|thousands|dozen|dozens)\b[^.\n]{0,24}\b(rooms|suites|cabins|restaurants|decks|passengers|staterooms|bars|pools|villas|bungalows)\b/i
 
 function numbersIn(text: string): string[] {
@@ -345,7 +347,9 @@ function sentencesOf(markdown: string): string[] {
 export function agencyClaims(markdown: string): string[] {
   const out: string[] = []
   for (const sentence of sentencesOf(markdown)) {
-    const rest = sentence.replace(AGENCY_OFFER, ' ')
+    // An offer of help is exempt only when nothing after it in the sentence is past or habitual.
+    const offer = AGENCY_OFFER.exec(sentence)
+    const rest = offer && !PAST_OR_HABITUAL.test(sentence.slice(offer.index + offer[0].length)) ? sentence.replace(new RegExp(AGENCY_OFFER.source, 'gi'), ' ') : sentence
     const subject = AGENCY_SUBJECT.exec(rest)
     if (!subject) continue
     const after = rest.slice(subject.index + subject[0].length)

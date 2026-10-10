@@ -40,6 +40,10 @@ export async function readGuideFailures(admin: SupabaseClient): Promise<GuideFai
 
 /** Like readGuideFailures but a read error is reported, so a writer can skip the write instead of replacing
  * the stored list with a partial one. */
+export async function readGuideFailuresChecked(admin: SupabaseClient): Promise<{ failures: GuideFailures; error?: string }> {
+  return readStrict(admin)
+}
+
 async function readStrict(admin: SupabaseClient): Promise<{ failures: GuideFailures; error?: string }> {
   const { value, error } = await getSettingStrict(admin, GUIDE_FAILURES_KEY)
   if (error) return { failures: {}, error }

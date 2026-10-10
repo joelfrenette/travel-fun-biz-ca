@@ -7,7 +7,7 @@ import { judgeAllCrons } from '@/lib/cron-health'
 import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { getProvider, getGhlAccounts } from '@/lib/social-provider'
 import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
-import { readGuideFailures, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
+import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -103,11 +103,15 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
 
   // Steps of the last pass that failed (the carousel/video step is covered by the rows above).
   const last = await readLastPipelineRun(admin)
+  // The dedicated guide item below replaces the step item only when the failure list was readable and has
+  // entries; otherwise the step item is the only trace, so it stays.
+  const guideRead = await readGuideFailuresChecked(admin)
+  const guideItemCovers = !guideRead.error && Object.keys(guideRead.failures).length > 0
   for (const st of last?.steps ?? []) {
     // An email delivery failure is shown once, as "Emails from Aiva are not being delivered" below.
     // A failed guide WRITE has its own item below (it names the guide and the reason); any other guides-step
     // failure (for example the table cannot be read) still shows here.
-    if (!st.ok && st.step !== 'repurpose' && !(st.step === 'guides' && /^could not write/.test(st.note)) && !(st.step === 'debrief' && /Resend said/.test(st.note))) issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
+    if (!st.ok && st.step !== 'repurpose' && !(st.step === 'guides' && guideItemCovers && /^could not write/.test(st.note)) && !(st.step === 'debrief' && /Resend said/.test(st.note))) issues.push({ id: `system:step-${st.step}`, area: 'system', title: `The "${st.step}" step failed on the last pass`, detail: st.note, fix: adviceFor(st.note) })
   }
 
   // Guide pages (destinations, hotels, ships ...) that could not be written. One item lists them all.

@@ -134,7 +134,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
         <span className="font-medium text-foreground">{data.publishMode === "draft" ? "Review mode (recommended at first): " : "Publish mode: "}</span>
         {data.publishMode === "draft"
           ? "every new guide is saved as a draft and nothing goes live until you open it and click Publish."
-          : "a guide that passes every check goes live by itself, but only destination and cruise line guides. Hotel, resort, ship, river cruise and yacht guides always wait for you."}
+          : "a destination or cruise line guide that passes every check goes live by itself. Named places (hotels, resorts, ships, river cruises, yachts) are always saved as drafts: use Preview, then Publish."}
       </p>
       <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setMode(data.publishMode === "draft" ? "publish" : "draft")}>
         {busy === "mode" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{data.publishMode === "draft" ? "Switch to publish mode" : "Switch back to review mode"}
@@ -201,7 +201,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
       <Card>
         <CardContent className="space-y-3 p-4">
           <h3 className="text-sm font-semibold">Write a guide by name</h3>
-          <p className="text-xs text-muted-foreground">A name that has failed twice is skipped, so it cannot keep spending AI credits. Click Dismiss on the Needs attention item on the Autopilot page to try it again.</p>
+          <p className="text-xs text-muted-foreground">A name that has failed twice is skipped, and after three failures in a day all writing (the buttons too) pauses, so nothing keeps spending AI credits. Click Dismiss on the Needs attention item on the Autopilot page to try it again.</p>
           <div className="flex flex-wrap gap-2">
             <select className="h-9 rounded-md border bg-card px-3 text-sm" value={newKind} onChange={(e) => setNewKind(e.target.value as Kind)} aria-label="Kind of guide">
               {KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
