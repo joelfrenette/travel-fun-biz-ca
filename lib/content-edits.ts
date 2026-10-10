@@ -72,6 +72,13 @@ export async function claimRepairSlot(admin: SupabaseClient, itemKey: string, pe
   return { ok: false, used: rows.length, reason: `today's cap of ${perDay} repaired pages is used` }
 }
 
+/** Takes a once-a-day marker (true the first time today, false after, and false when it cannot be written). The heal
+ * step uses it so one page can cost at most one model call a day, however often "Heal now" is pressed. */
+export async function claimDailyOnce(admin: SupabaseClient, key: string, now: Date = new Date()): Promise<boolean> {
+  const { error } = await admin.from('app_settings').insert({ key: `content_repair_once:${repairDay(now)}:${key}`, value: now.toISOString() })
+  return !error
+}
+
 /** How many pages have a slot today. Null when it cannot be read. */
 export async function repairSlotsUsed(admin: SupabaseClient, now: Date = new Date()): Promise<number | null> {
   const { data, error } = await admin.from('app_settings').select('key').like('key', `${SLOT_PREFIX}:${repairDay(now)}:%`)

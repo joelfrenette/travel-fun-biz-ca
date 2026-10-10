@@ -24,7 +24,7 @@ import {
   type RepairFields,
 } from '../lib/content-repair'
 import { buildCopyItem, buildGuideItem, buildPostItem, guideFields, repairComposedGuide } from '../lib/content-repair-adapters'
-import { claimRepairSlot, columnsFor, REPAIR_ITEMS_PER_DAY, storedValue } from '../lib/content-edits'
+import { claimDailyOnce, claimRepairSlot, columnsFor, REPAIR_ITEMS_PER_DAY, storedValue } from '../lib/content-edits'
 import { addRelatedLinks, linkFirstMention, mergeFaq, planCheapFixes } from '../lib/content-heal-run'
 import { seoScore, internalLinkPathsOf } from '../lib/seo-score'
 import { serializeField } from '../lib/content-repair'
@@ -522,6 +522,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     const winner = results.findIndex((r) => r.ok)
     check('slots: a page that already has a slot keeps it', (await claimRepairSlot(world.admin, `item-${winner}`)).ok === true && again !== undefined)
     check('slots: the 7th page is refused with a reason', results.some((r) => !r.ok && /cap of 6/.test(r.reason ?? '')))
+    check('once-a-day marker: first claim wins, the second is refused', (await claimDailyOnce(world.admin, 'post:abc')) === true && (await claimDailyOnce(world.admin, 'post:abc')) === false && (await claimDailyOnce(world.admin, 'post:def')) === true)
     const brokenSlots = fakeAdmin({ settingsError: true })
     check('slots fail closed when they cannot be read', (await claimRepairSlot(brokenSlots.admin, 'x')).ok === false)
 

@@ -26,7 +26,7 @@ import {
   type RepairFields,
   type RepairLimits,
 } from '@/lib/content-repair'
-import { claimRepairSlot, countEditsSince, editsLoggable, insertEdits, readRepairSpend, recordRepairSpend, deleteEdits, repairDay, startOfSiteDayIso, REPAIR_ITEMS_PER_DAY } from '@/lib/content-edits'
+import { claimDailyOnce, claimRepairSlot, countEditsSince, editsLoggable, insertEdits, readRepairSpend, recordRepairSpend, deleteEdits, repairDay, startOfSiteDayIso, REPAIR_ITEMS_PER_DAY } from '@/lib/content-edits'
 import { COPY_LIMITS, GUIDE_LIMITS, sectionsOf } from '@/lib/content-repair-adapters'
 import { pingIndexNow } from '@/lib/indexnow'
 import { guideKinds, GUIDE_KINDS, guidePath, type GuideKind } from '@/lib/guides'
@@ -428,8 +428,9 @@ export function planCheapFixes(
 
   if (failedSet.has('dashes')) touchChanged(fixAllDashes(f), 'fixer', 'removed a long dash')
 
-  // Over-long meta and share text is cut at a word (never made longer, never rewritten).
-  const clamped = clampLengths(f, item.limits)
+  // Over-long meta description and share text is cut at a word (never made longer, never rewritten). A title is
+  // left alone: cutting one can leave half a phrase, and a long title only costs a few points.
+  const clamped = { ...clampLengths(f, item.limits), meta_title: f.meta_title }
   if (!sameFields(clamped, f)) touchChanged(clamped, 'fixer', 'cut meta or share text to its length limit')
 
   // Links to pages that do not exist lose the link (the words stay).
@@ -596,16 +597,20 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
     // An edit that was reverted stays reverted: those fields go back to what they were.
     let fields = plan.fields
     for (const field of reverted) fields = restoreField(fields, item.fields, field)
-    const wantsModel = aiOn && plan.generate.filter((k) => !reverted.has(k)).length > 0
+    let wantsModel = aiOn && plan.generate.filter((k) => !reverted.has(k)).length > 0
     const cheapChanged = !sameFields(fields, item.fields)
     if (!cheapChanged && !wantsModel) continue
 
-    const slot = await claimRepairSlot(admin, `${item.type}:${item.type === 'page_copy' ? item.path : item.id}`)
+    const itemKey = `${item.type}:${item.type === 'page_copy' ? item.path : item.id}`
+    const slot = await claimRepairSlot(admin, itemKey)
     if (!slot.ok) {
       if (/cap of/.test(slot.reason ?? '')) break
       problems.push(slot.reason ?? 'no repair slot')
       break
     }
+    // One model call per page per day, however often Heal now is pressed.
+    if (wantsModel && !(await claimDailyOnce(admin, itemKey))) wantsModel = false
+    if (!cheapChanged && !wantsModel) continue
 
     let usedCall = false
     if (wantsModel) {
