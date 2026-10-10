@@ -65,6 +65,8 @@ type Step = 'keywords' | 'idea' | 'body' | 'title' | 'enrich'
 interface ComposerContext {
   angle: string
   keywords: string[]
+  /** Supporting phrases from the topic's keyword set that the post must work in (empty for a single-phrase seed). */
+  seedSecondary: string[]
   idea: string
   description: string
   style?: ContentStyle
@@ -93,12 +95,12 @@ function composerPrompt(step: Step, ctx: ComposerContext): string {
     case 'body': {
       const wordRange = ctx.style ? `${ctx.style.minWords}-${ctx.style.maxWords}` : '700-900'
       const styleBlock = ctx.style ? `\n\n${ctx.style.prompt}` : ''
-      return `Write a blog post of roughly ${wordRange} words, in markdown, for a travel agency's blog.\n\nIdea: ${ctx.idea}\nDescription: ${ctx.description}\nTarget keywords (work them in naturally, don't stuff): ${ctx.keywords.join(', ')}\nPrimary keyword: ${ctx.keywords[0] ?? ''}${styleBlock}\n\n${NO_FABRICATION}\n\nFormat rules: the opening sentence must directly answer the core question a reader searching the primary keyword actually has - plain, complete, quotable on its own by a search engine or AI answer box, not a scene-setting lead-in. Follow it with the rest of the hook paragraph (no heading before it). Straight after that opening paragraph, add one separate short paragraph that starts with the bold words "**Quick answer:**" followed by a one or two sentence summary that adds who the trip or advice suits, rather than restating the opening sentence. Within the first two sections, include one short definition sentence for the main concept of the post in the form "X is ..." that an AI answer engine could quote. Use 4-6 "##" section headings and work the primary keyword into the first one naturally (never forced or unnatural-sounding). Use a "###" sub-heading under the longest section where it fits (optional for list and checklist styles). Use a short bullet list somewhere it helps scanability, write in a warm and practical tone, and do not include a title heading (the title is generated separately) or a call-to-action link (the site adds its own).\n\n${linkInstructions(ctx.allowedLinks)}\n\nFinish with a short final paragraph (2-3 sentences, no heading, no link) that names the one question the reader should settle next (for example who they would travel with, or which month works) and says our team can help them work that out. State no prices, dates, availability or urgency, and no exact statistics, distances or counts you were not given: stay at the level of general guidebook knowledge. Never use the long dash character; use commas or full stops instead. Output raw markdown only, no commentary before or after it.`
+      return `Write a blog post of roughly ${wordRange} words, in markdown, for a travel agency's blog.\n\nIdea: ${ctx.idea}\nDescription: ${ctx.description}\nTarget keywords (work them in naturally, don't stuff): ${ctx.keywords.join(', ')}\nPrimary keyword: ${ctx.keywords[0] ?? ''}${ctx.seedSecondary.length ? `\nThis post is shooting for this keyword set, so each of these supporting phrases must appear at least once, naturally, in a heading or sentence where it fits: ${ctx.seedSecondary.join(', ')}` : ''}${styleBlock}\n\n${NO_FABRICATION}\n\nFormat rules: the opening sentence must directly answer the core question a reader searching the primary keyword actually has - plain, complete, quotable on its own by a search engine or AI answer box, not a scene-setting lead-in. Follow it with the rest of the hook paragraph (no heading before it). Straight after that opening paragraph, add one separate short paragraph that starts with the bold words "**Quick answer:**" followed by a one or two sentence summary that adds who the trip or advice suits, rather than restating the opening sentence. Within the first two sections, include one short definition sentence for the main concept of the post in the form "X is ..." that an AI answer engine could quote. Use 4-6 "##" section headings and work the primary keyword into the first one naturally (never forced or unnatural-sounding). Use a "###" sub-heading under the longest section where it fits (optional for list and checklist styles). Use a short bullet list somewhere it helps scanability, write in a warm and practical tone, and do not include a title heading (the title is generated separately) or a call-to-action link (the site adds its own).\n\n${linkInstructions(ctx.allowedLinks)}\n\nFinish with a short final paragraph (2-3 sentences, no heading, no link) that names the one question the reader should settle next (for example who they would travel with, or which month works) and says our team can help them work that out. State no prices, dates, availability or urgency, and no exact statistics, distances or counts you were not given: stay at the level of general guidebook knowledge. Never use the long dash character; use commas or full stops instead. Output raw markdown only, no commentary before or after it.`
     }
     case 'title':
       return `Idea: ${ctx.idea}\nDescription: ${ctx.description}\n\nWrite: a clear post title (under 65 characters), an SEO title (under 60 characters, can equal the title), and an SEO meta description (under 155 characters). The title and seo_title must contain the primary keyword (${ctx.keywords[0] ?? ''}) and tell the reader who the trip or advice is for or what decision it helps with. No fake urgency, superlatives about price, and no digits or numbers of any kind in the title, SEO title or meta description. Never use the long dash character. Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"..."}`
     case 'enrich':
-      return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. No prices, dates, availability, digits, number words or counts of any kind, and no links (answers are plain text).\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits, number words or counts.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post. No digits or numbers.\n- og_description: a social share description, 110 characters or fewer. No digits or numbers.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
+      return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. No prices, dates, availability, digits, number words or counts of any kind, and no links (answers are plain text).\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits, number words or counts.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post. No digits or numbers.\n- og_description: a social share description, 110 characters or fewer. No digits or numbers.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.${ctx.seedSecondary.length ? ` Start with these exact phrases, which the post was written for: ${ctx.seedSecondary.join(', ')}.` : ''}\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
   }
 }
 
@@ -146,11 +148,16 @@ function asFaq(v: unknown): FaqItem[] {
  * the next run rather than publishing a half-written post. The one exception is the final
  * "enrich" step: if it fails the post is still returned, with empty FAQ and takeaways, and the
  * quality gate (autoPublishBlockers) keeps it from auto-publishing. */
-export async function composeFullPost(angle: string, seedKeyword?: string, opts: ComposeOptions = {}): Promise<ComposedPost | null> {
+export async function composeFullPost(angle: string, seedKeywords?: string | string[], opts: ComposeOptions = {}): Promise<ComposedPost | null> {
   if (!isAiConfigured()) return null
+  // One phrase (the old call) or the topic's whole keyword set: the first is the primary keyword, the rest
+  // are the secondary phrases the post must work in (they come from the keyword engine's topic cluster).
+  const seeds = [...new Set((Array.isArray(seedKeywords) ? seedKeywords : seedKeywords ? [seedKeywords] : []).map((k) => k.trim()).filter(Boolean))]
+  const seedKeyword = seeds[0]
   const ctx: ComposerContext = {
     angle,
-    keywords: seedKeyword ? [seedKeyword] : [],
+    keywords: [...seeds],
+    seedSecondary: seeds.slice(1, 7),
     idea: '',
     description: '',
     style: opts.style,
@@ -161,7 +168,7 @@ export async function composeFullPost(angle: string, seedKeyword?: string, opts:
 
   const keywordsResult = await runComposerStep<{ keywords?: string[] }>('keywords', ctx)
   const aiKeywords = keywordsResult && typeof keywordsResult === 'object' ? keywordsResult.keywords ?? [] : []
-  ctx.keywords = [...new Set([...(seedKeyword ? [seedKeyword] : []), ...aiKeywords])].filter(Boolean)
+  ctx.keywords = [...new Set([...seeds, ...aiKeywords])].filter(Boolean)
   if (ctx.keywords.length === 0) return null
 
   const ideaResult = await runComposerStep<{ idea?: string; description?: string }>('idea', ctx)
@@ -183,7 +190,10 @@ export async function composeFullPost(angle: string, seedKeyword?: string, opts:
   const enrich = skipEnrich ? null : await runComposerStep<EnrichResult>('enrich', ctx)
   const extra: EnrichResult = enrich && typeof enrich === 'object' ? enrich : {}
   const seoTitle = titleResult.seo_title ?? titleResult.title
-  const secondary = asTextList(extra.secondary_keywords, 6)
+  // The post targets the keyword set it was given: the chosen primary stays the primary, and the topic's
+  // secondary phrases lead the secondary list (the model's own extras only fill the remaining places).
+  const aiSecondary = asTextList(extra.secondary_keywords, 6)
+  const secondary = seeds.length > 1 ? [...new Set([...ctx.seedSecondary, ...aiSecondary])].slice(0, 6) : aiSecondary
 
   return normalizePost({
     title: titleResult.title,
@@ -196,7 +206,7 @@ export async function composeFullPost(angle: string, seedKeyword?: string, opts:
     key_takeaways: asTextList(extra.key_takeaways, 5),
     og_title: asText(extra.og_title),
     og_description: asText(extra.og_description),
-    primary_keyword: asText(extra.primary_keyword) || ctx.keywords[0],
+    primary_keyword: seedKeyword || asText(extra.primary_keyword) || ctx.keywords[0],
     secondary_keywords: secondary.length ? secondary : ctx.keywords.slice(1, 5),
     content_style: opts.style?.id ?? '',
     ...(skipEnrich ? { skipped_enrich: true } : {}),

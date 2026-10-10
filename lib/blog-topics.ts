@@ -18,6 +18,9 @@ export interface TopicIdea {
   keyword: string
   why: string
   source: string
+  /** The keyword set the post is shooting for: primary first (same as `keyword`), then secondary phrases of
+   * the same topic. Absent on ideas that are about a single phrase. */
+  keywords?: string[]
 }
 
 export interface BlogTopicQueueRow {
@@ -31,6 +34,18 @@ export interface BlogTopicQueueRow {
   used_slug: string | null
   used_at: string | null
   created_at: string
+  /** Migration 0032 columns: null/absent on older rows or before the migration is applied. */
+  keywords?: string[] | null
+  cluster_id?: string | null
+  title_idea?: string | null
+  score?: number | null
+}
+
+/** The keyword set of a queue row: its `keywords` when recorded, otherwise just its one phrase. */
+export function keywordSetOf(row: { keyword: string; keywords?: string[] | null }): string[] {
+  const set = (row.keywords ?? []).map((k) => k.trim()).filter(Boolean)
+  if (!set.length) return [row.keyword]
+  return set[0].toLowerCase() === row.keyword.toLowerCase() ? set : [row.keyword, ...set]
 }
 
 // A trip-focused starting point when the AI is unconfigured or returns nothing usable. Not a
@@ -267,7 +282,7 @@ export async function pickKeywordTopic(admin: SupabaseClient, existing: { title:
     }
     const also = c.secondary.length ? ` Also work in these related searches: ${c.secondary.slice(0, 4).join(', ')}.` : ''
     const angle = `A blog post that answers the search "${c.keyword}" for someone deciding whether and which trip to book with us.${also}`
-    return { angle, keyword: c.keyword, why: `Keyword score ${c.score}/100 (winnability ${c.parts.winnability}, demand ${c.parts.demand}, intent ${c.parts.intent}, timing ${c.parts.timing})${c.packageName ? `, about "${c.packageName}"` : ''}`, source: 'keyword research' }
+    return { angle, keyword: c.keyword, keywords: [c.keyword, ...c.secondary.slice(0, 5)], why: `Keyword score ${c.score}/100 (winnability ${c.parts.winnability}, demand ${c.parts.demand}, intent ${c.parts.intent}, timing ${c.parts.timing})${c.packageName ? `, about "${c.packageName}"` : ''}`, source: 'keyword research' }
   }
   return null
 }
