@@ -448,7 +448,7 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
             notes.push(`Google volume looked up for ${res.fetched} phrase${res.fetched === 1 ? '' : 's'} in one batch${res.skipped?.length ? ` (${res.skipped.length} too long for Google Ads, left out)` : ''}`)
             // A phrase Google Ads will never price is marked so the engine stops offering it for lookup.
             if (res.skipped?.length) {
-              await admin.from('keyword_research').update({ fetched_at: new Date().toISOString(), note: 'too long for a Google volume lookup (over 10 words)' }).eq('country', COUNTRY).in('keyword', res.skipped).is('volume', null)
+              await admin.from('keyword_research').update({ fetched_at: new Date().toISOString(), note: 'not accepted for a Google volume lookup (over 10 words, or a symbol in the phrase)' }).eq('country', COUNTRY).in('keyword', res.skipped).is('volume', null)
             }
           } else notes.push('every phrase already has its Google volume')
         } catch (e) {

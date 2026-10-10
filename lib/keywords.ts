@@ -177,7 +177,9 @@ export async function lookupKeywords(keywords: string[], country: KeywordCountry
   // and one bad phrase fails the WHOLE batch ("Invalid Field: 'keywords'. Keyword text has too many words",
   // seen on the first engine run 2026-10-10 with a People Also Ask question). Such phrases are left out of
   // the request, never retried for volume, and reported in `skipped`.
-  const tooLong = (kw: string) => kw.length > 80 || kw.split(' ').length > 10
+  // Google Ads also rejects symbols: "$10,000" failed the next batch. Letters, digits, spaces, apostrophes
+  // and hyphens are all it accepts.
+  const tooLong = (kw: string) => kw.length > 80 || kw.split(' ').length > 10 || /[^a-z0-9 '\-]/i.test(kw)
   const skipped = keywords.filter((kw) => !fresh.has(kw) && tooLong(kw))
   const toFetch = keywords.filter((kw) => !fresh.has(kw) && !tooLong(kw))
 
