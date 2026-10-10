@@ -41,6 +41,8 @@ import type { ScrapedPackage } from "@/types/scrape"
 import { generateSlug } from "@/lib/utils"
 import { scrapedToPackage as scrapedToPayload } from "@/lib/scraping/to-package"
 import { parsePackagesCsv, csvTemplate, type CsvRow } from "@/lib/import-csv"
+import { completenessScore } from "@/lib/package-completeness"
+import { PackageSourcesPanel } from "@/components/admin/package-sources-panel"
 
 const categories = [
   "Adventure",
@@ -56,7 +58,7 @@ const categories = [
   "Wellness & Spa",
 ]
 
-type SortField = "name" | "available_from" | "destination" | "price_value" | "duration_days" | "supplier" | "status" | "created_at"
+type SortField = "name" | "available_from" | "destination" | "price_value" | "duration_days" | "supplier" | "status" | "created_at" | "completeness"
 type SortDir = "asc" | "desc"
 
 // ─── AI Field Generator Button ──────────────────────────────────────
@@ -1501,6 +1503,7 @@ function PackageTable({
     { key: "destination", label: "Destination" },
     { key: "price_value", label: "Price" },
     { key: "status", label: "Status" },
+    { key: "completeness", label: "Page" },
   ]
 
   return (
@@ -1542,6 +1545,17 @@ function PackageTable({
               <td className="p-3 text-xs">{pkg.destination}</td>
               <td className="p-3 text-xs font-medium">{pkg.price_display}</td>
               <td className="p-3"><Badge variant={pkg.status === "published" ? "default" : "secondary"} className="text-[10px]">{pkg.status}</Badge></td>
+              <td className="p-3">
+                {(() => {
+                  const c = completenessScore(pkg)
+                  const tone = c.thin ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" : c.score < 80 ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                  return (
+                    <button type="button" onClick={() => onEdit(pkg)} title={c.reasons.length ? `Missing: ${c.reasons.join("; ")}. Click to add details.` : "Complete. Click to open."} className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone}`}>
+                      {c.thin ? "Thin " : ""}{c.score}
+                    </button>
+                  )
+                })()}
+              </td>
               <td className="p-3 text-right">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
@@ -1576,8 +1590,13 @@ export default function PackagesAdminPage() {
   const [seedData, setSeedData] = useState<Partial<DbPackage> | null>(null)
   const [saving, setSaving] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [sortField, setSortField] = useState<SortField>("created_at")
-  const [sortDir, setSortDir] = useState<SortDir>("desc")
+  // Thin trip pages first by default (lowest completeness score on top); every column header still sorts.
+  const [sortField, setSortField] = useState<SortField>("completeness")
+  const [sortDir, setSortDir] = useState<SortDir>("asc")
+  // Bumped whenever the Add details card changes the trip, so the form below reloads with the new values
+  // instead of saving the old ones back over them.
+  const [formKey, setFormKey] = useState(0)
+  const openedFromLink = useRef(false)
   const [filterText, setFilterText] = useState("")
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [filterCategory, setFilterCategory] = useState<string>("all")
@@ -1611,11 +1630,31 @@ export default function PackagesAdminPage() {
       const res = await fetch("/api/admin/packages", { headers: { Authorization: `Bearer ${token}` } })
       const data = await res.json()
       setPackages(data.packages || [])
+      // A link such as /admin/packages?edit=<id> (from a Needs attention item) opens that trip's editor, once.
+      if (!openedFromLink.current) {
+        openedFromLink.current = true
+        const wanted = new URLSearchParams(window.location.search).get("edit")
+        const target = wanted ? (data.packages || []).find((p: DbPackage) => p.id === wanted) : null
+        if (target) { setEditingPackage(target); setView("manual") }
+      }
     } catch (error) {
       console.error("Failed to fetch packages:", error)
     } finally {
       setLoading(false)
     }
+  }
+
+  // After the Add details card changes the trip: load the saved row, refresh the list, and reload the form.
+  async function reloadEditing(id: string) {
+    const token = localStorage.getItem("adminToken")
+    try {
+      const res = await fetch(`/api/admin/packages/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+      const data = await res.json()
+      if (res.ok && data.package) { setEditingPackage(data.package); setFormKey((k) => k + 1) }
+    } catch (error) {
+      console.error("Failed to reload package:", error)
+    }
+    fetchPackages()
   }
 
   const filteredPackages = useMemo(() => {
@@ -1627,7 +1666,8 @@ export default function PackagesAdminPage() {
     if (filterStatus !== "all") result = result.filter((p) => p.status === filterStatus)
     if (filterCategory !== "all") result = result.filter((p) => p.category === filterCategory)
     result.sort((a, b) => {
-      let aVal: any = a[sortField]; let bVal: any = b[sortField]
+      let aVal: any = sortField === "completeness" ? completenessScore(a).score : a[sortField]
+      let bVal: any = sortField === "completeness" ? completenessScore(b).score : b[sortField]
       if (aVal == null) aVal = ""; if (bVal == null) bVal = ""
       if (typeof aVal === "string") aVal = aVal.toLowerCase()
       if (typeof bVal === "string") bVal = bVal.toLowerCase()
@@ -1746,7 +1786,7 @@ export default function PackagesAdminPage() {
 
   if (view === "interview") return <div className="p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
   if (view === "paste") return <div className="p-6"><PasteSourceForm onDraft={(data) => { setSeedData(data as Partial<DbPackage>); setEditingPackage(null); setView("manual") }} onCancel={() => setView("list")} /></div>
-  if (view === "manual") return <div className="p-6"><ManualForm onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>
+  if (view === "manual") return <div className="p-6">{editingPackage && <div id="add-details"><PackageSourcesPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} /></div>}<ManualForm key={formKey} onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>
   if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
   if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
 
