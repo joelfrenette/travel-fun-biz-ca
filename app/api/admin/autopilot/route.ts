@@ -31,8 +31,16 @@ export async function GET(request: Request) {
       collectIssues(admin),
     ])
     const slugs = (pipeline.data ?? []).map((r: { slug: string }) => r.slug)
-    const { data: posts } = slugs.length ? await admin.from('posts').select('slug, title').in('slug', slugs) : { data: [] }
+    const { data: posts } = slugs.length ? await admin.from('posts').select('slug, title, status').in('slug', slugs) : { data: [] }
     const titles = new Map((posts ?? []).map((p: { slug: string; title: string }) => [p.slug, p.title]))
+    const statusOf = new Map((posts ?? []).map((p: { slug: string; status: string }) => [p.slug, p.status]))
+    // The content map: for each blog post, where its social posts really went and how many leads it earned
+    // (test leads never counted). One blog post becomes several social posts: the post itself, a carousel and a video.
+    const { data: dist } = slugs.length ? await admin.from('post_distribution').select('slug, sent_platforms').eq('content_type', 'post').in('slug', slugs) : { data: [] }
+    const postNetworks = new Map((dist ?? []).map((d: { slug: string; sent_platforms: string[] | null }) => [d.slug, d.sent_platforms ?? []]))
+    const { data: leadRows } = slugs.length ? await admin.from('leads').select('utm_campaign').eq('is_test', false).in('utm_campaign', slugs) : { data: [] }
+    const leadCount = new Map<string, number>()
+    for (const l of (leadRows ?? []) as { utm_campaign: string }[]) leadCount.set(l.utm_campaign, (leadCount.get(l.utm_campaign) ?? 0) + 1)
     return NextResponse.json({
       on,
       readiness,
@@ -43,7 +51,13 @@ export async function GET(request: Request) {
       issues,
       keyword: { budget: keywordBudget, configured: isKeywordDataConfigured(), lastRunAt: keywordInfo.lastRunAt, log: keywordInfo.log },
       cron: judgeCron('autopilot', runs.autopilot),
-      rows: (pipeline.data ?? []).map((r: Record<string, unknown>) => ({ ...r, title: titles.get(r.slug as string) ?? r.slug })),
+      rows: (pipeline.data ?? []).map((r: Record<string, unknown>) => ({
+        ...r,
+        title: titles.get(r.slug as string) ?? r.slug,
+        post_status: statusOf.get(r.slug as string) ?? 'missing',
+        post_networks: postNetworks.get(r.slug as string) ?? [],
+        leads: leadCount.get(r.slug as string) ?? 0,
+      })),
     })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })

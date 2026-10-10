@@ -16,6 +16,12 @@ interface Row {
   video_url: string | null
   last_error: string | null
   created_at: string
+  /** Content map: the blog post's own state, and where each kind of social post for it really went. */
+  post_status?: string
+  post_networks?: string[]
+  carousel_sent?: string[] | null
+  video_sent?: string[] | null
+  leads?: number
 }
 
 interface State {
@@ -246,6 +252,18 @@ export default function AutopilotPage() {
                 <div key={r.slug} className="flex flex-wrap items-center justify-between gap-3 border-t p-4">
                   <div className="min-w-[220px] flex-1">
                     <p className="font-medium">{r.title}</p>
+                    {(() => {
+                      const post = r.post_networks ?? [], car = r.carousel_sent ?? [], vid = r.video_sent ?? []
+                      const total = post.length + car.length + vid.length
+                      return (
+                        <p className="text-xs text-muted-foreground">
+                          Blog post: <span className={r.post_status === "published" ? "font-medium text-foreground" : "font-medium text-destructive"}>{r.post_status === "published" ? "live" : r.post_status === "draft" ? "unpublished (not linked to)" : r.post_status ?? "?"}</span>
+                          {" "}&middot; <span className="font-medium text-foreground">{total} social post{total === 1 ? "" : "s"}</span>
+                          {total > 0 && <> (post: {post.join(", ") || "none"} &middot; carousel: {car.join(", ") || "none"} &middot; video: {vid.join(", ") || "none"})</>}
+                          {" "}&middot; <span className="font-medium text-foreground">{r.leads ?? 0} lead{(r.leads ?? 0) === 1 ? "" : "s"}</span> credited
+                        </p>
+                      )
+                    })()}
                     {r.last_error && <p className="text-xs text-destructive">{r.last_error}</p>}
                     {r.video_stage === "sandbox" && r.video_url && (
                       <a className="text-xs text-primary hover:underline" href={r.video_url} target="_blank" rel="noopener noreferrer">Preview sandbox video</a>
