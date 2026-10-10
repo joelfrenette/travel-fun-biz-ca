@@ -11,6 +11,7 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { renderMarkdown, readingTimeMinutes, excerptFromMarkdown } from "@/lib/markdown"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
+import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { styleById } from "@/lib/content-styles"
 import { PackageCard } from "@/components/package-card"
@@ -26,7 +27,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const title = post.meta_title || `${post.title} | ${SITE_NAME}`
   const description = post.meta_description || excerptFromMarkdown(post.body, 160)
-  const image = post.cover_image_url || DEFAULT_OG_IMAGE
+  const image = ogImageEntry("blog", post.slug, post.alt_text || post.title)
   const url = absoluteUrl(`/blog/${post.slug}`)
   // Share text written for social (curiosity-led, short) wins when the post has it.
   const ogTitle = post.og_title || title
@@ -36,8 +37,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title,
     description,
     alternates: { canonical: url },
-    openGraph: { title: ogTitle, description: ogDescription, url, type: "article", locale: SITE_LOCALE, siteName: SITE_NAME, images: [{ url: image, alt: post.title }] },
-    twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription, images: [image] },
+    openGraph: { title: ogTitle, description: ogDescription, url, type: "article", locale: SITE_LOCALE, siteName: SITE_NAME, images: [image] },
+    twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription, images: [image.url] },
   }
 }
 

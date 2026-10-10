@@ -17,6 +17,7 @@ import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates } from "@/lib/site"
+import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
 import { TripTestimonials } from "@/components/trip-testimonials"
@@ -44,15 +45,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
   const title = pkg.meta_title || `${pkg.name} | ${pkg.destination}${dates ? ` | ${dates}` : ""} | ${SITE_NAME}`
   const description = pkg.meta_description || pkg.short_description || `${pkg.name}: ${pkg.duration} in ${pkg.destination}. Request info and join the fun with ${SITE_NAME}.`
-  const image = pkg.og_image_url || pkg.image_url || DEFAULT_OG_IMAGE
+  const image = ogImageEntry("packages", pkg.slug, pkg.name)
   const url = absoluteUrl(`/packages/${pkg.slug}`)
 
   return {
     title,
     description,
     alternates: { canonical: url, languages: hreflangAlternates(`/packages/${pkg.slug}`) },
-    openGraph: { title, description, url, type: "website", locale: SITE_LOCALE, siteName: SITE_NAME, images: [{ url: image, alt: pkg.name }] },
-    twitter: { card: "summary_large_image", title, description, images: [image] },
+    openGraph: { title, description, url, type: "website", locale: SITE_LOCALE, siteName: SITE_NAME, images: [image] },
+    twitter: { card: "summary_large_image", title, description, images: [image.url] },
   }
 }
 
