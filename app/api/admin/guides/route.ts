@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { GUIDE_KINDS, isGuideKind, listGuideCandidates, listGuidesAdmin } from '@/lib/guides'
 import { getGuideCaps, setGuideCaps, readCapUsage, writeGuide, pickNextCandidate, getGuidePublishMode, setGuidePublishMode } from '@/lib/guide-run'
 import { readGuideFailures } from '@/lib/guide-failures'
+import { guideSocialNetworks } from '@/lib/guide-distribution'
 import { generateSlug } from '@/lib/utils'
 
 // Writing a guide takes two AI calls (about two minutes at the outside).
@@ -28,7 +29,8 @@ export async function GET(request: Request) {
       draft: guides.filter((g) => g.kind === kind && g.status === 'draft').length,
       candidates: candidates.filter((c) => c.kind === kind).length,
     }))
-    return NextResponse.json({ guides, candidates, caps, usage, counts, failures, publishMode })
+    const posted = await guideSocialNetworks(admin)
+    return NextResponse.json({ guides, candidates, caps, usage, counts, failures, publishMode, posted })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }

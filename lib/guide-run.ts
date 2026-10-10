@@ -7,6 +7,7 @@ import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { SITE_ID } from '@/lib/site'
 import { generateSlug } from '@/lib/utils'
 import { composeGuide, guideBlockers, groundingText, type GuideBrief, type BriefPackage } from '@/lib/guide-composer'
+import { enrollGuideIfDue } from '@/lib/guide-distribution'
 import { clearGuideFailure, readGuideFailures, recordGuideFailure, recentGuideFailureCount, MAX_GUIDE_ATTEMPTS, BREAKER_FAILURES, BREAKER_HOURS } from '@/lib/guide-failures'
 import {
   GUIDE_KINDS,
@@ -303,6 +304,8 @@ export async function writeGuide(
   const info = guideKinds[cand.kind]
   try {
     await clearGuideFailure(admin, failureKey)
+    // A published guide is enrolled for social posting (one guide a day, mode-gated; never throws).
+    if (publishing) await enrollGuideIfDue(admin, saved)
     if (publishing) await pingIndexNow([guidePath(saved.kind, saved.slug), info.urlPrefix, '/sitemap.xml'])
   } catch {
     // housekeeping only

@@ -4,7 +4,8 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { uploadPostGetStatus } from '@/lib/upload-post'
 import { resolvePostingTarget, platformsFor, type PostingTarget } from '@/lib/social-provider'
 import { utmLink } from '@/lib/utm'
-import { SITE_URL } from '@/lib/site'
+import { SITE_URL, absoluteUrl } from '@/lib/site'
+import { loadGuidePostSource } from '@/lib/guide-post-source'
 import { fitCaption, tightestLimit, generatePlatformCaptions, type PlatformCaptions } from '@/lib/social-captions'
 import type { UploadPostSendResult } from '@/lib/upload-post'
 import { tagVariant } from '@/lib/content-variants'
@@ -47,6 +48,8 @@ export interface DistributionRow {
   provider_job_id: string | null
   /** Networks this post has already reached, so a retry never re-posts to them. */
   sent_platforms: string[] | null
+  /** Set (migration 0030) when the row is a guide page, not a blog post. Absent before the migration is applied. */
+  path?: string | null
 }
 
 /** `app_settings.distribution_mode`: off (default — nothing gets enrolled), prepare (enroll but
@@ -272,8 +275,23 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
   let needsReview = 0
   for (const row of rows as DistributionRow[]) {
     try {
-      const { data: post } = await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
-      const link = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: 'social', medium: 'social', campaign: row.slug, content: post?.cover_image_url ? 'post-photo' : 'post-text' })
+      // A row with a `path` (migration 0030) is a published guide, not a blog post: its title, summary and hero
+      // come from the guides table and its link is the guide's own page. Everything after this block (captions,
+      // hook rotation, UTM, tagging, the send) is the same code for both. A guide that is no longer published
+      // sends nothing.
+      const isGuideRow = typeof row.path === 'string'
+      const guideSource = isGuideRow ? await loadGuidePostSource(admin, row.path as string) : null
+      if (isGuideRow && !guideSource) {
+        await admin
+          .from('post_distribution')
+          .update({ stage: 'done', last_error: 'Skipped: this guide is no longer published, so nothing was posted.', updated_at: new Date().toISOString() })
+          .eq('content_type', 'post')
+          .eq('slug', row.slug)
+        continue
+      }
+      const { data: post } = isGuideRow ? { data: guideSource } : await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
+      const pageUrl = isGuideRow ? absoluteUrl(row.path as string) : `${SITE_URL}/blog/${row.slug}`
+      const link = utmLink(pageUrl, { source: 'social', medium: 'social', campaign: row.slug, content: post?.cover_image_url ? 'post-photo' : 'post-text' })
       const title = post?.title || row.title
       // Only networks that accept this kind of post, and never ones this post already reached.
       const kind = post?.cover_image_url ? 'photo' : 'text'
@@ -317,9 +335,9 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           // account the same opening style.
           hookStyles[p] = rotateStyle(valuesFromRows(variantRows, `hook_style:${p}`, 12), HOOK_STYLES, i)
           ctaStyles[p] = rotateStyle(valuesFromRows(variantRows, `cta_style:${p}`, 12), CTA_STYLES, i)
-          links[p] = utmLink(`${SITE_URL}/blog/${row.slug}`, { source: p, medium: 'social', campaign: row.slug, content: hookStyles[p] })
+          links[p] = utmLink(pageUrl, { source: p, medium: 'social', campaign: row.slug, content: hookStyles[p] })
         }
-        tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding: await loadGrounding(admin, row.slug) })
+        tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding: isGuideRow ? guideSource?.grounding : await loadGrounding(admin, row.slug) })
         // Record only the styles that actually reached a caption (a dropped caption used none).
         const patch: Record<string, string> = {}
         for (const p of platforms) {
