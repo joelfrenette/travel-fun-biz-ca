@@ -14,6 +14,7 @@ import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/sit
 import { jsonLdHtml } from "@/lib/jsonld"
 import { styleById } from "@/lib/content-styles"
 import { PackageCard } from "@/components/package-card"
+import { listGuidesForPost, guideKinds, guidePath } from "@/lib/guides"
 
 export const revalidate = 300
 
@@ -57,9 +58,11 @@ export default async function BlogPostPage({ params }: Props) {
   const keywords = [post.primary_keyword, ...(post.secondary_keywords ?? [])].filter((k): k is string => !!k)
   const section = styleById(post.content_style)?.label
   const wordCount = post.body.trim().split(/\s+/).filter(Boolean).length
-  const [relatedPackages, usdToTargetRate] = await Promise.all([
+  const [relatedPackages, usdToTargetRate, relatedGuides] = await Promise.all([
     getRelatedPackages(post.related_package_id),
     getUsdToRate(currency),
+    // Published guides this post is really about (destination of its linked package, or a guide name in its tags or title). Empty when none match.
+    listGuidesForPost(post),
   ])
 
   const speakableSelectors = [hasQuickAnswer ? ".quick-answer" : null, takeaways.length > 0 ? "#key-takeaways" : null].filter((s): s is string => !!s)
@@ -155,6 +158,19 @@ export default async function BlogPostPage({ params }: Props) {
                 ))}
               </div>
             </section>
+          )}
+
+          {relatedGuides.length > 0 && (
+            <aside className="mt-10 rounded-xl border bg-muted/30 p-5" aria-labelledby="post-guides-heading">
+              <h2 id="post-guides-heading" className="mb-2 text-lg font-semibold text-foreground">Guides for this trip</h2>
+              <ul className="space-y-1.5">
+                {relatedGuides.map((g) => (
+                  <li key={g.id}>
+                    <Link href={guidePath(g.kind, g.slug)} className="font-medium text-foreground hover:underline">{g.name}: {guideKinds[g.kind].guideLabel}</Link>
+                  </li>
+                ))}
+              </ul>
+            </aside>
           )}
 
           {relatedPackages.length > 0 ? (

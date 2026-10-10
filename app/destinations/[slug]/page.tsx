@@ -9,7 +9,7 @@ import { GuideTakeaways, GuideArticle, GuideFaqList, guideJsonLd, guideMetadata 
 import { getDestinationPage } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getPublicBlurb } from "@/lib/destination-blurbs"
-import { getPublishedGuide } from "@/lib/guides"
+import { getPublishedGuide, listPropertyGuidesForDestination, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
@@ -55,6 +55,8 @@ export default async function DestinationPage({ params }: Props) {
   // published package must exist) rather than re-deriving it from page.upcoming, whose
   // TravelPackage items don't carry available_from/available_to at all.
   const bestTimeToVisit = await getBestTimeToVisitPage(params.slug)
+  // Every published hotel and resort guide under this destination (published rows only; empty means no section).
+  const propertyGuides = await listPropertyGuidesForDestination(params.slug)
 
   // A CollectionPage listing the real upcoming trips and past-trip recaps for this destination -
   // the audit script (scripts/audit-live-seo.mjs) flagged every destination page as having no
@@ -133,6 +135,23 @@ export default async function DestinationPage({ params }: Props) {
                 <Link href="/#contact" className="mt-4 inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
               </div>
             </div>
+          )}
+
+          {propertyGuides.length > 0 && (
+            <section aria-labelledby="property-guides-heading">
+              <h2 id="property-guides-heading" className="mb-4 text-xl font-bold uppercase text-foreground">Hotel and resort guides for {destination}</h2>
+              <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {propertyGuides.map((g) => (
+                  <li key={g.id}>
+                    <Link href={guidePath(g.kind, g.slug)} className="block h-full rounded-lg border bg-card p-4 transition-shadow hover:shadow-md">
+                      <span className="text-xs uppercase text-muted-foreground">{guideKinds[g.kind].label}</span>
+                      <span className="mt-0.5 block font-semibold text-foreground">{g.name}</span>
+                      <span className="mt-1 block text-sm text-muted-foreground">{oneLineSummary(g.summary)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           {/* The best-time-to-visit page already links back here ("See all {destination}

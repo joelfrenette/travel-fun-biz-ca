@@ -55,6 +55,8 @@ interface Data {
   counts: { kind: Kind; published: number; draft: number; candidates: number }[]
   failures: Record<string, { n: number; name: string; kind: string; last: string }>
   publishMode: "draft" | "publish"
+  /** Social networks each guide really reached, keyed by ledger slug (guide-<kind>-<slug>). A guide with no entry was not posted. */
+  posted?: Record<string, string[]>
 }
 
 function authHeaders(): HeadersInit {
@@ -236,6 +238,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
                     <Badge variant="outline" className="text-[10px]">{g.source === "ai" ? "AI-written" : "Manual"}</Badge>
                   </p>
                   <p className="text-xs text-muted-foreground">{prefixOf(g.kind)}/{g.slug}</p>
+                  <p className="text-xs text-muted-foreground">{(data.posted?.[`guide-${g.kind}-${g.slug}`] ?? []).length > 0 ? `posted to: ${(data.posted?.[`guide-${g.kind}-${g.slug}`] ?? []).join(", ")}` : "not posted"}</p>
                   {g.quality_notes && <p className="text-xs text-destructive">Held back: {g.quality_notes}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
