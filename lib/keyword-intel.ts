@@ -219,6 +219,7 @@ Rules:
 - package_slug: the slug shown for that topic, or null when it says none. Never invent a slug.
 - title_idea: a clear working headline, 10 to 100 characters, for a real person deciding whether and which trip to book. angle: one sentence (20 to 300 characters) saying what the post covers and what it helps the reader decide. who_for: who the post is for, under 120 characters.
 - Never use the long dash character; use commas or full stops.
+- No superlatives or rankings anywhere (best, top, ultimate, number one, must-see, world-class, perfect, greatest): the writer's quality gate rejects them. Say what the post helps the reader decide instead.
 
 Return ONLY minified JSON of this exact shape, nothing else:
 {"ideas":[{"primary_keyword":"...","title_idea":"...","angle":"...","secondary_keywords":["..."],"who_for":"...","package_slug":null}]}`

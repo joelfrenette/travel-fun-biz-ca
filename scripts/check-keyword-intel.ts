@@ -122,6 +122,8 @@ const good = { primary_keyword: 'Rhine River Cruise', title_idea: 'Is a Rhine ri
   check('primary is forced to the cluster primary spelling', r.ok && r.item.primary_keyword === 'rhine river cruise')
 }
 check('a wrong primary is rejected', !validatePlanItem({ ...good, primary_keyword: 'croatia sailing' }, cluster, slugs).ok)
+check('a superlative in the title is rejected', !validatePlanItem({ ...good, title_idea: 'The best way to see the Rhine with your group' }, cluster, slugs).ok)
+check('"best time to visit" is ordinary search wording and passes', validatePlanItem({ ...good, title_idea: 'Best time to visit the Rhine with your group' }, cluster, slugs, 'Rhine River Cruise Rhine').ok)
 {
   const r = validatePlanItem({ ...good, secondary_keywords: ['rhine cruise for singles', 'bali beach holiday', 'rhine river cruises', 'rhine river cruises'] }, cluster, slugs)
   check('secondaries outside the cluster are dropped, duplicates removed', r.ok && r.item.secondary_keywords.every((s) => cluster.secondary.includes(s)) && new Set(r.item.secondary_keywords).size === r.item.secondary_keywords.length, r)
