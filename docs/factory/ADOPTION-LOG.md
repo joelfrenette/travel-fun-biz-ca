@@ -328,3 +328,45 @@ brief section, the live Vercel deploy of ae78a27+.
 Rhine social posts in GHL; tick Facebook/LinkedIn/YouTube; the Reddit line; everything from the 2026-10-09 entry.
 **Open, Claude (filed in the tracker):** tune the named-venue check from week-1 quality_notes; measure the real
 auto-publish rate over the first 6 posts; Pexels photographer credit column for guides.
+
+## Growth loop, wave 2 + keyword engine (2026-10-10, daytime)
+
+Same builder / critical QA / orchestrator loop as wave 1. All merged to main the same day: WP7 (7c5e755),
+WP6 (8e65c6e), WP8 (5e984b1), WP9 (eeafec3) plus eff4551. Migrations 0030, 0031, 0032 applied. Check scripts
+added: `check-og-paths`, `check-guide-distribution`, `check-page-copy`, `check-keyword-intel` (all pass on main).
+
+**Shipped:**
+- WP6 Share images: `/og/<family>/<slug>` renders a 1200x630 card (photo, kind label, title, brand) for blog,
+  guides, trips, compare, best-time and destination pages; force-dynamic with explicit cache headers, 308 on
+  query strings, 404 for unpublished, host allow-list and one redirect for the photo. Verified LIVE (200 PNG,
+  404, 308; two real renders inspected).
+- WP7 Guides earn traffic: published guides enrol for social (one guide per UTC day, `post_distribution.path`,
+  slug `guide-<kind>-<slug>`, same captions/hooks/UTM, send path byte-identical to before per QA); named-property
+  kinds published by hand enrol as `held` (Joel's rule); gate-held guides never enrol; related-guides link graph on
+  guide pages, "Guides for this trip" box on posts, hotel/resort guides listed on destination pages; the gate now
+  excuses a count in words when the grounding has it ("four-night" vs a 4-night trip).
+- WP8 Compare and best-time copy: `page_copy` table, grounded intro/FAQ/takeaways/meta written by a capped
+  pipeline step `copy` (1/day, 7/week), weather/crowd/verdict gates, stale-link guard at render, daily stale
+  check with Dismiss, `page_copy_publish_mode` default draft (Joel: first week), Autopilot card.
+- WP9 Keyword intelligence engine: Google-only Keyword Research page (no Bing), sorted by volume; weekly engine
+  (SEEDS, EXPAND, ENRICH, CLUSTER, PLAN, TRACK) under an atomic ISO-week insert claim, per-stage spend log pruned
+  by age, budget `autopilot_keyword_budget_usd` ($5/week, Joel), opportunity labels (RANKING / ALMOST /
+  SHOOT_FOR / TARGETED / SKIP), one AI call plans up to 6 next blog ideas with validated keyword sets saved to
+  `blog_topic_queue`, the autoblog writes for the set, progress per keyword from `gsc_rankings`. Unbudgeted
+  routes closed (suggest 410, paid lookup needs track_only, collectIdeas POST removed).
+- First real engine run (local, button): 92 phrases in 43 topics, 40 SHOOT_FOR, 6 ideas planned (Dominican
+  Republic cruise ports 87, Split/Dubrovnik cruise ports 86, Croatia small ship 75, Australia/NZ 2027 73, ...).
+  Bug found and fixed the same hour: one 11-word People-Also-Ask phrase made Google Ads reject the whole
+  volume batch (eff4551 filters over-10-word phrases and marks them).
+
+**Live actions today (Joel's picks):** `guides_publish_mode` = publish; Montego Bay guide edited (2 words),
+published, posted to Bluesky/Pinterest/Threads/Instagram via the new guide path; Fairmont Banff Springs hotel
+guide written, edited (2 phrases), published; keyword budget raised to $5/week; Reddit keys added in Vercel
+(Joel). Languages: English only, ever (Joel).
+
+**Not verified:** the Keyword Research page in a browser (admin login); the first pipeline-written compare or
+best-time draft; the first guide social post's caption text on each network; Reddit ideas in a real weekly run.
+
+**Next (WP10, in build):** self-healing content: reword repairable held phrases and publish, daily SEO score with
+cheap fixes, `content_edits` audit trail with Revert, "Edits made" in the brief; named-property guides may
+auto-publish after a clean repaired gate (Joel). Wave 3 queued: trip pages SEO pass.
