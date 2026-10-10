@@ -9,6 +9,7 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice, type Currency } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
+import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml, buildCollectionPageJsonLd } from "@/lib/jsonld"
 import type { DbPackage } from "@/lib/packages"
 
@@ -23,13 +24,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${page.a.destination} vs ${page.b.destination} Trips | ${SITE_NAME}`
   const description = `See what our real ${page.a.destination} and ${page.b.destination} trips include side by side - duration, price and highlights, straight from our current trip list.`
   const url = absoluteUrl(`/compare/${params.pair}`)
+  const image = ogImageEntry("compare", params.pair, `${page.a.destination} vs ${page.b.destination}`)
 
   return {
     title,
     description,
     alternates: { canonical: url },
-    openGraph: { title, description, url, type: "website", images: [{ url: DEFAULT_OG_IMAGE, alt: `${page.a.destination} vs ${page.b.destination}` }] },
-    twitter: { card: "summary_large_image", title, description, images: [DEFAULT_OG_IMAGE] },
+    openGraph: { title, description, url, type: "website", images: [image] },
+    twitter: { card: "summary_large_image", title, description, images: [image.url] },
   }
 }
 

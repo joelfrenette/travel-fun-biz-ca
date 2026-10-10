@@ -12,6 +12,7 @@ import { getUsdToRate } from "@/lib/fx"
 import { GuideTakeaways, GuideArticle, GuideFaqList } from "@/components/guide-parts"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
+import { ogImageEntry } from "@/lib/og-path"
 
 // ONE shared page for every guide kind (destinations, hotels, resorts, cruise lines, ships, river cruises,
 // yachts). The route files under app/<kind>/[slug]/page.tsx are thin wrappers around GuidePage and
@@ -78,15 +79,16 @@ export async function guideMetadata(kind: GuideKind, slug: string): Promise<Meta
   const description = guide.meta_description || cleanText(guide.summary).slice(0, 155)
   const ogTitle = guide.og_title || title
   const ogDescription = guide.og_description || description
-  const image = guide.hero_image_url || DEFAULT_OG_IMAGE
+  // The rendered share image (lib/og-image.ts) draws the hero photo, title and site name at 1200x630.
+  const image = ogImageEntry(kind, slug, guide.hero_alt || guide.name)
   const url = absoluteUrl(guidePath(kind, slug))
   return {
     title,
     description,
     alternates: { canonical: url },
     keywords: [guide.primary_keyword, ...guide.secondary_keywords].filter((k): k is string => !!k),
-    openGraph: { title: ogTitle, description: ogDescription, url, type: "article", locale: SITE_LOCALE, siteName: SITE_NAME, images: [{ url: image, alt: guide.hero_alt || guide.name }] },
-    twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription, images: [image] },
+    openGraph: { title: ogTitle, description: ogDescription, url, type: "article", locale: SITE_LOCALE, siteName: SITE_NAME, images: [image] },
+    twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription, images: [image.url] },
   }
 }
 

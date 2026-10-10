@@ -9,6 +9,7 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
+import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml, buildCollectionPageJsonLd } from "@/lib/jsonld"
 
 export const revalidate = 300
@@ -22,13 +23,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `Best Time to Visit ${page.destination} | ${SITE_NAME}`
   const description = `The real dates our trips to ${page.destination} run, pulled straight from our current trip calendar, so you can see when a seat is actually available.`
   const url = absoluteUrl(`/best-time-to-visit/${params.destination}`)
+  const image = ogImageEntry("best-time-to-visit", params.destination, `Best time to visit ${page.destination}`)
 
   return {
     title,
     description,
     alternates: { canonical: url },
-    openGraph: { title, description, url, type: "website", images: [{ url: DEFAULT_OG_IMAGE, alt: page.destination }] },
-    twitter: { card: "summary_large_image", title, description, images: [DEFAULT_OG_IMAGE] },
+    openGraph: { title, description, url, type: "website", images: [image] },
+    twitter: { card: "summary_large_image", title, description, images: [image.url] },
   }
 }
 

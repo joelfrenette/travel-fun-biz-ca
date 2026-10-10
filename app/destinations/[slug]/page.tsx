@@ -13,6 +13,7 @@ import { getPublishedGuide } from "@/lib/guides"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
+import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml } from "@/lib/jsonld"
 
 export const revalidate = 300
@@ -29,13 +30,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${page.destination} Trips | ${SITE_NAME}`
   const description = `Upcoming group trips, cruises and singles getaways to ${page.destination}, plus real recaps from past trips there.`
   const url = absoluteUrl(`/destinations/${params.slug}`)
+  const image = ogImageEntry("destinations", params.slug, page.destination)
 
   return {
     title,
     description,
     alternates: { canonical: url },
-    openGraph: { title, description, url, type: "website", images: [{ url: DEFAULT_OG_IMAGE, alt: page.destination }] },
-    twitter: { card: "summary_large_image", title, description, images: [DEFAULT_OG_IMAGE] },
+    openGraph: { title, description, url, type: "website", images: [image] },
+    twitter: { card: "summary_large_image", title, description, images: [image.url] },
   }
 }
 
