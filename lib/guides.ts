@@ -84,6 +84,12 @@ export interface Guide {
   updated_at: string
 }
 
+/** What a visitor gets: no admin notes, no source. */
+export type PublicGuide = Omit<Guide, 'quality_notes' | 'source'>
+
+const PUBLIC_COLUMNS =
+  'id, kind, slug, name, parent_slug, summary, body, sections, faq, key_takeaways, hero_image_url, hero_alt, meta_title, meta_description, og_title, og_description, primary_keyword, secondary_keywords, related_package_ids, status, created_at, updated_at'
+
 /** What an index page or an admin list needs, without the long body. */
 export type GuideSummary = Pick<Guide, 'id' | 'kind' | 'slug' | 'name' | 'parent_slug' | 'summary' | 'hero_image_url' | 'hero_alt' | 'status' | 'source' | 'quality_notes' | 'created_at' | 'updated_at'>
 
@@ -93,13 +99,13 @@ const SUMMARY_COLUMNS = 'id, kind, slug, name, parent_slug, summary, hero_image_
 // Public reads (anon client: RLS returns published rows only, a draft can never leak through here)
 // ---------------------------------------------------------------------------------------------------
 
-export async function getPublishedGuide(kind: GuideKind, slug: string): Promise<Guide | null> {
-  const { data, error } = await supabase.from('guides').select('*').eq('kind', kind).eq('slug', slug).eq('status', 'published').maybeSingle()
+export async function getPublishedGuide(kind: GuideKind, slug: string): Promise<PublicGuide | null> {
+  const { data, error } = await supabase.from('guides').select(PUBLIC_COLUMNS).eq('kind', kind).eq('slug', slug).eq('status', 'published').maybeSingle()
   if (error) {
     console.error('[guides] fetch failed:', error.message)
     return null
   }
-  return (data as Guide | null) ?? null
+  return (data as unknown as PublicGuide | null) ?? null
 }
 
 /** Published guides, newest first, optionally for one kind. Never throws: a read error is an empty list. */
@@ -147,6 +153,11 @@ export async function listGuidesAdmin(admin: SupabaseClient): Promise<GuideSumma
 
 export async function getGuideAdmin(admin: SupabaseClient, kind: GuideKind, slug: string): Promise<Guide | null> {
   const { data } = await admin.from('guides').select('*').eq('kind', kind).eq('slug', slug).maybeSingle()
+  return (data as Guide | null) ?? null
+}
+
+export async function getGuideById(admin: SupabaseClient, id: string): Promise<Guide | null> {
+  const { data } = await admin.from('guides').select('*').eq('id', id).maybeSingle()
   return (data as Guide | null) ?? null
 }
 
@@ -255,6 +266,16 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
     const parent = (kind === 'hotels' || kind === 'resorts') && p.destination ? generateSlug(p.destination) : null
     add({ kind, name, slug: generateSlug(name), parent_slug: parent || null, origin: 'package' })
   }
-  for (const seed of GUIDE_SEEDS) add({ kind: seed.kind, name: seed.name, slug: generateSlug(seed.name), parent_slug: null, origin: 'seed' })
+  // A curated destination is skipped when a real destination already covers it ("cancun" vs "cancun-mexico").
+  const realDestinations = [
+    ...out.filter((c) => c.kind === 'destinations' && c.origin === 'destination').map((c) => c.slug),
+    ...((existing ?? []) as { kind: string; slug: string }[]).filter((g) => g.kind === 'destinations').map((g) => g.slug),
+  ]
+  for (const seed of GUIDE_SEEDS) {
+    const seedSlug = generateSlug(seed.name)
+    const seedWords = seedSlug.split('-').join(' ')
+    if (seed.kind === 'destinations' && realDestinations.some((r) => r === seedSlug || ` ${r.split('-').join(' ')} `.includes(` ${seedWords} `))) continue
+    add({ kind: seed.kind, name: seed.name, slug: seedSlug, parent_slug: null, origin: 'seed' })
+  }
   return out
 }

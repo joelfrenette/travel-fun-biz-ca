@@ -1,12 +1,21 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { deleteGuide, guidePath, guideKinds, setGuideStatus } from '@/lib/guides'
+import { getGuideById, deleteGuide, guidePath, guideKinds, setGuideStatus } from '@/lib/guides'
 import { pingIndexNow } from '@/lib/indexnow'
 
 type Props = { params: { id: string } }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// GET the full guide (any status) for the admin preview page.
+export async function GET(request: Request, { params }: Props) {
+  if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!UUID.test(params.id)) return NextResponse.json({ error: 'Not a guide id.' }, { status: 400 })
+  const guide = await getGuideById(getSupabaseAdmin(), params.id)
+  if (!guide) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json({ guide })
+}
 
 // PATCH { status: 'published' | 'draft' }  publish or unpublish one guide. An admin may publish a guide the
 // quality gate held back (the reasons are in its quality_notes); that is the admin's call.

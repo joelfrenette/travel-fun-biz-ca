@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { GUIDE_KINDS, isGuideKind, listGuideCandidates, listGuidesAdmin } from '@/lib/guides'
-import { getGuideCaps, setGuideCaps, readCapUsage, writeGuide, pickNextCandidate } from '@/lib/guide-run'
+import { getGuideCaps, setGuideCaps, readCapUsage, writeGuide, pickNextCandidate, getGuidePublishMode, setGuidePublishMode } from '@/lib/guide-run'
 import { readGuideFailures } from '@/lib/guide-failures'
 import { generateSlug } from '@/lib/utils'
 
@@ -14,12 +14,13 @@ export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [guides, candidates, caps, usage, failures] = await Promise.all([
+    const [guides, candidates, caps, usage, failures, publishMode] = await Promise.all([
       listGuidesAdmin(admin),
       listGuideCandidates(admin),
       getGuideCaps(admin),
       readCapUsage(admin),
       readGuideFailures(admin),
+      getGuidePublishMode(admin),
     ])
     const counts = GUIDE_KINDS.map((kind) => ({
       kind,
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
       draft: guides.filter((g) => g.kind === kind && g.status === 'draft').length,
       candidates: candidates.filter((c) => c.kind === kind).length,
     }))
-    return NextResponse.json({ guides, candidates, caps, usage, counts, failures })
+    return NextResponse.json({ guides, candidates, caps, usage, counts, failures, publishMode })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
       // The same choice the pipeline would make (kind rotation, failed ones skipped), but not capped.
       const cand = await pickNextCandidate(admin, await listGuideCandidates(admin))
       if (!cand) return NextResponse.json({ error: 'No candidates left: everything is written, or skipped after repeated failures.' }, { status: 409 })
-      const result = await writeGuide(admin, cand, { publishIfClean: true })
+      const result = await writeGuide(admin, cand, { source: 'admin' })
       if (!result.ok) return NextResponse.json({ error: result.note }, { status: result.failed ? 502 : 409 })
       return NextResponse.json({ note: result.note, published: result.published, blockers: result.blockers ?? [] })
     }
@@ -66,12 +67,25 @@ export async function POST(request: Request) {
       const slug = generateSlug(name)
       if (!slug) return NextResponse.json({ error: 'That name has no letters or numbers to make a web address from.' }, { status: 400 })
       const parent = typeof body.parent_slug === 'string' && body.parent_slug.trim() ? generateSlug(body.parent_slug) : null
-      const result = await writeGuide(admin, { kind: body.kind, name, slug, parent_slug: parent, origin: 'seed' }, { publishIfClean: true })
+      const result = await writeGuide(admin, { kind: body.kind, name, slug, parent_slug: parent, origin: 'seed' }, { source: 'admin' })
       if (!result.ok) return NextResponse.json({ error: result.note }, { status: result.failed ? 502 : 409 })
       return NextResponse.json({ note: result.note, published: result.published, blockers: result.blockers ?? [], guide: result.guide ? { id: result.guide.id, kind: result.guide.kind, slug: result.guide.slug } : null })
     }
 
     return NextResponse.json({ error: 'Nothing to do. Pass {action: "write"} or {action: "caps"}.' }, { status: 400 })
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
+  }
+}
+
+// PATCH { publishMode: 'draft' | 'publish' }  the one-click switch on the Autopilot guides card
+export async function PATCH(request: Request) {
+  if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const body = await request.json().catch(() => ({}))
+    const { error } = await setGuidePublishMode(getSupabaseAdmin(), String(body.publishMode ?? ''))
+    if (error) return NextResponse.json({ error }, { status: 400 })
+    return NextResponse.json({ ok: true, publishMode: body.publishMode })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getSetting, setSetting } from '@/lib/app-settings'
+import { getSetting, getSettingStrict, setSetting } from '@/lib/app-settings'
 import { isAiConfigured } from '@/lib/ai-verify'
 import { findDestinationPhoto } from '@/lib/pexels'
 import { pingIndexNow } from '@/lib/indexnow'
@@ -7,7 +7,7 @@ import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { SITE_ID } from '@/lib/site'
 import { generateSlug } from '@/lib/utils'
 import { composeGuide, guideBlockers, groundingText, type GuideBrief, type BriefPackage } from '@/lib/guide-composer'
-import { clearGuideFailure, readGuideFailures, recordGuideFailure, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
+import { clearGuideFailure, readGuideFailures, recordGuideFailure, recentGuideFailureCount, MAX_GUIDE_ATTEMPTS, BREAKER_FAILURES, BREAKER_HOURS } from '@/lib/guide-failures'
 import {
   GUIDE_KINDS,
   guideKinds,
@@ -174,6 +174,38 @@ export async function buildBrief(admin: SupabaseClient, cand: GuideCandidate): P
   }
 }
 
+
+// ---------------------------------------------------------------------------------------------------
+// Publish mode: what happens to a guide that passed the quality gate
+// ---------------------------------------------------------------------------------------------------
+
+export type GuidePublishMode = 'draft' | 'publish'
+export const GUIDES_PUBLISH_MODE_KEY = 'guides_publish_mode'
+/** Kinds the pipeline may ever publish by itself (in publish mode). Named properties (hotels, resorts, ships,
+ * river cruises, yachts) always wait for an admin to click Publish, because a wrong claim about a real, named
+ * business is the costly kind of mistake. */
+export const AUTO_PUBLISH_KINDS: readonly GuideKind[] = ['destinations', 'cruise-lines']
+
+/** `app_settings.guides_publish_mode`: 'draft' (the default, also when unset or unreadable) saves every guide as
+ * a draft for review; 'publish' lets a guide that passed the gate go live. */
+export async function getGuidePublishMode(admin: SupabaseClient): Promise<GuidePublishMode> {
+  const { value, error } = await getSettingStrict(admin, GUIDES_PUBLISH_MODE_KEY)
+  return !error && value === 'publish' ? 'publish' : 'draft'
+}
+
+export async function setGuidePublishMode(admin: SupabaseClient, mode: string): Promise<{ error?: string }> {
+  if (mode !== 'draft' && mode !== 'publish') return { error: 'mode must be "draft" or "publish"' }
+  return setSetting(admin, GUIDES_PUBLISH_MODE_KEY, mode)
+}
+
+/** Whether a gate-clean guide goes live, and if not, why it is held. Pure, so it can be tested. */
+export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source: 'pipeline' | 'admin', blockers: string[]): { publish: boolean; note: string | null } {
+  if (blockers.length) return { publish: false, note: blockers.join('; ') }
+  if (mode !== 'publish') return { publish: false, note: 'held for review (guides_publish_mode=draft)' }
+  if (source === 'pipeline' && !AUTO_PUBLISH_KINDS.includes(kind)) return { publish: false, note: `held for review (${guideKinds[kind].label.toLowerCase()} guides name a real business, so an admin publishes them)` }
+  return { publish: true, note: null }
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Writing one guide
 // ---------------------------------------------------------------------------------------------------
@@ -188,19 +220,26 @@ export interface WriteGuideResult {
   blockers?: string[]
 }
 
-/** Writes and saves ONE guide. Publishes it only when `publishIfClean` is set and the quality gate finds
- * nothing; otherwise it is saved as a draft with the reasons in quality_notes. `beforeSave` runs right before
- * the row is written (the pipeline re-checks its caps there, because composing takes a while). Takes the run
- * lock itself. A failure is remembered for Needs attention. */
+/** Writes and saves ONE guide. Whether it goes live is publishDecision(): the quality gate, the publish mode
+ * and (for the pipeline) the kind. Everything else is saved as a draft with the reasons in quality_notes.
+ * `beforeSave` runs right before the row is written (the pipeline re-checks its caps there, because composing
+ * takes a while). A candidate that already failed MAX_GUIDE_ATTEMPTS times is refused here too, so the admin
+ * button cannot keep spending on it. Takes the run lock itself. A failure is remembered for Needs attention. */
 export async function writeGuide(
   admin: SupabaseClient,
   cand: GuideCandidate,
-  opts: { publishIfClean: boolean; beforeSave?: () => Promise<string | null> },
+  opts: { source: 'pipeline' | 'admin'; beforeSave?: () => Promise<string | null> },
 ): Promise<WriteGuideResult> {
   if (!isAiConfigured()) return { ok: false, note: 'AI writing is not configured (ANTHROPIC_API_KEY is not set)' }
   if (!cand.slug) return { ok: false, note: 'that name has no usable web address' }
-  if (!(await acquireLock(admin))) return { ok: false, note: 'another guide is being written right now' }
   const failureKey = `${cand.kind}:${cand.slug}`
+  const earlier = (await readGuideFailures(admin))[failureKey]
+  if (earlier && earlier.n >= MAX_GUIDE_ATTEMPTS) return { ok: false, note: `"${cand.name}" failed ${earlier.n} times, so it is skipped. Click Dismiss on the Needs attention item to try it again.` }
+  if (!(await acquireLock(admin))) return { ok: false, note: 'another guide is being written right now' }
+
+  let saved!: Guide
+  let publishing!: boolean
+  let blockers!: string[]
   try {
     if (await getGuideAdmin(admin, cand.kind, cand.slug)) return { ok: false, note: `a ${guideKinds[cand.kind].label.toLowerCase()} guide for "${cand.name}" already exists` }
 
@@ -212,17 +251,22 @@ export async function writeGuide(
     }
     const guide = composed.guide
 
-    const blockers = guideBlockers(guide, { grounding: groundingText(brief), allowedPaths })
-    const publishing = opts.publishIfClean && blockers.length === 0
+    blockers = guideBlockers(guide, { grounding: groundingText(brief), allowedPaths, names: [...(brief.parentName ? [brief.parentName] : []), ...brief.links.map((l) => l.label)] })
+    const decision = publishDecision(cand.kind, await getGuidePublishMode(admin), opts.source, blockers)
+    publishing = decision.publish
 
     const stop = opts.beforeSave ? await opts.beforeSave() : null
-    if (stop) return { ok: false, note: stop }
+    if (stop) {
+      // The money was spent and nothing was saved: that counts as a failure for the breaker.
+      await recordGuideFailure(admin, failureKey, { name: cand.name, kind: cand.kind, reason: stop })
+      return { ok: false, failed: true, note: `could not write "${cand.name}": ${stop}` }
+    }
 
     const info = guideKinds[cand.kind]
     const query = cand.kind === 'destinations' ? guide.hero_query || cand.name : `${info.stockPhotoQuery}${brief.parentName ? ` ${brief.parentName}` : ''}`
     const photo = await findDestinationPhoto(query).catch(() => null)
 
-    const saved = await saveGuide(admin, {
+    saved = await saveGuide(admin, {
       kind: cand.kind,
       slug: cand.slug,
       name: cand.name,
@@ -243,23 +287,30 @@ export async function writeGuide(
       related_package_ids: relatedPackageIds,
       status: publishing ? 'published' : 'draft',
       source: 'ai',
-      quality_notes: blockers.length ? blockers.join('; ') : null,
+      quality_notes: decision.note,
     })
-    await clearGuideFailure(admin, failureKey)
-    if (publishing) await pingIndexNow([guidePath(saved.kind, saved.slug), info.urlPrefix, '/sitemap.xml'])
-    return {
-      ok: true,
-      guide: saved,
-      published: publishing,
-      blockers,
-      note: publishing ? `wrote and published the ${info.label.toLowerCase()} guide "${cand.name}"` : `wrote "${cand.name}" as a draft${blockers.length ? ` (quality gate held it back: ${blockers.join('; ')})` : ''}`,
-    }
   } catch (e) {
     const reason = e instanceof Error ? e.message : 'unknown error'
     await recordGuideFailure(admin, failureKey, { name: cand.name, kind: cand.kind, reason }).catch(() => undefined)
     return { ok: false, failed: true, note: `could not write "${cand.name}": ${reason}` }
   } finally {
     await releaseLock(admin)
+  }
+
+  // The guide is saved. Nothing below may turn that into a "could not write".
+  const info = guideKinds[cand.kind]
+  try {
+    await clearGuideFailure(admin, failureKey)
+    if (publishing) await pingIndexNow([guidePath(saved.kind, saved.slug), info.urlPrefix, '/sitemap.xml'])
+  } catch {
+    // housekeeping only
+  }
+  return {
+    ok: true,
+    guide: saved,
+    published: publishing,
+    blockers,
+    note: publishing ? `wrote and published the ${info.label.toLowerCase()} guide "${cand.name}"` : `wrote "${cand.name}" as a draft (${saved.quality_notes ?? 'held for review'})`,
   }
 }
 
@@ -270,11 +321,13 @@ export async function writeGuide(
 const ORIGIN_ORDER: Record<GuideCandidate['origin'], number> = { destination: 0, package: 1, seed: 2 }
 
 /** The next candidate: the kind whose newest guide is oldest (a kind with none yet goes first, ties in the
- * order of GUIDE_KINDS), so kinds interleave; inside the kind, real destinations and package names before the
- * curated names. Anything that already failed MAX_GUIDE_ATTEMPTS times is skipped. */
+ * order of GUIDE_KINDS), so kinds interleave; inside the kind, real destinations before the curated names.
+ * Names guessed from a package title (origin 'package') are admin suggestions only and are never picked here,
+ * because "Sandals Royal Resort: 7 nights" might not really be a hotel. Anything that already failed
+ * MAX_GUIDE_ATTEMPTS times is skipped. */
 export async function pickNextCandidate(admin: SupabaseClient, candidates: GuideCandidate[]): Promise<GuideCandidate | null> {
   const failures = await readGuideFailures(admin)
-  const eligible = candidates.filter((c) => (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
+  const eligible = candidates.filter((c) => c.origin !== 'package' && (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
   if (eligible.length === 0) return null
 
   const { data } = await admin.from('guides').select('kind, created_at').order('created_at', { ascending: false })
@@ -292,11 +345,17 @@ export async function pickNextCandidate(admin: SupabaseClient, candidates: Guide
 }
 
 /** The pipeline's guides step: at most `guides_per_day` and `guides_per_week` (counted from the guides table,
- * failing closed), one guide per call. The caller has already checked that Autopilot is on and not paused. */
+ * failing closed), one guide per call, and none at all while the failure breaker is tripped. The caller has
+ * already checked that Autopilot is on and not paused. */
 export async function runGuidesStep(admin: SupabaseClient): Promise<{ ok: boolean; note: string }> {
   const { perDay, perWeek } = await getGuideCaps(admin)
   if (perDay === 0 || perWeek === 0) return { ok: true, note: 'guides are switched off (a cap is 0)' }
   if (!isAiConfigured()) return { ok: true, note: 'AI writing is not configured, so no guides' }
+
+  // The breaker comes before any AI call. If the log cannot be read, stay closed.
+  const recentFailures = await recentGuideFailureCount(admin)
+  if (recentFailures === null) return { ok: false, note: 'could not check recent guide failures, so nothing was written' }
+  if (recentFailures >= BREAKER_FAILURES) return { ok: false, note: `paused after ${recentFailures} failures in ${BREAKER_HOURS}h (click Dismiss on the Needs attention item to resume)` }
 
   const usage = await readCapUsage(admin)
   // Fail closed AND visible: if the count cannot be read (for example the guides table does not exist yet),
@@ -309,7 +368,7 @@ export async function runGuidesStep(admin: SupabaseClient): Promise<{ ok: boolea
   if (!cand) return { ok: true, note: 'no guide candidates left (all written, or skipped after repeated failures)' }
 
   const result = await writeGuide(admin, cand, {
-    publishIfClean: true,
+    source: 'pipeline',
     // Composing takes a while: look at the caps again right before saving, so two runs cannot both write.
     beforeSave: async () => {
       const again = await readCapUsage(admin)
