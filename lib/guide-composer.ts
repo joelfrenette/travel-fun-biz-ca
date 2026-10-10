@@ -60,13 +60,13 @@ const NO_FABRICATION = `Never claim personal experience, a specific past trip, a
 const BANNED_WORDS_RULE = `Never use these words or ideas about the subject: best, number one, #1, award-winning, awards, 5-star, five-star, any star rating, top-rated, highly rated, world-class, finest, newly or recently renovated or built, brand new. ("The best time to visit" is the only allowed use of "best".) Write no digits (0-9) at all unless the exact same number appears in the GROUNDING; keep amounts vague and in words ("a couple of days", "most travellers"). State no prices, dates, availability, room, cabin, restaurant, deck or passenger counts, distances, years built, tonnage or other exact statistics. Do not use em dashes or en dashes anywhere; use commas or full stops.`
 
 const SECTION_PLANS: Record<GuideKind, string[]> = {
-  destinations: ['why go', 'neighbourhoods or regions', 'what to do', 'food and drink', 'when to go, in general terms (seasons only, no months or weather numbers)', 'getting around', 'who it suits', 'how we take groups there (general; mention a package only if the GROUNDING lists one)'],
+  destinations: ['why go', 'neighbourhoods or regions', 'what to do', 'food and drink', 'when to go, in general terms (seasons only, no months or weather numbers)', 'getting around', 'who it suits', 'how a hosted group trip here typically works (general, no claim about our past trips; mention a package only if the GROUNDING lists one)'],
   hotels: ['the setting', 'the style of the hotel', 'who it suits', 'what to expect', 'what is nearby (general terms)', 'how to visit with a group'],
   resorts: ['the setting', 'the style of the resort', 'who it suits', 'what to expect', 'what is nearby (general terms)', 'how to visit with a group'],
-  'cruise-lines': ['the style of the cruise line and its ships', 'who it suits', 'typical itineraries, in general terms', 'dining and onboard life, in general terms', 'tips for first-time cruisers', 'how we help groups sail with them'],
-  ships: ['the style of the ship', 'who it suits', 'typical itineraries, in general terms', 'dining and onboard life, in general terms', 'tips for sailing on her', 'how we help groups sail on her'],
-  'river-cruises': ['how a river cruise differs from an ocean cruise', 'routes, in general terms', 'cabin life', 'the pace of a day', 'who it suits', 'how we help groups sail river cruises'],
-  yachts: ['how a yacht or small-ship cruise differs from a big ship', 'routes, in general terms', 'cabin life', 'the pace of a day', 'who it suits', 'how we help groups book yacht cruises'],
+  'cruise-lines': ['the style of the cruise line and its ships', 'who it suits', 'typical itineraries, in general terms', 'dining and onboard life, in general terms', 'tips for first-time cruisers', 'how a hosted group trip with them typically works (general, no claim about our past trips)'],
+  ships: ['the style of the ship', 'who it suits', 'typical itineraries, in general terms', 'dining and onboard life, in general terms', 'tips for sailing on her', 'how a hosted group trip on her typically works (general, no claim about our past trips)'],
+  'river-cruises': ['how a river cruise differs from an ocean cruise', 'routes, in general terms', 'cabin life', 'the pace of a day', 'who it suits', 'how a hosted group river cruise typically works (general, no claim about our past trips)'],
+  yachts: ['how a yacht or small-ship cruise differs from a big ship', 'routes, in general terms', 'cabin life', 'the pace of a day', 'who it suits', 'how a hosted group yacht cruise typically works (general, no claim about our past trips)'],
 }
 
 export function sectionPlanFor(kind: GuideKind): string[] {
@@ -162,9 +162,13 @@ async function callText(prompt: string, maxTokens: number, timeoutMs: number): P
   return text ? { ok: true, text } : { ok: false, error: 'the AI returned nothing' }
 }
 
-/** Replaces em dashes (and spaced en dashes) with a comma: house style has none, and a model slips one in. */
+/** Removes em and en dashes: house style has none, and a model slips one in. An en dash between two
+ * characters with no spaces (a range such as 3-5) becomes a hyphen; any other dash becomes a comma. */
 export function removeDashes(text: string): string {
-  return text.replace(/\s*\u2014\s*/g, ', ').replace(/\s\u2013\s/g, ', ').replace(/\s--\s/g, ', ')
+  return text
+    .replace(/(?<=\w)\u2013(?=\w)/g, '-')
+    .replace(/\s*[\u2014\u2013]\s*/g, ', ')
+    .replace(/\s--\s/g, ', ')
 }
 
 /** Splits the model's markdown into the opening summary and the "## " sections. */
@@ -277,9 +281,31 @@ const SUPERLATIVE_PATTERNS: [RegExp, string][] = [
   [/\baward[- ]winning\b|\bawards?\b|\bmichelin\b/i, 'award claim'],
   [/\b(?:[1-5]|one|two|three|four|five)[- ]stars?\b|\bstar[- ]rated\b|\b\d(?:\.\d)? stars\b/i, 'star rating'],
   [/\b(?:top|highly|best|five-star)[- ]rated\b/i, 'top-rated'],
-  [/\bworld[- ]class\b|\bfinest\b|\bunrivall?ed\b/i, 'world-class'],
+  [/\bworld[- ]class\b|\bfinest\b|\bunrivall?ed\b|\bunparalleled\b|\bunmatched\b/i, 'world-class'],
+  [/\b(?:largest|biggest|smallest|oldest|newest|latest|tallest)\b/i, 'size or age superlative'],
+  [/\bmost (?:popular|loved|famous|luxurious|beautiful|visited)\b/i, 'most popular or similar'],
+  [/\b(?:leading|premier|acclaimed|renowned|legendary|iconic|famous|must-see)\b|\bluxur(?:y|ious)\b/i, 'reputation claim'],
+  [/\bdiamonds?\b/i, 'diamond rating'],
+  [/\bfirst (?:ship|resort|hotel)\b|\bonly (?:ship|resort|hotel)\b/i, 'first or only claim'],
 ]
-const RECENCY_PATTERNS = [/\b(newly|recently) (renovated|refurbished|built|opened|launched|redesigned|upgraded)\b/i, /\bbrand[- ]new\b/i]
+const RECENCY_PATTERNS = [
+  /\b(newly|recently) (renovated|refurbished|built|opened|launched|redesigned|upgraded)\b/i,
+  /\bbrand[- ]new\b/i,
+  /\blaunched recently\b|\bdebuted\b|\bmaiden\b|\binaugural\b|\bstate[- ]of[- ]the[- ]art\b|\bnewly\b/i,
+]
+// Rough sizes and dates in words, which the digit check cannot see.
+const WORD_NUMBER_PATTERNS = [
+  /\b(?:hundreds?|thousands?|millions?|dozens?)\b/i,
+  /\b(?:\w+teenth|twentieth) century\b/i,
+  /(?<!\bor )\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[- ](?:night|day|week|guest|passenger|port|stop|ship|deck|cabin|room|restaurant|pool|metre|meter|foot|feet)s?\b/i,
+]
+// Itinerary or schedule stated as fact.
+const SCHEDULE_PATTERN = /\bevery (?:week|day|month|sailing|departure)\b/i
+// The agency speaking about its own history. Only offers of help are allowed.
+const AGENCY_SUBJECT = /\b(?:we|our (?:team|hosts|guides|groups|travell?ers|clients|guests))\b/i
+const AGENCY_VERB = /\b(?:offer|offered|run|ran|sail|sailed|host|hosted|know|have|had|visit|visited|take|took|bring|brought|love|loved|return|partner)\b/i
+const AGENCY_TIME = /\bevery (?:year|season|spring|summer|fall|winter)\b|\beach (?:year|season)\b|\bmany times\b|\byears of\b/i
+const AGENCY_OFFER = /\b(?:we can help|we can|our team can|ask us|we will help|our advisors can)\b/gi
 const COUNT_CLAIM = /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred|hundreds|thousand|thousands|dozen|dozens)\b[^.\n]{0,24}\b(rooms|suites|cabins|restaurants|decks|passengers|staterooms|bars|pools|villas|bungalows)\b/i
 
 function numbersIn(text: string): string[] {
@@ -303,9 +329,67 @@ export function internalLinksIn(text: string): string[] {
   return out
 }
 
+/** Plain sentences of some markdown: headings dropped, link syntax reduced to the anchor text, list markers removed. */
+function sentencesOf(markdown: string): string[] {
+  const text = markdown
+    .split('\n')
+    .filter((l) => !/^\s*#{1,6}\s/.test(l))
+    .join('\n')
+    .replace(/!?\[([^\]]*)\]\([^)\s]*\)/g, '$1')
+    .replace(/^\s*(?:[-*]|\d+\.)\s+/gm, '')
+    .replace(/[*_`>]/g, '')
+  return text.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean)
+}
+
+/** Sentences where the agency talks about its own past or habits ("we host groups here every spring"). */
+export function agencyClaims(markdown: string): string[] {
+  const out: string[] = []
+  for (const sentence of sentencesOf(markdown)) {
+    const rest = sentence.replace(AGENCY_OFFER, ' ')
+    const subject = AGENCY_SUBJECT.exec(rest)
+    if (!subject) continue
+    const after = rest.slice(subject.index + subject[0].length)
+    if (AGENCY_VERB.test(after) || AGENCY_TIME.test(after)) out.push(sentence)
+  }
+  return out
+}
+
+const NOT_VENUE = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'])
+const CAP_WORD = /^[A-Z][\p{L}'’-]+$/u
+
+/** Capitalised phrases of two or more words in the prose (a restaurant, a person, a port) that are not the
+ * subject, its parent, a link label or something in the grounding text. A phrase at the very start of a
+ * sentence loses its first word (a normal capital letter). */
+export function namedThingsNotInBrief(markdown: string, allowedText: string): string[] {
+  const known = new Set((allowedText.toLowerCase().match(/[\p{L}'’-]+/gu) ?? []))
+  const found: string[] = []
+  for (const sentence of sentencesOf(markdown)) {
+    const words = sentence.split(/\s+/).map((w) => w.replace(/^[("'“]+|[.,;:!?)"'”]+$/g, '').replace(/['’]s$/i, ''))
+    let run: string[] = []
+    const flush = (startIdx: number) => {
+      let phrase = run
+      if (startIdx === 0) phrase = phrase.slice(1) // sentence-initial capital
+      phrase = phrase.filter((w) => !NOT_VENUE.has(w.toLowerCase()))
+      if (phrase.length >= 2 && !phrase.every((w) => known.has(w.toLowerCase()))) found.push(phrase.join(' '))
+      run = []
+    }
+    let runStart = 0
+    words.forEach((w, i) => {
+      if (CAP_WORD.test(w)) {
+        if (run.length === 0) runStart = i
+        run.push(w)
+      } else if (run.length) flush(runStart)
+    })
+    if (run.length) flush(runStart)
+  }
+  return [...new Set(found)]
+}
+
 export interface GateContext {
   /** The text from groundingText(brief): the only place a number may come from. */
   grounding: string
+  /** Names the article may use besides the grounding: the parent's name and the link labels. The subject's own name is always allowed. */
+  names?: string[]
   /** Paths that exist on the site (guides, packages, destinations, index pages, "/"). */
   allowedPaths: Set<string>
 }
@@ -343,6 +427,18 @@ export function guideBlockers(guide: ComposedGuide, ctx: GateContext): string[] 
   }
   if (RECENCY_PATTERNS.some((p) => p.test(all))) blockers.push('unverifiable recency claim')
   if (COUNT_CLAIM.test(all)) blockers.push('amenity or capacity count')
+  if (WORD_NUMBER_PATTERNS.some((p) => p.test(all))) blockers.push('a size, count or date written in words')
+  if (SCHEDULE_PATTERN.test(all)) blockers.push('itinerary or schedule stated as fact')
+  if (/\u2013/.test(all)) blockers.push('en dash present')
+
+  // The agency may offer help, never describe its own history.
+  const claims = agencyClaims([guide.summary, guide.body, faqText, takeText].join('\n'))
+  if (claims.length) blockers.push(`claim about what the agency has done or does: "${claims[0].slice(0, 80)}"`)
+
+  // A restaurant, person or port the brief never mentioned is a made-up detail until proven otherwise.
+  const allowedText = [ctx.grounding, guide.name, ...(ctx.names ?? [])].join(' ')
+  const venues = namedThingsNotInBrief([guide.summary, guide.body, faqText, takeText].join('\n'), allowedText)
+  if (venues.length) blockers.push(`named venue or person not in brief: ${venues.slice(0, 3).join(', ')}`)
 
   if (/https?:\/\/|\bwww\./i.test(all)) blockers.push('web address in text')
   if (/\]\(/.test(faqText) || /\]\(/.test(takeText) || /\]\(/.test(metaText)) blockers.push('link inside FAQ, takeaways or meta text')

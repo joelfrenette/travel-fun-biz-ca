@@ -42,7 +42,7 @@ export const GUIDE_SEEDS: GuideSeed[] = [
   { kind: 'ships', name: 'Celebrity Edge' },
   { kind: 'ships', name: 'Disney Wish' },
   // River cruises
-  { kind: 'river-cruises', name: 'Viking River Cruises' },
+  { kind: 'river-cruises', name: 'Viking' },
   { kind: 'river-cruises', name: 'AmaWaterways' },
   { kind: 'river-cruises', name: 'Avalon Waterways' },
   { kind: 'river-cruises', name: 'Uniworld Boutique River Cruises' },
