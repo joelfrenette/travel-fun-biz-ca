@@ -5,6 +5,7 @@ import { completenessScore, THIN_BELOW } from '../lib/package-completeness'
 import { proposeEnrichment, copyBlockers, itemSupported, type CopyWriter } from '../lib/package-enrich'
 import { groundDraft, type ExtractedDraft } from '../lib/package-extract'
 import { detectFile, pdfPageCount, estimateCostUsd } from '../lib/package-sources'
+import { watchedUrls, scanPageText, rowMonths, isoWeek } from '../lib/source-watch'
 
 let failed = 0
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -126,8 +127,8 @@ const goodWriter: CopyWriter = async () => {
   check('a number not in the source holds the copy back', /number not in the source/.test(changeOf(num.copy, 'full_description')?.reason ?? ''), changeOf(num.copy, 'full_description'))
   const agency = await proposeEnrichment(emptyPkg as any, draft, { transcript, writeCopy: badWriter(`${sentence.repeat(12)} We have hosted this trip many times.`) })
   check('an agency history claim holds the copy back', changeOf(agency.copy, 'full_description')?.held === true)
-  const dash = await proposeEnrichment(emptyPkg as any, draft, { transcript, writeCopy: badWriter(`${sentence.repeat(12)} Relax — enjoy the sea.`) })
-  check('a dash is repaired, not blocked, and never survives', changeOf(dash.copy, 'full_description')?.autoApply === true && !/[–—]/.test(changeOf(dash.copy, 'full_description').proposed))
+  const dash = await proposeEnrichment(emptyPkg as any, draft, { transcript, writeCopy: badWriter(`${sentence.repeat(12)} Relax \u2014 enjoy the sea.`) })
+  check('a dash is repaired, not blocked, and never survives', changeOf(dash.copy, 'full_description')?.autoApply === true && !/[\u2013\u2014]/.test(changeOf(dash.copy, 'full_description').proposed))
   const venue = await proposeEnrichment(emptyPkg as any, draft, { transcript, writeCopy: badWriter(`${sentence.repeat(12)} Dinner is at Hotel Olympus Palace on the first night.`) })
   check('a named place not in the source holds the copy back', changeOf(venue.copy, 'full_description')?.held === true)
   const short = await proposeEnrichment(emptyPkg as any, draft, { transcript, writeCopy: badWriter('Too short to be a description.') })
@@ -147,6 +148,19 @@ const goodWriter: CopyWriter = async () => {
   check('itemSupported accepts source words and rejects invented ones', itemSupported('Daily breakfast', transcript.toLowerCase()) && !itemSupported('Welcome cocktail party', transcript.toLowerCase()))
   check('copyBlockers: clean text passes', copyBlockers(sentence.repeat(12), { grounding: transcript, field: 'full_description' }).length === 0)
   check('copyBlockers: thousands separators match (2,499 vs 2499)', copyBlockers('Prices start from 2499 per person and the group is small and friendly for everyone who joins.', { grounding: 'From $2,499 CAD', field: 'meta_description' }).length === 0)
+
+  // Source watch (pure parts)
+  const none = { available_from: '2027-06-12', available_to: '2027-06-19' }
+  check('watchedUrls skips the funnel root and keeps a supplier page', JSON.stringify(watchedUrls({ booking_url: 'https://info.travelfunbiz.com/', more_info_url: 'https://www.collette.com/group/abc' })) === '["https://www.collette.com/group/abc"]')
+  check('watchedUrls skips null and non-web links', watchedUrls({ booking_url: null, more_info_url: 'mailto:a@b.c' }).length === 0)
+  check('page that says Tour Cancelled is flagged', scanPageText('Greek Isles. Tour Cancelled. Contact us.', none, '2026-10-10').some((f) => f.kind === 'cancelled'))
+  check('sold out and wait list are flagged', scanPageText('This departure is sold out', none, '2026-10-10').length === 1 && scanPageText('Join the waitlist today', none, '2026-10-10').length === 1)
+  check('cancellation policy wording is not flagged', scanPageText('If the trip is cancelled by the traveller, fees apply. Free cancellation up to 60 days.', none, '2026-10-10').length === 0)
+  check('dates that include the trip month are fine', scanPageText('Departing June 12, 2027 from Toronto', none, '2026-10-10').length === 0)
+  check('dates that never include the trip month are flagged', scanPageText('Now departing September 3, 2027', none, '2026-10-10').some((f) => f.kind === 'dates'))
+  check('a page with no dates says nothing about dates', scanPageText('A lovely trip around the islands', none, '2026-10-10').length === 0)
+  check('rowMonths covers the window', JSON.stringify(rowMonths('2027-06-28', '2027-07-05')) === '["2027-06","2027-07"]')
+  check('isoWeek labels a date', isoWeek(new Date('2026-10-10T12:00:00Z')) === '2026-W41', isoWeek(new Date('2026-10-10T12:00:00Z')))
 
   console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) FAILED.`)
   process.exit(failed === 0 ? 0 : 1)

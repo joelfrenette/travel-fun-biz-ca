@@ -6,7 +6,7 @@ import { getSetting } from '@/lib/app-settings'
 export const PIPELINE_LAST_RUN_KEY = 'pipeline_last_run'
 
 export interface PipelineStep {
-  step: 'keywords' | 'write' | 'guides' | 'copy' | 'post' | 'repurpose' | 'heal' | 'debrief' | 'performance'
+  step: 'keywords' | 'write' | 'guides' | 'copy' | 'post' | 'repurpose' | 'heal' | 'debrief' | 'performance' | 'source-watch'
   ok: boolean
   note: string
 }

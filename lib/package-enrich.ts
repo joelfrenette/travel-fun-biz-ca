@@ -288,7 +288,7 @@ export function copyBlockers(text: string, ctx: { grounding: string; field: stri
   const strangers = [...new Set(numbersIn(prose).map(normNumber).filter((n) => !allowed.has(n)))]
   if (strangers.length) blockers.push(`number not in the source: ${strangers.slice(0, 5).join(', ')}`)
 
-  if (/[–—]/.test(t) || /\s--\s/.test(t)) blockers.push('dash present')
+  if (/[\u2013\u2014]/.test(t) || /\s--\s/.test(t)) blockers.push('dash present')
   if (PLACEHOLDER_PATTERNS.some((p) => p.test(t))) blockers.push('placeholder text')
   if (REFUSAL_PATTERNS.some((p) => p.test(t))) blockers.push('model refusal in text')
   if (EXPERIENCE_CLAIM_PATTERNS.some((p) => p.test(t))) blockers.push('claim of personal experience')
