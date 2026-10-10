@@ -23,10 +23,16 @@ export const issueAnchor = (id: string) => `issue-${id.replace(/[^a-z0-9]+/gi, '
 
 const adminLink = (path: string) => `${SITE_URL}${path}`
 
+/** The message to paste to Claude for one problem. One wording, used by the daily brief, the alert email
+ * and the Copy button on the Content Autopilot page. */
+export function claudeFixMessage(title: string, detail: string): string {
+  return `Please fix this on TravelFunBiz.ca. Problem: ${title}. What it says: ${detail}. Look into it, fix it if you can, and tell me in simple words what you did.`
+}
+
 export function plainAction(i: Issue): PlainAction {
   const autopilot = (id: string) => `${adminLink('/admin/autopilot')}#${issueAnchor(id)}`
   const text = `${i.title} ${i.detail}`
-  const paste = `Please fix this on TravelFunBiz.ca. Problem: ${i.title}. What it says: ${i.detail}. Look into it, fix it if you can, and tell me in simple words what you did.`
+  const paste = claudeFixMessage(i.title, i.detail)
 
   if (i.id === 'system:mail-blocked' || i.id === 'system:step-debrief' || /verify a domain|testing emails/i.test(text)) {
     return {

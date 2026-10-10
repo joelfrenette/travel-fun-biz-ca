@@ -31,6 +31,8 @@ interface State {
   rows: Row[]
 }
 
+import { claudeFixMessage } from "@/lib/plain-steps"
+
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
 }
@@ -116,6 +118,23 @@ export default function AutopilotPage() {
                       <p className="flex items-start gap-2 text-sm font-medium"><AlertTriangle className={i.area === "setup" ? "mt-0.5 h-4 w-4 shrink-0 text-amber-500" : "mt-0.5 h-4 w-4 shrink-0 text-destructive"} />{i.title}</p>
                       <p className="break-words pl-6 text-xs text-muted-foreground">{i.detail}</p>
                       {i.fix && <p className="pl-6 text-xs">{i.fix}</p>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {i.area !== "setup" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Copies a ready-made message about this problem, to paste to Claude"
+                          onClick={() => {
+                            navigator.clipboard
+                              .writeText(claudeFixMessage(i.title, i.detail))
+                              .then(() => toast({ title: "Copied", description: "Now paste it to Claude." }))
+                              .catch(() => toast({ title: "Could not copy", description: "Select the text and copy it by hand.", variant: "destructive" }))
+                          }}
+                        >
+                          Copy for Claude
+                        </Button>
+                      )}
                     </div>
                     {i.actions && (
                       <div className="flex gap-2">
