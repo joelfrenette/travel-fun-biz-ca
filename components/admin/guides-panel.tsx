@@ -54,13 +54,14 @@ interface Data {
   usage: { today: number | null; week: number | null }
   counts: { kind: Kind; published: number; draft: number; candidates: number }[]
   failures: Record<string, { n: number; name: string; kind: string; last: string }>
+  publishMode: "draft" | "publish"
 }
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
 }
 
-const ORIGIN_LABEL: Record<Candidate["origin"], string> = { destination: "a trip goes here", package: "from a trip name", seed: "suggested name" }
+const ORIGIN_LABEL: Record<Candidate["origin"], string> = { destination: "a trip goes here", package: "from a package name, check it is really a hotel, ship or line", seed: "suggested name" }
 
 export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
   const { toast } = useToast()
@@ -99,6 +100,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
     }
   }
 
+  const setMode = (mode: "draft" | "publish") => call("mode", "/api/admin/guides", { method: "PATCH", body: JSON.stringify({ publishMode: mode }) }, mode === "draft" ? "Guides now wait for your review" : "Clean guides can now go live")
   const post = (key: string, payload: Record<string, unknown>, okTitle: string) => call(key, "/api/admin/guides", { method: "POST", body: JSON.stringify(payload) }, okTitle)
   const writeOne = (c: { kind: Kind; name: string; parent_slug?: string | null }) =>
     post(`write:${c.kind}:${c.name}`, { action: "write", kind: c.kind, name: c.name, parent_slug: c.parent_slug ?? undefined }, "Guide written")
@@ -126,6 +128,20 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
     </div>
   )
 
+  const modeControl = (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+      <p className="min-w-[240px] flex-1 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{data.publishMode === "draft" ? "Review mode (recommended at first): " : "Publish mode: "}</span>
+        {data.publishMode === "draft"
+          ? "every new guide is saved as a draft and nothing goes live until you open it and click Publish."
+          : "a guide that passes every check goes live by itself, but only destination and cruise line guides. Hotel, resort, ship, river cruise and yacht guides always wait for you."}
+      </p>
+      <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setMode(data.publishMode === "draft" ? "publish" : "draft")}>
+        {busy === "mode" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{data.publishMode === "draft" ? "Switch to publish mode" : "Switch back to review mode"}
+      </Button>
+    </div>
+  )
+
   const countsLine = (
     <ul className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
       {data.counts.map((c) => (
@@ -138,7 +154,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
   )
 
   if (variant === "card") {
-    const next = data.candidates.filter((c) => !(data.failures[`${c.kind}:${c.slug}`]?.n >= 2)).slice(0, 5)
+    const next = data.candidates.filter((c) => c.origin !== "package" && !(data.failures[`${c.kind}:${c.slug}`]?.n >= 2)).slice(0, 5)
     return (
       <Card>
         <CardContent className="space-y-3 p-4">
@@ -151,6 +167,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
               {busy === "next" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Write one guide now
             </Button>
           </div>
+          {modeControl}
           {countsLine}
           {capsControl}
           {next.length > 0 && (
@@ -175,6 +192,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
             A guide is written from general travel knowledge plus your real trips. It goes live by itself only if it passes the checks; otherwise it is saved as a draft with the reasons. Read a draft on its page
             before you publish it. Nothing here is visible to visitors until it is published.
           </p>
+          {modeControl}
           {countsLine}
           {capsControl}
         </CardContent>
@@ -183,6 +201,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
       <Card>
         <CardContent className="space-y-3 p-4">
           <h3 className="text-sm font-semibold">Write a guide by name</h3>
+          <p className="text-xs text-muted-foreground">A name that has failed twice is skipped, so it cannot keep spending AI credits. Click Dismiss on the Needs attention item on the Autopilot page to try it again.</p>
           <div className="flex flex-wrap gap-2">
             <select className="h-9 rounded-md border bg-card px-3 text-sm" value={newKind} onChange={(e) => setNewKind(e.target.value as Kind)} aria-label="Kind of guide">
               {KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
@@ -229,6 +248,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
                       {busy === `s:${g.id}` ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Eye className="mr-1 h-4 w-4" />}Publish
                     </Button>
                   )}
+                  <Button size="sm" variant="outline" asChild><Link href={`/admin/guides/${g.id}`}><Eye className="mr-1 h-4 w-4" />Preview</Link></Button>
                   {g.status === "published" && (
                     <Button size="sm" variant="ghost" asChild><a href={`${prefixOf(g.kind)}/${g.slug}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-1 h-4 w-4" />View</a></Button>
                   )}
@@ -261,7 +281,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
                     </p>
                     {failed && <p className="text-xs text-destructive">Failed {failed.n} time{failed.n === 1 ? "" : "s"}: {failed.last}</p>}
                   </div>
-                  <Button size="sm" variant="outline" disabled={!!busy} onClick={() => writeOne(c)}>
+                  <Button size="sm" variant="outline" disabled={!!busy || (failed?.n ?? 0) >= 2} title={(failed?.n ?? 0) >= 2 ? "Failed twice. Dismiss it on the Autopilot page to try again." : undefined} onClick={() => writeOne(c)}>
                     {busy === key ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1 h-4 w-4" />}Write
                   </Button>
                 </div>

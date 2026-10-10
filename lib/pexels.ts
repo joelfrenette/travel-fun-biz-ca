@@ -32,7 +32,7 @@ export async function findDestinationPhoto(query: string): Promise<PexelsPhoto |
 
   try {
     const url = `${PEXELS_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`
-    const res = await fetch(url, { headers: { Authorization: key }, cache: 'no-store' })
+    const res = await fetch(url, { headers: { Authorization: key }, cache: 'no-store', signal: AbortSignal.timeout(8000) })
     if (!res.ok) {
       cache.set(cacheKey, { photo: null, at: Date.now() })
       return null

@@ -4,42 +4,51 @@ import { notFound } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
-import { getPublishedGuide, listPublishedGuides, getPublishedPackagesByIds, guideKinds, guidePath, type Guide, type GuideKind } from "@/lib/guides"
+import { getPublishedGuide, listPublishedGuides, getPublishedPackagesByIds, guideKinds, guidePath, type PublicGuide, type GuideKind } from "@/lib/guides"
 import { getDestinationSlugs } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
-import { renderMarkdown } from "@/lib/markdown"
+import { GuideTakeaways, GuideArticle, GuideFaqList } from "@/components/guide-parts"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
 // ONE shared page for every guide kind (destinations, hotels, resorts, cruise lines, ships, river cruises,
 // yachts). The route files under app/<kind>/[slug]/page.tsx are thin wrappers around GuidePage and
 // guideMetadata, so a fix here applies to every kind at once. app/destinations/[slug]/page.tsx also reuses the
-// pieces below (GuideTakeaways, GuideArticle, GuideFaqList, guideJsonLd) when a destination has a guide.
-
-/** Markdown to HTML, with links to pages of this site opening in the same tab (the markdown renderer opens every link in a new tab). */
-function articleHtml(markdown: string): string {
-  return renderMarkdown(markdown).replace(/<a href="(\/[^"]*)" target="_blank" rel="noopener noreferrer">/g, '<a href="$1">')
-}
+// pieces in components/guide-parts.tsx and guideJsonLd when a destination has a guide.
 
 const cleanText = (s: string) => s.replace(/\s+/g, " ").trim()
 
 /** Structured data for one guide: its main entity (type per kind), the FAQ and the breadcrumb. Only the
  * fields we really have go in: no address, rating or price. */
-export function guideJsonLd(guide: Guide): object[] {
+export { GuideTakeaways, GuideArticle, GuideFaqList }
+
+export function guideJsonLd(guide: PublicGuide): object[] {
   const info = guideKinds[guide.kind]
   const url = absoluteUrl(guidePath(guide.kind, guide.slug))
   const description = guide.meta_description || cleanText(guide.summary)
+  const image = guide.hero_image_url || DEFAULT_OG_IMAGE
+  // A destination page IS the destination. A page about a named hotel, resort, ship or line is an article ABOUT
+  // it: it must not claim to be the business itself (that would read as the business's own listing).
+  const main: object =
+    guide.kind === "destinations"
+      ? { "@context": "https://schema.org", "@type": info.schemaType, name: guide.name, description, url, image }
+      : {
+          "@context": "https://schema.org",
+          "@type": "Article",
+          headline: guide.meta_title || `${guide.name}: ${info.guideLabel}`,
+          description,
+          url,
+          image,
+          dateModified: guide.updated_at,
+          author: { "@type": "Organization", name: SITE_NAME },
+          publisher: { "@type": "Organization", name: SITE_NAME },
+          mainEntityOfPage: { "@type": "WebPage", "@id": url },
+          about: { "@type": info.schemaType, name: guide.name },
+        }
   const out: object[] = [
-    {
-      "@context": "https://schema.org",
-      "@type": info.schemaType,
-      name: guide.name,
-      description,
-      url,
-      image: guide.hero_image_url || DEFAULT_OG_IMAGE,
-    },
+    main,
     {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
@@ -58,39 +67,6 @@ export function guideJsonLd(guide: Guide): object[] {
     })
   }
   return out
-}
-
-export function GuideTakeaways({ guide }: { guide: Guide }) {
-  if (guide.key_takeaways.length === 0) return null
-  return (
-    <aside className="rounded-xl border bg-muted/30 p-5" aria-label="Key takeaways">
-      <h2 className="mb-2 text-base font-bold uppercase text-foreground">Key takeaways</h2>
-      <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
-        {guide.key_takeaways.map((t) => <li key={t}>{t}</li>)}
-      </ul>
-    </aside>
-  )
-}
-
-export function GuideArticle({ guide }: { guide: Guide }) {
-  return <div className="markdown-body" dangerouslySetInnerHTML={{ __html: articleHtml(guide.body) }} />
-}
-
-export function GuideFaqList({ guide }: { guide: Guide }) {
-  if (guide.faq.length === 0) return null
-  return (
-    <section aria-labelledby="guide-faq">
-      <h2 id="guide-faq" className="mb-3 text-xl font-bold text-foreground">Frequently asked questions about {guide.name}</h2>
-      <div className="divide-y rounded-xl border bg-card">
-        {guide.faq.map((f) => (
-          <details key={f.q} className="group p-4">
-            <summary className="cursor-pointer list-none font-medium text-foreground">{f.q}</summary>
-            <p className="mt-2 text-sm text-muted-foreground">{f.a}</p>
-          </details>
-        ))}
-      </div>
-    </section>
-  )
 }
 
 export async function guideMetadata(kind: GuideKind, slug: string): Promise<Metadata> {

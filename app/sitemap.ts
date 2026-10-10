@@ -39,7 +39,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority: 0.7,
     })),
-    { url: absoluteUrl('/destinations'), lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.7 },
+    // The destinations index is listed only when it has something on it (a trip destination or a published guide).
+    ...(destinations.length > 0 || guides.some((g) => g.kind === 'destinations')
+      ? [{ url: absoluteUrl('/destinations'), lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.7 }]
+      : []),
     ...guidePages.map((g) => ({
       url: absoluteUrl(guidePath(g.kind, g.slug)),
       lastModified: new Date(g.updated_at),
