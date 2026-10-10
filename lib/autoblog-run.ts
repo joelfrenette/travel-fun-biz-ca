@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
-import { composeFullPost, type AllowedLink } from '@/lib/blog-composer'
+import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters'
 import { pickStyle, pickCtaStyle, CTA_STYLES, CONTENT_STYLES, styleById, appendStyledCta, type ContentStyle } from '@/lib/content-styles'
@@ -309,17 +309,25 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   let blockers: string[] = []
   let repairLogIds: string[] = []
   if (mode === 'publish') {
+    const gateCtx = { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs }
     const gated = await repairComposedPost(
       admin,
       composed,
       new Date(),
-      { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs },
+      gateCtx,
       // The saved body has the closing call to action appended; the audit log must hold what is saved.
       { storedBody: (body) => appendStyledCta(body, ctaStyle.id, groundingPackage) },
     )
     final = gated.value
     blockers = gated.blockers
     repairLogIds = gated.logIds
+    // Until migration 0033 is applied there is no audit log, so the shared repair stays off. The older one-call
+    // repair (numbers and links only) keeps working meanwhile, so applying this code first loses nothing.
+    if (blockers.length && /migration 0033/.test(gated.note)) {
+      const legacy = await gateWithRepair(composed, new Date(), gateCtx)
+      final = legacy.post
+      blockers = legacy.blockers
+    }
   }
   const publishing = mode === 'publish' && blockers.length === 0
   // Use the composed post's own tags (derived from its actual keywords) rather than the
