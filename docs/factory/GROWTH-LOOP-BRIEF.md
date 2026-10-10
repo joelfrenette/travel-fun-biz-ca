@@ -325,3 +325,53 @@ Caps and safety: engine run once a week (atomic claim), inside `autopilot_keywor
 ignores the weekly cadence but not the budget; one AI call per run for the plan; Needs attention item on failure;
 everything else keeps working when DataForSEO or GSC is unconfigured (sections show "not connected" lines).
 Offline checks: `scripts/check-keyword-intel.ts` for clustering, intent, opportunity labels and plan dedupe.
+
+### WP10 (2026-10-10, Joel's ask): self-healing, self-improving content (migration 0033)
+
+Joel's words: the process should be self-healing and self-improving; if it can flag a low SEO score it should
+improve it; if it can flag phrases it should reword them and publish; as automated as possible and SAFE for him
+legally. Design: never add a fact, only remove or soften; keep an audit trail of every automatic edit; keep the
+hard-stop blockers as draft-only; cap every automatic AI call.
+
+Owner files: new `lib/content-repair.ts` (shared), new `lib/seo-score.ts` (pure), new `lib/content-heal-run.ts`
+(pipeline step `heal-content`), `lib/guide-run.ts`, `lib/page-copy-run.ts`, `lib/autoblog-run.ts` (call the shared
+repair where each already gates; keep every guard), `lib/guide-composer.ts` / `lib/page-copy-composer.ts` /
+`lib/blog-composer.ts` (export a `classifyBlockers` that splits blockers into REPAIRABLE and HARD), `lib/issues.ts`,
+`lib/plain-steps.ts`, `lib/pipeline.ts`, `lib/pipeline-log.ts`, Autopilot page card "Self-healing", new admin API
+under `app/api/admin/content-edits/`, `supabase/migrations/0033_content_edits.sql`, `scripts/check-content-repair.ts`.
+
+REPAIRABLE (reword or remove the sentence, then re-gate, then publish if clean): superlatives and reputation
+words, named venue or person not in the brief, agency claims ("we offer", "our hosts have"), recency claims,
+word-numbers and digits not in the grounding, dashes, OG and meta length, missing FAQ or takeaways (regenerate
+from the body only), weather or crowd words (page copy), verdict phrasing (compare pages), links to pages that
+do not exist (remove the link, keep the text).
+HARD (never auto-published; stays a draft with the reasons; Needs attention): first-person experience claims,
+prices or dates not in a package row, testimonials or reviews, legal or visa or health or safety advice, anything
+about a named person, external links, model refusal or placeholder text, body under the minimum length.
+
+Repair mechanics (shared by posts, guides, page copy): extract only the offending sentences (max 12), ONE model
+call: "rewrite each sentence so it no longer contains X; you may delete a sentence; never add a fact, name, number
+or claim", apply, run the dash and length fixers, re-gate once. If still blocked by a repairable reason, run the
+deterministic fallback: delete the offending sentence (or the clause after the flagged word) when the paragraph
+still has 2+ sentences; re-gate once more. Then publish only if the gate is clean AND the kind's publish rule
+allows (named-property guides still need an admin click, per Joel's rule). Every change writes a `content_edits`
+row: content_type, content_id, path, reason, before, after, method (ai|delete|fixer), at, published_after
+(bool). Cap: at most 2 repair model calls per item, at most 6 items per day across all types, inside a daily
+dollar line shown on the card.
+
+SEO score (`lib/seo-score.ts`, pure, 0-100 with reasons): title 30-60 chars with the primary keyword; meta
+description 70-155; og title and description present; H1 once; primary keyword in the first H2 or first 100
+words; 3+ H2s; word count vs the kind's target; FAQ 3+; takeaways 3+; 1+ internal link, 0 dead; image with alt;
+JSON-LD types present (computed from what the page would emit); no dashes; readability (average sentence
+under 22 words). Daily `heal-content` step: score every published post, guide and page copy (cheap, no AI),
+store the score on the row (`seo_score int`, `seo_reasons text[]` on posts, guides, page_copy via migration
+0033), and for items under 70 run the cheapest fix first: generate missing meta/og/FAQ/takeaways from the body
+(one model call, grounded only in the body), add internal links to real pages that share the destination
+(no AI), fix dashes and lengths (no AI). Never rewrite the body of a published page for score alone. Re-score,
+log edits. Cap 6 items/day. Card shows: items scored, average score, lowest 5 with reasons, edits made today,
+items waiting on a human (HARD).
+
+Legal safety rules (non-negotiable): no new facts ever; every automatic edit is logged with before/after and
+visible in the admin (Content edits list with a Revert button that restores `before`); nothing touches
+`/who-we-are`, legal pages, testimonials, or package pages (those are Joel's); the privacy and consent text is
+never generated; HARD blockers always need a human.
