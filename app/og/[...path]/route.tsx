@@ -85,6 +85,7 @@ async function loadPhoto(url: string | null): Promise<string | null> {
     // At most one redirect, and only to another allow-listed host (Supabase and Pexels can redirect to a CDN).
     if (res.status >= 300 && res.status < 400) {
       const next = allowedRedirectTarget(res.headers.get('location'), src)
+      await res.body?.cancel().catch(() => {})
       if (!next) return skipped(url, `redirect to a host that is not allowed (${res.status})`)
       res = await fetchOnce(next)
       if (res.status >= 300 && res.status < 400) return skipped(url, 'second redirect')
@@ -142,9 +143,17 @@ export async function GET(request: Request, { params }: { params: { path: string
   const url = new URL(request.url)
   if (url.search) return new Response(null, { status: 308, headers: { Location: url.pathname, 'Cache-Control': 'public, s-maxage=86400' } })
 
-  const content = await resolveOgPath(params.path)
+  const fallback = () => new Response(null, { status: 302, headers: { Location: DEFAULT_OG_IMAGE, 'Cache-Control': SHORT_CACHE_CONTROL } })
+  let content: OgContent | null
+  try {
+    content = await resolveOgPath(params.path)
+  } catch (err) {
+    console.warn('[og] resolve failed', err instanceof Error ? err.name : 'error')
+    return fallback()
+  }
   // Unknown prefix, bad slug or an unpublished page: not an image. Short cache so a page published a minute later works.
   if (!content) return new Response('Not found', { status: 404, headers: { 'Cache-Control': SHORT_CACHE_CONTROL } })
+  const resolved: OgContent = content
 
   let fonts: { name: string; data: ArrayBuffer; weight: 400 | 700; style: 'normal' }[] = []
   try {
@@ -161,7 +170,7 @@ export async function GET(request: Request, { params }: { params: { path: string
   // ImageResponse draws lazily, so its errors only show up when the body is read. Read it here, inside the
   // try, so a failure (a photo Satori cannot decode, for example) falls back instead of becoming a 500.
   const draw = async (withPhoto: string | null) => {
-    const png = await render(content, withPhoto, fonts).arrayBuffer()
+    const png = await render(resolved, withPhoto, fonts).arrayBuffer()
     return new Response(png, { headers: { 'Content-Type': 'image/png', 'Cache-Control': CACHE_CONTROL } })
   }
   try {
@@ -170,7 +179,7 @@ export async function GET(request: Request, { params }: { params: { path: string
     try {
       return await draw(null)
     } catch {
-      return new Response(null, { status: 302, headers: { Location: DEFAULT_OG_IMAGE, 'Cache-Control': SHORT_CACHE_CONTROL } })
+      return fallback()
     }
   }
 }

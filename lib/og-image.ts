@@ -24,12 +24,26 @@ export interface OgContent {
 // minutes, so a miss is one Set lookup and only a valid slug loads the page's packages.
 const SLUG_SET_TTL_MS = 5 * 60 * 1000
 const slugSets = new Map<string, { at: number; slugs: Set<string> }>()
+const slugLoads = new Map<string, Promise<Set<string>>>()
 async function validSlugs(key: string, load: () => Promise<string[]>): Promise<Set<string>> {
   const hit = slugSets.get(key)
   if (hit && Date.now() - hit.at < SLUG_SET_TTL_MS) return hit.slugs
-  const slugs = new Set(await load())
-  slugSets.set(key, { at: Date.now(), slugs })
-  return slugs
+  // Concurrent expiries share one load.
+  let pending = slugLoads.get(key)
+  if (!pending) {
+    pending = load()
+      .then((list) => {
+        const slugs = new Set(list)
+        // An empty list is usually a failed read (the reads swallow errors): never remember it.
+        if (slugs.size > 0) slugSets.set(key, { at: Date.now(), slugs })
+        return slugs
+      })
+      .finally(() => {
+        slugLoads.delete(key)
+      })
+    slugLoads.set(key, pending)
+  }
+  return pending
 }
 
 function firstPhoto(...urls: (string | null | undefined)[]): string | null {
