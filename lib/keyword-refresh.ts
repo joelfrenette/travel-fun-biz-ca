@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { SITE_ID } from '@/lib/site'
 import { isKeywordDataConfigured, suggestKeywords, saveSuggestedKeyword, type KeywordCountry } from '@/lib/keywords'
+import { isoWeekKey } from '@/lib/keyword-cluster'
 
 // A capped weekly keyword refresh so topics follow real new search demand without a click. This is
 // the one credit-costing step the pipeline takes on its own, so it is bounded three ways: a weekly
@@ -45,7 +46,7 @@ export async function readKeywordRefreshInfo(admin: SupabaseClient): Promise<Key
   return { lastRunAt: await getSetting(admin, KEYWORD_LAST_RUN_KEY), log }
 }
 
-async function seedPhrases(admin: SupabaseClient): Promise<string[]> {
+export async function seedPhrases(admin: SupabaseClient): Promise<string[]> {
   const { data } = await admin.from('travel_packages').select('destination, category').eq('status', 'published')
   const seen = new Set<string>()
   const seeds: string[] = []
@@ -82,37 +83,47 @@ async function seedPhrases(admin: SupabaseClient): Promise<string[]> {
   return seeds.sort()
 }
 
-/** Runs at most once a week, only when configured and under budget. Returns a one-line note when it
- * ran, or null when there was nothing to do (so quiet passes add no noise to the pipeline log). */
-export async function refreshKeywordsIfDue(admin: SupabaseClient): Promise<string | null> {
-  if (!isKeywordDataConfigured()) return null
-  const budget = await getKeywordBudget(admin)
-  if (budget <= 0) return null
-  const last = Date.parse((await getSetting(admin, KEYWORD_LAST_RUN_KEY)) ?? '')
-  if (Number.isFinite(last) && Date.now() - last < REFRESH_EVERY_MS) return null
-  // Second, independent check against the spend log: the 2026-10-08 first run spent on six passes
-  // in a row (about $0.20) despite the guard above, so a stamp read that comes back stale must not
-  // be the only thing standing between a pass and a paid call.
-  const logged = (await readKeywordRefreshInfo(admin)).log
-  const lastLogged = Date.parse(logged[0]?.at ?? '')
-  if (Number.isFinite(lastLogged) && Date.now() - lastLogged < REFRESH_EVERY_MS) return null
-  // The weekly cap counts what was really spent in the last 7 days, not just this run.
-  const spentThisWeek = logged.filter((e) => Date.now() - Date.parse(e.at) < REFRESH_EVERY_MS).reduce((sum, e) => sum + (e.spentUsd || 0), 0)
-  if (spentThisWeek >= budget) return null
+/** What was really spent on keyword research in the last 7 days (from the spend log). */
+export function spentLastWeek(log: KeywordRefreshInfo['log'], now = Date.now()): number {
+  return log.filter((e) => now - Date.parse(e.at) < REFRESH_EVERY_MS).reduce((sum, e) => sum + (e.spentUsd || 0), 0)
+}
 
-  const seeds = await seedPhrases(admin)
-  if (!seeds.length) return null
-
-  // Atomic claim: only the one pass whose conditional write succeeds may spend. The stamp is an ISO
-  // string, so comparing it to a cutoff string is a correct date comparison.
-  const nowIso = new Date().toISOString()
-  const cutoff = new Date(Date.now() - REFRESH_EVERY_MS).toISOString()
-  const { data: claimedRows } = await admin.from('app_settings').update({ value: nowIso, updated_at: nowIso }).eq('key', KEYWORD_LAST_RUN_KEY).lt('value', cutoff).select('key')
-  if (!claimedRows?.length) {
-    // No stale stamp to take over: either one is fresh (someone else holds it) or none exists yet.
-    const { data: inserted } = await admin.from('app_settings').upsert({ key: KEYWORD_LAST_RUN_KEY, value: nowIso, updated_at: nowIso }, { onConflict: 'key', ignoreDuplicates: true }).select('key')
-    if (!inserted?.length) return null
+/** Adds one line to the spend log (newest first, 12 kept). Never throws. */
+export async function logKeywordSpend(admin: SupabaseClient, entry: KeywordRefreshInfo['log'][number]): Promise<void> {
+  try {
+    const info = await readKeywordRefreshInfo(admin)
+    await setSetting(admin, KEYWORD_SPEND_LOG_KEY, JSON.stringify([entry, ...info.log].slice(0, 12)))
+    await setSetting(admin, KEYWORD_LAST_RUN_KEY, entry.at) // shown as "last ran" on the Autopilot page
+  } catch {
+    // a logging problem must never fail a run that already finished
   }
+}
+
+/** The atomic once-a-week claim, shared by the keyword engine and the older refresh below. It INSERTS the
+ * key `keyword_engine_week:<ISO week>` into app_settings; app_settings.key is the primary key, so exactly
+ * one caller per week can succeed and every other pass gets a unique-violation (23505) and stands down.
+ * That is the same pattern the daily brief uses (`debrief_sent:<day>`), and unlike the old
+ * "read the stamp, then update it" it has no gap between the check and the claim.
+ * Returns the key when this caller owns the week, null when someone already does, and 'error' when the
+ * claim itself could not be made (the caller must then NOT spend). */
+export async function claimKeywordWeek(admin: SupabaseClient, week: string): Promise<{ key: string } | 'taken' | 'error'> {
+  const key = `keyword_engine_week:${week}`
+  const { error } = await admin.from('app_settings').insert({ key, value: new Date().toISOString() })
+  if (!error) return { key }
+  return (error as { code?: string }).code === '23505' ? 'taken' : 'error'
+}
+
+/** Gives a week's claim back (only when nothing was spent), so the next pass may try again. */
+export async function releaseKeywordWeek(admin: SupabaseClient, key: string): Promise<void> {
+  await admin.from('app_settings').delete().eq('key', key)
+}
+
+/** The paid research itself: DataForSEO keyword ideas for a few seed phrases, the best new phrases saved
+ * into keyword_research. No cadence and no claim in here (the caller owns both); it stops as soon as
+ * `budgetLeftUsd` is used up. */
+export async function runKeywordResearch(admin: SupabaseClient, opts: { budgetLeftUsd: number; seedPool?: string[] }): Promise<{ spent: number; added: number; seeds: string[]; error?: string }> {
+  const seeds = opts.seedPool ?? (await seedPhrases(admin))
+  if (!seeds.length) return { spent: 0, added: 0, seeds: [] }
   // Rotate through the seed list week by week so different destinations get researched over time.
   const weekIndex = Math.floor(Date.now() / REFRESH_EVERY_MS)
   const chosen = Array.from({ length: Math.min(SEEDS_PER_RUN, seeds.length) }, (_, i) => seeds[(weekIndex * SEEDS_PER_RUN + i) % seeds.length])
@@ -124,10 +135,9 @@ export async function refreshKeywordsIfDue(admin: SupabaseClient): Promise<strin
   let spent = 0
   let added = 0
   const used: string[] = []
-  // The stamp was written by the claim above, before any spend, so a failure partway through
-  // cannot re-spend the budget on the next pass.
+  let error: string | undefined
   for (const seed of chosen) {
-    if (spentThisWeek + spent >= budget) break
+    if (spent >= opts.budgetLeftUsd) break
     try {
       const { suggestions, costUsd } = await suggestKeywords(seed, country, 30)
       spent += costUsd
@@ -141,12 +151,37 @@ export async function refreshKeywordsIfDue(admin: SupabaseClient): Promise<strin
         have.add(s.keyword)
         added++
       }
-    } catch {
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'keyword research failed'
       break
     }
   }
-  const info = await readKeywordRefreshInfo(admin)
-  const entry = { at: new Date().toISOString(), spentUsd: Math.round(spent * 1e4) / 1e4, added, seeds: used }
-  await setSetting(admin, KEYWORD_SPEND_LOG_KEY, JSON.stringify([entry, ...info.log].slice(0, 12)))
-  return `researched ${used.length} topic${used.length === 1 ? '' : 's'}, added ${added} keyword${added === 1 ? '' : 's'}, spent about $${entry.spentUsd.toFixed(2)} of $${budget}/week`
+  return { spent, added, seeds: used, error }
+}
+
+/** The older once-a-week refresh (research only). The pipeline now runs the whole keyword engine
+ * (lib/keyword-intel.ts) instead; this stays for callers that only want the research, and uses the same
+ * atomic weekly claim, so the two can never both spend in one week. Returns a one-line note when it ran,
+ * or null when there was nothing to do. */
+export async function refreshKeywordsIfDue(admin: SupabaseClient): Promise<string | null> {
+  if (!isKeywordDataConfigured()) return null
+  const budget = await getKeywordBudget(admin)
+  if (budget <= 0) return null
+  const logged = (await readKeywordRefreshInfo(admin)).log
+  // A second, independent guard against the spend log: never within a week of the last logged run.
+  const lastLogged = Date.parse(logged[0]?.at ?? '')
+  if (Number.isFinite(lastLogged) && Date.now() - lastLogged < REFRESH_EVERY_MS) return null
+  const spentThisWeek = spentLastWeek(logged)
+  if (spentThisWeek >= budget) return null
+
+  const seeds = await seedPhrases(admin)
+  if (!seeds.length) return null
+  const claim = await claimKeywordWeek(admin, isoWeekKey(new Date()))
+  if (claim === 'taken' || claim === 'error') return null
+
+  // The claim was made before any spend, so a failure partway through cannot re-spend on the next pass.
+  const r = await runKeywordResearch(admin, { budgetLeftUsd: budget - spentThisWeek, seedPool: seeds })
+  const entry = { at: new Date().toISOString(), spentUsd: Math.round(r.spent * 1e4) / 1e4, added: r.added, seeds: r.seeds }
+  await logKeywordSpend(admin, entry)
+  return `researched ${r.seeds.length} topic${r.seeds.length === 1 ? '' : 's'}, added ${r.added} keyword${r.added === 1 ? '' : 's'}, spent about $${entry.spentUsd.toFixed(2)} of $${budget}/week`
 }
