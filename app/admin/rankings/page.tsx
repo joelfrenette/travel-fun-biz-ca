@@ -224,6 +224,7 @@ export default function RankingsPage() {
                   <SelectItem value="all">All pages</SelectItem>
                   <SelectItem value="package">Packages ({pages.filter((p) => p.type === "package").length})</SelectItem>
                   <SelectItem value="destination">Destinations ({pages.filter((p) => p.type === "destination").length})</SelectItem>
+                  <SelectItem value="guide">Guides ({pages.filter((p) => p.type === "guide").length})</SelectItem>
                   <SelectItem value="blog">Blog posts ({pages.filter((p) => p.type === "blog").length})</SelectItem>
                   <SelectItem value="home">Home page</SelectItem>
                 </SelectContent>
