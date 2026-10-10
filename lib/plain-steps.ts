@@ -98,6 +98,22 @@ export function plainAction(i: Issue): PlainAction {
       paste,
     }
   }
+  if (i.id === 'system:keyword-engine') {
+    const needsUpdate = /migration 0032/i.test(text)
+    return {
+      id: i.id,
+      title: i.title,
+      why: needsUpdate
+        ? 'The keyword engine needs a small database update before it can save what it finds. Until then it spends nothing and the older weekly research keeps running.'
+        : 'The weekly keyword engine (it finds which keywords to aim for and plans the next blog ideas) hit a problem.',
+      steps: needsUpdate
+        ? ['Open Supabase and sign in.', 'Open your project, then click "SQL Editor" on the left.', 'Ask Claude for the contents of the file supabase/migrations/0032_keyword_intel.sql, paste it in, and click Run.', 'Open the Keyword Research page and click "Run the engine now".']
+        : ['Open the Keyword Research page with the link below.', 'Read the line under "Run the engine now". It says which part failed.', 'If it says a key is missing or wrong, open Vercel, then your project, then Settings, then Environment Variables, and check it. Redeploy after changing it.', 'Click "Run the engine now" again.', 'If it fails again, copy the message below and paste it to Claude.'],
+      url: adminLink('/admin/keywords'),
+      urlLabel: 'Open Keyword Research',
+      paste,
+    }
+  }
   if (i.id === 'system:leads-not-forwarded') {
     return {
       id: i.id,
