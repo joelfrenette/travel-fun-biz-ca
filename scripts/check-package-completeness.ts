@@ -6,7 +6,7 @@ import { proposeEnrichment, sameSiteHost, copyBlockers, itemSupported, type Copy
 import { groundDraft, dateGrounded, numberNextToUnit, type ExtractedDraft } from '../lib/package-extract'
 import { detectFile, pdfPageCount, estimateCostUsd } from '../lib/package-sources'
 import { watchedUrls, scanPageText, rowMonths, isoWeek, rotateByWeek } from '../lib/source-watch'
-import { collectPhotoCandidates, registrableDomain, largestSrcset, rejectReason, planPhotoAdds, planPhotoRemoval, addedPhotos, photoViews, probeImage, PHOTO_RULES, isPrivateIp, fetchSupplierPhoto, hopRejection, vetPhoto, imageWidth, sameRegistrableDomain } from '../lib/supplier-photos'
+import { collectPhotoCandidates, registrableDomain, largestSrcset, rejectReason, planPhotoAdds, planPhotoRemoval, addedPhotos, photoViews, probeImage, pagesOf, PHOTO_RULES, isPrivateIp, fetchSupplierPhoto, hopRejection, vetPhoto, imageWidth, sameRegistrableDomain } from '../lib/supplier-photos'
 import { gateFaqs, faqBlockers, faqContext, hasFaqSource, hasFaqs, FAQ_MIN, FAQ_MAX, capitalisedStrangers, groundedShare, includedClaimStrangers, agencyDoes, peopleCountClaims, GROUNDED_SHARE_MIN } from '../lib/package-faqs'
 import { tripsNeedingFaqs, nogenActive } from '../lib/content-heal-run'
 import { revertGalleryItem, tripFaqOffKey, tripFaqsOff } from '../lib/package-enrich'
@@ -261,17 +261,42 @@ const goodWriter: CopyWriter = async () => {
 
   // Probe (HEAD) with a fake fetch
   const fakeHead = (status: number, headers: Record<string, string>): typeof fetch => (async () => new Response(null, { status, headers })) as unknown as typeof fetch
-  check('probe: a 300 KB jpeg passes', (await probeImage('https://x.example/a.jpg', fakeHead(200, { 'content-type': 'image/jpeg', 'content-length': '300000' }))).ok === true)
+  const probeWith = (u: string, f: typeof fetch, pages: string[] = ['https://x.example/'], lookup: (h: string) => Promise<string[]> = async () => ['93.184.216.34']) => probeImage(u, pages, { fetch: f, lookup })
+  check('probe: a 300 KB jpeg passes', (await probeWith('https://x.example/a.jpg', fakeHead(200, { 'content-type': 'image/jpeg', 'content-length': '300000' }))).ok === true)
   check('probe: not an image, svg, 404, too big, too small, no length all fail', (await Promise.all([
-    probeImage('https://x.example/a', fakeHead(200, { 'content-type': 'text/html', 'content-length': '300000' })),
-    probeImage('https://x.example/a', fakeHead(200, { 'content-type': 'image/svg+xml', 'content-length': '30000' })),
-    probeImage('https://x.example/a', fakeHead(404, { 'content-type': 'image/jpeg', 'content-length': '300000' })),
-    probeImage('https://x.example/a', fakeHead(200, { 'content-type': 'image/jpeg', 'content-length': String(9 * 1024 * 1024) })),
-    probeImage('https://x.example/a', fakeHead(200, { 'content-type': 'image/jpeg', 'content-length': '400' })),
-    probeImage('https://x.example/a', fakeHead(200, { 'content-type': 'image/jpeg' })),
+    probeWith('https://x.example/a', fakeHead(200, { 'content-type': 'text/html', 'content-length': '300000' })),
+    probeWith('https://x.example/a', fakeHead(200, { 'content-type': 'image/svg+xml', 'content-length': '30000' })),
+    probeWith('https://x.example/a', fakeHead(404, { 'content-type': 'image/jpeg', 'content-length': '300000' })),
+    probeWith('https://x.example/a', fakeHead(200, { 'content-type': 'image/jpeg', 'content-length': String(9 * 1024 * 1024) })),
+    probeWith('https://x.example/a', fakeHead(200, { 'content-type': 'image/jpeg', 'content-length': '400' })),
+    probeWith('https://x.example/a', fakeHead(200, { 'content-type': 'image/jpeg' })),
   ])).every((p) => p.ok === false))
   const timeout = (async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e }) as unknown as typeof fetch
-  check('probe: a timeout is a skip with a plain reason', (await probeImage('https://x.example/a.jpg', timeout)).ok === false)
+  check('probe: a timeout is a skip with a plain reason', (await probeWith('https://x.example/a.jpg', timeout)).ok === false)
+
+  // Round 2: the HEAD probe follows the same hop rules, so no blind HEAD goes to a redirect target
+  const headCalls: string[] = []
+  const headMap = (m: Record<string, () => Response>): typeof fetch => (async (u: unknown, init?: RequestInit) => { headCalls.push(`${init?.method} ${String(u)} ${init?.redirect}`); const f = m[String(u)]; if (!f) throw new Error('unexpected'); return f() }) as unknown as typeof fetch
+  const jpegHead = () => new Response(null, { status: 200, headers: { 'content-type': 'image/jpeg', 'content-length': '300000' } })
+  const toEvil = await probeWith('https://x.example/a.jpg', headMap({ 'https://x.example/a.jpg': () => new Response(null, { status: 302, headers: { location: 'https://evil.example/b.jpg' } }) }))
+  check('probe: a redirect to another domain is refused and NO request goes to it', !toEvil.ok && /not allowed/.test(toEvil.reason) && headCalls.length === 1 && !headCalls.some((c) => c.includes('evil')) && headCalls[0].endsWith('manual'), headCalls)
+  const toMeta = await probeWith('https://x.example/a.jpg', headMap({ 'https://x.example/a.jpg': () => new Response(null, { status: 302, headers: { location: 'https://169.254.169.254/x.jpg' } }) }))
+  check('probe: a redirect to a private address is refused', !toMeta.ok && /private/.test(toMeta.reason))
+  const toDnsPriv = await probeWith('https://x.example/a.jpg', headMap({ 'https://x.example/a.jpg': () => new Response(null, { status: 302, headers: { location: 'https://cdn.x.example/b.jpg' } }) }), ['https://x.example/'], async (h) => (h.startsWith('cdn') ? ['10.0.0.9'] : ['93.184.216.34']))
+  check('probe: a redirect whose name resolves privately is refused', !toDnsPriv.ok && /private/.test(toDnsPriv.reason))
+  const okHop = await probeWith('https://x.example/a.jpg', headMap({ 'https://x.example/a.jpg': () => new Response(null, { status: 301, headers: { location: 'https://cdn.x.example/b.jpg' } }), 'https://cdn.x.example/b.jpg': jpegHead }))
+  check('probe: a redirect inside the supplier domain is followed hop by hop', okHop.ok === true)
+  const hopChain = (n: number) => { const m: Record<string, () => Response> = {}; for (let i = 0; i < n; i++) m[i === 0 ? 'https://x.example/a.jpg' : `https://x.example/h${i}.jpg`] = () => new Response(null, { status: 302, headers: { location: `https://x.example/h${i + 1}.jpg` } }); m[`https://x.example/h${n}.jpg`] = jpegHead; return m }
+  check('probe: 3 redirects are followed, a 4th is refused', (await probeWith('https://x.example/a.jpg', headMap(hopChain(3)))).ok === true && (await probeWith('https://x.example/a.jpg', headMap(hopChain(4)))).ok === false)
+  check('probe: the first address is checked before any request', (await probeWith('http://x.example/a.jpg', headMap({}))).ok === false && (await probeWith('https://other.example/a.jpg', headMap({}))).ok === false)
+
+  // Round 2: the page's final (post-redirect) address is kept and used
+  const redirected = collectPhotoCandidates('<img src="https://cdn.newname.example/a.jpg">', 'https://www.newname.example/x', 'https://www.islandhopper.example/old')
+  check('pages: each candidate remembers the final page address', redirected.length === 1 && redirected[0].page === 'https://www.newname.example/x')
+  const pgs = pagesOf('https://www.islandhopper.example/old', redirected)
+  check('pages: source link plus the stored final address, nothing more', pgs.length === 2 && pgs.includes('https://www.newname.example/x') && pgs.includes('https://www.islandhopper.example/old'))
+  check('pages: a download from the redirected domain now passes, an unrelated one still fails', (await hopRejection('https://cdn.newname.example/a.jpg', pgs, async () => ['93.184.216.34'])) === null && (await hopRejection('https://cdn.other.example/a.jpg', pgs, async () => ['93.184.216.34'])) !== null && (await hopRejection('https://cdn.newname.example/a.jpg', pagesOf('https://www.islandhopper.example/old', []), async () => ['93.184.216.34'])) !== null)
+  check('pages: a non-https stored address is ignored', pagesOf(null, [{ url: 'u', width: null, height: null, origin: 'img', page: 'http://evil.example/' }]).length === 0)
 
   // Edit planning: gallery cap, cover only when empty, removal puts the cover back only if untouched
   const stored = (n: number) => ({ image_url: `https://store.example/g${n}.jpg`, image_url_square: `https://store.example/s${n}.jpg`, image_url_portrait: `https://store.example/p${n}.jpg`, image_url_banner: `https://store.example/b${n}.jpg` })
@@ -451,6 +476,17 @@ const goodWriter: CopyWriter = async () => {
   // 4. Heal no-generation marker
   const nowMs = Date.parse('2026-10-20T12:00:00Z')
   check('heal marker: 7 days of quiet after an answered-but-empty call', nogenActive('2026-10-18T12:00:00Z', nowMs) && nogenActive('2026-10-13T12:01:00Z', nowMs) && !nogenActive('2026-10-13T11:59:00Z', nowMs) && !nogenActive(null, nowMs) && !nogenActive('junk', nowMs))
+
+  // Round 2: grounding thresholds and the claim-noun rule
+  check('faq share: the filler set and short words are not counted', Math.abs(groundedShare('Plan to pay extra before the trip usually.', ctxText) - 1) < 1e-9 && GROUNDED_SHARE_MIN === 0.7)
+  check('faq share: 70% passes where 85% would have dropped it', (() => { const a = 'The trip follows the Greek coast with a local guide and volcanic hiking.'; const s = groundedShare(a, ctxText); return s >= 0.7 && s < 0.85 })())
+  const lists2 = { includes: 'Daily breakfast\nAirport transfers', excludes: 'Flights\nTravel insurance\nGratuities' }
+  check('claims: "Gratuities are not included; budget for them separately." passes when gratuities is in not included', includedClaimStrangers('Gratuities are not included; budget for them separately.', lists2).length === 0)
+  check('claims: the same sentence fails when gratuities is not listed', includedClaimStrangers('Gratuities are not included; budget for them separately.', lists).includes('gratuities'))
+  check('claims: "Tipping is included." still fails when tipping is absent', includedClaimStrangers('Tipping is included.', lists2).includes('tipping') && includedClaimStrangers('Tipping is included.', { includes: 'Daily breakfast\nTipping', excludes: '' }).length === 0)
+  check('claims: only claim nouns are checked (time and place words after a passive trigger are not)', includedClaimStrangers('Breakfast is included each morning in the hotel restaurant.', lists2).length === 0)
+  check('claims: the object after an active trigger is checked', includedClaimStrangers('The price includes breakfast and a massage.', lists2).includes('massage') && includedClaimStrangers('The price includes daily breakfast.', lists2).length === 0)
+
 
   // Heal: which trips are eligible
   const tripsDue = tripsNeedingFaqs([

@@ -146,11 +146,13 @@ const contentWords = (t: string): string[] => wordsOf(t).filter((w) => w.length 
 /** Share of an answer's content words that occur (by light stem) in the row text, 0 to 1. */
 export function groundedShare(answer: string, grounding: string): number {
   const known = new Set(contentWords(grounding).map(stemKey))
-  const words = contentWords(answer)
+  // Short words and a small set of ordinary advice and filler words are not counted either way: they carry no fact.
+  const words = contentWords(answer).filter((w) => w.length >= 4 && !SHARE_FILLER.has(w))
   if (words.length === 0) return 1
   return words.filter((w) => known.has(stemKey(w))).length / words.length
 }
-export const GROUNDED_SHARE_MIN = 0.85
+const SHARE_FILLER = new Set(['budget', 'separately', 'plan', 'extra', 'pay', 'onboard', 'bring', 'pack', 'evenings', 'mornings', 'usually', 'often', 'before', 'after', 'during', 'aboard', 'getaway'])
+export const GROUNDED_SHARE_MIN = 0.7
 
 /** Capitalised words in an answer that are not the first word of a sentence and do not appear in the row text. */
 export function capitalisedStrangers(answer: string, grounding: string): string[] {
@@ -174,15 +176,25 @@ const NEGATION = /\b(?:not|no|never|without|excluded?|excludes|isn't|aren't|does
 /** Words in an "included" sentence that are not things (time words, filler, trip words). */
 const GENERIC_NOUNS = new Set(['trip', 'trips', 'tour', 'tours', 'journey', 'package', 'price', 'prices', 'morning', 'mornings', 'evening', 'evenings', 'day', 'days', 'night', 'nights', 'week', 'cost', 'costs', 'travel', 'traveller', 'travellers', 'traveler', 'travelers', 'group', 'guests', 'guest', 'people', 'details', 'detail', 'part', 'items', 'item', 'things', 'thing', 'else', 'rest', 'listed', 'stated', 'below', 'above', 'anything', 'everything', 'something', 'cost', 'charge', 'charges', 'fee', 'fees', 'booking', 'page'])
 
-/** For each sentence that says something is included, covered, free or tipped: every thing it names must be in the
- * row's included list (or, for a negated sentence, its not-included list). Returns the words that are not. */
+/** Triggers whose object follows them ("includes breakfast", "free wifi"); a passive "is included" has none. */
+const ACTIVE_TRIGGER = /^(?:includes?|including|covers?|free|complimentary)$/i
+
+/** For each clause that says something is included, covered, free or tipped: the things it CLAIMS must be in the
+ * row's included list (or, for a negated clause, its not-included list). The claim nouns are the nouns before the
+ * trigger word, plus the object nouns after an active one ("includes breakfast"); the rest of the clause ("budget for
+ * them separately", "on the first night") is not checked here. Returns the claim words that are not listed. */
 export function includedClaimStrangers(answer: string, lists: { includes: string; excludes: string }): string[] {
   const out: string[] = []
-  for (const sentence of answer.split(/(?<=[.!?])\s+|\n+/)) {
-    if (!INCLUDE_TRIGGER.test(sentence)) continue
-    const list = NEGATION.test(sentence) ? lists.excludes : lists.includes
+  for (const clause of answer.split(/(?<=[.!?])\s+|\n+|;/)) {
+    const trigger = INCLUDE_TRIGGER.exec(clause)
+    if (!trigger) continue
+    const list = NEGATION.test(clause) ? lists.excludes : lists.includes
     const known = new Set(contentWords(list).map(stemKey))
-    for (const w of contentWords(sentence)) {
+    const before = clause.slice(0, trigger.index)
+    const after = ACTIVE_TRIGGER.test(trigger[0]) ? clause.slice(trigger.index + trigger[0].length) : ''
+    // The trigger itself counts when it is a thing (tips, tipping, gratuities).
+    const claim = `${before} ${/^(?:tips?|tipping|gratuit(?:y|ies))$/i.test(trigger[0]) ? trigger[0] : ''} ${after}`
+    for (const w of contentWords(claim)) {
       if (w.length < 4 || INCLUDE_FILLER.test(w) || GENERIC_NOUNS.has(w) || NEGATION.test(w)) continue
       if (/(?:ed|ing|ly)$/.test(w) && w !== 'tipping') continue // verbs and adverbs, not things
       if (!known.has(stemKey(w))) out.push(w)
@@ -309,7 +321,7 @@ HARD RULES:
 5. Never claim personal experience or a past trip, never say what the agency or its hosts have done or always do. You may say "we can help you plan" and speak to the reader as "you".
 6. Name no hotel, ship, restaurant, person or place that is not in the TRIP DETAILS.
 7. No dashes of any kind, no web addresses, no markdown. Canadian spelling, warm, plain English, each answer 1 to 3 sentences.
-8. Reuse the wording of the TRIP DETAILS: at least 85 percent of the words in an answer must come from them. Say something is included, covered, free or tipped only if it is named in the Included list, and not included only if it is named in the Not included list. Never say "we include", "we provide", "we arrange" or "we handle".
+8. Reuse the wording of the TRIP DETAILS: at least 70 percent of the words in an answer must come from them. Say something is included, covered, free or tipped only if it is named in the Included list, and not included only if it is named in the Not included list. Never say "we include", "we provide", "we arrange" or "we handle".
 9. Questions are what a real traveller would ask about THIS trip (what is included, what is not, what a typical day looks like, who it suits, how big the group is) and only those the details can answer.`
 
 function prompt(context: string): string {

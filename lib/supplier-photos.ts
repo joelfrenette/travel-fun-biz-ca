@@ -224,7 +224,8 @@ export function collectPhotoCandidates(html: string, pageUrl: string, askedUrl?:
     if (url) raw.push({ url, width, height, origin: 'img' })
   }
 
-  return filterCandidates(raw, [pageUrl, ...(askedUrl ? [askedUrl] : [])])
+  // Each candidate remembers the address the page was read from, so the download can accept that domain too.
+  return filterCandidates(raw, [pageUrl, ...(askedUrl ? [askedUrl] : [])]).map((c) => ({ ...c, page: pageUrl }))
 }
 
 // ─── What a source has added ────────────────────────────────────────────────────────
@@ -368,25 +369,42 @@ export type Probe = { ok: true; type: string; bytes: number } | { ok: false; rea
 /** HEAD the photo (8 second limit): it must answer, be an image (not svg), and state a size between 10 KB and 8 MB.
  * A server that refuses HEAD or does not say how big the file is counts as a failure: the photo is skipped, never
  * pulled blind into memory. */
-export async function probeImage(url: string, doFetch: typeof fetch = fetch): Promise<Probe> {
+export async function probeImage(url: string, pageUrls: string[], deps: DownloadDeps = {}): Promise<Probe> {
+  const doFetch = deps.fetch ?? fetch
+  const lookup = deps.lookup ?? defaultLookup
   try {
-    const res = await doFetch(url, {
-      method: 'HEAD',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(PHOTO_RULES.headTimeoutMs),
-    })
-    if (!res.ok) return { ok: false, reason: `the supplier site answered ${res.status}` }
-    if (res.url) {
-      try {
-        if (PRIVATE_HOST.test(new URL(res.url).hostname)) return { ok: false, reason: 'redirected to a private address' }
-      } catch {
-        // an unreadable final address is judged by the checks below
+    // Same hop rules as the download: redirects by hand, at most 3, and EVERY hop (the first included) is checked
+    // before a request is sent, so no blind HEAD ever goes to a redirect target.
+    const signal = AbortSignal.timeout(PHOTO_RULES.headTimeoutMs)
+    let current = url
+    let res: Response | null = null
+    for (let hop = 0; hop <= PHOTO_MAX_HOPS; hop++) {
+      const why = await hopRejection(current, pageUrls, lookup)
+      if (why) return { ok: false, reason: hop === 0 ? why : `a redirect went somewhere not allowed (${why})` }
+      const r = await doFetch(current, {
+        method: 'HEAD',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        },
+        redirect: 'manual',
+        signal,
+      })
+      if (r.status >= 300 && r.status < 400) {
+        const location = r.headers.get('location')
+        if (!location || hop === PHOTO_MAX_HOPS) return { ok: false, reason: location ? `more than ${PHOTO_MAX_HOPS} redirects` : 'a redirect had no destination' }
+        try {
+          current = new URL(location, current).toString()
+        } catch {
+          return { ok: false, reason: 'a redirect had an unreadable destination' }
+        }
+        continue
       }
+      res = r
+      break
     }
+    if (!res) return { ok: false, reason: `more than ${PHOTO_MAX_HOPS} redirects` }
+    if (!res.ok) return { ok: false, reason: `the supplier site answered ${res.status}` }
     const type = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
     if (!type.startsWith('image/') || type.includes('svg')) return { ok: false, reason: `not a photo (${type || 'no type'})` }
     const bytes = Number(res.headers.get('content-length'))
@@ -551,6 +569,12 @@ export async function imageWidth(buffer: Buffer): Promise<number | null> {
   }
 }
 
+/** The page addresses a photo may share a registrable domain with: the link as entered, plus the address the page was
+ * actually read from after redirects (stored on each candidate). Nothing else widens the rule. */
+export function pagesOf(sourceUrl: string | null, candidates: PhotoCandidate[] | null | undefined): string[] {
+  return [...new Set([...(sourceUrl ? [sourceUrl] : []), ...(candidates ?? []).map((c) => c.page).filter((p): p is string => typeof p === 'string' && /^https:\/\//.test(p))])]
+}
+
 /** Download (every safety check) and then look at the real pixel width: under 800 is dropped before anything is
  * uploaded. Never throws. */
 export async function vetPhoto(
@@ -620,7 +644,8 @@ export async function addSourcePhotos(
     const room = PHOTO_RULES.galleryMax - list(start.gallery_urls).length
     if (room <= 0) return { added: [], skipped: [...skipped, ...wanted.map((url) => ({ url, reason: `the gallery is full (${PHOTO_RULES.galleryMax} photos)` }))], pkg: start }
 
-    const probe = opts.deps?.probe ?? ((u: string) => probeImage(u))
+    const pageUrls = pagesOf(source.source_url, source.photo_candidates)
+    const probe = opts.deps?.probe ?? ((u: string) => probeImage(u, pageUrls))
     const checks = await Promise.all(wanted.map(async (url) => ({ url, probe: await probe(url) })))
     const passing: string[] = []
     for (const c of checks) {
@@ -631,7 +656,6 @@ export async function addSourcePhotos(
     const download = opts.deps?.download
     const measure = opts.deps?.measure
     const upload = opts.deps?.upload ?? (async (b: Buffer, slug: string) => (await import('@/lib/import-package')).uploadGeneratedImageVariants(b, slug))
-    const pageUrls = source.source_url ? [source.source_url] : []
     const started = Date.now()
     const budget = opts.budgetMs ?? 60_000
     const limit = Math.min(opts.max, room)

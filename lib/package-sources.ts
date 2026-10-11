@@ -44,6 +44,8 @@ export interface PhotoCandidate {
   width: number | null
   height: number | null
   origin: 'og' | 'img' | 'srcset'
+  /** The address the page was read from after redirects (the domain this photo was accepted against). */
+  page?: string
 }
 
 export interface PackageSourceRow {
