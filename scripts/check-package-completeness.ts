@@ -2,10 +2,10 @@
 // proposeEnrichment. No network, no database: the copy writer is replaced by a fake.
 // Run: pnpm dlx tsx scripts/check-package-completeness.ts
 import { completenessScore, THIN_BELOW } from '../lib/package-completeness'
-import { proposeEnrichment, copyBlockers, itemSupported, type CopyWriter } from '../lib/package-enrich'
+import { proposeEnrichment, sameSiteHost, copyBlockers, itemSupported, type CopyWriter } from '../lib/package-enrich'
 import { groundDraft, dateGrounded, numberNextToUnit, type ExtractedDraft } from '../lib/package-extract'
 import { detectFile, pdfPageCount, estimateCostUsd } from '../lib/package-sources'
-import { watchedUrls, scanPageText, rowMonths, isoWeek } from '../lib/source-watch'
+import { watchedUrls, scanPageText, rowMonths, isoWeek, rotateByWeek } from '../lib/source-watch'
 
 let failed = 0
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -190,6 +190,21 @@ const goodWriter: CopyWriter = async () => {
   check('url source: a link on the same site or parent domain auto-applies', changeOf(ue.facts, 'booking_url')?.autoApply === true, changeOf(ue.facts, 'booking_url'))
   const ue2 = await proposeEnrichment(blankPkg as any, fileDraft, { transcript: `${transcript} Book at https://www.islandhopper.example/book`, kind: 'url', sourceUrl: 'https://other-site.example/page', writeCopy: goodWriter })
   check('url source: a link on a different site is click-only', changeOf(ue2.facts, 'booking_url')?.autoApply === false)
+
+  // Round 2: currency, link hosts, dash ranges, rotation
+  const usdText = 'Island cruise. From $2,499 USD per person for 7 nights. Departs June 12, 2027.'
+  const usdDraft = groundDraft({ fields: { price_display: 'From $2,499 USD per person', price_value: 2499, currency: 'USD' } }, usdText, undefined, 'm')
+  const usdOnCad = await proposeEnrichment(emptyPkg as any, usdDraft, { transcript: usdText, writeCopy: goodWriter })
+  check('extracted USD on a CAD row: price shown and number are click-only with a currency note', changeOf(usdOnCad.facts, 'price_display')?.autoApply === false && changeOf(usdOnCad.facts, 'price_value')?.autoApply === false && /Currency differs/.test(changeOf(usdOnCad.facts, 'price_display')?.reason), changeOf(usdOnCad.facts, 'price_display'))
+  const noCur = groundDraft({ fields: { price_display: 'From $2,499 CAD per person', price_value: 2499 } }, transcript, undefined, 'm')
+  const noCurE = await proposeEnrichment(emptyPkg as any, noCur, { transcript, writeCopy: goodWriter })
+  check('no currency extracted: prices auto-apply', changeOf(noCurE.facts, 'price_display')?.autoApply === true && changeOf(noCurE.facts, 'price_value')?.autoApply === true)
+  check('sameSiteHost: same host and parent domain pass', sameSiteHost('https://www.x.example/a', 'https://www.x.example/b') && sameSiteHost('https://www.x.example/a', 'https://x.example/') && sameSiteHost('https://x.example/', 'https://book.x.example/'))
+  check('sameSiteHost: sibling subdomains and other sites fail', !sameSiteHost('https://www.x.example/', 'https://tours.x.example/') && !sameSiteHost('https://x.example/', 'https://y.example/') && !sameSiteHost('https://evilx.example/', 'https://x.example/'))
+  const en = String.fromCharCode(0x2013)
+  const em = String.fromCharCode(0x2014)
+  check('dateGrounded accepts en and em dash ranges', dateGrounded('2027-06-19', `June 12${en}19, 2027`) && dateGrounded('2027-06-12', `June 12${em}19, 2027`))
+  check('rotateByWeek starts at a different trip in different weeks', rotateByWeek([1, 2, 3, 4], new Date('2026-10-10T12:00:00Z'))[0] !== rotateByWeek([1, 2, 3, 4], new Date('2026-10-17T12:00:00Z'))[0] && rotateByWeek([1, 2, 3], new Date()).length === 3)
 
   // Rule 9: PDF page count reads page tree nodes only
   check('pdfPageCount ignores outline /Count values', pdfPageCount(Buffer.from('%PDF-1.4 /Type /Outlines /Count 99 >> /Type /Pages /Kids [1 0 R] /Count 4 >>')) === 4)

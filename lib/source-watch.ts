@@ -16,7 +16,7 @@ const WEEK_KEY_PREFIX = 'source_watch_week:'
 /** Links on this host are the generic booking funnel, not a supplier page about one trip. */
 const FUNNEL_HOSTS = new Set(['info.travelfunbiz.com'])
 const MAX_PAGES = 12
-const TIME_BUDGET_MS = 60_000
+const TIME_BUDGET_MS = 150_000
 const FETCH_MARGIN_MS = 45_000
 
 export interface SourceWatchFinding {
@@ -113,7 +113,7 @@ export function scanPageText(text: string, pkg: Pick<WatchedPackage, 'available_
     const before = text.slice(Math.max(0, m.index! - 70), m.index!)
     if (POLICY_BEFORE.test(before)) continue
     // "Join the waitlist" in a site menu is not news: a waitlist counts only when it is about this tour.
-    if (/^wait/i.test(m[0]) && !/this tour|this trip|departure/i.test(text.slice(Math.max(0, m.index! - 120), m.index! + m[0].length + 120))) continue
+    if (/^wait/i.test(m[0]) && !/this tour|this trip|this departure/i.test(text.slice(Math.max(0, m.index! - 120), m.index! + m[0].length + 120))) continue
     found.push({ kind: 'cancelled', snippet: snippetAround(text, m.index!, m[0].length) })
     break // one example is enough to look
   }
@@ -168,6 +168,15 @@ export async function dismissFindings(admin: SupabaseClient, slug: string): Prom
   return (await setSetting(admin, SOURCE_WATCH_DISMISSED_KEY, JSON.stringify(dismissed))).error ?? null
 }
 
+/** The same list starting at a different trip each ISO week, so when the page limit or the time budget cuts a
+ * run short, a different trip is left out each time instead of always the last one. */
+export function rotateByWeek<T>(list: T[], now: Date): T[] {
+  if (list.length < 2) return list
+  const week = Number(isoWeek(now).split('-W')[1]) || 0
+  const start = week % list.length
+  return [...list.slice(start), ...list.slice(0, start)]
+}
+
 /** The check itself. Fetches each page as text (the same fetcher the importer uses), scans it, stores findings. */
 export async function runSourceWatch(admin: SupabaseClient, now = new Date()): Promise<{ ok: boolean; note: string; retry?: boolean }> {
   const { data, error } = await admin.from('travel_packages').select('slug, name, booking_url, more_info_url, available_from, available_to, departure_dates').eq('status', 'published')
@@ -178,7 +187,8 @@ export async function runSourceWatch(admin: SupabaseClient, now = new Date()): P
   let checked = 0
   let unreadable = 0
   const seen = new Set<string>()
-  for (const pkg of (data ?? []) as WatchedPackage[]) {
+  const trips = rotateByWeek((data ?? []) as WatchedPackage[], now)
+  for (const pkg of trips) {
     for (const url of watchedUrls(pkg)) {
       // One fetch can take up to a minute, so a new one starts only while at least FETCH_MARGIN_MS of the budget is left.
       if (checked + unreadable >= MAX_PAGES || TIME_BUDGET_MS - (Date.now() - started) < FETCH_MARGIN_MS) break

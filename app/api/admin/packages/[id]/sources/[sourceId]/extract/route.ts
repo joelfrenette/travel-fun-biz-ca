@@ -44,8 +44,7 @@ export async function POST(request: Request, { params }: { params: { id: string;
 
   // Before the paid call comes back: free to retry, so the claim is given back.
   const failBeforePay = async (status: number, message: string) => {
-    await markSourceFailed(admin, source.id, message)
-    await admin.from('package_sources').update({ model_calls: 0 }).eq('id', source.id)
+    await markSourceFailed(admin, source.id, message, { resetCalls: true })
     return NextResponse.json({ error: message }, { status })
   }
   // After it: keep what was paid for, note the problem, and do not allow a second paid read.

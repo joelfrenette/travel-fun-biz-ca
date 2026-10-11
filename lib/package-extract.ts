@@ -161,10 +161,12 @@ export function dateGrounded(iso: string, source: string): boolean {
   const name = MONTH_NAMES[mo - 1]
   const mon = `(?:${name}|${name.slice(0, 3)}${name.length > 3 ? '\\.?' : ''}${name === 'september' ? '|sept\\.?' : ''})`
   const day = `0?${d}(?:st|nd|rd|th)?`
+  // Range separators: hyphen, en dash, em dash (built from char codes), or the words to, and, through.
+  const sep = `-|to|and|through|${String.fromCharCode(0x2013)}|${String.fromCharCode(0x2014)}`
   const text = source.toLowerCase()
   const patterns = [
-    `\\b${mon}\\s+${day}\\b(?:\\s*(?:-|to|and|through)\\s*\\d{1,2}(?:st|nd|rd|th)?)?,?\\s+${y}\\b`,
-    `\\b${mon}\\s+\\d{1,2}(?:st|nd|rd|th)?\\s*(?:-|to|and|through)\\s*${day}\\b,?\\s+${y}\\b`,
+    `\\b${mon}\\s+${day}\\b(?:\\s*(?:${sep})\\s*\\d{1,2}(?:st|nd|rd|th)?)?,?\\s+${y}\\b`,
+    `\\b${mon}\\s+\\d{1,2}(?:st|nd|rd|th)?\\s*(?:${sep})\\s*${day}\\b,?\\s+${y}\\b`,
     `\\b${day}\\s+(?:of\\s+)?${mon}\\b,?\\s+${y}\\b`,
     `\\b${y}-0?${mo}-0?${d}\\b`,
     `\\b${y}/0?${mo}/0?${d}\\b`,

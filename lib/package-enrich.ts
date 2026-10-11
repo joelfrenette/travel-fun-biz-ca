@@ -146,10 +146,14 @@ function clickOnlyReason(field: string, row: Record<string, unknown>, draft: Ext
   if (field === 'price_value' && !isEmptyValue(row.price_display)) return 'The trip page already shows a price, so the price number is only changed when you click.'
   if (field === 'price_display' || field === 'price_value') {
     const extracted = fields.currency
-    const rowCur = typeof row.currency === 'string' ? row.currency : ''
-    // The column defaults to CAD, so CAD counts as "not set": only a deliberate other currency can disagree.
-    if ((extracted === 'CAD' || extracted === 'USD') && rowCur && rowCur !== 'CAD' && extracted !== rowCur) {
+    const rowCur = typeof row.currency === 'string' && row.currency ? row.currency : 'CAD'
+    // Prices fill in by themselves only when the source says CAD or says nothing about currency. Any other
+    // currency (USD) on a CAD or unset row, or CAD on a row set to something else, needs a person.
+    if (typeof extracted === 'string' && extracted !== 'CAD') {
       return `Currency differs: the source says ${extracted}, the trip page uses ${rowCur}. Check it, then click.`
+    }
+    if (extracted === 'CAD' && rowCur !== 'CAD') {
+      return `Currency differs: the source says CAD, the trip page uses ${rowCur}. Check it, then click.`
     }
   }
   return null
@@ -514,7 +518,9 @@ export async function applyEnrichment(
  * someone edited it since, it is left alone and reported. */
 export async function revertSourceEdits(admin: SupabaseClient, packageId: string, source: Pick<PackageSourceRow, 'id' | 'package_edits'>): Promise<{ reverted: string[]; skipped: { field: string; reason: string }[] }> {
   const edits = [...(source.package_edits ?? [])]
-  const live = edits.filter((e) => !e.reverted)
+  // A pending entry was written before its change; if it is still pending the change may not have happened (or is
+  // still being made), so it is never reverted.
+  const live = edits.filter((e) => !e.reverted && !e.pending)
   if (live.length === 0) return { reverted: [], skipped: [] }
   const latest = await getPackageById(packageId)
   if (!latest) return { reverted: [], skipped: live.map((e) => ({ field: e.field, reason: 'The trip page could not be read.' })) }

@@ -43,7 +43,8 @@ const GUIDES_START_BY_MS = 100_000
 // The page copy step makes one AI call (80 second limit), so it must start before this.
 const COPY_START_BY_MS = 60_000
 // The weekly supplier page check can take about a minute, so housekeeping only starts it before this.
-const SOURCE_WATCH_START_BY_MS = 120_000
+// (its own budget is 150 seconds, so a late pass leaves it for the next one to keep inside the 300 second limit)
+const SOURCE_WATCH_START_BY_MS = 60_000
 
 export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 

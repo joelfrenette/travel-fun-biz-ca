@@ -164,7 +164,11 @@ export async function registerUploadedFile(admin: SupabaseClient, packageId: str
   const { data: existing } = await admin.from('package_sources').select('id').eq('storage_path', path).maybeSingle()
   if (existing) return fail(409, 'That upload was already added.')
   const size = await objectSize(admin, path)
-  if (size != null && size > MAX_FILE_BYTES) {
+  if (size == null) {
+    await admin.storage.from(SOURCES_BUCKET).remove([path])
+    return fail(422, 'The uploaded file could not be checked (its size is unknown), so it was removed. Try the upload again.')
+  }
+  if (size > MAX_FILE_BYTES) {
     await admin.storage.from(SOURCES_BUCKET).remove([path])
     return fail(413, 'That file is larger than 10 MB. Save a smaller copy and try again.')
   }
@@ -242,8 +246,13 @@ export async function saveExtraction(
   return error?.message ?? null
 }
 
-export async function markSourceFailed(admin: SupabaseClient, id: string, message: string): Promise<void> {
-  await admin.from('package_sources').update({ status: 'failed', error: message.slice(0, 500), updated_at: new Date().toISOString() }).eq('id', id)
+export async function markSourceFailed(admin: SupabaseClient, id: string, message: string, opts: { resetCalls?: boolean } = {}): Promise<void> {
+  // Failing and giving the claim back happen in ONE update, so a crash between them cannot leave a failed source
+  // that can never be retried.
+  await admin
+    .from('package_sources')
+    .update({ status: 'failed', error: message.slice(0, 500), updated_at: new Date().toISOString(), ...(opts.resetCalls ? { model_calls: 0 } : {}) })
+    .eq('id', id)
 }
 
 /** Removes the row and its stored file. The caller reverts edits first when the admin asked for that; this
