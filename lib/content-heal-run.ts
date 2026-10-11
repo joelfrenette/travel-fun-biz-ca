@@ -20,6 +20,7 @@ import {
   stripDeadLinks,
   callModelText,
   Tracker,
+  EST_COST_USD_PER_CALL,
   type ContentEdit,
   type ContentType,
   type GenKey,
@@ -27,12 +28,26 @@ import {
   type RepairLimits,
 } from '@/lib/content-repair'
 import { claimDailyOnce, claimRepairSlot, countEditsSince, editsLoggable, insertEdits, readRepairSpend, recordRepairSpend, deleteEdits, repairDay, startOfSiteDayIso, REPAIR_ITEMS_PER_DAY } from '@/lib/content-edits'
-import { COPY_LIMITS, GUIDE_LIMITS, sectionsOf } from '@/lib/content-repair-adapters'
+import {
+  assemblePackageChanges,
+  buildPackageItem,
+  COPY_LIMITS,
+  GUIDE_LIMITS,
+  isPastTripRow,
+  normTripFaqs,
+  sectionsOf,
+  tripGenerationWanted,
+  writeTripMeta,
+  type GeneratedTrip,
+  type PackageChange,
+  type PackageItem,
+} from '@/lib/content-repair-adapters'
 import { pingIndexNow } from '@/lib/indexnow'
 import type { DbPackage } from '@/lib/packages'
 import { completenessScore } from '@/lib/package-completeness'
-import { hasFaqs, hasFaqSource } from '@/lib/package-faqs'
-import { healTripFaqs, tripFaqDailyKey, tripFaqsOff } from '@/lib/package-enrich'
+import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
+import { tripFaqDailyKey, tripFaqsOff } from '@/lib/package-enrich'
+import { SITE_ID } from '@/lib/site'
 import { guideKinds, GUIDE_KINDS, guidePath, type GuideKind } from '@/lib/guides'
 import { linkedPackageSlugs } from '@/lib/page-copy-composer'
 import { SEO_PASS_SCORE, SEO_FIX, seoScore, type SeoCheckId, type SeoInput, type SeoResult } from '@/lib/seo-score'
@@ -45,6 +60,8 @@ import { generateSlug } from '@/lib/utils'
 //      links to pages that do not exist (the words stay), and a "Related" link to real pages that share the
 //      page's destination;
 //   2. one grounded model call that writes MISSING meta text, FAQ or takeaways from the page's own body.
+// Trip pages (wave 3) are scored here too, with their own narrow fix list (see healTripPages and
+// lib/content-repair-adapters.ts): only EMPTY SEO fields, never a fact.
 // It never rewrites the body of a published page for score alone, never adds a fact, never touches a page it was
 // told to leave alone (an edit that was reverted stays reverted), and logs every change BEFORE applying it.
 
@@ -73,6 +90,9 @@ export interface HealSummary {
   edits: number
   hardWaiting: number
   calls: number
+  /** How many of `scored` are trip pages, and how many trip pages the last run fixed (absent in an older summary). */
+  trips?: number
+  tripsFixed?: number
   note: string
 }
 
@@ -528,7 +548,7 @@ function columnsFrom(item: HealItem, f: RepairFields): Row {
   return cols
 }
 
-const TABLE: Record<ContentType, string> = { post: 'posts', guide: 'guides', page_copy: 'page_copy' }
+const TABLE: Record<ContentType, string> = { post: 'posts', guide: 'guides', page_copy: 'page_copy', package: 'travel_packages' }
 
 // ---------------------------------------------------------------------------------------------------
 // The step
@@ -696,23 +716,29 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
     editCount += edits.length
     changedPaths.push(item.path)
   }
-  // 2b. Trip pages (WP12): ONE fix only. A published trip scoring under 70 on the trip completeness score, with a
-  // description of 150+ words and no FAQs, gets FAQs written from its own text. Nothing else on a trip is read for
-  // fixing or changed. Same 6-slot daily cap and the same once-per-page-per-day marker as the pages above.
-  const trips = await healTripPageFaqs(admin, { started, aiOn, onChanged: (path) => changedPaths.push(path) })
+  // 2b. Trip pages (wave 3): the ONE trip heal. Every published trip is scored with the same seoScore, and a trip under 70
+  // gets only the fixes in lib/content-repair-adapters.ts (empty meta text, share picture, keywords, FAQ, one related
+  // line). Same 6-slot daily cap and once-per-page-per-day markers as the pages above. This also replaces the separate
+  // WP12 trip FAQ pass: the FAQ is one of the trip fixes now, and is logged to content_edits like the rest.
+  const trips = await healTripPages(admin, idx, { started, aiOn, revertedFields, onChanged: (path) => changedPaths.push(path) })
   healedPages += trips.fixed
-  editCount += trips.fixed
+  editCount += trips.edits
   calls += trips.calls
   problems.push(...trips.problems)
   if (changedPaths.length) await pingIndexNow(changedPaths).catch(() => undefined)
 
-  // 3. The numbers for the card, the brief and Needs attention.
-  const after = scored.map((s) => s.result.score)
+  // 3. The numbers for the card, the brief and Needs attention (pages and trips together).
+  const everyone: { type: ContentType; path: string; score: number; reasons: string[] }[] = [
+    ...scored.map((s) => ({ type: s.item.type, path: s.item.path, score: s.result.score, reasons: s.result.reasons })),
+    ...trips.scored.map((t) => ({ type: 'package' as ContentType, path: t.item.path, score: t.result.score, reasons: t.result.reasons })),
+  ]
+  const after = everyone.map((s) => s.score)
   const avg = after.length ? Math.round(after.reduce((n, x) => n + x, 0) / after.length) : null
-  const lowest = [...scored].sort((a, b) => a.result.score - b.result.score).slice(0, 5).map((s) => ({ type: s.item.type, path: s.item.path, score: s.result.score, reasons: s.result.reasons.slice(0, 3) }))
+  const lowest = [...everyone].sort((a, b) => a.score - b.score).slice(0, 5).map((s) => ({ type: s.type, path: s.path, score: s.score, reasons: s.reasons.slice(0, 3) }))
+  const belowAll = queue.length + trips.scored.filter((t) => t.result.score < HEAL_BELOW).length
   const hardWaiting = await countHardWaiting(admin)
-  const note = `scored ${scored.length} page${scored.length === 1 ? '' : 's'}${avg !== null ? ` (average ${avg})` : ''}, ${queue.length} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${problems.length ? `; ${problems.join('; ')}` : ''}`
-  const summary: HealSummary = { at: new Date().toISOString(), scored: scored.length, avg, below: queue.length, lowest, healedPages, edits: editCount, hardWaiting, calls, note }
+  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${problems.length ? `; ${problems.join('; ')}` : ''}`
+  const summary: HealSummary = { at: new Date().toISOString(), scored: everyone.length, avg, below: belowAll, lowest, healedPages, edits: editCount, hardWaiting, calls, trips: trips.scored.length, tripsFixed: trips.fixed, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }
 }
@@ -733,51 +759,158 @@ export function tripsNeedingFaqs<T extends Row>(rows: T[]): { row: T; score: num
     .sort((a, b) => a.score - b.score)
 }
 
-/** The trip-page part of the heal: FAQs for trips that have a description and none. Never throws, and touches no
- * other trip field. Each page costs at most one model call a day (shared with the automatic path after a source is
- * read) and one of the day's repair slots. */
-async function healTripPageFaqs(
+/** The primary keyword of each trip page: the highest-volume keyword_research row whose target_path is the page.
+ * Empty when the table cannot be read (the trip name is used instead). */
+async function tripKeywordMap(admin: SupabaseClient): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  try {
+    const { data } = await admin.from('keyword_research').select('keyword, volume, target_path').eq('country', SITE_ID).like('target_path', '/packages/%')
+    const best = new Map<string, number>()
+    for (const r of (data ?? []) as { keyword: string | null; volume: number | null; target_path: string | null }[]) {
+      const path = (r.target_path ?? '').split(/[?#]/)[0].replace(/\/+$/, '')
+      if (!path || !r.keyword?.trim()) continue
+      const vol = typeof r.volume === 'number' ? r.volume : -1
+      if (!out.has(path) || vol > (best.get(path) ?? -1)) {
+        out.set(path, r.keyword.trim())
+        best.set(path, vol)
+      }
+    }
+  } catch {
+    // no keyword data: the trip name stands in
+  }
+  return out
+}
+
+export interface ScoredTrip {
+  item: PackageItem
+  result: SeoResult
+  row: Row
+}
+
+/** Model calls ONE trip can cost in a day: meta text (1) and FAQ (1). The two have their own once-a-day markers. */
+export const TRIP_CALLS_PER_DAY_MAX = 2
+
+/** The trip-page part of the heal. Scores every published trip (no AI, nothing stored on the row), and for a trip under
+ * 70 makes the fixes in lib/content-repair-adapters.ts, each only while its field is empty. Never throws. Each trip
+ * uses one of the day's repair slots, and at most TRIP_CALLS_PER_DAY_MAX model calls a day. Every change is logged to
+ * content_edits (content_type 'package') BEFORE it is applied, and is undone by the same Undo as the other pages. */
+async function healTripPages(
   admin: SupabaseClient,
-  ctx: { started: number; aiOn: boolean; onChanged: (path: string) => void },
-): Promise<{ fixed: number; calls: number; problems: string[] }> {
-  const out = { fixed: 0, calls: 0, problems: [] as string[] }
-  if (!ctx.aiOn) return out
+  idx: SiteIndex,
+  ctx: { started: number; aiOn: boolean; revertedFields: Map<string, Set<string>>; onChanged: (path: string) => void },
+): Promise<{ scored: ScoredTrip[]; fixed: number; edits: number; calls: number; problems: string[] }> {
+  const out = { scored: [] as ScoredTrip[], fixed: 0, edits: 0, calls: 0, problems: [] as string[] }
   try {
     const { data, error } = await admin.from('travel_packages').select('*').eq('status', 'published')
     if (error) return { ...out, problems: [`could not read the trips (${error.message})`] }
-    const due = tripsNeedingFaqs((data ?? []) as Row[])
-    if (due.length === 0) return out
+    const keywords = await tripKeywordMap(admin)
+    const today = new Date().toISOString().slice(0, 10)
+    out.scored = ((data ?? []) as Row[])
+      .filter((row) => str(row.slug))
+      .map((row) => {
+        const item = buildPackageItem(row as Partial<DbPackage>, { existing: idx.existing, keyword: keywords.get(`/packages/${str(row.slug)}`) ?? null, today })
+        return { item, result: seoScore(item.seo), row }
+      })
+    const queue = out.scored.filter((t) => t.result.score < HEAL_BELOW).sort((a, b) => a.result.score - b.result.score)
 
-    for (const { row } of due) {
+    for (const t of queue) {
       if (Date.now() - ctx.started > HEAL_BUDGET_MS) break
-      const id = str(row.id)
-      // All the cheap "not today" checks come BEFORE a slot is claimed, so a trip that will be skipped never uses
-      // one of the day's 6. FAQs an admin took out stay out (durable app_settings memory, survives deleting the
-      // source); a trip whose last call answered but gave nothing usable waits 7 days, like the other pages.
-      if (await tripFaqsOff(admin, id)) continue
-      const nogenKey = `${NOGEN_PREFIX}:trip:${id}`
-      if (nogenActive(await getSetting(admin, nogenKey))) continue
-      const slot = await claimRepairSlot(admin, `trip:${id}`)
+      const id = t.item.id
+      const row = t.row as Partial<DbPackage>
+      const skip = ctx.revertedFields.get(`package:${id}`) ?? new Set<string>()
+      const planCtx = { past: t.item.past, existing: idx.existing, targets: idx.targets, skip }
+
+      // What this trip would be asked to write. All the cheap "not today" checks come BEFORE a slot is claimed, so a
+      // trip that will be skipped never uses one of the day's 6.
+      const want = ctx.aiOn ? tripGenerationWanted(row, t.item.past) : { metaTitle: false, metaDescription: false, faq: false }
+      let wantMeta = (want.metaTitle && !skip.has('meta_title')) || (want.metaDescription && !skip.has('meta_description'))
+      let wantFaq = want.faq && !skip.has('ai_faqs')
+      if (wantMeta && nogenActive(await getSetting(admin, `${NOGEN_PREFIX}:package-meta:${id}`))) wantMeta = false
+      // FAQs an admin took out stay out; a trip whose last FAQ call answered but gave nothing usable waits 7 days.
+      if (wantFaq && ((await tripFaqsOff(admin, id)) || nogenActive(await getSetting(admin, `${NOGEN_PREFIX}:trip:${id}`)))) wantFaq = false
+      const cheap = assemblePackageChanges(row, planCtx)
+      if (cheap.length === 0 && !wantMeta && !wantFaq) continue
+
+      const slot = await claimRepairSlot(admin, `package:${id}`)
       if (!slot.ok) {
         if (!/cap of/.test(slot.reason ?? '')) out.problems.push(slot.reason ?? 'no repair slot')
         break
       }
-      if (!(await claimDailyOnce(admin, tripFaqDailyKey(id)))) continue
-      const r = await healTripFaqs(admin, row as unknown as DbPackage)
-      if (r.called) {
-        out.calls++
-        await recordRepairSpend(admin, 1)
+      // One meta call and one FAQ call per trip per day, however often Heal now is pressed.
+      if (wantMeta && !(await claimDailyOnce(admin, `package:${id}`))) wantMeta = false
+      if (wantFaq && !(await claimDailyOnce(admin, tripFaqDailyKey(id)))) wantFaq = false
+
+      const generated: GeneratedTrip = {}
+      if (wantMeta) {
+        const m = await writeTripMeta(row, { title: want.metaTitle && !skip.has('meta_title'), description: want.metaDescription && !skip.has('meta_description') })
+        if (m.called) {
+          out.calls++
+          await recordRepairSpend(admin, 1)
+        }
+        if (m.answeredEmpty) await setSetting(admin, `${NOGEN_PREFIX}:package-meta:${id}`, new Date().toISOString()).catch(() => undefined)
+        generated.meta_title = m.meta_title
+        generated.meta_description = m.meta_description
       }
-      if (r.answeredEmpty) await setSetting(admin, nogenKey, new Date().toISOString()).catch(() => undefined)
-      if (r.applied) {
-        out.fixed++
-        ctx.onChanged(`/packages/${str(row.slug)}`)
-      } else if (r.error && /could not record|database|refused/i.test(r.error)) out.problems.push(`${str(row.slug)}: ${r.error}`)
+      if (wantFaq) {
+        const made = await generatePackageFaqsDetailed(row as DbPackage)
+        if (made.called) {
+          out.calls++
+          await recordRepairSpend(admin, 1)
+        }
+        if (made.answered) await setSetting(admin, `${NOGEN_PREFIX}:trip:${id}`, new Date().toISOString()).catch(() => undefined)
+        if (made.faqs.length) generated.faqs = normTripFaqs(made.faqs)
+      }
+
+      // The model calls take a while: plan again from the row as it is NOW, so a field an admin filled in meanwhile is
+      // never overwritten, and a trip that was unpublished is left alone.
+      const { data: freshRow } = await admin.from('travel_packages').select('*').eq('id', id).eq('status', 'published').maybeSingle()
+      if (!freshRow) continue
+      const fresh = freshRow as Partial<DbPackage>
+      const changes = assemblePackageChanges(fresh, { ...planCtx, past: isPastTripRow({ available_to: fresh.available_to ?? null }, today) }, generated)
+      if (changes.length === 0) continue
+
+      const applied = await applyTripChanges(admin, { id, path: t.item.path }, changes)
+      if (applied.error) {
+        out.problems.push(`${str(row.slug)}: ${applied.error}`)
+        continue
+      }
+      out.fixed++
+      out.edits += changes.length
+      ctx.onChanged(t.item.path)
     }
   } catch (e) {
-    out.problems.push(`trip FAQs: ${e instanceof Error ? e.message : 'failed'}`)
+    out.problems.push(`trip pages: ${e instanceof Error ? e.message : 'failed'}`)
   }
   return out
+}
+
+/** Logs, then applies, the changes for one trip. "Log, then apply": no audit row, no edit; a failed update takes the
+ * audit rows back out. Writes only the allow-listed columns (PACKAGE_FIX_COLUMNS), only on a published row. */
+async function applyTripChanges(admin: SupabaseClient, trip: { id: string; path: string }, changes: PackageChange[]): Promise<{ error?: string }> {
+  // The meta title and description come from ONE call, so they share its estimate; the FAQ is its own call.
+  const metaRows = changes.filter((c) => c.fix === 'meta').length
+  const edits: ContentEdit[] = changes.map((c) => ({
+    content_type: 'package',
+    content_id: trip.id,
+    path: trip.path,
+    field: c.field,
+    reason: c.reason,
+    before: c.before,
+    after: c.after,
+    method: c.method,
+    published_after: true,
+    cost_usd: c.method !== 'generate' ? 0 : c.fix === 'meta' ? Math.round((EST_COST_USD_PER_CALL / Math.max(1, metaRows)) * 10000) / 10000 : EST_COST_USD_PER_CALL,
+  }))
+  const logged = await insertEdits(admin, edits)
+  if (logged.error) return { error: `the audit log could not be written (${logged.error})${/check constraint/i.test(logged.error) ? '; apply migration 0038' : ''}` }
+  const columns: Row = {}
+  for (const c of changes) columns[c.column] = c.value
+  const { error } = await admin.from('travel_packages').update({ ...columns, updated_at: new Date().toISOString() }).eq('status', 'published').eq('id', trip.id)
+  if (error) {
+    await deleteEdits(admin, logged.ids)
+    return { error: `could not update ${trip.path}: ${error.message}` }
+  }
+  return {}
 }
 
 /** The new score columns for a fixed page, so the card is right straight away. */
