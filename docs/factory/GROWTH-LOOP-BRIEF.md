@@ -478,3 +478,102 @@ jpg/png/webp, at least 800px wide when the tag or the fetched header says so, no
 name, not duplicated), upload them through `uploadImagePackageVariants`, append to `gallery_urls` (max 12),
 set `image_url` from the first when the trip has none, and log every added URL as an edit with Revert.
 Store the source page URL as `image_source` credit. The admin picker stays for adding or removing more.
+
+### WP13 (2026-10-11, Joel): the intake on Add Package, and an external agent submission link (migration 0036)
+
+Facts: the WP11 intake panel needs an existing package row, so "Add Package" only has the older paste/link
+draft builder. Joel wants the same drop zone (screenshot, PDF, link, text), the AI prefill, auto thumbnails and
+the AI-enhanced Edit features when adding, AND an external form he can send to an agent, who works with the same
+tools and gets a DRAFT for Joel to approve.
+
+Owner files: `app/admin/packages/page.tsx` (Add flow only: the "Add Package" modal and the new-package path; do
+not touch the editor area beyond one import if needed), new `components/admin/agent-invites-card.tsx`, new
+`app/submit-trip/[token]/page.tsx` (public, no admin shell), new `app/api/submit-trip/[token]/**` routes, new
+`lib/agent-invites.ts`, `lib/package-sources.ts` (callers only), `lib/issues.ts` + `lib/plain-steps.ts` (one new
+item), `lib/admin-nav.ts` only if a label is needed, `supabase/migrations/0036_agent_invites.sql`.
+
+1. Add Package, draft-first: the Add Package choice "Drop a screenshot, PDF, link or text" creates a DRAFT row at
+   once (name from the file name or "New trip <date>", status draft, supplier TravelFunBiz) and opens the editor
+   with the Add details card on top, so the WP11 intake runs unchanged; the old paste builder stays as a second
+   choice. After extraction the same review table applies; the cover and the square/portrait/banner thumbnails
+   come from the auto-picked supplier photos (WP12) or, for screenshot/PDF sources, from a Pexels photo of the
+   destination through the existing attach/cover helpers (clearly "illustrative", never the screenshot).
+2. Agent invites: table `agent_invites` (id, token text unique, agent_name, agent_email, note, created_at,
+   expires_at, revoked_at, uses int default 0, max_uses int default 20) plus `package_submissions` (id,
+   invite_id, package_id, agent_name, agent_email, message, status submitted|approved|rejected, created_at).
+   RLS on, no policy (public routes use the service role after validating the token). Admin card "Agent links":
+   create a link (name, email, expiry 30 days default), copy it, revoke it, see uses and submissions.
+3. Public page `/submit-trip/<token>`: plain, mobile-first, no login: the agent's name shown, a short form (trip
+   name, destination, dates if known, message to Joel), the same drop zone (screenshot/PDF/link/text, same caps),
+   then "Send to Joel". It creates a DRAFT package (never published, `supplier` = agent name, a `submitted_by`
+   note), runs the same grounded extraction and copy generation, applies only to empty fields with the same
+   rules, and shows the agent a plain summary ("Joel will review it"). Rate limit: 5 submissions per token per
+   day, 20 per token total; token must be unexpired and not revoked; file caps as WP11; every upload goes to the
+   private bucket. The agent never sees prices from other trips or any admin data.
+4. Approval: a Needs attention item "An agent sent a trip to approve" (area setup, amber) with a link to the draft
+   in the editor; the editor shows "Submitted by <agent>" and Approve (publish) / Reject (keep draft, mark
+   submission rejected) buttons; a one-line entry in the 7 am brief.
+5. Every AI-enhanced Edit feature (Add details, Generate FAQs, photos) already works on the editor; confirm they
+   are reachable from both the Add flow and the agent-created draft, and say so in the report.
+
+### WP14 (2026-10-11, Joel): Convert to Past Trip, SEO-safe recap mode, "never unpublish a past trip" (migration 0037)
+
+Rule, Joel's words: we do NOT unpublish past trips. A page promoted for months keeps its URL, title and most of
+its body; it changes its CTA and gains a recap so it keeps earning search traffic and feeds interest in the next
+trip like it. Today the recap layout already switches automatically by date (e6: Article + Review schema, "Join
+the next trip", journal, gallery, video), but there is no content in it and no one-click way to fill it.
+
+Owner files: new `lib/past-trip.ts`, new `lib/recap-composer.ts`, new `components/admin/past-trip-panel.tsx` (one
+import + one render line in `app/admin/packages/page.tsx` editor area), `app/packages/[slug]/page.tsx` (recap
+section + alert signup + schema), `lib/packages.ts` (new columns in DbPackage), new
+`components/trip-alert-form.tsx`, `app/api/trip-alerts/route.ts` (public, rate limited), `lib/gohighlevel.ts`
+(tag only, reuse the existing contact upsert), `lib/source-watch.ts` and `lib/content-drift.ts` (must never
+suggest unpublishing a past trip), `supabase/migrations/0037_trip_recap.sql`, `scripts/check-recap.ts`.
+
+Columns on travel_packages: `recap_mode text check in ('auto','recap','live')` default 'auto' (live = force the
+live layout even if dates passed, recap = force recap), `recap_summary text`, `recap_highlights text[]`,
+`recap_generated_at timestamptz`, `next_trip_slug text` (admin-chosen; else the same-category fallback),
+`alert_tag text` (GHL tag for "tell me about the next one", default `alert:<category slug>`).
+
+Convert to Past Trip (the button, in the editor): one panel: (1) choose recap mode; (2) drop up to 20 photos
+from the trip (reuse the package-sources upload path; add kind 'photo' in the migration's check: these ARE
+allowed in the gallery because Joel took them) and type 3 to 8 journal notes (date + one line each; the existing
+journal editor); (3) "Write the recap": ONE model call grounded ONLY in Joel's notes + the existing page text +
+the trip's real dates/destination, that writes `recap_summary` (120 to 200 words, past tense, warm, "we" is
+allowed here because the notes are Joel's own account of a trip that happened) and 3 to 6 `recap_highlights`;
+gate: no numbers not in notes/row, no superlatives about named properties, no prices, no dates beyond the row's;
+it is saved and shown in the panel for a click "Publish recap" (so Joel reads it once); (4) pick the next trip
+(dropdown of upcoming published trips, default same category) and the alert tag.
+
+Public recap page (SEO-safe transformation): keep URL, canonical, H1, meta title (append " (Trip Recap)" only in
+the eyebrow, not the H1), the original description and highlights (unchanged, maybe collapsed under "What this
+trip was"), add at the top: "This trip happened <month year>" line, the recap summary, the recap highlights, the
+photo gallery, the journal; the CTA block becomes "Interested in the next one?" with a one-field alert form
+(email, optional name; posts to /api/trip-alerts which upserts the GHL contact with the alert tag through the
+existing lead path, saves to `leads` with `page_path` and a kind marker, is excluded from test data rules, and
+respects the CASL checkbox wording already used by the newsletter form) plus the "Join the next trip" link.
+Schema: keep Article + Review, add `Event` with name, startDate, endDate, location (destination name only),
+eventStatus EventScheduled, organizer the agency, and `about` the next trip when set; BreadcrumbList. OG image:
+the first recap photo when present (through the /og route's resolver: hero = first gallery photo for past trips).
+Never add noindex, never 301, never change the slug. Source watch and drift must never flag or suggest
+unpublishing a past trip; drift may still flag a LIVE trip whose dates passed with an empty recap ("needs a
+recap") as a setup item linking to the panel.
+
+Brief line: "N past trips have no recap yet" (setup, amber) until each has a recap_summary or recap_mode='live'.
+
+### Wave 3 (2026-10-11): trip pages SEO pass inside the heal (migration 0038)
+
+Owner files: `lib/content-heal-run.ts`, `lib/seo-score.ts`, `lib/content-repair-adapters.ts`, `lib/content-edits.ts`,
+`supabase/migrations/0038_content_edits_package.sql` (extend the content_type check with 'package' and the field
+check with 'ai_faqs', 'keywords', 'alt_text', 'og_image'), `scripts/check-content-repair.ts`.
+
+Score every published package daily with the same seoScore (kind target 400+ words of description; FAQ from
+ai_faqs; takeaways not applicable; internal links to its destination page and guides; schema TouristTrip/Article
+present; image alt present; keyword = the package's primary keyword from keyword_research.target_path when one
+points at the page, else the name). Cheap fixes only, under the same 6-slot cap: meta_title/meta_description when
+EMPTY (generated from the row text only, gated), og_image when empty (the cover), keywords when empty (from the
+row text, no AI), ai_faqs when empty (WP12's generator), alt text when empty (the name + destination, no AI), a
+related guide/destination link line when the description has none (no AI). NEVER touch name, slug, price fields,
+dates, inclusions, itinerary, booking_url, status, or the description body. Log to content_edits with
+content_type 'package', Undo works. Past trips are scored but only get FAQ and links fixes (their body is frozen
+by WP14's rule).
