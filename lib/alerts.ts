@@ -24,11 +24,12 @@ export function alertsConfigured(): boolean {
 }
 
 /** Sends one alert email, at most once per throttle window. Never throws. Returns what happened. */
-export async function sendThrottledAlert(admin: SupabaseClient, subject: string, lines: string[], html?: string): Promise<'sent' | 'throttled' | 'not-configured' | 'failed'> {
+export async function sendThrottledAlert(admin: SupabaseClient, subject: string, lines: string[], html?: string, opts: { ignoreThrottle?: boolean } = {}): Promise<'sent' | 'throttled' | 'not-configured' | 'failed'> {
   if (!alertsConfigured()) return 'not-configured'
   try {
     const last = Date.parse((await getSetting(admin, LAST_ALERT_KEY)) ?? '')
-    if (Number.isFinite(last) && Date.now() - last < THROTTLE_MS) return 'throttled'
+    // ignoreThrottle is only for the admin "send me a test alert" button: a person asked for this one email.
+    if (!opts.ignoreThrottle && Number.isFinite(last) && Date.now() - last < THROTTLE_MS) return 'throttled'
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY!.trim()}`, 'Content-Type': 'application/json' },
@@ -49,7 +50,8 @@ export async function sendThrottledAlert(admin: SupabaseClient, subject: string,
       return 'failed'
     }
     await noteMailResult(admin, null)
-    await setSetting(admin, LAST_ALERT_KEY, new Date().toISOString())
+    // A test send does not move the throttle: the next real alert still goes out on its own schedule.
+    if (!opts.ignoreThrottle) await setSetting(admin, LAST_ALERT_KEY, new Date().toISOString())
     return 'sent'
   } catch {
     return 'failed'

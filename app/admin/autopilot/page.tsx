@@ -176,6 +176,9 @@ export default function AutopilotPage() {
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => post({ action: "debrief" }, "Brief emailed")} title="Emails you today's brief right now (the 7 am email still goes out as normal)">
                   Email me the brief now
                 </Button>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => post({ action: "test-alert" }, "Test alert emailed")} title="Emails you one needs-attention alert right now, in the same look as the brief, so you can see what a real one looks like">
+                  Email me a test alert
+                </Button>
                 <Button size="sm" disabled={busy || !state.on} onClick={() => post({ action: "run" }, "Pipeline ran")} title="Writes and publishes a new post right now, then runs every following step">
                   {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Write and publish a post now
                 </Button>

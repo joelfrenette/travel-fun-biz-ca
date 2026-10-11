@@ -5,6 +5,9 @@ import { isAutopilotOn, setAutopilot, autopilotReadiness, getVideosPerWeek, setV
 import { runPipeline, readLastPipelineRun } from '@/lib/pipeline'
 import { collectIssues, resolveIssue, type IssueAction } from '@/lib/issues'
 import { runDebriefIfDue } from '@/lib/debrief'
+import { sendThrottledAlert } from '@/lib/alerts'
+import { alertHtml } from '@/lib/brief-html'
+import { plainAction, HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
 import { getKeywordBudget, setKeywordBudget, readKeywordRefreshInfo } from '@/lib/keyword-refresh'
 import { isKeywordDataConfigured } from '@/lib/keywords'
 import { shotstackEnv } from '@/lib/shotstack'
@@ -93,6 +96,25 @@ export async function POST(request: Request) {
       // Emails the daily brief now (does not use up the 7 am send).
       const sent = await runDebriefIfDue(admin, { force: true })
       return NextResponse.json({ note: sent?.note ?? 'nothing to send' }, { status: sent?.ok === false ? 502 : 200 })
+    }
+    if (body.action === 'test-alert') {
+      // Emails one "needs attention" alert right now in the same look as the daily brief, built from whatever is
+      // open (or the first two setup items when nothing is), so the admin can see what a real alert looks like.
+      // Ignores the 6-hour throttle and does not move it. Nothing else changes.
+      const all = await collectIssues(admin)
+      const open = all.filter((i) => i.area !== 'setup' && i.id !== HARD_WAITING_ISSUE_ID)
+      const actions = (open.length ? open : all.slice(0, 2)).map(plainAction)
+      if (!actions.length) return NextResponse.json({ note: 'nothing is open right now, so there is nothing to show in a test alert' })
+      const dateLabel = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto', weekday: 'long', month: 'long', day: 'numeric' })
+      const result = await sendThrottledAlert(
+        admin,
+        `TEST: Autopilot: ${actions.length} thing${actions.length === 1 ? '' : 's'} need${actions.length === 1 ? 's' : ''} attention`,
+        [...actions.flatMap((a) => [`* ${a.title}`, `  ${a.why}`, ...a.steps.map((s, k) => `  ${k + 1}) ${s}`), `  ${a.urlLabel}: ${a.url}`, '']), 'See everything: https://www.travelfunbiz.ca/admin/autopilot'],
+        alertHtml(actions, dateLabel),
+        { ignoreThrottle: true },
+      )
+      const notes: Record<string, string> = { sent: 'Test alert emailed', 'not-configured': 'Email is not set up: RESEND_API_KEY or ADMIN_EMAIL is missing in Vercel', failed: 'Resend refused the email (see Needs attention for the reason)', throttled: 'Throttled' }
+      return NextResponse.json({ note: notes[result] ?? result }, { status: result === 'sent' ? 200 : 502 })
     }
     if (body.action === 'run') {
       const run = await runPipeline(admin, { force: true })
