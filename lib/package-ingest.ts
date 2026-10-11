@@ -115,7 +115,7 @@ export async function addIllustrativeCover(admin: SupabaseClient, packageId: str
  * first, a problem afterwards is recorded on the source as a note, and the source stays "read" so a retry cannot
  * pay twice.
  */
-export async function ingestSourceForPackage(admin: SupabaseClient, packageId: string, sourceId: string): Promise<IngestResult> {
+export async function ingestSourceForPackage(admin: SupabaseClient, packageId: string, sourceId: string, opts: { safeFetch?: boolean } = {}): Promise<IngestResult> {
   const source = await getSource(admin, packageId, sourceId)
   if (!source) return { status: 404, body: { error: 'Source not found' }, applied: [], read: false }
 
@@ -165,7 +165,8 @@ export async function ingestSourceForPackage(admin: SupabaseClient, packageId: s
         const pictures = await downloadSourceImages(admin, source)
         if (!pictures) return await failBeforePay(404, 'The stored file could not be read (missing, or over 10 MB). Delete this source and add it again.')
         const prepared = await prepareImages(pictures)
-        r = await extractPackageDraftFromImages(prepared.images, label, prepared.sliced)
+        if (prepared.error) return await failBeforePay(413, prepared.error)
+        r =await extractPackageDraftFromImages(prepared.images, label, prepared.sliced)
       }
       if (r.error) return await failBeforePay(r.error.status, r.error.message)
       draft = r.draft
@@ -174,7 +175,9 @@ export async function ingestSourceForPackage(admin: SupabaseClient, packageId: s
     } else {
       let text = source.extracted_text ?? ''
       if (source.kind === 'url') {
-        const f = await fetchSourceText(source.source_url ?? '')
+        // safeFetch (the public agent path): hop-by-hop redirects, every hop checked. The admin path keeps the plain follow
+        // because Joel may paste an http link; it is one flag to switch on.
+        const f = await fetchSourceText(source.source_url ?? '', { safe: opts.safeFetch })
         if (f.error) return await failBeforePay(f.error.status, f.error.message)
         text = f.text
         photos = f.photos

@@ -15,5 +15,6 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (files.length === 0) return NextResponse.json({ error: 'No photos provided' }, { status: 400 })
   if (files.reduce((n, f) => n + f.size, 0) > AGENT_FILES_MAX_BYTES) return NextResponse.json({ error: 'Those photos are over 4 MB together. Send fewer or smaller ones at a time.' }, { status: 413 })
   const r = await addOwnPhotos(getSupabaseAdmin(), params.id, await Promise.all(files.map(async (f) => ({ name: f.name, bytes: Buffer.from(await f.arrayBuffer()) }))), 'Added by an admin in the add-a-trip wizard (own photos)')
+  if (r.refused) return NextResponse.json({ added: 0, skipped: r.skipped, error: r.refused }, { status: 409 })
   return NextResponse.json({ added: r.added, skipped: r.skipped, error: r.error ?? null }, { status: r.error ? 500 : 200 })
 }

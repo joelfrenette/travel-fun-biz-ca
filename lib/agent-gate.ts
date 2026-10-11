@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { allowRequest } from '@/lib/abuse-guard'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { canWorkOnExisting, blockMessage, isUuid } from '@/lib/agent-invites'
+import { canWorkOnExisting, blockMessage, isUuid, agentWriteBlock } from '@/lib/agent-invites'
 import { getInviteByToken, getSubmission, type InviteRow, type SubmissionRow } from '@/lib/agent-submissions'
 
 // The first thing every PUBLIC agent route does (WP13): throttle by IP, validate the token (shape, then database), and
@@ -33,11 +33,19 @@ export async function agentGate(request: Request, token: string): Promise<Gate> 
 export type DraftGate = (Gate & { ok: false }) | { ok: true; admin: SupabaseClient; invite: InviteRow; sub: SubmissionRow }
 
 /** The gate plus one of THIS link's drafts. Another link's draft id is "not found". */
-export async function draftGate(request: Request, token: string, draftId: string): Promise<DraftGate> {
+export async function draftGate(request: Request, token: string, draftId: string, opts: { write?: boolean } = {}): Promise<DraftGate> {
   const g = await agentGate(request, token)
   if (!g.ok) return g
   if (!isUuid(draftId)) return { ok: false, status: 404, error: 'That trip was not found.' }
   const sub = await getSubmission(g.admin, g.invite, draftId)
   if (!sub) return { ok: false, status: 404, error: 'That trip was not found.' }
+  // Every agent WRITE needs the trip itself to still be a draft: once Joel has published it (or archived it) nothing an
+  // agent sends can touch it, whatever the submission row says. Reads (opts.write false) stay open.
+  if (opts.write !== false) {
+    const { data: pkg } = await g.admin.from('travel_packages').select('status').eq('id', sub.package_id as string).maybeSingle()
+    if (!pkg) return { ok: false, status: 404, error: 'That trip was not found.' }
+    const blocked = agentWriteBlock((pkg as { status?: string }).status)
+    if (blocked) return { ok: false, status: 409, error: blocked }
+  }
   return { ok: true, admin: g.admin, invite: g.invite, sub }
 }

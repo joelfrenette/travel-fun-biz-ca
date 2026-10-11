@@ -5,12 +5,14 @@ import { commitEdits, autoFaqs, copyBlockers, itemSupported, rowGrounding, model
 import { removeDashes } from '@/lib/guide-composer'
 import { PACKAGE_CATEGORIES, type ModelUsage } from '@/lib/package-extract'
 import { detectFile, MAX_FILE_BYTES, type PackageEdit } from '@/lib/package-sources'
-import { getSetting, setSetting } from '@/lib/app-settings'
+import { claimSlot } from '@/lib/slots'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { photoRoom, GALLERY_MAX, PHOTOS_PER_CALL } from '@/lib/agent-invites'
 import { planPhotoAdds } from '@/lib/supplier-photos'
 import { uploadGeneratedImageVariants } from '@/lib/import-package'
 import { pingIndexNow } from '@/lib/indexnow'
 import { generateSlug } from '@/lib/utils'
-import { missingFacts, isPlaceholderName, type MissingFact } from '@/lib/trip-checklist'
+import { missingFacts, isPlaceholderName, categoryNotSet, type MissingFact } from '@/lib/trip-checklist'
 
 // The server half of the add-a-trip wizard (growth loop WP13), shared by the admin routes and the agent routes:
 //   completeTrip     ONE "complete the trip" pass over the stored sources: name, category, tags, short description
@@ -23,8 +25,6 @@ import { missingFacts, isPlaceholderName, type MissingFact } from '@/lib/trip-ch
 
 /** Daily ceilings so a click-happy page cannot run up the bill: model calls for Complete and Improve, per trip. */
 export const WIZARD_CAPS = { improvePerTripPerDay: 12, completePerTripPerDay: 3, ownPhotosPerCall: 6 } as const
-
-const ONE_DAY = 86_400_000
 
 interface StoredSource {
   id: string
@@ -46,17 +46,6 @@ export async function storedSources(admin: SupabaseClient, packageId: string): P
     if (text.length < 60_000) text += `${i ? '\n\n' : ''}--- Source ${i + 1} (${s.kind}) ---\n${(s.extracted_text ?? '').slice(0, 24_000)}`
   })
   return { text: text.slice(0, 60_000), logSourceId: rows[0]?.id ?? null, sources: rows }
-}
-
-/** How many model-written edits this trip has had in the last day, across all its sources. */
-async function generatedToday(admin: SupabaseClient, packageId: string, now = new Date()): Promise<number> {
-  const { data } = await admin.from('package_sources').select('package_edits').eq('package_id', packageId)
-  const from = now.getTime() - ONE_DAY
-  let n = 0
-  for (const r of (data ?? []) as { package_edits: PackageEdit[] | null }[]) {
-    for (const e of r.package_edits ?? []) if (e.method === 'generate' && !e.reverted && new Date(e.at).getTime() > from) n++
-  }
-  return n
 }
 
 // ─── Complete the trip ─────────────────────────────────────────────────────────────
@@ -161,10 +150,10 @@ export async function completeTrip(admin: SupabaseClient, packageId: string): Pr
   if (!isAiConfigured()) return done({ ok: false, error: 'The AI is not set up (ANTHROPIC_API_KEY is missing).', pkg: row })
 
   // Per-trip daily cap on this pass, counted from the log: each pass leaves at least a 'generate' or 'auto' completion note.
-  const markKey = `trip_complete:${packageId}`
-  const prior = ((await getSetting(admin, markKey)) ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && Date.now() - n < ONE_DAY)
-  if (prior.length >= WIZARD_CAPS.completePerTripPerDay) return done({ ok: false, error: 'This trip has been completed as many times as is allowed today. Try again tomorrow.', pkg: row })
-  await setSetting(admin, markKey, [...prior, Date.now()].join(','))
+  // Atomic slot BEFORE the model call (shared by admin and agent): two clicks at once cannot both get the last slot.
+  if (!(await claimSlot(admin, `trip_complete:${packageId}`, WIZARD_CAPS.completePerTripPerDay))) {
+    return done({ ok: false, error: 'This trip has been completed as many times as is allowed today. Try again tomorrow.', pkg: row })
+  }
 
   let raw: Record<string, unknown> | null = null
   let calls = 0
@@ -200,7 +189,7 @@ export async function completeTrip(admin: SupabaseClient, packageId: string): Pr
       } else if (g.reason) notes.push(`Name not set: ${g.reason}.`)
     }
     const cat = typeof raw.category === 'string' ? raw.category : null
-    if ((!latest.category || !String(latest.category).trim()) && cat && (PACKAGE_CATEGORIES as readonly string[]).includes(cat)) add('category', latest.category, cat)
+    if (categoryNotSet(cur) && cat && (PACKAGE_CATEGORIES as readonly string[]).includes(cat)) add('category', latest.category, cat)
     const tags = gateTags(raw.tags, text)
     if (tags.length && (!Array.isArray(latest.tags) || latest.tags.length === 0)) add('tags', latest.tags, tags)
     const sd = typeof raw.short_description === 'string' ? removeDashes(raw.short_description.trim()).slice(0, 200) : ''
@@ -265,7 +254,9 @@ export async function improveField(admin: SupabaseClient, packageId: string, fie
   const { text, logSourceId } = await storedSources(admin, packageId)
   if (!logSourceId || text.trim().length < 40) return fail('Add something and let it be read first. The rewrite only uses what you dropped.', row)
   if (!isAiConfigured()) return fail('The AI is not set up (ANTHROPIC_API_KEY is missing).', row)
-  if ((await generatedToday(admin, packageId)) >= WIZARD_CAPS.improvePerTripPerDay) return fail('This trip has had as many AI rewrites as are allowed today. Try again tomorrow.', row)
+  // Atomic slot BEFORE the model call (shared by admin and agent). A rewrite the gate holds back, or an unusable answer,
+  // still used its slot: the call was paid for.
+  if (!(await claimSlot(admin, `trip_improve:${packageId}`, WIZARD_CAPS.improvePerTripPerDay))) return fail('This trip has had as many AI rewrites as are allowed today. Try again tomorrow.', row)
 
   const grounding = `${text}\n${rowGrounding(row)}\n${row.name}\n${row.destination}`
   let proposed: unknown
@@ -331,6 +322,8 @@ export interface OwnPhotosResult {
   added: number
   skipped: { name: string; reason: string }[]
   error?: string
+  /** A plain reason nothing was done (the gallery is full, the daily limit): not a server failure. */
+  refused?: string
   pkg: DbPackage | null
 }
 
@@ -339,28 +332,38 @@ export interface OwnPhotosResult {
  * shape the site needs, appended to gallery_urls (12 at most) and, when the trip has no cover, the first one also becomes
  * the cover. Logged with Revert. These ARE allowed in the gallery because the person supplied them as theirs.
  */
-export async function addOwnPhotos(admin: SupabaseClient, packageId: string, files: { name: string; bytes: Buffer }[], credit: string): Promise<OwnPhotosResult> {
+export async function addOwnPhotos(
+  admin: SupabaseClient,
+  packageId: string,
+  files: { name: string; bytes: Buffer }[],
+  credit: string,
+  opts: { allow?: (n: number) => Promise<number> } = {},
+): Promise<OwnPhotosResult> {
   const skipped: { name: string; reason: string }[] = []
   const start = await getPackageById(packageId)
   if (!start) return { added: 0, skipped, error: 'The trip could not be read.', pkg: null }
+  // Refuse BEFORE any upload when the gallery is full, and only ever upload as many as will fit.
+  const have = Array.isArray(start.gallery_urls) ? start.gallery_urls.length : 0
+  if (have >= GALLERY_MAX) return { added: 0, skipped, refused: `The gallery already has ${GALLERY_MAX} photos. Remove one first.`, pkg: start }
+  const valid: { name: string; bytes: Buffer }[] = []
+  for (const f of files) {
+    const d = detectFile(f.bytes)
+    if (!d || d.kind !== 'screenshot') skipped.push({ name: f.name, reason: 'only PNG, JPG or WebP pictures' })
+    else if (f.bytes.length > MAX_FILE_BYTES) skipped.push({ name: f.name, reason: 'larger than 10 MB' })
+    else valid.push(f)
+  }
+  let take = photoRoom(have, valid.length)
+  if (take > 0 && opts.allow) take = Math.min(take, await opts.allow(take))
+  valid.slice(take).forEach((f) => skipped.push({ name: f.name, reason: have + take >= GALLERY_MAX ? `the gallery holds ${GALLERY_MAX} photos` : take >= PHOTOS_PER_CALL ? `only ${PHOTOS_PER_CALL} at a time` : 'the daily photo limit was reached' }))
+  if (take === 0) return { added: 0, skipped, refused: valid.length ? 'No more photos can be added right now.' : undefined, pkg: start }
   const sourceId = await photosSourceId(admin, packageId)
   if (!sourceId) return { added: 0, skipped, error: 'Could not record the photos.', pkg: start }
   const done: { photo: string; stored: Awaited<ReturnType<typeof uploadGeneratedImageVariants>> }[] = []
-  for (const f of files.slice(0, WIZARD_CAPS.ownPhotosPerCall)) {
-    const d = detectFile(f.bytes)
-    if (!d || d.kind !== 'screenshot') {
-      skipped.push({ name: f.name, reason: 'only PNG, JPG or WebP pictures' })
-      continue
-    }
-    if (f.bytes.length > MAX_FILE_BYTES) {
-      skipped.push({ name: f.name, reason: 'larger than 10 MB' })
-      continue
-    }
+  for (const f of valid.slice(0, take)) {
     const stored = await uploadGeneratedImageVariants(f.bytes, `${start.slug || 'trip'}-own`).catch(() => null)
     if (!stored || !stored.image_url) skipped.push({ name: f.name, reason: 'could not be copied into our storage' })
     else done.push({ photo: f.name.slice(0, 80), stored })
   }
-  files.slice(WIZARD_CAPS.ownPhotosPerCall).forEach((f) => skipped.push({ name: f.name, reason: `only ${WIZARD_CAPS.ownPhotosPerCall} at a time` }))
   if (done.length === 0) return { added: 0, skipped, pkg: start }
   const latest = (await getPackageById(packageId)) ?? start
   const plan = planPhotoAdds(latest as unknown as Record<string, unknown>, done, { credit, method: 'click', at: new Date().toISOString() })
@@ -404,6 +407,14 @@ export async function publishTrip(packageId: string): Promise<{ ok: true; pkg: D
   if (missing.length) return { ok: false, status: 400, error: `Fill in these first: ${missing.join(', ')}.`, missing }
   const updated = await updatePackage(packageId, { status: 'published' })
   if (!updated) return { ok: false, status: 500, error: 'The trip could not be published.' }
+  // However it was published (the wizard, the form, the banner), a trip an agent sent is now approved: the agent's page
+  // locks and the Needs attention item clears.
+  try {
+    const t = new Date().toISOString()
+    await getSupabaseAdmin().from('package_submissions').update({ submission_state: 'approved', decided_at: t, updated_at: t }).eq('package_id', packageId).neq('submission_state', 'approved')
+  } catch {
+    // no agent table yet, or no submission: nothing to mark
+  }
   await pingIndexNow([`/packages/${updated.slug}`, '/']).catch(() => null)
   await onTripPublished(packageId).catch(() => null)
   return { ok: true, pkg: updated }

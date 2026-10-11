@@ -5,7 +5,11 @@ import {
   isEditableState, canSend, validateStart, validateSource, cleanDraftEdits, agentFieldViews, filledLabels, cleanText, TOKEN_LENGTH, DEFAULT_EXPIRY_DAYS, MAX_EXPIRY_DAYS,
   MAX_DRAFTS_PER_DAY, MAX_SOURCES_PER_DAY, MAX_TOTAL, MAX_TOTAL_CAP, DAY_MS,
 } from '../lib/agent-invites'
-import { missingFacts, isPlaceholderName } from '../lib/trip-checklist'
+import { agentWriteBlock, decisionAllowed, isHelperSource, photoRoom, MAX_PHOTOS_PER_DAY, GALLERY_MAX } from '../lib/agent-invites'
+import { claimSlot, claimSlots } from '../lib/slots'
+import { fetchHtmlSafe } from '../lib/package-extract'
+import { prepareImages } from '../lib/screenshot-slices'
+import { missingFacts, isPlaceholderName, categoryNotSet } from '../lib/trip-checklist'
 import { publicUrlRejection } from '../lib/agent-submissions'
 import { gateName, gateTags, publishBlockers } from '../lib/trip-wizard'
 import { planIllustrativeCover } from '../lib/package-ingest'
@@ -115,6 +119,67 @@ function check(name: string, ok: boolean, detail: unknown = '') {
   const cover = planIllustrativeCover({ image_url: null, image_source: null }, stored, { photographer: 'Ann' }, '2026-10-11T00:00:00Z')
   check('illustrative cover: sets the 4 shapes and image_source pexels, each its own edit with an illustrative credit', cover.edits.length === 5 && cover.updates.image_source === 'pexels' && cover.edits.every((x) => /illustrative/.test(x.credit ?? '')), cover.edits.map((x) => x.field))
   check('illustrative cover: never replaces an existing cover', planIllustrativeCover({ image_url: 'https://x/y.jpg' }, stored, { photographer: 'Ann' }, 'now').edits.length === 0)
+
+  // ─── Fix round 1 ───────────────────────────────────────────────────────────────
+
+  // 1 (S1): nothing an agent sends touches a trip once it is not a draft
+  check('S1: agent writes allowed only while the trip is a draft', agentWriteBlock('draft') === null && !!agentWriteBlock('published') && !!agentWriteBlock('archived') && !!agentWriteBlock(undefined) && !!agentWriteBlock(null))
+  check('S1: a refused write says Joel already published it', /already published/.test(agentWriteBlock('published') ?? ''))
+  check('S1: reject only from submitted or in_progress', decisionAllowed('submitted', 'reject').ok && decisionAllowed('in_progress', 'reject').ok && !decisionAllowed('approved', 'reject').ok && !decisionAllowed('rejected', 'reject').ok)
+  check('S1: approve unless already approved', decisionAllowed('submitted', 'approve').ok && decisionAllowed('rejected', 'approve').ok && decisionAllowed('in_progress', 'approve').ok && !decisionAllowed('approved', 'approve').ok)
+
+  // 2 (S2): the agent path follows redirects by hand, every hop checked
+  const html = '<html><body>' + 'A trip page with plenty of words. '.repeat(20) + '</body></html>'
+  const page = () => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })
+  const redirect = (to: string) => new Response(null, { status: 302, headers: { location: to } })
+  const route = (map: Record<string, () => Response>) => (async (u: string) => (map[u] ? map[u]() : new Response('no', { status: 404 }))) as unknown as typeof fetch
+  const publicDns = async () => ['93.184.216.34']
+  const okFetch = await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => redirect('https://www.a.example/y'), 'https://www.a.example/y': page }), lookup: publicDns })
+  check('S2: a same-site redirect is followed and the final page returned', !!okFetch && okFetch.finalUrl === 'https://www.a.example/y' && okFetch.html.includes('plenty of words'))
+  check('S2: a redirect to http is refused', (await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => redirect('http://a.example/y'), 'http://a.example/y': page }), lookup: publicDns })) === null)
+  check('S2: a redirect to a private or metadata address is refused', (await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => redirect('https://169.254.169.254/latest/meta-data'), 'https://169.254.169.254/latest/meta-data': page }), lookup: publicDns })) === null && (await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => redirect('https://localhost/'), 'https://localhost/': page }), lookup: publicDns })) === null)
+  check('S2: a redirect to another website is refused', (await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => redirect('https://other.example/y'), 'https://other.example/y': page }), lookup: publicDns })) === null)
+  let hops = 0
+  const looping = (async (u: string) => (hops++, redirect(`https://a.example/${hops}`))) as unknown as typeof fetch
+  check('S2: more than 3 redirects are refused', (await fetchHtmlSafe('https://a.example/0', { fetch: looping, lookup: publicDns })) === null && hops <= 4, hops)
+  check('S2: a hop whose name resolves to a private address is refused (DNS checked per hop)', (await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => redirect('https://www.a.example/y'), 'https://www.a.example/y': page }), lookup: async (h) => (h.startsWith('www.') ? ['10.1.2.3'] : ['93.184.216.34']) })) === null)
+  check('S2: a first hop that is private is refused without any request', (await (async () => { let called = false; const r = await fetchHtmlSafe('https://a.example/x', { fetch: (async () => { called = true; return page() }) as unknown as typeof fetch, lookup: async () => ['127.0.0.1'] }); return r === null && !called })()))
+  check('S2: a non-HTML answer is refused', (await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => new Response('x', { status: 200, headers: { 'content-type': 'application/pdf' } }) }), lookup: publicDns })) === null)
+
+  // 3 and 4 (S2): atomic daily slots, taken before the model call
+  const keys = new Set<string>()
+  const fakeAdmin = { from: () => ({ insert: async (row: { key: string }) => (keys.has(row.key) ? { error: { message: 'duplicate key' } } : (keys.add(row.key), { error: null })) }) } as never
+  const results = await Promise.all(Array.from({ length: 20 }, () => claimSlot(fakeAdmin, 'trip_improve:abc', 12, now)))
+  check('S2 improve: 20 parallel claims get exactly 12 slots', results.filter(Boolean).length === 12, results.filter(Boolean).length)
+  check('S2 improve: the 13th claim is refused', !(await claimSlot(fakeAdmin, 'trip_improve:abc', 12, now)))
+  check('S2 improve: slot keys are trip_improve:<id>:<day>:<n>', keys.has('trip_improve:abc:2026-10-11:1') && keys.has('trip_improve:abc:2026-10-11:12') && !keys.has('trip_improve:abc:2026-10-11:13'))
+  const completes = await Promise.all(Array.from({ length: 6 }, () => claimSlot(fakeAdmin, 'trip_complete:abc', 3, now)))
+  check('S2 complete: 6 parallel claims get exactly 3 slots', completes.filter(Boolean).length === 3)
+  check('S2: another trip and the next day have their own slots', (await claimSlot(fakeAdmin, 'trip_complete:other', 3, now)) && (await claimSlot(fakeAdmin, 'trip_complete:abc', 3, new Date(now.getTime() + DAY_MS))))
+  check('S2: a database that cannot be written never lets the work through', !(await claimSlot({ from: () => ({ insert: async () => ({ error: { message: 'down' } }) }) } as never, 'x', 3, now)))
+  check('S2 photos: claimSlots returns how many it could take (20 a day per link)', (await claimSlots(fakeAdmin, 'agent_photo:l1', 15, MAX_PHOTOS_PER_DAY, now)) === 15 && (await claimSlots(fakeAdmin, 'agent_photo:l1', 15, MAX_PHOTOS_PER_DAY, now)) === 5 && (await claimSlots(fakeAdmin, 'agent_photo:l1', 1, MAX_PHOTOS_PER_DAY, now)) === 0)
+
+  // 5 (S2): photos are refused before any upload when the gallery is full, and only those that fit are counted
+  check('S2 photos: a full gallery (12) has room for none', photoRoom(GALLERY_MAX, 3) === 0 && photoRoom(15, 3) === 0)
+  check('S2 photos: only the files that fit are counted (10 held, 5 sent -> 2)', photoRoom(10, 5) === 2 && photoRoom(0, 9) === 6 && photoRoom(5, 0) === 0 && photoRoom(0, 1) === 1)
+
+  // 6: the screenshot set limits
+  const sharp = (await import('sharp')).default
+  const huge = await sharp({ create: { width: 600, height: 55000, channels: 3, background: { r: 250, g: 250, b: 250 } } }).png().toBuffer()
+  const overStrips = await prepareImages([{ buffer: huge, mediaType: 'image/png' }])
+  check('limits: more than 40 strips is refused with "split into smaller screenshots", nothing returned to send', !!overStrips.error && /smaller screenshots/.test(overStrips.error) && overStrips.images.length === 0, overStrips.error)
+  const overBytes = await prepareImages([{ buffer: Buffer.alloc(21 * 1024 * 1024), mediaType: 'image/png' }])
+  check('limits: more than 20 MB of pictures is refused before any work', !!overBytes.error && overBytes.images.length === 0)
+  const fine = await prepareImages([{ buffer: await sharp({ create: { width: 600, height: 3000, channels: 3, background: { r: 1, g: 2, b: 3 } } }).png().toBuffer(), mediaType: 'image/png' }])
+  check('limits: a normal tall screenshot still passes', !fine.error && fine.images.length === 3)
+
+  // 7: the table's default category on a stub is "not set yet"
+  check('category: empty, and Adventure on an empty draft stub, count as not set', categoryNotSet({ category: '' }) && categoryNotSet({ category: null }) && categoryNotSet({ category: 'Adventure', status: 'draft' }))
+  check('category: Adventure with real text, or published, or another category, is set', !categoryNotSet({ category: 'Adventure', status: 'draft', short_description: 'A line' }) && !categoryNotSet({ category: 'Adventure', status: 'published' }) && !categoryNotSet({ category: 'Cruise', status: 'draft' }))
+  check('category: a named stub still on Adventure shows "Kind of trip" in Still missing', missingFacts({ name: 'Greek Isles', category: 'Adventure', status: 'draft' }).some((m) => m.key === 'category') && !missingFacts({ name: 'Greek Isles', category: 'Cruise', status: 'draft' }).some((m) => m.key === 'category'))
+
+  // 8: helper rows do not count against the agent
+  check('helpers: automatic FAQs, own photos and the recap log are not the agent\'s sources', isHelperSource('Automatic FAQs (written from the trip description)') && isHelperSource('Photos added in the add-a-trip wizard') && isHelperSource('Recap log') && !isHelperSource('menu.pdf') && !isHelperSource(null) && !isHelperSource(undefined))
 
   console.log(failures === 0 ? '\nAll checks passed' : `\n${failures} check(s) FAILED`)
   process.exit(failures === 0 ? 0 : 1)

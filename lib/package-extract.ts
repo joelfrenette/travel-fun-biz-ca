@@ -1,5 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, type AnthropicContent } from '@/lib/ai-verify'
-import { collectPhotoCandidates } from '@/lib/supplier-photos'
+import { collectPhotoCandidates, hopRejection } from '@/lib/supplier-photos'
 import type { PhotoCandidate } from '@/lib/package-sources'
 
 // AI package-draft builder (roadmap use case 09dd2acd, Joel's idea 2026-09-26): an agent pastes
@@ -504,7 +504,7 @@ export type FetchSourceResult = { text: string; photos: PhotoCandidate[]; pageUr
 
 /** Fetch a public page as text for the extractor. Plain fetch first (free); falls back to
  * ScrapingBee when it's configured and the plain fetch was blocked or came back empty. */
-export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
+export async function fetchSourceText(url: string, opts: { safe?: boolean } = {}): Promise<FetchSourceResult> {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -515,7 +515,9 @@ export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
     return { text: null, error: { status: 400, message: 'Only public http(s) links can be fetched.' } }
   }
 
-  const plainFetch = await fetchHtmlWithUrl(parsed.toString())
+  // `safe` (the public agent path, WP13): redirects are followed by hand, at most 3 hops, and EVERY hop must be https,
+  // not a private address, on the same registrable domain as the link as entered, and resolve only to public addresses.
+  const plainFetch = opts.safe ? await fetchHtmlSafe(parsed.toString()) : await fetchHtmlWithUrl(parsed.toString())
   const plain = plainFetch?.html ?? null
   let html = plain ?? ''
   let pageUrl = plainFetch?.finalUrl ?? parsed.toString()
@@ -545,6 +547,45 @@ export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
     }
   }
   return { text: text.slice(0, MAX_SOURCE_CHARS), photos: collectPhotoCandidates(html, pageUrl, parsed.toString()), pageUrl, error: null }
+}
+
+const SAFE_HOPS = 3
+
+/** The page fetch for links typed by a stranger. Same rules as the supplier photo download (lib/supplier-photos.ts
+ * fetchSupplierPhoto): manual redirects, hopRejection on every hop (https, not private, same registrable domain, DNS
+ * resolves only to public addresses), at most SAFE_HOPS redirects. Null when any hop is refused or the page is not HTML.
+ * `deps` lets the offline checks run it without a network. */
+export async function fetchHtmlSafe(
+  url: string,
+  deps: { fetch?: typeof fetch; lookup?: (host: string) => Promise<string[]>; timeoutMs?: number } = {},
+): Promise<{ html: string; finalUrl: string } | null> {
+  const doFetch = deps.fetch ?? fetch
+  const lookup = deps.lookup ?? (async (h: string) => (await (await import('node:dns/promises')).lookup(h, { all: true })).map((r) => r.address))
+  const signal = AbortSignal.timeout(deps.timeoutMs ?? 15_000)
+  let current = url
+  try {
+    for (let hop = 0; hop <= SAFE_HOPS; hop++) {
+      if (await hopRejection(current, [url], lookup)) return null
+      const res = await doFetch(current, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', Accept: 'text/html,application/xhtml+xml,*/*;q=0.8', 'Accept-Language': 'en-CA,en;q=0.9' },
+        redirect: 'manual',
+        signal,
+      })
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location')
+        if (!loc) return null
+        current = new URL(loc, current).toString()
+        continue
+      }
+      if (!res.ok) return null
+      if (!/html|xml|text\/plain/i.test(res.headers.get('content-type') || '')) return null
+      const html = await res.text()
+      return { html: html.length > 2_000_000 ? html.slice(0, 2_000_000) : html, finalUrl: current }
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 async function fetchHtml(url: string, timeoutMs = 15_000): Promise<string | null> {

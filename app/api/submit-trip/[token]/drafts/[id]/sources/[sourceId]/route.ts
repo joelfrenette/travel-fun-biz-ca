@@ -25,10 +25,10 @@ export async function POST(request: Request, { params }: { params: { token: stri
     if (bad) return NextResponse.json({ error: bad }, { status: 400 })
   }
 
-  const r = await ingestSourceForPackage(g.admin, pkgId, params.sourceId)
+  const r = await ingestSourceForPackage(g.admin, pkgId, params.sourceId, { safeFetch: true })
   const draft = await agentDraftView(g.admin, g.invite, g.sub)
   if (r.status === 200) return NextResponse.json({ ok: true, filled: filledLabels(r.applied), draft })
   const message =
-    r.status === 409 ? 'That one was already read.' : r.status === 400 || r.status === 422 ? String(r.body.error ?? 'We could not read enough from that.') : 'We could not read that one just now. You can try again, or add it a different way.'
+    r.status === 409 ? 'That one was already read.' : r.status === 400 || r.status === 413 || r.status === 422 ? String(r.body.error ?? 'We could not read enough from that.') : 'We could not read that one just now. You can try again, or add it a different way.'
   return NextResponse.json({ ok: false, error: message, draft }, { status: r.status === 200 ? 200 : r.status === 409 ? 409 : 422 })
 }

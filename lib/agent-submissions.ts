@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getPackageById, updatePackage } from '@/lib/packages'
+import { getPackageById, updatePackage, deletePackage } from '@/lib/packages'
 import { createDraftPackage } from '@/lib/package-ingest'
 import { isPrivateIp } from '@/lib/supplier-photos'
 import { publishTrip, publishBlockers } from '@/lib/trip-wizard'
@@ -13,6 +13,8 @@ import {
   limitMessage,
   blockMessage,
   isEditableState,
+  isHelperSource,
+  decisionAllowed,
   canSend,
   agentFieldViews,
   filledLabels,
@@ -142,7 +144,13 @@ export async function startDraft(
     return fail(made.error?.status ?? 500, made.error?.message ?? 'Could not start the trip.')
   }
   const { data: linked, error: linkErr } = await admin.from('package_submissions').update({ package_id: made.pkg.id, updated_at: new Date().toISOString() }).eq('id', sub.id).select('*').single()
-  if (linkErr || !linked) return fail(500, dbMessage(linkErr?.message ?? 'Could not start the trip.'))
+  if (linkErr || !linked) {
+    // Never leave an orphan draft nobody can see: remove the package and the submission, and give the use back.
+    await deletePackage(made.pkg.id).catch(() => false)
+    await admin.from('package_submissions').delete().eq('id', sub.id)
+    await releaseUse(admin, invite.id)
+    return fail(500, dbMessage(linkErr?.message ?? 'Could not start the trip.'))
+  }
   return { ok: true, submission: linked as SubmissionRow }
 }
 
@@ -151,8 +159,9 @@ export async function sourcesInLastDay(admin: SupabaseClient, invite: InviteRow,
   const subs = await listSubmissions(admin, invite)
   const ids = subs.map((s) => s.package_id).filter((x): x is string => !!x)
   if (ids.length === 0) return 0
-  const { count } = await admin.from('package_sources').select('id', { count: 'exact', head: true }).in('package_id', ids).gte('created_at', new Date(now.getTime() - DAY_MS).toISOString())
-  return count ?? 0
+  // Helper rows the site writes itself (automatic FAQs, own photos, the recap log) are not the agent's sources.
+  const { data } = await admin.from('package_sources').select('file_name').in('package_id', ids).gte('created_at', new Date(now.getTime() - DAY_MS).toISOString()).limit(1000)
+  return ((data ?? []) as { file_name: string | null }[]).filter((r) => !isHelperSource(r.file_name)).length
 }
 
 /** May this draft take one more source right now? (link usable, draft unlocked, 10 a day per link, 8 per draft.) */
@@ -161,8 +170,9 @@ export async function mayAddSource(admin: SupabaseClient, invite: InviteRow, sub
   if (!w.ok) return fail(403, blockMessage(w.reason))
   if (!isEditableState(sub.submission_state)) return fail(409, 'This trip is with Joel, so it cannot be changed now.')
   if ((await sourcesInLastDay(admin, invite, now)) >= MAX_SOURCES_PER_DAY) return fail(429, limitMessage('sources', null))
-  const { count } = await admin.from('package_sources').select('id', { count: 'exact', head: true }).eq('package_id', sub.package_id as string)
-  if ((count ?? 0) >= MAX_SOURCES_PER_DRAFT) return fail(409, `This trip already has ${MAX_SOURCES_PER_DRAFT} things added. That is plenty: review it and send it to Joel.`)
+  const { data: onDraft } = await admin.from('package_sources').select('file_name').eq('package_id', sub.package_id as string).limit(200)
+  const count = ((onDraft ?? []) as { file_name: string | null }[]).filter((r) => !isHelperSource(r.file_name)).length
+  if (count >= MAX_SOURCES_PER_DRAFT) return fail(409, `This trip already has ${MAX_SOURCES_PER_DRAFT} things added. That is plenty: review it and send it to Joel.`)
   return { ok: true }
 }
 
@@ -216,7 +226,7 @@ export async function agentDraftView(admin: SupabaseClient, invite: InviteRow, s
   if (!pkg) return null
   const row = pkg as unknown as Record<string, unknown>
   const { data } = await admin.from('package_sources').select('id, kind, file_name, source_url, status, applied_fields, created_at').eq('package_id', pkg.id).order('created_at', { ascending: true })
-  const srcs = ((data ?? []) as { id: string; kind: string; file_name: string | null; source_url: string | null; status: string; applied_fields: string[] | null }[]).filter((s) => !/^(Automatic FAQs|Photos added)/i.test(s.file_name ?? ''))
+  const srcs = ((data ?? []) as { id: string; kind: string; file_name: string | null; source_url: string | null; status: string; applied_fields: string[] | null }[]).filter((s) => !isHelperSource(s.file_name))
   const used = await sourcesInLastDay(admin, invite, now)
   const read = srcs.filter((s) => s.status === 'extracted' || s.status === 'applied').length
   return {
@@ -284,6 +294,8 @@ export async function getSubmissionForPackage(admin: SupabaseClient, packageId: 
 export async function decideSubmission(admin: SupabaseClient, packageId: string, action: 'approve' | 'reject', note?: string): Promise<{ ok: true; state: SubmissionState } | (Fail & { missing?: string[] })> {
   const sub = await getSubmissionForPackage(admin, packageId)
   if (!sub) return fail(404, 'This trip was not sent by an agent.')
+  const allowed = decisionAllowed(sub.submission_state, action)
+  if (!allowed.ok) return fail(409, allowed.reason)
   const t = new Date().toISOString()
   if (action === 'approve') {
     const pkg = await getPackageById(packageId)

@@ -36,9 +36,24 @@ function filled(v: unknown): boolean {
   return true
 }
 
-/** The facts no column holds yet, in the checklist's order. */
+/**
+ * Is the trip's category still "not set yet"? Empty counts. So does the table's default ('Adventure') on a stub: a draft
+ * with no descriptions and no highlights, where nobody can have chosen it. A trip with real text keeps its category.
+ */
+export function categoryNotSet(row: Record<string, unknown>): boolean {
+  const cat = typeof row.category === 'string' ? row.category.trim() : ''
+  if (!cat) return true
+  const stub = row.status === 'draft' && !filled(row.full_description) && !filled(row.short_description) && !filled(row.highlights)
+  return stub && cat === 'Adventure'
+}
+
+/** The facts no column holds yet, in the checklist's order. (The category is judged by categoryNotSet, not by "any value".) */
 export function missingFacts(row: Record<string, unknown>): MissingFact[] {
-  return FACT_CHECKLIST.filter((m) => !m.fields.some((f) => filled(row[f])))
+  const out = FACT_CHECKLIST.filter((m) => !m.fields.some((f) => filled(row[f])))
+  if (categoryNotSet(row) && filled(row.name) && !isPlaceholderName(row.name)) {
+    out.push({ key: 'category', label: 'Kind of trip', fields: ['category'], nudge: 'Say what kind of trip it is', accepts: 'text', hint: 'Paste a line that says what kind of trip this is (cruise, beach, cultural, family ...).' })
+  }
+  return out
 }
 
 /** The placeholder name a draft gets before the AI proposes a real one. */

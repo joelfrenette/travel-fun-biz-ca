@@ -313,3 +313,33 @@ export function agentFieldViews(row: Record<string, unknown>): AgentFieldView[] 
     return { key, label: AGENT_FIELD_LABELS[key] ?? key, filled: !!text, value: hidden || isMedia ? null : text, ...(hidden || isMedia ? { hidden: true } : {}) }
   })
 }
+
+// ─── Fix round 1 rules (pure) ───────────────────────────────────────────────────────
+
+/** An agent may write to a trip only while the trip itself is still a draft. Once it is published (or archived) every
+ * agent write is refused, whatever the submission row says. Null = allowed. */
+export function agentWriteBlock(packageStatus: unknown): string | null {
+  return packageStatus === 'draft' ? null : 'Joel already published this trip, so it cannot be changed from this page.'
+}
+
+/** Which of Joel's decisions are allowed from a submission state. Reject only before a decision; approve unless done. */
+export function decisionAllowed(state: SubmissionState, action: 'approve' | 'reject'): { ok: true } | { ok: false; reason: string } {
+  if (action === 'reject') return state === 'submitted' || state === 'in_progress' ? { ok: true } : { ok: false, reason: state === 'approved' ? 'This trip is already published, so it cannot be sent back.' : 'This trip was already sent back.' }
+  return state === 'approved' ? { ok: false, reason: 'This trip is already published.' } : { ok: true }
+}
+
+/** Rows the site writes for its own bookkeeping (automatic FAQs, own photos, the recap log). They are not things the
+ * agent added, so they never count against the agent's limits and never show on their page. */
+export function isHelperSource(fileName: string | null | undefined): boolean {
+  return /^(Automatic FAQs|Photos added|Recap log)/i.test(fileName ?? '')
+}
+
+export const GALLERY_MAX = 12
+export const PHOTOS_PER_CALL = 6
+/** Per-link daily ceiling on photos stored. */
+export const MAX_PHOTOS_PER_DAY = 20
+
+/** How many of `valid` uploads will fit: the gallery room, and the per-call limit. Zero means refuse before any work. */
+export function photoRoom(galleryCount: number, valid: number): number {
+  return Math.max(0, Math.min(valid, PHOTOS_PER_CALL, GALLERY_MAX - galleryCount))
+}

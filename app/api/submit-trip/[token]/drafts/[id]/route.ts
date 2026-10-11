@@ -12,7 +12,7 @@ export const maxDuration = 120
 type Ctx = { params: { token: string; id: string } }
 
 export async function GET(request: Request, { params }: Ctx) {
-  const g = await draftGate(request, params.token, params.id)
+  const g = await draftGate(request, params.token, params.id, { write: false })
   if (!g.ok) return NextResponse.json({ error: g.error }, { status: g.status })
   const view = await agentDraftView(g.admin, g.invite, g.sub)
   if (!view) return NextResponse.json({ error: 'That trip was not found.' }, { status: 404 })

@@ -44,7 +44,13 @@ export interface PreparedImage {
   mediaType: ImageType
 }
 
+/** One model call never carries more than this many strips or this many bytes of pictures. */
+export const SLICE_LIMITS = { maxStrips: 40, maxTotalBytes: 20 * 1024 * 1024 } as const
+export const SPLIT_MESSAGE = 'These screenshots are too big to read in one go. Split them into smaller screenshots (fewer or shorter pictures) and add them again.'
+
 export interface PreparedSet {
+  /** Set when the pictures are over the limits; nothing is sent to the model. */
+  error?: string
   images: PreparedImage[]
   /** True when any picture was cut into strips. */
   sliced: boolean
@@ -59,6 +65,19 @@ export interface PreparedSet {
  */
 export async function prepareImages(inputs: { buffer: Buffer; mediaType: ImageType }[]): Promise<PreparedSet> {
   const sharp = (await import('sharp')).default
+  const tooBig: PreparedSet = { images: [], sliced: false, report: [], error: SPLIT_MESSAGE }
+  // Limits BEFORE anything is cut or sent: total bytes in, then the number of strips the pictures would become.
+  if (inputs.reduce((n, i) => n + i.buffer.length, 0) > SLICE_LIMITS.maxTotalBytes) return tooBig
+  let planned = 0
+  for (const input of inputs) {
+    try {
+      const m = await sharp(input.buffer).metadata()
+      planned += m.width && m.height ? planStrips(scaledSize(m.width, m.height).height).length : 1
+    } catch {
+      planned += 1
+    }
+  }
+  if (planned > SLICE_LIMITS.maxStrips) return tooBig
   const images: PreparedImage[] = []
   const report: PreparedSet['report'] = []
   let sliced = false
@@ -104,5 +123,7 @@ export async function prepareImages(inputs: { buffer: Buffer; mediaType: ImageTy
       report.push({ width: w, height: h, strips: 1 })
     }
   }
+  // The strips are PNG and can be larger than the originals: the same byte ceiling applies to what is actually sent.
+  if (images.reduce((n, i) => n + i.buffer.length, 0) > SLICE_LIMITS.maxTotalBytes) return tooBig
   return { images, sliced, report }
 }
