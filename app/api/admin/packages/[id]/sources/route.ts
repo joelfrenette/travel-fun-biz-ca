@@ -16,6 +16,7 @@ import {
   MAX_IMAGES_PER_PACKAGE,
   SIGNED_URL_SECONDS,
 } from '@/lib/package-sources'
+import { photoViews } from '@/lib/supplier-photos'
 
 export const maxDuration = 60
 
@@ -35,7 +36,14 @@ export async function GET(request: Request, { params }: { params: { id: string }
   const admin = getSupabaseAdmin()
   const listed = await listSources(admin, params.id)
   if (!listed.ok) return NextResponse.json({ error: listed.error, completeness: completenessScore(pkg) }, { status: listed.status })
-  const sources = await Promise.all(listed.value.map(async (s) => ({ ...s, preview_url: await signedPreviewUrl(admin, s) })))
+  const sources = await Promise.all(
+    listed.value.map(async (s) => ({
+      ...s,
+      preview_url: await signedPreviewUrl(admin, s),
+      // Link sources only: the photos found on the page, each with whether it is in the gallery because of this source.
+      photos: s.kind === 'url' ? photoViews(s.photo_candidates, s.package_edits ?? []) : [],
+    })),
+  )
   return NextResponse.json({
     sources,
     completeness: completenessScore(pkg),
