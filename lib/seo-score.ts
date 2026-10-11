@@ -95,6 +95,8 @@ export interface SeoInput {
   h1FromTemplate?: boolean
   /** False for the compare and best-time intros, which have no headings by design. */
   expectH2?: boolean
+  /** False for pages that have no key takeaways box by design (a trip page). Default true. */
+  takeawaysApply?: boolean
   /** Allowed title length. Default 30 to 60. Page copy titles are shorter (the site name is added). */
   titleRange?: [number, number]
 }
@@ -244,7 +246,7 @@ export function seoScore(input: SeoInput): SeoResult {
   const faqCount = input.faq.filter((f) => f.q?.trim() && f.a?.trim()).length
   add('faq', Math.min(1, faqCount / 3), `The FAQ has ${pluralize(faqCount, 'question')}; use at least 3.`)
   const takeCount = input.takeaways.filter((t) => t?.trim()).length
-  add('takeaways', Math.min(1, takeCount / 3), `There ${takeCount === 1 ? 'is' : 'are'} ${pluralize(takeCount, 'key takeaway')}; use at least 3.`)
+  add('takeaways', Math.min(1, takeCount / 3), `There ${takeCount === 1 ? 'is' : 'are'} ${pluralize(takeCount, 'key takeaway')}; use at least 3.`, input.takeawaysApply !== false)
 
   // Internal links
   const links = input.internalLinks ?? internalLinkPathsOf(body)

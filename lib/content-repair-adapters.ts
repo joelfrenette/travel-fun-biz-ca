@@ -1,10 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { autoPublishBlockers, findOffenders, REPAIR_MIN_MS, type ComposedPost, type PublishGateContext } from '@/lib/blog-composer'
+import { autoPublishBlockers, cutAtWord, findOffenders, REPAIR_MIN_MS, type ComposedPost, type PublishGateContext } from '@/lib/blog-composer'
 import { slugify } from '@/lib/content-dedupe'
-import { guideBlockers, parseArticle, type ComposedGuide, type GateContext } from '@/lib/guide-composer'
+import { guideBlockers, parseArticle, removeDashes, type ComposedGuide, type GateContext } from '@/lib/guide-composer'
 import { META_DESCRIPTION_MAX, META_TITLE_MAX, OG_DESCRIPTION_MAX, OG_TITLE_MAX, pageCopyBlockers, type ComposedPageCopy, type CopyGateContext } from '@/lib/page-copy-composer'
 import type { GuideSection } from '@/lib/guides'
 import { claimRepairSlot, editsLoggable, insertEdits, recordRepairSpend, attachEdits, deleteEdits } from '@/lib/content-edits'
+import type { DbPackage } from '@/lib/packages'
+import { copyBlockers, modelCopyWriter, rowGrounding, type CopyWriter } from '@/lib/package-enrich'
+import { hasFaqs, hasFaqSource } from '@/lib/package-faqs'
+import { internalLinkPathsOf, type SeoInput } from '@/lib/seo-score'
+import { generateSlug } from '@/lib/utils'
 import {
   classifyBlockers,
   mapFields,
@@ -301,4 +306,308 @@ export async function repairComposedCopy(
   const r = await runRepair(admin, item, { maxCalls: 2, deadlineMs: opts.deadlineMs, itemKey: `page_copy:${opts.path}`, model: opts.model })
   if (!r.applied) return { value: copy, blockers: r.result.blockers, edits: [], logIds: [], calls: r.result.calls, note: r.note }
   return { value: copyFrom(copy, r.result.fields), blockers: gate(r.result.fields), edits: r.result.edits, logIds: r.logIds, calls: r.result.calls, note: r.note }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Trip pages (growth loop wave 3): score a published trip and fill in its EMPTY SEO fields
+// ---------------------------------------------------------------------------------------------------
+//
+// Everything here is pure except `writeTripMeta` (one injectable model call). The daily heal
+// (lib/content-heal-run.ts) scores every published trip with buildPackageItem, and for a trip under 70 applies ONLY the
+// fixes below, each only while its field is still empty, each logged to content_edits before it is applied.
+// A trip page is Joel's page: the fixers cannot reach a name, slug, price, date, inclusion, itinerary, link, status or
+// the description body (the one exception is a single "Related:" line added to the END of the description when the
+// description has no link to another page on this site).
+
+/** The trip fixes the heal may make. */
+export type PackageFix = 'meta' | 'og_image' | 'keywords' | 'ai_faqs' | 'links'
+
+/** The database column each fix may write. The allow-list: nothing else on a trip row is ever written by the heal. */
+export const PACKAGE_FIX_COLUMNS: Record<PackageFix, readonly string[]> = {
+  meta: ['meta_title', 'meta_description'],
+  og_image: ['og_image_url'],
+  keywords: ['keywords'],
+  ai_faqs: ['ai_faqs'],
+  links: ['full_description'],
+}
+
+/** Every column the heal may write on a trip (plus updated_at, stamped by the apply step). */
+export const PACKAGE_WRITABLE_COLUMNS: readonly string[] = Object.values(PACKAGE_FIX_COLUMNS).flat()
+
+/** Columns the heal must never write. A check asserts the allow-list above and every change it builds avoid these. */
+export const PACKAGE_FORBIDDEN_COLUMNS: readonly string[] = [
+  'id', 'name', 'slug', 'destination', 'country', 'region', 'category', 'tags',
+  'price_display', 'price_value', 'currency', 'price_includes', 'not_included',
+  'duration', 'duration_days', 'available_from', 'available_to', 'departure_dates',
+  'short_description', 'highlights', 'itinerary', 'image_url', 'gallery_urls', 'journal_entries', 'video_url',
+  'booking_url', 'more_info_url', 'status', 'supplier', 'featured', 'sort_order',
+]
+
+/** A trip that already happened gets FAQ and link fixes only: its body is frozen (Joel's recap rule). */
+export const PAST_TRIP_FIXES: readonly PackageFix[] = ['ai_faqs', 'links']
+
+/** The one place that says a trip is in the past (the page uses the same test: the trip's end date has gone by).
+ * WP14 swaps this for lib/past-trip.ts. `today` is YYYY-MM-DD. */
+export function isPastTripRow(pkg: Pick<DbPackage, 'available_to'>, today: string = new Date().toISOString().slice(0, 10)): boolean {
+  return !!pkg.available_to && pkg.available_to < today
+}
+
+type TripRow = Partial<DbPackage> & { id?: string }
+
+const trimmed = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+const LONG_DASHES = /[–—]/g
+
+/** One FAQ pair as the trip page stores it. */
+export interface TripFaq {
+  question: string
+  answer: string
+}
+
+/** The pairs a trip row holds, in a fixed key order (a jsonb round trip reorders keys; the audit log must not care). */
+export function normTripFaqs(v: unknown): TripFaq[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter((f): f is TripFaq => !!f && typeof (f as TripFaq).question === 'string' && typeof (f as TripFaq).answer === 'string')
+    .map((f) => ({ question: f.question, answer: f.answer }))
+}
+
+export interface LinkTarget {
+  path: string
+  title: string
+  dest: string | null
+  rank: number
+}
+
+export interface TripCtx {
+  /** Paths that exist on the site right now. */
+  existing: Set<string>
+  /** The trip's primary keyword from keyword_research (a row whose target_path is this page), else null (the name is used). */
+  keyword: string | null
+  /** YYYY-MM-DD, for the past-trip test. */
+  today: string
+}
+
+export interface PackageItem {
+  id: string
+  path: string
+  label: string
+  past: boolean
+  keyword: string
+  seo: SeoInput
+}
+
+const textOf = (...parts: (string | null | undefined)[]) => parts.map(trimmed).filter(Boolean).join('\n\n')
+
+/** The SEO input for one published trip, from exactly what the page shows and emits. The body is the short and the full
+ * description (plain paragraphs, no headings by design, so no H2 rule); there is no takeaways box on a trip page; the
+ * page always draws its picture's alt text from the trip name (it has no alt column), so a picture counts as having
+ * alt text; the schema types are the ones app/packages/[slug]/page.tsx emits (TouristTrip, or Article once the trip has
+ * happened, plus FAQPage when FAQs exist). The title and meta description are the trip's own fields: an empty one is
+ * the gap the heal fills, even though the page would show a fallback. */
+export function buildPackageItem(pkg: TripRow, ctx: TripCtx): PackageItem {
+  const past = isPastTripRow({ available_to: pkg.available_to ?? null }, ctx.today)
+  const full = trimmed(pkg.full_description)
+  const short = trimmed(pkg.short_description)
+  const body = textOf(short, full && full !== short ? full : '')
+  const faq = normTripFaqs(pkg.ai_faqs).filter((f) => f.question.trim() && f.answer.trim()).map((f) => ({ q: f.question, a: f.answer }))
+  const keyword = trimmed(ctx.keyword) || trimmed(pkg.name)
+  const slug = trimmed(pkg.slug)
+  const metaTitle = trimmed(pkg.meta_title)
+  const metaDescription = trimmed(pkg.meta_description)
+  const seo: SeoInput = {
+    title: metaTitle,
+    metaDescription,
+    // A trip has no separate share text: the page shares its meta title and description.
+    ogTitle: metaTitle,
+    ogDescription: metaDescription,
+    body,
+    faq,
+    takeaways: [],
+    takeawaysApply: false,
+    primaryKeyword: keyword || null,
+    targetWords: { min: 400, max: 1500 },
+    hasImageAlt: !!trimmed(pkg.image_url),
+    imageApplies: true,
+    internalLinks: internalLinkPathsOf(body),
+    existingPaths: ctx.existing,
+    jsonLdTypes: [past ? 'Article' : 'TouristTrip', ...(faq.length ? ['FAQPage'] : [])],
+    jsonLdExpected: [past ? 'Article' : 'TouristTrip', 'FAQPage'],
+    expectH2: false,
+  }
+  return { id: trimmed(pkg.id), path: `/packages/${slug}`, label: trimmed(pkg.name) || slug, past, keyword, seo }
+}
+
+// --- keywords (no model) --------------------------------------------------------------------------
+
+/** 5 to 8 search phrases built only from words already on the trip row (name, destination, country, category, duration,
+ * tags). Fewer than 5 means the row says too little, and nothing is written. Pure. */
+export function tripKeywords(pkg: TripRow): string[] {
+  const clean = (v: unknown) => trimmed(v).replace(LONG_DASHES, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  const dest = clean(pkg.destination)
+  const name = clean(pkg.name)
+  const country = clean(pkg.country)
+  const category = clean(pkg.category)
+  const duration = clean(pkg.duration)
+  const tags = Array.isArray(pkg.tags) ? pkg.tags.map(clean).filter(Boolean).slice(0, 2) : []
+  const candidates = [
+    name,
+    dest && `${dest} trip`,
+    dest && `${dest} group trip`,
+    dest && `${dest} travel package`,
+    dest && `${dest} vacation`,
+    dest && category && `${category} ${dest}`,
+    dest && country && country !== dest && `${dest} ${country}`,
+    country && `${country} group travel`,
+    dest && duration && `${dest} ${duration}`,
+    ...tags.map((t) => (dest ? `${t} ${dest}` : t)),
+  ]
+  const out: string[] = []
+  for (const c of candidates) {
+    if (!c || c.length > 60 || out.includes(c)) continue
+    out.push(c)
+    if (out.length >= 8) break
+  }
+  return out.length >= 5 ? out : []
+}
+
+// --- related links line (no model) ----------------------------------------------------------------
+
+const RELATED_PREFIX = 'Related: '
+
+/** The destination slug of a trip, the way the site index keys it. */
+export function tripDestSlug(pkg: Pick<DbPackage, 'destination'>): string {
+  return trimmed(pkg.destination) ? generateSlug(trimmed(pkg.destination)) : ''
+}
+
+const labelOf = (s: string) => s.replace(LONG_DASHES, '-').replace(/[[\]()]/g, '').replace(/\s+/g, ' ').trim()
+
+/** The "Related:" line for a trip: the destination page and up to 2 published guides about the same destination, only
+ * pages that exist. Null when there is nothing real to link to. Pure. */
+export function relatedLinksLine(pkg: TripRow, targets: LinkTarget[], existing: Set<string>): { line: string; paths: string[] } | null {
+  const dest = tripDestSlug(pkg as Pick<DbPackage, 'destination'>)
+  if (!dest) return null
+  const own = `/packages/${trimmed(pkg.slug)}`
+  const pool = targets.filter((t) => t.dest === dest && t.path !== own && existing.has(t.path) && !t.path.startsWith('/packages/') && !t.path.startsWith('/best-time-to-visit/') && labelOf(t.title).length >= 2)
+  const destination = pool.find((t) => t.rank === 0)
+  const guides = pool.filter((t) => t.rank === 1).slice(0, 2)
+  const picked = [...(destination ? [destination] : []), ...guides]
+  if (picked.length === 0) return null
+  return { line: `${RELATED_PREFIX}${picked.map((t) => `[${labelOf(t.title)}](${t.path})`).join(', ')}.`, paths: picked.map((t) => t.path) }
+}
+
+/** Adds the related line to the end of a description as its own paragraph. Idempotent and strictly conditional: a
+ * description that is empty, or that already links to a page on this site, comes back unchanged (null). */
+export function appendRelatedLine(fullDescription: string | null | undefined, line: string): string | null {
+  const full = typeof fullDescription === 'string' ? fullDescription : ''
+  if (!full.trim()) return null
+  if (internalLinkPathsOf(full).length > 0) return null
+  if (full.includes(line)) return null
+  return `${full.replace(/\s+$/, '')}\n\n${line}`
+}
+
+// --- meta title and description (one grounded model call) -------------------------------------------
+
+export interface TripMetaResult {
+  meta_title?: string
+  meta_description?: string
+  /** True when a model call was made. */
+  called: boolean
+  /** True when the model answered but nothing passed the gate (the heal then waits 7 days). */
+  answeredEmpty: boolean
+  error?: string
+}
+
+/** Writes an empty meta title and/or description from the trip row's own text. ONE model call (the same writer the
+ * trip intake uses), then the same mechanical gate as the guide pages (no number or name that is not on the row, no
+ * superlative, no claim about the agency, no dash, no web address) plus length rules. A field that fails is dropped,
+ * never repaired by guessing. `write` is injectable so a check can run it without a network. */
+export async function writeTripMeta(pkg: TripRow, want: { title: boolean; description: boolean }, write: CopyWriter = modelCopyWriter): Promise<TripMetaResult> {
+  const wanted = [...(want.title ? (['meta_title'] as const) : []), ...(want.description ? (['meta_description'] as const) : [])]
+  if (wanted.length === 0) return { called: false, answeredEmpty: false }
+  const transcript = textOf(rowGrounding(pkg), trimmed(pkg.full_description))
+  if (transcript.length < 40) return { called: false, answeredEmpty: false, error: 'the trip has too little text to write meta text from' }
+  const w = await write({ pkg, transcript, wanted: [...wanted] })
+  if (!w.raw) return { called: true, answeredEmpty: false, error: w.error ?? 'the meta text could not be written' }
+  const grounding = `${transcript}\n${trimmed(pkg.name)}\n${trimmed(pkg.destination)}`
+  const out: TripMetaResult = { called: true, answeredEmpty: false }
+  for (const field of wanted) {
+    const v = w.raw[field]
+    if (typeof v !== 'string' || !v.trim()) continue
+    const cleaned = removeDashes(v.trim()).replace(/\s+/g, ' ')
+    const max = field === 'meta_title' ? 60 : 155
+    const text = cleaned.length > max ? cutAtWord(cleaned, max) : cleaned
+    const [min] = field === 'meta_title' ? [20] : [70]
+    if (text.length < min || text.length > max) continue
+    if (copyBlockers(text, { grounding, field }).length > 0) continue
+    out[field] = text
+  }
+  out.answeredEmpty = !out.meta_title && !out.meta_description
+  return out
+}
+
+// --- the plan: which changes a trip gets ------------------------------------------------------------
+
+/** One change to one trip field, shaped like a content_edits row (before and after are what the audit log stores). */
+export interface PackageChange {
+  fix: PackageFix
+  /** The audit log field. */
+  field: 'meta_title' | 'meta_description' | 'og_image' | 'keywords' | 'ai_faqs' | 'links'
+  /** The database column this writes and its new value. */
+  column: string
+  value: unknown
+  before: string
+  after: string
+  method: 'fixer' | 'links' | 'generate'
+  reason: string
+}
+
+export interface GeneratedTrip {
+  meta_title?: string
+  meta_description?: string
+  faqs?: TripFaq[]
+}
+
+/** What a trip would be asked to generate (a model call each), before any call is made. Pure. */
+export function tripGenerationWanted(pkg: TripRow, past: boolean): { metaTitle: boolean; metaDescription: boolean; faq: boolean } {
+  const hasText = !!(trimmed(pkg.full_description) || trimmed(pkg.short_description))
+  return {
+    metaTitle: !past && hasText && !trimmed(pkg.meta_title),
+    metaDescription: !past && hasText && !trimmed(pkg.meta_description),
+    faq: !hasFaqs(pkg.ai_faqs) && hasFaqSource(pkg as DbPackage),
+  }
+}
+
+/** Every change a trip gets, from the row as it is NOW: each only while its field is still empty, and only the fixes a
+ * past trip is allowed. `generated` is what the model calls returned (empty for the no-model plan). `skip` holds audit
+ * fields an admin reverted (they stay reverted). Pure. */
+export function assemblePackageChanges(pkg: TripRow, ctx: { past: boolean; existing: Set<string>; targets: LinkTarget[]; skip?: Set<string> }, generated: GeneratedTrip = {}): PackageChange[] {
+  const allowed = (fix: PackageFix) => !ctx.past || PAST_TRIP_FIXES.includes(fix)
+  const skipped = (f: string) => ctx.skip?.has(f) ?? false
+  const out: PackageChange[] = []
+
+  if (allowed('meta')) {
+    if (generated.meta_title && !trimmed(pkg.meta_title) && !skipped('meta_title')) {
+      out.push({ fix: 'meta', field: 'meta_title', column: 'meta_title', value: generated.meta_title, before: '', after: generated.meta_title, method: 'generate', reason: 'meta title was empty, written from the trip text only' })
+    }
+    if (generated.meta_description && !trimmed(pkg.meta_description) && !skipped('meta_description')) {
+      out.push({ fix: 'meta', field: 'meta_description', column: 'meta_description', value: generated.meta_description, before: '', after: generated.meta_description, method: 'generate', reason: 'meta description was empty, written from the trip text only' })
+    }
+  }
+  if (allowed('og_image') && !trimmed(pkg.og_image_url) && trimmed(pkg.image_url) && !skipped('og_image')) {
+    out.push({ fix: 'og_image', field: 'og_image', column: 'og_image_url', value: trimmed(pkg.image_url), before: '', after: trimmed(pkg.image_url), method: 'fixer', reason: 'share picture was empty, set to the trip cover picture' })
+  }
+  if (allowed('keywords') && !(Array.isArray(pkg.keywords) && pkg.keywords.some((k) => trimmed(k))) && !skipped('keywords')) {
+    const kws = tripKeywords(pkg)
+    if (kws.length) out.push({ fix: 'keywords', field: 'keywords', column: 'keywords', value: kws, before: JSON.stringify([]), after: JSON.stringify(kws), method: 'fixer', reason: 'keywords were empty, built from the trip name, place and type' })
+  }
+  if (allowed('ai_faqs') && generated.faqs && generated.faqs.length && !hasFaqs(pkg.ai_faqs) && !skipped('ai_faqs')) {
+    const faqs = normTripFaqs(generated.faqs)
+    out.push({ fix: 'ai_faqs', field: 'ai_faqs', column: 'ai_faqs', value: faqs, before: JSON.stringify(normTripFaqs(pkg.ai_faqs)), after: JSON.stringify(faqs), method: 'generate', reason: 'FAQ was empty, written from the trip text only' })
+  }
+  if (allowed('links') && !skipped('links')) {
+    const related = relatedLinksLine(pkg, ctx.targets, ctx.existing)
+    const next = related ? appendRelatedLine(pkg.full_description, related.line) : null
+    if (next !== null) out.push({ fix: 'links', field: 'links', column: 'full_description', value: next, before: trimmed(pkg.full_description) ? (pkg.full_description as string) : '', after: next, method: 'links', reason: 'the description had no link to another page on this site; added one line linking the destination page and guides' })
+  }
+  return out
 }

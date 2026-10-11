@@ -169,12 +169,33 @@ export async function countEditsSince(admin: SupabaseClient, sinceIso: string): 
 
 type Row = Record<string, unknown>
 
-const TABLE: Record<ContentType, string> = { post: 'posts', guide: 'guides', page_copy: 'page_copy' }
+const TABLE: Record<ContentType, string> = { post: 'posts', guide: 'guides', page_copy: 'page_copy', package: 'travel_packages' }
 
 const asString = (v: unknown) => (typeof v === 'string' ? v : '')
 
+/** A trip's FAQ list in a fixed key order, as JSON (a jsonb round trip reorders keys, so the audit log never relies on it). */
+function tripFaqJson(v: unknown): string {
+  const list = Array.isArray(v) ? v : []
+  return JSON.stringify(list.filter((f) => f && typeof f.question === 'string' && typeof f.answer === 'string').map((f) => ({ question: f.question, answer: f.answer })))
+}
+
 /** What a stored row holds for one audit field, in the same form the audit log stores it. */
 export function storedValue(type: ContentType, row: Row, field: EditField): string {
+  if (type === 'package') {
+    switch (field) {
+      case 'links':
+      case 'body':
+        return asString(row.full_description)
+      case 'og_image':
+        return asString(row.og_image_url)
+      case 'keywords':
+        return JSON.stringify(Array.isArray(row.keywords) ? row.keywords : [])
+      case 'ai_faqs':
+        return tripFaqJson(row.ai_faqs)
+      default:
+        return asString(row[field])
+    }
+  }
   switch (field) {
     case 'body':
     case 'links':
@@ -190,6 +211,29 @@ export function storedValue(type: ContentType, row: Row, field: EditField): stri
 
 /** The columns to write to put `text` (an audit field value) back into a row. Null when the text cannot be restored. */
 export function columnsFor(type: ContentType, field: EditField, text: string): Row | null {
+  if (type === 'package') {
+    // A trip edit puts back exactly the one column it changed, and only those the trip heal can write.
+    switch (field) {
+      case 'meta_title':
+      case 'meta_description':
+        return { [field]: text.trim() ? text : null }
+      case 'og_image':
+        return { og_image_url: text.trim() ? text : null }
+      case 'links':
+        return { full_description: text.trim() ? text : null }
+      case 'keywords':
+      case 'ai_faqs':
+        try {
+          const value = JSON.parse(text)
+          if (!Array.isArray(value)) return null
+          return field === 'keywords' ? { keywords: value } : { ai_faqs: value.length ? value : null }
+        } catch {
+          return null
+        }
+      default:
+        return null
+    }
+  }
   switch (field) {
     case 'body':
     case 'links': {
@@ -224,6 +268,12 @@ async function findRow(admin: SupabaseClient, type: ContentType, id: string | nu
   if (id) {
     const { data } = await admin.from(table).select('*').eq('id', id).maybeSingle()
     if (data) return data as Row
+  }
+  if (type === 'package') {
+    const slug = /^\/packages\/([^/]+)$/.exec(path)?.[1]
+    if (!slug) return null
+    const { data } = await admin.from('travel_packages').select('*').eq('slug', slug).maybeSingle()
+    return (data as Row | null) ?? null
   }
   if (type === 'post') {
     const slug = /^\/blog\/([^/]+)$/.exec(path)?.[1]
