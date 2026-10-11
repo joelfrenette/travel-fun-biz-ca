@@ -1,4 +1,6 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, type AnthropicContent } from '@/lib/ai-verify'
+import { collectPhotoCandidates } from '@/lib/supplier-photos'
+import type { PhotoCandidate } from '@/lib/package-sources'
 
 // AI package-draft builder (roadmap use case 09dd2acd, Joel's idea 2026-09-26): an agent pastes
 // whatever source material they have (a supplier email, a flyer's text, a page's copy, a link)
@@ -484,7 +486,10 @@ export function htmlToText(html: string): string {
     .trim()
 }
 
-export type FetchSourceResult = { text: string; error: null } | { text: null; error: ExtractError }
+/** `photos` (candidate pictures on the page, WP12) and `pageUrl` (the address after redirects) come back with the
+ * text, collected from the same fetch so a link source costs no second request; callers that only want the text
+ * ignore them. */
+export type FetchSourceResult = { text: string; photos: PhotoCandidate[]; pageUrl: string; error: null } | { text: null; error: ExtractError }
 
 /** Fetch a public page as text for the extractor. Plain fetch first (free); falls back to
  * ScrapingBee when it's configured and the plain fetch was blocked or came back empty. */
@@ -499,7 +504,10 @@ export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
     return { text: null, error: { status: 400, message: 'Only public http(s) links can be fetched.' } }
   }
 
-  const plain = await fetchHtml(parsed.toString())
+  const plainFetch = await fetchHtmlWithUrl(parsed.toString())
+  const plain = plainFetch?.html ?? null
+  let html = plain ?? ''
+  let pageUrl = plainFetch?.finalUrl ?? parsed.toString()
   let text = plain ? htmlToText(plain) : ''
   if (text.length < 200 && process.env.SCRAPINGBEE_API_KEY) {
     const bee = new URL('https://app.scrapingbee.com/api/v1/')
@@ -508,7 +516,11 @@ export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
     bee.searchParams.set('render_js', 'true')
     bee.searchParams.set('wait', '2000')
     const rendered = await fetchHtml(bee.toString(), 45_000)
-    if (rendered) text = htmlToText(rendered)
+    if (rendered) {
+      text = htmlToText(rendered)
+      html = rendered
+      pageUrl = parsed.toString()
+    }
   }
   if (text.length < 200) {
     return {
@@ -521,10 +533,14 @@ export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
       },
     }
   }
-  return { text: text.slice(0, MAX_SOURCE_CHARS), error: null }
+  return { text: text.slice(0, MAX_SOURCE_CHARS), photos: collectPhotoCandidates(html, pageUrl, parsed.toString()), pageUrl, error: null }
 }
 
 async function fetchHtml(url: string, timeoutMs = 15_000): Promise<string | null> {
+  return (await fetchHtmlWithUrl(url, timeoutMs))?.html ?? null
+}
+
+async function fetchHtmlWithUrl(url: string, timeoutMs = 15_000): Promise<{ html: string; finalUrl: string } | null> {
   try {
     const res = await fetch(url, {
       headers: {
@@ -539,7 +555,7 @@ async function fetchHtml(url: string, timeoutMs = 15_000): Promise<string | null
     const type = res.headers.get('content-type') || ''
     if (!/html|xml|text\/plain/i.test(type)) return null
     const html = await res.text()
-    return html.length > 2_000_000 ? html.slice(0, 2_000_000) : html
+    return { html: html.length > 2_000_000 ? html.slice(0, 2_000_000) : html, finalUrl: res.url || url }
   } catch {
     return null
   }
