@@ -11,14 +11,16 @@ import { BookNowButton } from "@/components/book-now-button"
 import { StickyCta } from "@/components/sticky-cta"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { getPackages, getPublishedPackageBySlug, getNextUpcomingPackageInCategory, type DbPackage } from "@/lib/packages"
+import { getPackages, getPublishedPackageBySlug, getNextTripForRecap, type DbPackage } from "@/lib/packages"
+import { isPastTrip as isPastTripRow, happenedLabel, hasRecap } from "@/lib/past-trip"
+import { TripAlertForm } from "@/components/trip-alert-form"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
-import { jsonLdHtml } from "@/lib/jsonld"
+import { jsonLdHtml, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
 import { TripTestimonials } from "@/components/trip-testimonials"
 import { TripGallery } from "@/components/trip-gallery"
@@ -62,13 +64,17 @@ export default async function PackagePage({ params }: Props) {
   if (!pkg) notFound()
 
   const { language, currency } = getVisitorPreferences()
-  const isPastTrip = !!pkg.available_to && pkg.available_to < new Date().toISOString().slice(0, 10)
+  // One rule for "past trip" (lib/past-trip.ts): recap_mode auto / recap / live. A past trip is never unpublished.
+  const isPastTrip = isPastTripRow(pkg)
   const [allPackages, usdToTargetRate, tripTestimonials, nextTrip] = await Promise.all([
     getPackages(),
     getUsdToRate(currency),
     getPublishedTestimonialsForPackage(pkg.id),
-    isPastTrip ? getNextUpcomingPackageInCategory(pkg.category, pkg.id) : Promise.resolve(null),
+    isPastTrip ? getNextTripForRecap(pkg) : Promise.resolve(null),
   ])
+  const happened = isPastTrip ? happenedLabel(pkg.available_from, pkg.available_to) : null
+  const recapText = isPastTrip && hasRecap(pkg) ? (pkg.recap_summary as string).trim() : ""
+  const recapHighlights = isPastTrip && recapText ? (pkg.recap_highlights ?? []).filter((h) => typeof h === "string" && h.trim()) : []
 
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
   const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate)
@@ -133,6 +139,28 @@ export default async function PackagePage({ params }: Props) {
             : {}),
         },
       ]
+  if (isPastTrip) {
+    jsonLd.push(buildBreadcrumbJsonLd([{ name: "Home", url: absoluteUrl("/") }, { name: "Trips", url: absoluteUrl("/packages") }, { name: pkg.name, url: pageUrl }]))
+    const start = pkg.available_from ?? pkg.available_to
+    if (start) {
+      // The trip happened, so the Event keeps its real past dates; the destination is the only place named.
+      jsonLd.push({
+        "@context": "https://schema.org",
+        "@type": "Event",
+        name: pkg.name,
+        description: pkg.short_description || description,
+        url: pageUrl,
+        image,
+        startDate: start,
+        ...(pkg.available_to ? { endDate: pkg.available_to } : {}),
+        eventStatus: "https://schema.org/EventScheduled",
+        eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+        location: { "@type": "Place", name: pkg.destination },
+        organizer: { "@type": "Organization", name: SITE_NAME, url: absoluteUrl("/") },
+        ...(nextTrip ? { about: { "@type": "TouristTrip", name: nextTrip.name, url: absoluteUrl(`/packages/${nextTrip.slug}`) } } : {}),
+      })
+    }
+  }
   if (faqs.length > 0) {
     jsonLd.push({
       "@context": "https://schema.org",
@@ -197,6 +225,34 @@ export default async function PackagePage({ params }: Props) {
         {/* Details */}
         <section className="container mx-auto grid gap-10 px-4 py-12 lg:grid-cols-[1fr_340px]">
           <div className="space-y-10">
+            {isPastTrip && (happened || recapText || recapHighlights.length > 0) && (
+              <div className="space-y-5" data-testid="trip-recap">
+                {happened && <p className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground"><Calendar className="h-4 w-4" />{translate(language, "This trip happened")} {happened}</p>}
+                {recapText && (
+                  <div>
+                    <h2 className="mb-3 text-2xl font-bold">{translate(language, "How the trip went")}</h2>
+                    <div className="space-y-4 text-pretty leading-relaxed text-muted-foreground">
+                      {recapText.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
+                    </div>
+                  </div>
+                )}
+                {recapHighlights.length > 0 && (
+                  <div>
+                    <h2 className="mb-3 text-xl font-bold">{translate(language, "Recap highlights")}</h2>
+                    <ul className="grid gap-2 sm:grid-cols-2">
+                      {recapHighlights.map((h) => <li key={h} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />{h}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            {isPastTrip && pkg.gallery_urls?.length > 0 && (
+              <div>
+                <h2 className="mb-4 text-2xl font-bold">{translate(language, "Trip Photos")}</h2>
+                <TripGallery images={pkg.gallery_urls} alt={pkg.name} />
+              </div>
+            )}
+            {isPastTrip && pkg.journal_entries?.length > 0 && <TripJournal entries={pkg.journal_entries} language={language} />}
             {description && (
               <div>
                 <h2 className="mb-3 text-2xl font-bold">{translate(language, "About this trip")}</h2>
@@ -282,16 +338,34 @@ export default async function PackagePage({ params }: Props) {
           </section>
         )}
 
-        {pkg.gallery_urls?.length > 0 && (
+        {!isPastTrip && pkg.gallery_urls?.length > 0 && (
           <section className="container mx-auto px-4 pb-12">
             <h2 className="mb-4 text-2xl font-bold">{translate(language, "Trip Photos")}</h2>
             <TripGallery images={pkg.gallery_urls} alt={pkg.name} />
           </section>
         )}
 
-        {pkg.journal_entries?.length > 0 && (
+        {!isPastTrip && pkg.journal_entries?.length > 0 && (
           <section className="container mx-auto px-4 pb-12">
             <TripJournal entries={pkg.journal_entries} language={language} />
+          </section>
+        )}
+
+        {/* Past trip: "Interested in the next one?" - the alert signup and the link to the next trip. */}
+        {isPastTrip && (
+          <section id="next-trip-alert" className="container mx-auto px-4 pb-12">
+            <div className="mx-auto max-w-3xl rounded-xl border bg-card p-6 text-center shadow-sm sm:p-8">
+              <h2 className="text-balance text-2xl font-bold text-foreground">{translate(language, "Interested in the next one?")}</h2>
+              <p className="mx-auto mt-2 mb-5 max-w-xl text-pretty text-muted-foreground">{translate(language, "Leave your email and we will let you know when the next trip like this one opens.")}</p>
+              <TripAlertForm slug={pkg.slug} language={language} />
+              {nextTrip && (
+                <div className="mt-6 border-t pt-5">
+                  <Button asChild size="lg" variant="outline" className="font-bold uppercase">
+                    <a href={`/packages/${nextTrip.slug}`}>{translate(language, "Join the Next Trip")}: {nextTrip.name}</a>
+                  </Button>
+                </div>
+              )}
+            </div>
           </section>
         )}
 
