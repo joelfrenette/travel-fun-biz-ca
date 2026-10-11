@@ -370,3 +370,49 @@ best-time draft; the first guide social post's caption text on each network; Red
 **Next (WP10, in build):** self-healing content: reword repairable held phrases and publish, daily SEO score with
 cheap fixes, `content_edits` audit trail with Revert, "Edits made" in the brief; named-property guides may
 auto-publish after a clean repaired gate (Joel). Wave 3 queued: trip pages SEO pass.
+
+## Growth loop, evening: self-healing, trip detail intake, automatic FAQs and photos, email look (2026-10-10 to 11)
+
+Same loop (Sonnet builders + critical Sonnet QA, Fable 5.1 orchestrator merging). Merged to main: WP10 self-healing
+content (migration 0033), WP11 trip detail intake (0034), WP12 automatic trip FAQs + auto-picked supplier photos
+(0035), plus the email fixes. Check scripts now 10 (`check-content-repair`, `check-package-completeness` added), all
+green on main.
+
+**Shipped:**
+- WP10 Self-healing: every gate blocker is classified REPAIRABLE or HARD as data (`lib/content-repair.ts`
+  BLOCKER_RULES, drift-tested against every `blockers.push` in the three composers). Repairable phrases are reworded
+  with a subset guard (a rewrite may only reuse the sentence's own words plus a neutral allowlist, so it can never add
+  a fact) or deleted deterministically; ungrounded price/date sentences are deleted (Joel's call), never reworded;
+  HARD (experience claims, named people, external addresses in text, refusals, too short) always stays a draft for a
+  person. Named-property guides may now auto-publish after a clean repaired gate (Joel). Daily `heal-content` step
+  (last in the pass): SEO score 0-100 on every published post/guide/page copy (no AI), cheap fixes on pages under 70
+  (dashes, meta/OG lengths, dead links, a related link, generated MISSING meta/FAQ/takeaways from the body only),
+  never a body rewrite for score; 6 pages/day cap, 1 call per page per day, 7-day no-generation marker. Every edit in
+  `content_edits` with before/after and Undo (/admin/content-edits); "Edits made" section in the 7 am brief;
+  Self-healing card on Autopilot. First run: 4 pages scored (avg 79), 2 old posts gained FAQ, takeaways, OG titles.
+- WP11 Trip detail intake: all 9 live trips were thin (no description, highlights, itinerary, inclusions, FAQ, gallery).
+  Admin drops a screenshot, PDF, link or text per trip (`package_sources`, private bucket); one extraction call returns
+  a verbatim transcript and facts grounded against it; facts auto-apply only when the field is empty AND grounded
+  (prices only inside the price text, dates only with month+day+year together, counts only next to a unit word,
+  currency must agree); screenshot/PDF prices, dates, durations, group sizes and links are click-only (a model can
+  hallucinate its own transcript); copy fields generated and gated; audit-first apply with Revert; thin-page nudges
+  (Needs attention, brief, Packages list sorted thin first); weekly supplier source watch flags cancelled/sold
+  out/changed dates (report only); itinerary and gallery now render on trip pages.
+- WP12: FAQs generated automatically once a trip has a 150+ word description (grounded in the row only, claim-noun
+  check for "included" statements, 0.70 word-overlap, policy topics blocked unless the row mentions them, durable
+  "FAQs reverted" memory); supplier photos auto-picked from a link source (same registrable domain, shared-hosting
+  tenants separated, hop-safe manual redirects with DNS checks, 8MB stream cap, magic bytes, real pixel width 800+,
+  up to 6, cover set when empty, one revertable edit per photo).
+- Emails: the needs-attention alert now uses the brief's look; brief header reads TRAVELFUNBIZ.CA; "Email me a test
+  alert" button on Autopilot (ignores and does not move the 6-hour throttle).
+- Keyword engine: plan prompt and validator reject superlatives; volume lookup skips phrases Google Ads rejects.
+
+**Live actions (Joel's picks):** 6 engine ideas approved; Montego Bay guide posted to 4 networks; Banff hotel guide
+published after 2 edits; keyword budget $5/week; Reddit keys added in Vercel; `guides_publish_mode=publish`;
+Southern Italy trip left live while Joel checks with Collette (supplier page says Tour Cancelled).
+
+**Found and noted:** the 8:30 PM alert Joel saw was Claude's LOCAL engine run record (stale local Google key); the
+Vercel key is fine (brief shows real Search Console data); record cleared.
+
+**Unverified:** every new admin screen in a browser (admin login); the first real screenshot drop; the first
+auto-picked photos; the Outlook rendering of the new alert; the first automatic FAQ on a trip.
