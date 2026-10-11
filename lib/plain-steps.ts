@@ -22,6 +22,9 @@ export interface PlainAction {
  * lib/issues.ts, because the Autopilot page (a client component) imports this file and must not pull in the server code. */
 export const HARD_WAITING_ISSUE_ID = 'system:content-hard-waiting'
 
+/** The Needs attention item for parts of a "Promote this package" click that did not work (WP15). Same reason as above. */
+export const PROMOTION_ISSUE_ID = 'system:promotion-failing'
+
 /** The page anchor of one issue on the Content Autopilot page, so an email can link straight to it. */
 export const issueAnchor = (id: string) => `issue-${id.replace(/[^a-z0-9]+/gi, '-')}`
 
@@ -119,6 +122,26 @@ export function plainAction(i: Issue): PlainAction {
       title: i.title,
       why: 'A Compare or Best time to visit page has written text that mentions a trip you no longer list. The site hides that text for now, so visitors never see the old trip.',
       steps: ['Open the Content Autopilot page with the link below.', 'Read the grey line. It lists the page addresses.', 'In the page copy card, find each of those addresses and click "Delete" on its row.', 'Click "Write one now" so a new intro is written from the trips you list today.', 'If you have turned the trip back on, you can skip this: the problem clears itself within a day.'],
+      url: autopilot(i.id),
+      urlLabel: 'Open this problem',
+      paste,
+    }
+  }
+  if (i.id === PROMOTION_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'You pressed "Promote this package" and one part of it did not work: the search phrases, the blog ideas, the guide pages or the social post. The parts that did work are already queued. Nothing was posted by mistake.',
+      steps: [
+        'Open the Content Autopilot page with the link below.',
+        'Read the grey line. It says which trip, and which part failed and why.',
+        'If it says the AI key is missing or wrong, open Vercel, then your project, then Settings, then Environment Variables, and check ANTHROPIC_API_KEY. Redeploy after changing it.',
+        'If it says a database update is missing, ask Claude for the contents of supabase/migrations/0039_promotions.sql, paste it into the Supabase SQL editor, and click Run.',
+        'Open the trip in Packages and find the "Promote this package" card.',
+        'If only the blog ideas failed, click "Retry the blog ideas" on that card. The other parts are already queued, so do NOT press "Promote this package" again (it is allowed once every 30 days).',
+        'If nothing at all worked, the 30 days were not used up, so click "Promote this package" again.',
+        'Come back and click "Dismiss" on this problem.',
+      ],
       url: autopilot(i.id),
       urlLabel: 'Open this problem',
       paste,

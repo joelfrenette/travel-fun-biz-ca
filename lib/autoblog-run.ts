@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost } from '@/lib/posts'
-import { dueApprovedTopics, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
+import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters'
@@ -225,7 +225,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
       await setTopicStatus(admin, row.id, 'used', {})
       continue
     }
-    topic = { angle: row.angle, keyword: row.keyword, why: row.why, source: row.source, keywords: keywordSetOf(row) }
+    topic = { angle: row.angle, keyword: row.keyword, why: row.why, source: row.source, keywords: keywordSetOf(row), package_slug: row.package_slug ?? null }
     queueRowId = row.id
     break
   }
@@ -247,9 +247,18 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   if (groundingPackage?.slug) {
     const skipKey = `autoblog_dupe_skips:${new Date().toISOString().slice(0, 10)}`
     const skips = Number((await getSetting(admin, skipKey)) ?? 0) || 0
-    const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
+    // An idea made by Promote this package (WP15) is allowed one post per package per 7 days; every other topic keeps 30.
+    const promoted = !!topic.package_slug && !!queueRowId
+    const wall = packageWall(promoted)
+    const since = new Date(Date.now() - wall.days * 86_400_000).toISOString()
     const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${groundingPackage.slug}%`)
     if (error) return { ran: false, mode, note: 'could not check whether this package was already covered, so nothing was written' }
+    if (count && count > 0 && wall.reschedule && queueRowId) {
+      // A promoted idea is never thrown away by the wall: it is moved a week on and stays approved. It does not count
+      // towards the day's repeat limit either.
+      await setTopicStatus(admin, queueRowId, 'approved', { scheduled_for: wall.rescheduleTo })
+      return { ran: false, mode, note: `a post about "${groundingPackage.name}" was written in the last ${wall.days} days, so the promoted idea was moved to ${wall.rescheduleTo}` }
+    }
     if (count && count > 0) {
       if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', {})
       if (keywordLed) await markKeywordSkipped(admin, topic.keyword, 'its package already has a recent post')

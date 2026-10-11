@@ -13,6 +13,7 @@ import { briefHtml } from '@/lib/brief-html'
 import { getGhlAccounts } from '@/lib/social-provider'
 import { styleScores } from '@/lib/content-performance'
 import { styleKeyLabel, SCORE_BASIS, NO_CLICKS_TEXT } from '@/lib/style-choice'
+import { promotionBriefLine } from '@/lib/promotion'
 
 // The daily brief: one email at 7 am (site time) from "Aiva from TravelFunBiz.ca" with what happened
 // yesterday, what is planned today, and the few things only a person can do, each with the exact link
@@ -201,6 +202,10 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
     if (waitingVideos) today.push(`${waitingVideos} video${waitingVideos === 1 ? ' is' : 's are'} waiting for a free weekly slot.`)
     today.push('Every 15 minutes the site checks for anything due: carousels, videos, posting.')
   }
+
+  // Trips being promoted right now (WP15): one line, left out when there are none.
+  const promoting = await promotionBriefLine(admin)
+  if (promoting) today.push(promoting)
 
   // Fixed by itself
   const healed = (await readHealLog(admin)).filter((h) => h.at >= start).map((h) => h.text)

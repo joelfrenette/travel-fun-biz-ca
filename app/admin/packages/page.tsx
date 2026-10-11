@@ -34,7 +34,7 @@ import {
   Plus, Pencil, Trash2, Eye, EyeOff, Star, Sparkles,
   ChevronRight, Check, Loader2, Upload, Globe, MessageSquare,
   ArrowUpDown, ArrowUp, ArrowDown, Filter, MoreHorizontal,
-  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download, ExternalLink, RefreshCw, ClipboardPaste, AlertTriangle
+  FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download, ExternalLink, RefreshCw, ClipboardPaste, AlertTriangle, Megaphone
 } from "lucide-react"
 import type { DbPackage } from "@/lib/packages"
 import type { ScrapedPackage } from "@/types/scrape"
@@ -44,6 +44,7 @@ import { parsePackagesCsv, csvTemplate, type CsvRow } from "@/lib/import-csv"
 import { completenessScore } from "@/lib/package-completeness"
 import { PackageSourcesPanel } from "@/components/admin/package-sources-panel"
 import { PastTripPanel } from "@/components/admin/past-trip-panel"
+import { PromotePanel } from "@/components/admin/promote-panel"
 import { PackageWizard } from "@/components/package-wizard"
 import { adminApi } from "@/components/package-wizard-api"
 import { AgentInvitesCard } from "@/components/admin/agent-invites-card"
@@ -1584,6 +1585,7 @@ function PackageTable({
                     <DropdownMenuItem disabled={pkg.status !== "published"} onClick={() => window.open(`/packages/${pkg.slug}`, "_blank", "noopener,noreferrer")}>
                       <ExternalLink className="mr-2 h-4 w-4" />{pkg.status === "published" ? "View page" : "View page (publish first)"}
                     </DropdownMenuItem>
+                    <DropdownMenuItem disabled={pkg.status !== "published"} onClick={() => { onEdit(pkg); setTimeout(() => document.getElementById("promote-panel")?.scrollIntoView({ behavior: "smooth" }), 700) }}><Megaphone className="mr-2 h-4 w-4" />{pkg.status === "published" ? "Promote" : "Promote (publish first)"}</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onToggleStatus(pkg)}>{pkg.status === "published" ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}{pkg.status === "published" ? "Unpublish" : "Publish"}</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onToggleFeatured(pkg)}><Star className="mr-2 h-4 w-4" />{pkg.featured ? "Unfeature" : "Feature"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -1834,7 +1836,7 @@ export default function PackagesAdminPage() {
   }
   if (view === "interview") return <div className="p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
   if (view === "paste") return <div className="p-6"><PasteSourceForm onDraft={(data) => { setSeedData(data as Partial<DbPackage>); setEditingPackage(null); setView("manual") }} onCancel={() => setView("list")} /></div>
-  if (view === "manual") return <div className="p-6">{editingPackage && <div id="add-details"><PackageSourcesPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} /></div>}{editingPackage && <PastTripPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} />}<ManualForm key={formKey} onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>
+  if (view === "manual") return <div className="p-6">{editingPackage && <div id="add-details"><PackageSourcesPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} /></div>}{editingPackage && <PastTripPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} />}{editingPackage && <PromotePanel packageId={editingPackage.id} />}<ManualForm key={formKey} onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>
   if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
   if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
 

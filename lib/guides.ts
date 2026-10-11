@@ -320,6 +320,57 @@ export interface GuideCandidate {
   parent_slug: string | null
   /** destination = a published package goes there; package = a package name looks like this property; seed = curated name. */
   origin: 'destination' | 'package' | 'seed'
+  /** True while "Promote this package" has put this guide at the front of the line (30 days). A priority guide is
+   * picked before the normal rotation, even when its origin is 'package'. It still goes through the quality gate. */
+  priority?: boolean
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Priority list (growth loop WP15): guides that a promoted package wants written first
+// ---------------------------------------------------------------------------------------------------
+
+/** `app_settings.guide_priority`: JSON array of PriorityGuide. */
+export const GUIDE_PRIORITY_KEY = 'guide_priority'
+/** How long a promoted guide stays at the front of the line. */
+export const GUIDE_PRIORITY_DAYS = 30
+
+export interface PriorityGuide {
+  kind: GuideKind
+  slug: string
+  name: string
+  parent_slug: string | null
+  /** ISO time after which the entry is ignored. */
+  until: string
+  /** The package this was added for. */
+  package_slug: string
+}
+
+/** The entries of a stored priority list that are well formed and not yet expired. Anything else is dropped, so a
+ * bad value in the setting can never break the guides step. Pure. */
+export function parseGuidePriority(raw: string | null | undefined, now: Date = new Date()): PriorityGuide[] {
+  if (!raw) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+  const out: PriorityGuide[] = []
+  for (const e of parsed as Record<string, unknown>[]) {
+    if (!e || typeof e !== 'object') continue
+    if (!isGuideKind(e.kind) || typeof e.slug !== 'string' || !e.slug || typeof e.name !== 'string' || !e.name) continue
+    if (typeof e.until !== 'string' || !(Date.parse(e.until) > now.getTime())) continue
+    out.push({
+      kind: e.kind,
+      slug: e.slug,
+      name: e.name,
+      parent_slug: typeof e.parent_slug === 'string' && e.parent_slug ? e.parent_slug : null,
+      until: e.until,
+      package_slug: typeof e.package_slug === 'string' ? e.package_slug : '',
+    })
+  }
+  return out
 }
 
 /** Which kind of property a package's name looks like, or null when it looks like an ordinary trip. Only the
@@ -391,6 +442,22 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
     const seedWords = seedSlug.split('-').join(' ')
     if (seed.kind === 'destinations' && realDestinations.some((r) => r === seedSlug || ` ${r.split('-').join(' ')} `.includes(` ${seedWords} `))) continue
     add({ kind: seed.kind, name: seed.name, slug: seedSlug, parent_slug: null, origin: 'seed' })
+  }
+
+  // Promoted packages (WP15): their guides go to the front. A guide that is already written is not a candidate
+  // (it is in `existing`); one that is already in the list is only marked; a new one is added. Never throws.
+  try {
+    const { data } = await admin.from('app_settings').select('value').eq('key', GUIDE_PRIORITY_KEY).maybeSingle()
+    const written = new Set(((existing ?? []) as { kind: string; slug: string }[]).map((g) => `${g.kind}:${g.slug}`))
+    for (const p of parseGuidePriority((data as { value: string | null } | null)?.value)) {
+      const key = `${p.kind}:${p.slug}`
+      if (written.has(key)) continue
+      const found = out.find((c) => c.kind === p.kind && c.slug === p.slug)
+      if (found) found.priority = true
+      else out.push({ kind: p.kind, name: p.name, slug: p.slug, parent_slug: p.parent_slug, origin: p.kind === 'destinations' ? 'destination' : 'package', priority: true })
+    }
+  } catch {
+    // the priority list is optional
   }
   return out
 }
