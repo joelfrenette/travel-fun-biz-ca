@@ -99,6 +99,9 @@ export function briefHtml(b: Brief): string {
     b.edits.total > 0 || b.edits.hardWaiting
       ? section('Edits made', panel('#eaf0fb', bullets(editsBullets, '#3763c9') + `<div style="font-size:14px;padding-top:2px"><a href="${SITE_URL}/admin/content-edits" style="color:${RED};font-weight:700">Review or undo them &rarr;</a></div>`), '#3763c9')
       : ''
+  const tripPages = b.tripPages.length
+    ? section('Trip pages that need details', panel('#fbf0dd', bullets(b.tripPages, '#a9660b') + `<div style="font-size:14px;padding-top:2px"><a href="${SITE_URL}/admin/packages" style="color:${RED};font-weight:700">Open Packages &rarr;</a></div>`), '#a9660b')
+    : ''
   const waiting = b.trackerItems.length
     ? section('Waiting on you (not urgent)', panel('#fbf0dd', bullets(b.trackerItems.map((t) => `${t.priority}: ${t.title}`), '#a9660b') + `<div style="font-size:14px;padding-top:2px"><a href="${SITE_URL}/admin/tracker" style="color:${RED};font-weight:700">Open the project tracker &rarr;</a></div>`), '#a9660b')
     : ''
@@ -114,7 +117,7 @@ export function briefHtml(b: Brief): string {
   return (
     `<table ${T} width="100%" bgcolor="#f4efec" style="background:#f4efec;font-family:${FONT}"><tr><td align="center" style="padding:24px 10px">` +
     `<table ${T} width="640" align="center" bgcolor="#ffffff" style="width:640px;max-width:100%;background:#ffffff">` +
-    header + needs + yesterday + today + working + healed + edits + waiting + footer +
+    header + needs + yesterday + today + working + healed + edits + tripPages + waiting + footer +
     `</table></td></tr></table>`
   )
 }

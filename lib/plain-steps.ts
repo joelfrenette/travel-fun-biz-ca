@@ -195,6 +195,36 @@ export function plainAction(i: Issue): PlainAction {
       paste,
     }
   }
+  if (i.id.startsWith('package:thin:')) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'A trip page with very little on it is hard to find on Google and gives visitors little reason to ask about the trip. This is not an error, just a nudge.',
+      steps: [
+        'Open the trip with the link below. The "Add details" box is at the top of the page.',
+        'Take a screenshot of the Facebook post or event for this trip, or save the supplier PDF, or copy the supplier link.',
+        'Drag the screenshot or PDF into the box (or paste the link or the words). Wait about a minute.',
+        'Read the list it shows. Green "Applied automatically" lines are already on the page. Click "Replace" only on a line you want to change.',
+        'If something looks wrong, click "Revert its changes" and nothing stays.',
+      ],
+      url: i.link ? adminLink(i.link.href) : adminLink('/admin/packages'),
+      urlLabel: 'Open this trip',
+    }
+  }
+  if (i.id.startsWith('source-watch:')) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'Once a week the site reads the supplier page behind each trip. This one may say the trip is cancelled or on different dates. Nothing on your site was changed.',
+      steps: [
+        'Open the supplier page with the link below and read what it says.',
+        'If the trip really is cancelled, open Packages, find the trip, and click Unpublish. If only the dates changed, fix them in the trip form.',
+        'If the page is fine (the warning is wrong), open the Content Autopilot page and click Dismiss on this line.',
+      ],
+      url: i.link?.href ?? autopilot(i.id),
+      urlLabel: i.link ? 'Open the supplier page' : 'Open this problem',
+    }
+  }
   if (i.area === 'setup') {
     return {
       id: i.id,

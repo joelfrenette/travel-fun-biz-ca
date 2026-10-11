@@ -73,6 +73,12 @@ export default async function PackagePage({ params }: Props) {
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
   const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate)
   const highlights = pkg.highlights?.length ? pkg.highlights : []
+  // Itinerary stops stored by the Add details intake: [{day, title, description}]. Anything else is ignored.
+  const itinerary: { day: number | null; title: string; description: string }[] = Array.isArray(pkg.itinerary)
+    ? pkg.itinerary
+        .filter((d: any) => d && typeof d.title === "string" && d.title.trim())
+        .map((d: any) => ({ day: typeof d.day === "number" ? d.day : null, title: d.title.trim(), description: typeof d.description === "string" ? d.description.trim() : "" }))
+    : []
   const included = splitLines(pkg.price_includes)
   const notIncluded = splitLines(pkg.not_included)
   const faqs = faqsOf(pkg)
@@ -116,12 +122,14 @@ export default async function PackagePage({ params }: Props) {
           url: pageUrl,
           image,
           touristType: pkg.category,
-          itinerary: { "@type": "Place", name: pkg.destination },
+          itinerary: itinerary.length
+            ? { "@type": "ItemList", itemListElement: itinerary.map((d, i) => ({ "@type": "ListItem", position: i + 1, name: d.title, ...(d.description ? { description: d.description } : {}) })) }
+            : { "@type": "Place", name: pkg.destination },
           ...(pkg.available_from ? { startDate: pkg.available_from } : {}),
           ...(pkg.available_to ? { endDate: pkg.available_to } : {}),
           provider: { "@type": "TravelAgency", name: SITE_NAME, url: absoluteUrl("/") },
           ...(pkg.price_value
-            ? { offers: { "@type": "Offer", price: pkg.price_value, priceCurrency: "USD", url: pageUrl, availability: "https://schema.org/InStock" } }
+            ? { offers: { "@type": "Offer", price: pkg.price_value, priceCurrency: pkg.currency || "CAD", url: pageUrl, availability: "https://schema.org/InStock" } }
             : {}),
         },
       ]
@@ -205,6 +213,19 @@ export default async function PackagePage({ params }: Props) {
                 </ul>
               </div>
             )}
+            {itinerary.length > 0 && (
+              <div>
+                <h2 className="mb-3 text-2xl font-bold">{translate(language, "Itinerary")}</h2>
+                <ol className="space-y-4">
+                  {itinerary.map((d, i) => (
+                    <li key={i} className="rounded-lg border p-4">
+                      <p className="font-semibold">{d.day != null ? `${translate(language, "Day")} ${d.day}: ` : ""}{d.title}</p>
+                      {d.description && <p className="mt-1 text-muted-foreground">{d.description}</p>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
             {(included.length > 0 || notIncluded.length > 0) && (
               <div className="grid gap-8 sm:grid-cols-2">
                 {included.length > 0 && (
@@ -261,7 +282,7 @@ export default async function PackagePage({ params }: Props) {
           </section>
         )}
 
-        {isPastTrip && pkg.gallery_urls?.length > 0 && (
+        {pkg.gallery_urls?.length > 0 && (
           <section className="container mx-auto px-4 pb-12">
             <h2 className="mb-4 text-2xl font-bold">{translate(language, "Trip Photos")}</h2>
             <TripGallery images={pkg.gallery_urls} alt={pkg.name} />

@@ -12,6 +12,8 @@ import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { readHealSummary } from '@/lib/content-heal-run'
 import { HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
+import { completenessScore } from '@/lib/package-completeness'
+import { openFindings, dismissFindings } from '@/lib/source-watch'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -21,7 +23,7 @@ import { HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
 const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
 
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale' | 'dismiss-source-watch'
 
 export interface Issue {
   id: string
@@ -31,6 +33,8 @@ export interface Issue {
   /** What to do, in plain words. */
   fix?: string
   actions?: { label: string; kind: IssueAction; slug?: string }[]
+  /** A page to open to deal with it (a site path such as /admin/packages?edit=<id>, or a full web address). */
+  link?: { label: string; href: string }
 }
 
 /** Turns a raw provider error into advice. Falls back to no advice rather than guessing. */
@@ -257,6 +261,51 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     })
   }
 
+  // Published trip pages with too little on them. Shown on the Autopilot page and in the brief, but NOT a
+  // failure: area 'setup' is left out of the alert email, so thin pages never trigger an alert.
+  try {
+    const { data: trips } = await admin
+      .from('travel_packages')
+      .select('id, slug, name, full_description, highlights, price_includes, not_included, itinerary, ai_faqs, gallery_urls, departure_dates, available_from, available_to')
+      .eq('status', 'published')
+    for (const t of (trips ?? []) as ({ id: string; slug: string; name: string } & Parameters<typeof completenessScore>[0])[]) {
+      const c = completenessScore(t)
+      if (!c.thin) continue
+      issues.push({
+        id: `package:thin:${t.slug}`,
+        area: 'setup',
+        title: `The ${t.name} trip page is thin (score ${c.score} of 100)`,
+        detail: `Missing: ${c.reasons.join('; ')}.`,
+        fix: 'Drop a screenshot, a PDF or a link into the Add details box on that trip. It fills in what is empty and never overwrites what is there.',
+        link: { label: 'Add details', href: `/admin/packages?edit=${t.id}` },
+      })
+    }
+  } catch {
+    // a trip page nudge is never worth failing the list
+  }
+
+  // The weekly supplier page check found something. Never changes a trip: it is Joel's decision.
+  try {
+    const findings = await openFindings(admin)
+    const seen = new Set<string>()
+    for (const f of findings) {
+      if (seen.has(f.slug)) continue
+      seen.add(f.slug)
+      const mine = findings.filter((x) => x.slug === f.slug)
+      issues.push({
+        id: `source-watch:${f.slug}`,
+        area: 'setup',
+        title: `Supplier page says this trip is cancelled or changed: ${f.name}`,
+        detail: mine.map((x) => `${x.kind === 'cancelled' ? 'Cancelled or sold out?' : 'Dates differ?'} ${x.snippet}`).join(' | '),
+        fix: 'Open the supplier page and read it. Nothing on your site was changed. If the trip really is cancelled, unpublish it or fix its dates in Packages; if the check is wrong, click Dismiss.',
+        link: { label: 'Open the supplier page', href: f.url },
+        actions: [{ label: 'Dismiss', kind: 'dismiss-source-watch', slug: f.slug }],
+      })
+    }
+  } catch {
+    // the weekly check's note is optional
+  }
+
   // Setup that is still missing.
   const ready = await autopilotReadiness(admin)
   ready.blockers.forEach((b, i) => issues.push({ id: `setup:blocker-${i}`, area: 'setup', title: 'Setup required', detail: b }))
@@ -296,6 +345,7 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
     return (await setSetting(admin, STALE_COPY_KEY, JSON.stringify({ ...state, paths: [] }))).error ?? null
   }
   if (!slug) return 'A post is required.'
+  if (kind === 'dismiss-source-watch') return dismissFindings(admin, slug)
   if (kind === 'dismiss-ghl') return dismissGhl(admin, slug)
   if (kind === 'retry-post') {
     // sent_platforms is kept, so a retry only goes to networks that have not received the post.

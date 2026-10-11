@@ -16,6 +16,7 @@ import { plainAction, HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
 import { runGuidesStep } from '@/lib/guide-run'
 import { runPageCopyStep } from '@/lib/page-copy-run'
 import { runHealContentIfDue } from '@/lib/content-heal-run'
+import { runSourceWatchIfDue } from '@/lib/source-watch'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -46,12 +47,15 @@ const COPY_START_BY_MS = 60_000
 // The heal step scores everything in a few seconds, then fixes a handful of pages (each at most one 45 second call);
 // it stops starting pages after 60 seconds, so it must start before this to end well inside the 300 second route limit.
 const HEAL_START_BY_MS = 120_000
+// The weekly supplier page check can take about a minute, so housekeeping only starts it before this.
+// (its own budget is 150 seconds, so a late pass leaves it for the next one to keep inside the 300 second limit)
+const SOURCE_WATCH_START_BY_MS = 60_000
 
 export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 
 /** Runs on every pass, even when Autopilot is off or paused: the safe self-repairs, then the daily
  * brief email (once a day from 7 am). Neither may ever fail the pipeline. */
-async function housekeeping(admin: SupabaseClient, run: PipelineRun): Promise<void> {
+async function housekeeping(admin: SupabaseClient, run: PipelineRun, startedAt = Date.now()): Promise<void> {
   try {
     const fixed = await selfHeal(admin)
     if (fixed.length) run.steps.push({ step: 'heal', ok: true, note: fixed.join(' ') })
@@ -64,6 +68,17 @@ async function housekeeping(admin: SupabaseClient, run: PipelineRun): Promise<vo
     if (note) run.steps.push({ step: 'performance', ok: !/could not|failed/i.test(note), note })
   } catch {
     // a snapshot problem is never the pipeline's problem
+  }
+  try {
+    // Once a week (the claim inside; also once on the first pass after deploy): read each supplier page behind
+    // a published trip and note "cancelled", "sold out" or different dates. Free, and it never edits a trip.
+    // It can take up to a minute, so a pass that has already used most of its time leaves it for the next one.
+    if (Date.now() - startedAt < SOURCE_WATCH_START_BY_MS) {
+      const watch = await runSourceWatchIfDue(admin)
+      if (watch) run.steps.push({ step: 'source-watch', ok: watch.ok, note: watch.note })
+    }
+  } catch {
+    // a supplier page problem is never the pipeline's problem
   }
   try {
     const sent = await runDebriefIfDue(admin)
@@ -194,7 +209,7 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     }
   }
 
-  await housekeeping(admin, run)
+  await housekeeping(admin, run, startedAt)
   await setSetting(admin, PIPELINE_LAST_RUN_KEY, JSON.stringify(run))
 
   // One alert email built from the single issue list (setup items are left out: those are not

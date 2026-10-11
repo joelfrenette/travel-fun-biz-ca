@@ -58,6 +58,8 @@ export interface Brief {
   healed: string[]
   /** WP10 "Edits made": what the site changed on its own pages in the last 24 hours, and drafts waiting on a person. */
   edits: EditsSection
+  /** Trip pages that are thin (WP11): one line saying how many, and how to fix one. Empty when none. */
+  tripPages: string[]
   trackerItems: { title: string; priority: string }[]
 }
 
@@ -199,7 +201,15 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
 
   // What needs a person
   const issues = (await collectIssues(admin).catch(() => [])).sort((a, b) => Number(a.area === 'setup') - Number(b.area === 'setup'))
-  const actions = issues.map(plainAction)
+  // Thin trip pages are one line in their own section ("3 trip pages need more details"), not one card each.
+  const thinTrips = issues.filter((i) => i.id.startsWith('package:thin:'))
+  const actions = issues.filter((i) => !i.id.startsWith('package:thin:')).map(plainAction)
+  const tripPages = thinTrips.length
+    ? [
+        `${thinTrips.length} trip page${thinTrips.length === 1 ? ' needs' : 's need'} more details: ${thinTrips.map((i) => i.title.replace(/^The (.*) trip page is thin \(score (\d+) of 100\)$/, '$1, score $2 of 100')).slice(0, 6).join('; ')}${thinTrips.length > 6 ? `; and ${thinTrips.length - 6} more` : ''}.`,
+        'To fix one: open Packages, click its score, and drop a screenshot, a PDF or a link into the "Add details" box.',
+      ]
+    : []
 
   // Ideas and decisions waiting on Joel
   const trackerItems: { title: string; priority: string }[] = []
@@ -236,6 +246,7 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
     today,
     healed,
     edits: await buildEditsSection(admin, now),
+    tripPages,
     trackerItems: trackerItems.slice(0, 4),
   }
 }
@@ -269,6 +280,7 @@ export function renderBrief(b: Brief): { subject: string; html: string; text: st
           `Review or undo them: ${SITE_URL}/admin/content-edits`,
         ]
       : []),
+    ...(b.tripPages.length ? ['', 'TRIP PAGES THAT NEED DETAILS', ...b.tripPages.map((t) => `- ${t}`), `Packages: ${SITE_URL}/admin/packages`] : []),
     ...(b.trackerItems.length ? ['', 'WAITING ON YOU (not urgent)', ...b.trackerItems.map((t) => `- ${t.priority}: ${t.title}`), `Tracker: ${TRACKER_URL}`] : []),
     '',
     `Content Autopilot: ${SITE_URL}/admin/autopilot`,
