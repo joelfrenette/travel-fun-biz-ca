@@ -211,17 +211,18 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   const thinTrips = issues.filter((i) => i.id.startsWith('package:thin:'))
   // Past trips with no recap (WP14) are one line too: "N past trips have no recap yet".
   const noRecap = issues.filter((i) => i.id.startsWith('package:recap:'))
-  const actions = issues.filter((i) => !i.id.startsWith('package:thin:') && !i.id.startsWith('package:recap:')).map(plainAction)
+  const agentTrips = issues.filter((i) => i.id.startsWith('agent-submission:'))
+  const actions = issues.filter((i) => !i.id.startsWith('package:thin:') && !i.id.startsWith('package:recap:') && !i.id.startsWith('agent-submission:')).map(plainAction)
   const recapLines = noRecap.length
     ? [
         `${noRecap.length} past trip${noRecap.length === 1 ? ' has' : 's have'} no recap yet: ${noRecap.map((i) => i.title.replace(/^The (.*) trip has no recap yet$/, '$1')).slice(0, 6).join('; ')}${noRecap.length > 6 ? `; and ${noRecap.length - 6} more` : ''}.`,
         'Keep them published. To fix one: open Packages, edit the trip, and use the "Convert to Past Trip" card (photos, journal notes, then "Write the recap").',
       ]
     : []
-  const tripPages = thinTrips.length
+  const tripPages = thinTrips.length || agentTrips.length
     ? [
-        `${thinTrips.length} trip page${thinTrips.length === 1 ? ' needs' : 's need'} more details: ${thinTrips.map((i) => i.title.replace(/^The (.*) trip page is thin \(score (\d+) of 100\)$/, '$1, score $2 of 100')).slice(0, 6).join('; ')}${thinTrips.length > 6 ? `; and ${thinTrips.length - 6} more` : ''}.`,
-        'To fix one: open Packages, click its score, and drop a screenshot, a PDF or a link into the "Add details" box.',
+        ...(agentTrips.length ? [`${agentTrips.length} trip${agentTrips.length === 1 ? '' : 's'} sent by agents ${agentTrips.length === 1 ? 'is' : 'are'} waiting for your approval: ${agentTrips.map((i) => i.title.replace(/^An agent sent a trip to approve: /, '')).slice(0, 6).join('; ')}.`] : []),
+        ...(thinTrips.length ? [`${thinTrips.length} trip page${thinTrips.length === 1 ? ' needs' : 's need'} more details: ${thinTrips.map((i) => i.title.replace(/^The (.*) trip page is thin \(score (\d+) of 100\)$/, '$1, score $2 of 100')).slice(0, 6).join('; ')}${thinTrips.length > 6 ? `; and ${thinTrips.length - 6} more` : ''}.`, 'To fix one: open Packages, click its score, and drop a screenshot, a PDF or a link into the "Add details" box.'] : []),
       ]
     : []
   tripPages.push(...recapLines)

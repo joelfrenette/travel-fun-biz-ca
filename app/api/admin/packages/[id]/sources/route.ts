@@ -6,6 +6,7 @@ import { completenessScore } from '@/lib/package-completeness'
 import {
   listSources,
   createFileSource,
+  createImageSetSource,
   createUrlSource,
   createTextSource,
   createSignedUpload,
@@ -61,10 +62,15 @@ export async function POST(request: Request, { params }: { params: { id: string 
   let result
   if (type.includes('multipart/form-data')) {
     const form = await request.formData().catch(() => null)
-    const file = form?.get('file')
-    if (!(file instanceof File)) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
-    if (file.size > MAX_FILE_BYTES) return NextResponse.json({ error: 'That file is larger than 10 MB. Save a smaller copy and try again.' }, { status: 413 })
-    result = await createFileSource(admin, params.id, { name: file.name, bytes: Buffer.from(await file.arrayBuffer()) })
+    const files = (form?.getAll('file') ?? []).filter((f): f is File => f instanceof File)
+    if (files.length === 0) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+    if (files.some((f) => f.size > MAX_FILE_BYTES)) return NextResponse.json({ error: 'That file is larger than 10 MB. Save a smaller copy and try again.' }, { status: 413 })
+    if (files.length === 1) {
+      result = await createFileSource(admin, params.id, { name: files[0].name, bytes: Buffer.from(await files[0].arrayBuffer()) })
+    } else {
+      // Several screenshots dropped together are ONE source and one model call (WP13).
+      result = await createImageSetSource(admin, params.id, await Promise.all(files.map(async (f) => ({ name: f.name, bytes: Buffer.from(await f.arrayBuffer()) }))))
+    }
   } else {
     const body = (await request.json().catch(() => null)) as { action?: unknown; url?: unknown; text?: unknown; path?: unknown; name?: unknown } | null
     if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })

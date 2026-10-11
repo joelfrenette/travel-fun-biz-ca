@@ -1,5 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, type AnthropicContent } from '@/lib/ai-verify'
-import { collectPhotoCandidates } from '@/lib/supplier-photos'
+import { collectPhotoCandidates, hopRejection } from '@/lib/supplier-photos'
 import type { PhotoCandidate } from '@/lib/package-sources'
 
 // AI package-draft builder (roadmap use case 09dd2acd, Joel's idea 2026-09-26): an agent pastes
@@ -417,10 +417,14 @@ export const MAX_TRANSCRIPT_CHARS = 20_000
 
 const FILE_TRANSCRIPT_RULE = `Also return "transcript": a verbatim copy of ALL the text you can read in the attached file, in reading order (up to ${MAX_TRANSCRIPT_CHARS.toLocaleString()} characters), copied exactly as written: do not summarise, translate, correct or tidy it. Describe nothing you cannot read as text. If you can read no text, return an empty string. The "evidence" quotes and every fact must come from this transcript, so a number you cannot see in the file must be null.`
 
-function filePrompt(what: 'screenshot' | 'PDF', label: string): string {
+/** Added to the prompt when several pictures are sent in one call (WP13). `sliced` = at least one tall screenshot was cut into strips. */
+export const STRIPS_NOTE = `The attached images are ONE scrolling screenshot (or a set of screenshots of the same post or page), top to bottom, in order. Neighbouring strips of one screenshot overlap by about 120 pixels, so a line near a join may appear twice: transcribe it once. Read them as a single document.`
+export const SET_NOTE = `The attached images are screenshots of the same post, event or page, in order. Read them together as a single document.`
+
+function filePrompt(what: 'screenshot' | 'PDF', label: string, note?: string): string {
   const shape = OUTPUT_SHAPE.replace(/\}$/, ',"transcript":string}')
   return `${promptCore(` (the attached ${what}${label ? `, "${label.replace(/["\n\r]/g, ' ').slice(0, 120)}"` : ''})`)}
-
+${note ? `\n${note}\n` : ''}
 ${FILE_TRANSCRIPT_RULE}
 
 Output shape (this replaces the one above, it adds "transcript"): ${shape}
@@ -434,10 +438,10 @@ export type FileExtractResult =
 
 type ContentBlock = Exclude<AnthropicContent, string>[number]
 
-async function extractFromFile(fileBlock: ContentBlock, what: 'screenshot' | 'PDF', label: string): Promise<FileExtractResult> {
+async function extractFromFile(fileBlocks: ContentBlock[], what: 'screenshot' | 'PDF', label: string, note?: string): Promise<FileExtractResult> {
   if (!isAiConfigured()) return { draft: null, error: { status: 503, message: 'AI extraction is not configured: set ANTHROPIC_API_KEY.' } }
   // The file goes first, then the instructions: the layout the API recommends for documents and images.
-  const call = await callExtraction([fileBlock, { type: 'text', text: filePrompt(what, label) }], 12_000, 'Try a smaller or clearer file.')
+  const call = await callExtraction([...fileBlocks, { type: 'text', text: filePrompt(what, label, note) }], 12_000, 'Try a smaller or clearer file.')
   if (call.error) return { draft: null, error: call.error }
   const transcript = (typeof call.parsed.transcript === 'string' ? call.parsed.transcript : '').replace(/\r\n?/g, '\n').trim().slice(0, MAX_TRANSCRIPT_CHARS)
   if (transcript.length < 40) {
@@ -451,13 +455,20 @@ async function extractFromFile(fileBlock: ContentBlock, what: 'screenshot' | 'PD
  * extraction prompt plus a request for a verbatim transcript. ONE model call. The transcript is what the
  * facts are grounded against, so an invented number still fails grounding. */
 export function extractPackageDraftFromImage(buffer: Buffer, mediaType: 'image/png' | 'image/jpeg' | 'image/webp', sourceLabel: string): Promise<FileExtractResult> {
-  return extractFromFile({ type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } }, 'screenshot', sourceLabel)
+  return extractFromFile([{ type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } }], 'screenshot', sourceLabel)
+}
+
+/** Several pictures (the strips of a tall scrolling screenshot, or screenshots dropped together) in ONE model call,
+ * in order, each as its own image block, with the note that they are one document top to bottom (WP13). */
+export function extractPackageDraftFromImages(images: { buffer: Buffer; mediaType: 'image/png' | 'image/jpeg' | 'image/webp' }[], sourceLabel: string, sliced: boolean): Promise<FileExtractResult> {
+  const blocks: ContentBlock[] = images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.buffer.toString('base64') } }))
+  return extractFromFile(blocks, 'screenshot', sourceLabel, images.length > 1 ? (sliced ? STRIPS_NOTE : SET_NOTE) : undefined)
 }
 
 /** A supplier PDF: sent to the model as a document block (the API reads text and page images itself, so no
  * separate text extraction library is needed). ONE model call, same transcript rule as the image path. */
 export function extractPackageDraftFromPdf(buffer: Buffer, sourceLabel: string): Promise<FileExtractResult> {
-  return extractFromFile({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }, 'PDF', sourceLabel)
+  return extractFromFile([{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }], 'PDF', sourceLabel)
 }
 
 // ─── Fetching a link into plain text ────────────────────────────────────────────────
@@ -493,7 +504,7 @@ export type FetchSourceResult = { text: string; photos: PhotoCandidate[]; pageUr
 
 /** Fetch a public page as text for the extractor. Plain fetch first (free); falls back to
  * ScrapingBee when it's configured and the plain fetch was blocked or came back empty. */
-export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
+export async function fetchSourceText(url: string, opts: { safe?: boolean } = {}): Promise<FetchSourceResult> {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -504,12 +515,16 @@ export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
     return { text: null, error: { status: 400, message: 'Only public http(s) links can be fetched.' } }
   }
 
-  const plainFetch = await fetchHtmlWithUrl(parsed.toString())
+  // `safe` (the public agent path, WP13): redirects are followed by hand, at most 3 hops, and EVERY hop must be https,
+  // not a private address, on the same registrable domain as the link as entered, and resolve only to public addresses.
+  const plainFetch = opts.safe ? await fetchHtmlSafe(parsed.toString()) : await fetchHtmlWithUrl(parsed.toString())
   const plain = plainFetch?.html ?? null
   let html = plain ?? ''
   let pageUrl = plainFetch?.finalUrl ?? parsed.toString()
   let text = plain ? htmlToText(plain) : ''
-  if (text.length < 200 && process.env.SCRAPINGBEE_API_KEY) {
+  // Never in safe mode (a stranger's link): the third-party renderer would fetch the address from its own network
+  // without our hop checks. The 422 "paste the text instead" answer below is what such a page gets.
+  if (!opts.safe && text.length < 200 && process.env.SCRAPINGBEE_API_KEY) {
     const bee = new URL('https://app.scrapingbee.com/api/v1/')
     bee.searchParams.set('api_key', process.env.SCRAPINGBEE_API_KEY)
     bee.searchParams.set('url', parsed.toString())
@@ -534,6 +549,48 @@ export async function fetchSourceText(url: string): Promise<FetchSourceResult> {
     }
   }
   return { text: text.slice(0, MAX_SOURCE_CHARS), photos: collectPhotoCandidates(html, pageUrl, parsed.toString()), pageUrl, error: null }
+}
+
+const SAFE_HOPS = 3
+const SAFE_MAX_BYTES = 2_000_000
+
+/** The page fetch for links typed by a stranger. Same rules as the supplier photo download (lib/supplier-photos.ts
+ * fetchSupplierPhoto): manual redirects, hopRejection on every hop (https, not private, same registrable domain, DNS
+ * resolves only to public addresses), at most SAFE_HOPS redirects. Null when any hop is refused or the page is not HTML.
+ * `deps` lets the offline checks run it without a network. */
+export async function fetchHtmlSafe(
+  url: string,
+  deps: { fetch?: typeof fetch; lookup?: (host: string) => Promise<string[]>; timeoutMs?: number } = {},
+): Promise<{ html: string; finalUrl: string } | null> {
+  const doFetch = deps.fetch ?? fetch
+  const lookup = deps.lookup ?? (async (h: string) => (await (await import('node:dns/promises')).lookup(h, { all: true })).map((r) => r.address))
+  const signal = AbortSignal.timeout(deps.timeoutMs ?? 15_000)
+  let current = url
+  try {
+    for (let hop = 0; hop <= SAFE_HOPS; hop++) {
+      if (await hopRejection(current, [url], lookup)) return null
+      const res = await doFetch(current, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', Accept: 'text/html,application/xhtml+xml,*/*;q=0.8', 'Accept-Language': 'en-CA,en;q=0.9' },
+        redirect: 'manual',
+        signal,
+      })
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location')
+        if (!loc) return null
+        current = new URL(loc, current).toString()
+        continue
+      }
+      if (!res.ok) return null
+      if (!/html|xml|text\/plain/i.test(res.headers.get('content-type') || '')) return null
+      const declared = Number(res.headers.get('content-length') || 0)
+      if (declared > SAFE_MAX_BYTES) return null
+      const html = await res.text()
+      return { html: html.length > SAFE_MAX_BYTES ? html.slice(0, SAFE_MAX_BYTES) : html, finalUrl: current }
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 async function fetchHtml(url: string, timeoutMs = 15_000): Promise<string | null> {

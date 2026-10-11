@@ -44,6 +44,12 @@ import { parsePackagesCsv, csvTemplate, type CsvRow } from "@/lib/import-csv"
 import { completenessScore } from "@/lib/package-completeness"
 import { PackageSourcesPanel } from "@/components/admin/package-sources-panel"
 import { PastTripPanel } from "@/components/admin/past-trip-panel"
+import { PackageWizard } from "@/components/package-wizard"
+import { adminApi } from "@/components/package-wizard-api"
+import { AgentInvitesCard } from "@/components/admin/agent-invites-card"
+
+// The add-a-trip wizard (WP13) talks to the admin routes through this; it reads the admin token when a call is made.
+const wizardApi = adminApi()
 
 const categories = [
   "Adventure",
@@ -174,7 +180,10 @@ const interviewQuestions = [
 
 // ─── Add Method Selection Modal ─────────────────────────────────────
 function AddMethodModal({ open, onClose, onSelect }: { open: boolean; onClose: () => void; onSelect: (method: string) => void }) {
+  // The wizard is the default (WP13): drop everything you have and the AI does the rest. The older ways stay under "More ways to add".
+  const primary = { id: "wizard", title: "Drop what you have (recommended)", description: "Screenshots, PDFs, supplier links, pasted emails, all at once. The AI reads them, writes the page, picks pictures and lists what is still missing. You review and publish.", icon: Upload }
   const methods = [
+    { id: "agents", title: "Agent links", description: "Send an outside agent a private link so they can submit a trip as a draft for you to approve", icon: Link },
     { id: "paste", title: "Paste source material", description: "Paste a supplier email, flyer text or a link; AI extracts only the facts it finds and builds a draft for you to review", icon: ClipboardPaste },
     { id: "interview", title: "AI Interview", description: "Answer questions and let AI help create the package", icon: Sparkles },
     { id: "manual", title: "Add Manually", description: "Fill out all fields yourself in a form", icon: Pencil },
@@ -184,12 +193,20 @@ function AddMethodModal({ open, onClose, onSelect }: { open: boolean; onClose: (
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Add New Package</DialogTitle>
           <DialogDescription>Choose how you want to add a new travel package</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 py-4">
+          <button onClick={() => onSelect(primary.id)} className="flex items-center gap-4 rounded-lg border-2 border-primary p-4 text-left transition-colors hover:bg-muted">
+            <div className="rounded-lg bg-primary/10 p-2"><primary.icon className="h-5 w-5 text-primary" /></div>
+            <div>
+              <p className="font-medium">{primary.title}</p>
+              <p className="text-sm text-muted-foreground">{primary.description}</p>
+            </div>
+          </button>
+          <p className="pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">More ways to add</p>
           {methods.map((method) => (
             <button
               key={method.id}
@@ -1587,7 +1604,7 @@ function PackageTable({
 export default function PackagesAdminPage() {
   const [packages, setPackages] = useState<DbPackage[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<"list" | "interview" | "manual" | "scrape" | "upload" | "paste">("list")
+  const [view, setView] = useState<"list" | "interview" | "manual" | "scrape" | "upload" | "paste" | "wizard" | "agents">("list")
   const [editingPackage, setEditingPackage] = useState<DbPackage | null>(null)
   // Prefill for a NEW package coming out of the paste-source AI draft builder (never an existing row).
   const [seedData, setSeedData] = useState<Partial<DbPackage> | null>(null)
@@ -1787,6 +1804,34 @@ export default function PackagesAdminPage() {
   function handleSelectAll() { if (selectedIds.size === filteredPackages.length) setSelectedIds(new Set()); else setSelectedIds(new Set(filteredPackages.map((p) => p.id))) }
   function handleAddMethodSelect(method: string) { setShowAddModal(false); setEditingPackage(null); setSeedData(null); setView(method as any) }
 
+  if (view === "wizard") {
+    return (
+      <div className="p-6">
+        <PackageWizard
+          api={wizardApi}
+          onPublished={() => { /* WP15's promotion plan attaches here */ }}
+          onDone={() => { setView("list"); fetchPackages() }}
+          onCancel={() => setView("list")}
+          moreWays={
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-muted-foreground">More ways to add:</span>
+              {([["paste", "Paste source material"], ["interview", "AI Interview"], ["manual", "Add manually"], ["scrape", "Scrape a URL"], ["upload", "Upload a CSV"], ["agents", "Agent links"]] as const).map(([id, label]) => (
+                <Button key={id} type="button" variant="link" className="h-auto p-0" onClick={() => handleAddMethodSelect(id)}>{label}</Button>
+              ))}
+            </div>
+          }
+        />
+      </div>
+    )
+  }
+  if (view === "agents") {
+    return (
+      <div className="p-6">
+        <Button variant="ghost" size="sm" className="mb-3" onClick={() => setView("list")}>Back to packages</Button>
+        <AgentInvitesCard onOpenPackage={(id) => { const pkg = packages.find((p) => p.id === id); if (pkg) { setEditingPackage(pkg); setView("manual") } else { fetchPackages() } }} />
+      </div>
+    )
+  }
   if (view === "interview") return <div className="p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
   if (view === "paste") return <div className="p-6"><PasteSourceForm onDraft={(data) => { setSeedData(data as Partial<DbPackage>); setEditingPackage(null); setView("manual") }} onCancel={() => setView("list")} /></div>
   if (view === "manual") return <div className="p-6">{editingPackage && <div id="add-details"><PackageSourcesPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} /></div>}{editingPackage && <PastTripPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} />}<ManualForm key={formKey} onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>

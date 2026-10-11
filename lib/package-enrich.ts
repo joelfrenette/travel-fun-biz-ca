@@ -5,7 +5,7 @@ import { pingIndexNow } from '@/lib/indexnow'
 import { claimDailyOnce } from '@/lib/content-edits'
 import { getSettingStrict, setSetting } from '@/lib/app-settings'
 import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
-import type { ExtractedDraft, ModelUsage } from '@/lib/package-extract'
+import { dateGrounded, type ExtractedDraft, type ModelUsage } from '@/lib/package-extract'
 import type { PackageEdit, PackageSourceRow } from '@/lib/package-sources'
 import {
   removeDashes,
@@ -117,7 +117,10 @@ function asList(v: unknown): string[] {
 
 /** Facts a screenshot or PDF may never fill in by itself: the model reads them off an image, so a person looks
  * at the file next to the proposal and clicks Use this. */
-export const FILE_CLICK_ONLY_FIELDS = new Set(['price_display', 'price_value', 'available_from', 'available_to', 'departure_dates', 'booking_url', 'more_info_url', 'duration', 'duration_days', 'max_people'])
+export const FILE_CLICK_ONLY_FIELDS = new Set(['price_display', 'price_value', 'booking_url', 'more_info_url', 'duration', 'duration_days', 'max_people'])
+/** Dates read from a screenshot or PDF MAY fill an empty field by themselves, but only when the transcript writes that
+ * month, day and year together (dateGrounded); anything less is click-only (Joel, WP13). */
+const FILE_DATE_FIELDS = new Set(['available_from', 'available_to', 'departure_dates'])
 const URL_FIELDS = new Set(['booking_url', 'more_info_url'])
 
 /** Same host as the page that was read, or one is a parent domain of the other (www.x.com and x.com, book.x.com and x.com). */
@@ -138,10 +141,17 @@ export interface SourceContext {
 }
 
 /** Why a field may not be filled in automatically even if empty and grounded (null = no extra restriction). */
-function clickOnlyReason(field: string, row: Record<string, unknown>, draft: ExtractedDraft, ctx: SourceContext): string | null {
+function clickOnlyReason(field: string, row: Record<string, unknown>, draft: ExtractedDraft, ctx: SourceContext, transcript?: string): string | null {
   const fields = draft.fields as Record<string, unknown>
   if ((ctx.kind === 'screenshot' || ctx.kind === 'pdf') && FILE_CLICK_ONLY_FIELDS.has(field)) {
     return `This was read from a ${ctx.kind === 'pdf' ? 'PDF' : 'screenshot'}. Look at the file (View, next to the source) and click Use this if it is right.`
+  }
+  if ((ctx.kind === 'screenshot' || ctx.kind === 'pdf') && FILE_DATE_FIELDS.has(field)) {
+    const raw = fields[field]
+    const dates = (Array.isArray(raw) ? raw : [raw]).filter((d): d is string => typeof d === 'string')
+    if (dates.length === 0 || !transcript || !dates.every((d) => dateGrounded(d, transcript))) {
+      return `This date was read from a ${ctx.kind === 'pdf' ? 'PDF' : 'screenshot'} and the text does not write the month, day and year together. Look at the file and click Use this if it is right.`
+    }
   }
   if (ctx.kind === 'url' && URL_FIELDS.has(field) && (!ctx.sourceUrl || typeof fields[field] !== 'string' || !sameSiteHost(fields[field] as string, ctx.sourceUrl))) {
     return 'This link is on a different website than the page that was read. Check it, then click Use this.'
@@ -208,7 +218,7 @@ function proposeFacts(pkg: Partial<DbPackage>, draft: ExtractedDraft, transcript
     if (sameValue(current, proposed)) continue
 
     const empty = isEmptyValue(current)
-    const restricted = clickOnlyReason(field, row, draft, ctx)
+    const restricted = clickOnlyReason(field, row, draft, ctx, transcript)
     out.push({
       field,
       current,
