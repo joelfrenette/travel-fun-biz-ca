@@ -5,8 +5,10 @@ import Link from "next/link"
 // anything else, including any other bracket text, stays exactly as written. Used for a trip page description, where
 // the daily heal can add one "Related:" line of links to the end.
 
-const LINK = /(\[[^\]\n]{1,120}\]\(\/(?!\/)[^)\s]*\))/
-const LINK_ONLY = /^\[([^\]\n]{1,120})\]\((\/(?!\/)[^)\s]*)\)$/
+// The path must start with one slash that is not followed by another slash or a backslash (browsers treat "/\" like
+// "//"), and may not contain a backslash anywhere.
+const LINK = /(\[[^\]\n]{1,120}\]\(\/(?![/\\])[^)\s\\]*\))/
+const LINK_ONLY = /^\[([^\]\n]{1,120})\]\((\/(?![/\\])[^)\s\\]*)\)$/
 
 export function LinkifiedText({ text }: { text: string }) {
   return (

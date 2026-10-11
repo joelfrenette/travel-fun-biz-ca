@@ -84,6 +84,8 @@ export default async function PackagePage({ params }: Props) {
   const notIncluded = splitLines(pkg.not_included)
   const faqs = faqsOf(pkg)
   const description = pkg.full_description || pkg.short_description || ""
+  // Structured data gets the description without the site-link markdown the heal may add ("[text](/path)" -> "text").
+  const plainDescription = description.replace(/\[([^\]\n]+)\]\(\/[^)\s]*\)/g, "$1")
   const pageUrl = absoluteUrl(`/packages/${pkg.slug}`)
   const image = pkg.image_url || DEFAULT_OG_IMAGE
 
@@ -96,7 +98,7 @@ export default async function PackagePage({ params }: Props) {
           "@context": "https://schema.org",
           "@type": "Article",
           headline: pkg.name,
-          description: pkg.short_description || description,
+          description: pkg.short_description || plainDescription,
           image,
           url: pageUrl,
           mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
@@ -119,7 +121,7 @@ export default async function PackagePage({ params }: Props) {
           "@context": "https://schema.org",
           "@type": "TouristTrip",
           name: pkg.name,
-          description: pkg.short_description || description,
+          description: pkg.short_description || plainDescription,
           url: pageUrl,
           image,
           touristType: pkg.category,

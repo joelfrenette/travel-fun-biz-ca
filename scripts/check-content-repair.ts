@@ -37,6 +37,7 @@ import {
   isPastTripRow,
   PACKAGE_FIX_COLUMNS,
   PACKAGE_FORBIDDEN_COLUMNS,
+  PAST_TRIP_FIXES,
   PACKAGE_WRITABLE_COLUMNS,
   relatedLinksLine,
   repairComposedGuide,
@@ -44,8 +45,8 @@ import {
   tripKeywords,
   writeTripMeta,
 } from '../lib/content-repair-adapters'
-import { claimDailyOnce, claimRepairSlot, columnsFor, REPAIR_ITEMS_PER_DAY, storedValue } from '../lib/content-edits'
-import { addRelatedLinks, linkFirstMention, mergeFaq, planCheapFixes } from '../lib/content-heal-run'
+import { claimDailyOnce, claimRepairSlot, columnsFor, REPAIR_ITEMS_PER_DAY, storedValue, TRIP_RESERVED_SLOTS, TRIP_SLOT_PREFIX } from '../lib/content-edits'
+import { applyTripChanges, addRelatedLinks, linkFirstMention, mergeFaq, planCheapFixes } from '../lib/content-heal-run'
 import { seoScore, internalLinkPathsOf } from '../lib/seo-score'
 import { serializeField } from '../lib/content-repair'
 import { publishDecision } from '../lib/guide-run'
@@ -590,12 +591,16 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
   // -------------------------------------------------------------------------------------------------
   {
     const world = fakeAdmin()
-    const results = await Promise.all(Array.from({ length: 9 }, (_, i) => claimRepairSlot(world.admin, `item-${i}`)))
-    check(`slots: at most ${REPAIR_ITEMS_PER_DAY} pages get a slot per day, even when claimed at once`, results.filter((r) => r.ok).length === REPAIR_ITEMS_PER_DAY, String(results.filter((r) => r.ok).length))
-    const again = await claimRepairSlot(world.admin, 'item-0')
+    const results: Awaited<ReturnType<typeof claimRepairSlot>>[] = []
+    for (let i = 0; i < 9; i++) results.push(await claimRepairSlot(world.admin, `item-${i}`))
+    check(`slots: posts, guides and page copy get at most ${REPAIR_ITEMS_PER_DAY - TRIP_RESERVED_SLOTS} of the ${REPAIR_ITEMS_PER_DAY} daily slots`, results.filter((r) => r.ok).length === REPAIR_ITEMS_PER_DAY - TRIP_RESERVED_SLOTS, String(results.filter((r) => r.ok).length))
     const winner = results.findIndex((r) => r.ok)
-    check('slots: a page that already has a slot keeps it', (await claimRepairSlot(world.admin, `item-${winner}`)).ok === true && again !== undefined)
-    check('slots: the 7th page is refused with a reason', results.some((r) => !r.ok && /cap of 6/.test(r.reason ?? '')))
+    check('slots: a page that already has a slot keeps it', (await claimRepairSlot(world.admin, `item-${winner}`)).ok === true)
+    check('slots: the fifth page is refused with a "cap of" reason', results.some((r) => !r.ok && /cap of 4/.test(r.reason ?? '')))
+    const t1 = await claimRepairSlot(world.admin, `${TRIP_SLOT_PREFIX}a`)
+    const t2 = await claimRepairSlot(world.admin, `${TRIP_SLOT_PREFIX}b`)
+    const t3 = await claimRepairSlot(world.admin, `${TRIP_SLOT_PREFIX}c`)
+    check('slots: the 2 reserved slots go to trips, a third trip is refused (6 in all)', t1.ok && t2.ok && !t3.ok && /cap of 6/.test(t3.reason ?? ''), JSON.stringify([t1, t2, t3]))
     check('once-a-day marker: first claim wins, the second is refused', (await claimDailyOnce(world.admin, 'post:abc')) === true && (await claimDailyOnce(world.admin, 'post:abc')) === false && (await claimDailyOnce(world.admin, 'post:def')) === true)
     const brokenSlots = fakeAdmin({ settingsError: true })
     check('slots fail closed when they cannot be read', (await claimRepairSlot(brokenSlots.admin, 'x')).ok === false)
@@ -692,21 +697,22 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     const generated = { meta_title: 'Santorini Escape: a week in Santorini', meta_description: 'A week in Santorini with a small group. Walk the old lanes together and eat lunch by the water.', faqs: goodFaqs }
     const live = assemblePackageChanges(trip, { past: false, existing, targets }, generated)
     const liveFixes = live.map((c) => c.fix).sort().join()
-    check('trip fixes: a live empty trip gets meta, share picture, keywords, FAQ and the related line, nothing else', liveFixes === 'ai_faqs,keywords,links,meta,meta,og_image', liveFixes)
+    check('trip fixes: a live empty trip gets meta, keywords, FAQ and the related line, nothing else (no share picture fix)', liveFixes === 'ai_faqs,keywords,links,meta,meta', liveFixes)
     const writable = new Set(PACKAGE_WRITABLE_COLUMNS)
-    check('trip fixes: the allow-list and the forbidden list do not overlap', PACKAGE_FORBIDDEN_COLUMNS.every((c) => !writable.has(c)) && [...writable].sort().join() === 'ai_faqs,full_description,keywords,meta_description,meta_title,og_image_url')
+    check('trip fixes: the allow-list and the forbidden list do not overlap', PACKAGE_FORBIDDEN_COLUMNS.every((c) => !writable.has(c)) && [...writable].sort().join() === 'ai_faqs,full_description,keywords,meta_description,meta_title' && !writable.has('og_image_url'))
     const payload = Object.fromEntries(live.map((c) => [c.column, c.value]))
     check('trip fixes: the update payload built from every change writes only allow-listed columns, never a forbidden one', Object.keys(payload).every((k) => writable.has(k)) && Object.keys(payload).every((k) => !PACKAGE_FORBIDDEN_COLUMNS.includes(k)), Object.keys(payload).join())
     check('trip fixes: every fix maps only to columns on the allow-list', (Object.keys(PACKAGE_FIX_COLUMNS) as (keyof typeof PACKAGE_FIX_COLUMNS)[]).every((f) => PACKAGE_FIX_COLUMNS[f].every((c) => writable.has(c))) && live.every((c) => PACKAGE_FIX_COLUMNS[c.fix].includes(c.column)))
     check('trip fixes: the name, price, dates, inclusions, itinerary, links and status are never in a change, whatever the row holds', live.every((c) => !['name', 'slug', 'price_display', 'price_value', 'currency', 'available_from', 'available_to', 'departure_dates', 'price_includes', 'not_included', 'itinerary', 'booking_url', 'more_info_url', 'status', 'short_description'].includes(c.column)))
     const descChange = live.find((c) => c.column === 'full_description')
     check('trip fixes: the description changes only by ONE line added at the end (the original text is untouched)', !!descChange && (descChange.value as string).startsWith(trip.full_description) && (descChange.value as string).slice(trip.full_description.length).trim().split('\n').filter(Boolean).length === 1)
-    check('trip fixes: only EMPTY fields are filled (a trip with its own meta, picture, keywords and FAQs is left alone)', assemblePackageChanges({ ...trip, meta_title: 'x', meta_description: 'y', og_image_url: 'https://z/i.jpg', keywords: ['a'], ai_faqs: goodFaqs }, { past: false, existing, targets }, generated).map((c) => c.fix).join() === 'links')
-    check('trip fixes: an edit an admin undid stays undone', !assemblePackageChanges(trip, { past: false, existing, targets, skip: new Set(['ai_faqs', 'links', 'og_image']) }, generated).some((c) => ['ai_faqs', 'links', 'og_image'].includes(c.field)))
+    check('trip fixes: only EMPTY fields are filled (a trip with its own meta, keywords and FAQs is left alone)', assemblePackageChanges({ ...trip, meta_title: 'x', meta_description: 'y', keywords: ['a'], ai_faqs: goodFaqs }, { past: false, existing, targets }, generated).map((c) => c.fix).join() === 'links')
+    check('trip fixes: an edit an admin undid stays undone', !assemblePackageChanges(trip, { past: false, existing, targets, skip: new Set(['ai_faqs', 'links']) }, generated).some((c) => ['ai_faqs', 'links'].includes(c.field)))
 
-    // Past trips: FAQ and links only.
+    // Past trips: the FAQ fix only (their page text is frozen, so no related line either).
     const past = assemblePackageChanges({ ...trip, available_to: '2026-01-01' }, { past: true, existing, targets }, generated)
-    check('past trip: only FAQ and links fixes (no meta, share picture or keywords)', past.map((c) => c.fix).sort().join() === 'ai_faqs,links', past.map((c) => c.fix).join())
+    check('past trip: only the FAQ fix (no meta, keywords or related line, so the description is never touched)', past.map((c) => c.fix).join() === 'ai_faqs' && !past.some((c) => c.column === 'full_description'), past.map((c) => c.fix).join())
+    check('past trip: the allowed fixes list is FAQ only', PAST_TRIP_FIXES.join() === 'ai_faqs')
     check('past trip: no meta text is even asked for', tripGenerationWanted({ ...trip, available_to: '2026-01-01' }, true).metaTitle === false && tripGenerationWanted({ ...trip, available_to: '2026-01-01' }, true).metaDescription === false && tripGenerationWanted(trip, false).metaTitle === true)
 
     // The related line.
@@ -722,12 +728,12 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     check('related line: no long dash even if a guide name has one', !/[–—]/.test(relatedLinksLine(trip, [{ path: '/hotels/blue-dome', title: `Blue ${EM} Dome`, dest: 'santorini', rank: 1 }], existing)!.line))
     check('related line: the audit row keeps the full description as `before`', descChange?.before === trip.full_description && descChange.after === descChange.value && descChange.field === 'links')
     // Undo: revert restores `before` for every trip field, and a changed field needs force.
-    const afterRow = { ...trip, meta_title: generated.meta_title, meta_description: generated.meta_description, og_image_url: trip.image_url, keywords: payload.keywords, ai_faqs: goodFaqs.map((f) => ({ answer: f.answer, question: f.question })), full_description: descChange!.value }
+    const afterRow = { ...trip, meta_title: generated.meta_title, meta_description: generated.meta_description, keywords: payload.keywords, ai_faqs: goodFaqs.map((f) => ({ answer: f.answer, question: f.question })), full_description: descChange!.value }
     check('undo: what the row holds matches the audit `after` for every trip field (so Undo needs no force)', live.every((c) => storedValue('package', afterRow as never, c.field) === c.after), live.map((c) => c.field).join())
     check('undo: restoring `before` puts back the empty value, the keywords list, the FAQ list and the old description', live.every((c) => {
       const cols = columnsFor('package', c.field, c.before)
       return !!cols && Object.keys(cols).join() === c.column
-    }) && JSON.stringify(columnsFor('package', 'ai_faqs', '[]')) === '{"ai_faqs":null}' && JSON.stringify(columnsFor('package', 'links', trip.full_description)) === JSON.stringify({ full_description: trip.full_description }) && JSON.stringify(columnsFor('package', 'og_image', '')) === '{"og_image_url":null}')
+    }) && JSON.stringify(columnsFor('package', 'ai_faqs', '[]')) === '{"ai_faqs":null}' && JSON.stringify(columnsFor('package', 'links', trip.full_description)) === JSON.stringify({ full_description: trip.full_description }) && columnsFor('package', 'og_image' as never, '') === null)
     check('undo: a field the trip heal never writes cannot be restored through a trip edit', columnsFor('package', 'title', 'x') === null && columnsFor('package', 'body', 'x') === null && columnsFor('package', 'keywords', 'not json') === null)
 
     // Keywords (no model).
@@ -754,6 +760,8 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     const metaFail = await writeTripMeta(trip, { title: true, description: false }, async () => ({ raw: null, error: 'timeout' }))
     check('meta: a failed call writes nothing and is not marked "answered empty" (retried tomorrow)', metaFail.called && !metaFail.answeredEmpty && !metaFail.meta_title)
     check('meta: generated text fills only an empty field', assemblePackageChanges({ ...trip, meta_title: 'Mine', meta_description: null }, { past: false, existing, targets: [] }, { meta_title: 'Other', meta_description: generated.meta_description }).filter((c) => c.fix === 'meta').map((c) => c.field).join() === 'meta_description')
+    const bad = await applyTripChanges(null as never, { id: 't1', path: '/packages/x' }, [{ fix: 'meta', field: 'meta_title', column: 'price_value', value: 1, before: '', after: '1', method: 'generate', reason: 'x' }])
+    check('apply: a change whose column is not on the allow-list is refused before anything is logged or written', /refused/.test(bad.error ?? ''), bad.error)
     check('trip fixes: no em or en dash in any text the heal writes', live.every((c) => !/[–—]/.test(c.after) && !/[–—]/.test(c.reason)))
   }
 

@@ -14,6 +14,10 @@ import { EST_COST_USD_PER_CALL, type ContentEdit, type ContentType, type EditFie
 
 /** At most this many pages are repaired or healed per day across posts, guides and page copy. */
 export const REPAIR_ITEMS_PER_DAY = 6
+/** Slots of the day kept for trip pages; posts, guides and page copy share the other REPAIR_ITEMS_PER_DAY minus this. */
+export const TRIP_RESERVED_SLOTS = 2
+/** The itemKey prefix a trip's slot uses. */
+export const TRIP_SLOT_PREFIX = 'package:'
 /** At most this many model calls per page (posts 1). */
 export const REPAIR_CALLS_PER_ITEM = 2
 /** The most the repair and heal steps can spend in a day: items x calls x the per-call estimate. */
@@ -62,6 +66,12 @@ export async function claimRepairSlot(admin: SupabaseClient, itemKey: string, pe
   if (error) return { ok: false, used: 0, reason: `could not read today's repair slots: ${error.message}` }
   const rows = (data ?? []) as { key: string; value: string }[]
   if (rows.some((r) => r.value === itemKey)) return { ok: true, used: rows.length }
+  // Trip pages keep TRIP_RESERVED_SLOTS of the day's slots: every other kind of page may use at most the rest.
+  if (!itemKey.startsWith(TRIP_SLOT_PREFIX)) {
+    const pageCap = Math.max(0, perDay - TRIP_RESERVED_SLOTS)
+    const pagesUsed = rows.filter((r) => !r.value.startsWith(TRIP_SLOT_PREFIX)).length
+    if (pagesUsed >= pageCap) return { ok: false, used: rows.length, reason: `today's cap of ${pageCap} repaired pages is used (the rest is kept for trip pages)` }
+  }
   for (let n = 1; n <= perDay; n++) {
     if (rows.some((r) => r.key === `${prefix}${n}`)) continue
     const { error: insertError } = await admin.from('app_settings').insert({ key: `${prefix}${n}`, value: itemKey })
@@ -186,8 +196,6 @@ export function storedValue(type: ContentType, row: Row, field: EditField): stri
       case 'links':
       case 'body':
         return asString(row.full_description)
-      case 'og_image':
-        return asString(row.og_image_url)
       case 'keywords':
         return JSON.stringify(Array.isArray(row.keywords) ? row.keywords : [])
       case 'ai_faqs':
@@ -217,8 +225,6 @@ export function columnsFor(type: ContentType, field: EditField, text: string): R
       case 'meta_title':
       case 'meta_description':
         return { [field]: text.trim() ? text : null }
-      case 'og_image':
-        return { og_image_url: text.trim() ? text : null }
       case 'links':
         return { full_description: text.trim() ? text : null }
       case 'keywords':

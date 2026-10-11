@@ -27,7 +27,7 @@ import {
   type RepairFields,
   type RepairLimits,
 } from '@/lib/content-repair'
-import { claimDailyOnce, claimRepairSlot, countEditsSince, editsLoggable, insertEdits, readRepairSpend, recordRepairSpend, deleteEdits, repairDay, startOfSiteDayIso, REPAIR_ITEMS_PER_DAY } from '@/lib/content-edits'
+import { TRIP_SLOT_PREFIX, claimDailyOnce, claimRepairSlot, countEditsSince, editsLoggable, insertEdits, readRepairSpend, recordRepairSpend, deleteEdits, repairDay, startOfSiteDayIso, REPAIR_ITEMS_PER_DAY } from '@/lib/content-edits'
 import {
   assemblePackageChanges,
   buildPackageItem,
@@ -35,6 +35,7 @@ import {
   GUIDE_LIMITS,
   isPastTripRow,
   normTripFaqs,
+  PACKAGE_WRITABLE_COLUMNS,
   sectionsOf,
   tripGenerationWanted,
   writeTripMeta,
@@ -831,14 +832,17 @@ async function healTripPages(
       const cheap = assemblePackageChanges(row, planCtx)
       if (cheap.length === 0 && !wantMeta && !wantFaq) continue
 
-      const slot = await claimRepairSlot(admin, `package:${id}`)
+      // One meta call and one FAQ call per trip per day, however often Heal now is pressed. The markers are taken
+      // BEFORE the slot, so a trip whose calls were already used today (and has nothing else to do) never takes a slot.
+      if (wantMeta && !(await claimDailyOnce(admin, `package:${id}`))) wantMeta = false
+      if (wantFaq && !(await claimDailyOnce(admin, tripFaqDailyKey(id)))) wantFaq = false
+      if (cheap.length === 0 && !wantMeta && !wantFaq) continue
+
+      const slot = await claimRepairSlot(admin, `${TRIP_SLOT_PREFIX}${id}`)
       if (!slot.ok) {
         if (!/cap of/.test(slot.reason ?? '')) out.problems.push(slot.reason ?? 'no repair slot')
         break
       }
-      // One meta call and one FAQ call per trip per day, however often Heal now is pressed.
-      if (wantMeta && !(await claimDailyOnce(admin, `package:${id}`))) wantMeta = false
-      if (wantFaq && !(await claimDailyOnce(admin, tripFaqDailyKey(id)))) wantFaq = false
 
       const generated: GeneratedTrip = {}
       if (wantMeta) {
@@ -886,8 +890,11 @@ async function healTripPages(
 
 /** Logs, then applies, the changes for one trip. "Log, then apply": no audit row, no edit; a failed update takes the
  * audit rows back out. Writes only the allow-listed columns (PACKAGE_FIX_COLUMNS), only on a published row. */
-async function applyTripChanges(admin: SupabaseClient, trip: { id: string; path: string }, changes: PackageChange[]): Promise<{ error?: string }> {
+export async function applyTripChanges(admin: SupabaseClient, trip: { id: string; path: string }, changes: PackageChange[]): Promise<{ error?: string }> {
   // The meta title and description come from ONE call, so they share its estimate; the FAQ is its own call.
+  const writable = new Set<string>(PACKAGE_WRITABLE_COLUMNS)
+  const forbidden = changes.find((c) => !writable.has(c.column))
+  if (forbidden) return { error: `refused: ${forbidden.column} is not a field the trip heal may write` }
   const metaRows = changes.filter((c) => c.fix === 'meta').length
   const edits: ContentEdit[] = changes.map((c) => ({
     content_type: 'package',
@@ -903,8 +910,12 @@ async function applyTripChanges(admin: SupabaseClient, trip: { id: string; path:
   }))
   const logged = await insertEdits(admin, edits)
   if (logged.error) return { error: `the audit log could not be written (${logged.error})${/check constraint/i.test(logged.error) ? '; apply migration 0038' : ''}` }
+  // The payload is built from the allow-list: a column is written only if it is on it AND a change names it.
   const columns: Row = {}
-  for (const c of changes) columns[c.column] = c.value
+  for (const col of PACKAGE_WRITABLE_COLUMNS) {
+    const c = changes.find((x) => x.column === col)
+    if (c) columns[col] = c.value
+  }
   const { error } = await admin.from('travel_packages').update({ ...columns, updated_at: new Date().toISOString() }).eq('status', 'published').eq('id', trip.id)
   if (error) {
     await deleteEdits(admin, logged.ids)

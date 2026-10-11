@@ -320,12 +320,11 @@ export async function repairComposedCopy(
 // description has no link to another page on this site).
 
 /** The trip fixes the heal may make. */
-export type PackageFix = 'meta' | 'og_image' | 'keywords' | 'ai_faqs' | 'links'
+export type PackageFix = 'meta' | 'keywords' | 'ai_faqs' | 'links'
 
 /** The database column each fix may write. The allow-list: nothing else on a trip row is ever written by the heal. */
 export const PACKAGE_FIX_COLUMNS: Record<PackageFix, readonly string[]> = {
   meta: ['meta_title', 'meta_description'],
-  og_image: ['og_image_url'],
   keywords: ['keywords'],
   ai_faqs: ['ai_faqs'],
   links: ['full_description'],
@@ -343,8 +342,8 @@ export const PACKAGE_FORBIDDEN_COLUMNS: readonly string[] = [
   'booking_url', 'more_info_url', 'status', 'supplier', 'featured', 'sort_order',
 ]
 
-/** A trip that already happened gets FAQ and link fixes only: its body is frozen (Joel's recap rule). */
-export const PAST_TRIP_FIXES: readonly PackageFix[] = ['ai_faqs', 'links']
+/** A trip that already happened gets the FAQ fix only: its page text is frozen (Joel's recap rule). */
+export const PAST_TRIP_FIXES: readonly PackageFix[] = ['ai_faqs']
 
 /** The one place that says a trip is in the past (the page uses the same test: the trip's end date has gone by).
  * WP14 swaps this for lib/past-trip.ts. `today` is YYYY-MM-DD. */
@@ -551,7 +550,7 @@ export async function writeTripMeta(pkg: TripRow, want: { title: boolean; descri
 export interface PackageChange {
   fix: PackageFix
   /** The audit log field. */
-  field: 'meta_title' | 'meta_description' | 'og_image' | 'keywords' | 'ai_faqs' | 'links'
+  field: 'meta_title' | 'meta_description' | 'keywords' | 'ai_faqs' | 'links'
   /** The database column this writes and its new value. */
   column: string
   value: unknown
@@ -592,9 +591,6 @@ export function assemblePackageChanges(pkg: TripRow, ctx: { past: boolean; exist
     if (generated.meta_description && !trimmed(pkg.meta_description) && !skipped('meta_description')) {
       out.push({ fix: 'meta', field: 'meta_description', column: 'meta_description', value: generated.meta_description, before: '', after: generated.meta_description, method: 'generate', reason: 'meta description was empty, written from the trip text only' })
     }
-  }
-  if (allowed('og_image') && !trimmed(pkg.og_image_url) && trimmed(pkg.image_url) && !skipped('og_image')) {
-    out.push({ fix: 'og_image', field: 'og_image', column: 'og_image_url', value: trimmed(pkg.image_url), before: '', after: trimmed(pkg.image_url), method: 'fixer', reason: 'share picture was empty, set to the trip cover picture' })
   }
   if (allowed('keywords') && !(Array.isArray(pkg.keywords) && pkg.keywords.some((k) => trimmed(k))) && !skipped('keywords')) {
     const kws = tripKeywords(pkg)

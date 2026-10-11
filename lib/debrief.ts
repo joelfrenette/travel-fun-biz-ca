@@ -86,7 +86,6 @@ const EDIT_FIELD: Record<string, string> = {
   key_takeaways: 'key takeaways',
   ai_faqs: 'trip FAQ',
   keywords: 'keywords',
-  og_image: 'share picture',
 }
 const EDIT_METHOD: Record<string, string> = { ai: 'reworded by AI', delete: 'removed', fixer: 'plain fix', links: 'link added', generate: 'written from the page text' }
 
