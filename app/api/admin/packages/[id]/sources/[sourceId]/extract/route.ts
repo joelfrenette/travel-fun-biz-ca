@@ -33,6 +33,8 @@ export async function POST(request: Request, { params }: { params: { id: string;
   const admin = getSupabaseAdmin()
   const source = await getSource(admin, params.id, params.sourceId)
   if (!source) return NextResponse.json({ error: 'Source not found' }, { status: 404 })
+  // A trip photo (WP14) is for the gallery, never read by the model.
+  if (source.kind === 'photo') return NextResponse.json({ error: 'A trip photo is not read by the AI.' }, { status: 400 })
 
   // Atomic claim: one extraction per source unless the last try failed (or a claim went stale), so a double click
   // cannot pay twice.

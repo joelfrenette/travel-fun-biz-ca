@@ -13,7 +13,10 @@ export const MAX_IMAGES_PER_PACKAGE = 5
 export const MAX_TEXT_CHARS = 160_000
 export const SIGNED_URL_SECONDS = 60
 
-export type SourceKind = 'screenshot' | 'pdf' | 'url' | 'text'
+/** 'photo' (migration 0037, WP14): a picture the admin took on the trip. Unlike a screenshot it MAY go in the
+ * gallery, and it is never sent to the model. Kept out of listSources: the Past trip panel owns them. */
+export type SourceKind = 'screenshot' | 'pdf' | 'url' | 'text' | 'photo'
+export const MAX_TRIP_PHOTOS = 20
 export type SourceStatus = 'uploaded' | 'extracted' | 'applied' | 'failed'
 
 /** One logged change. `before` and `after` are the column values (a list stays a list). */
@@ -113,7 +116,7 @@ export function estimateCostUsd(inputTokens: number | null, outputTokens: number
 
 /** Rows for one package, newest first. The (large) extracted text is not sent to the browser; its length is. */
 export async function listSources(admin: SupabaseClient, packageId: string): Promise<SourceResult<(Omit<PackageSourceRow, 'extracted_text'> & { text_chars: number; cost_usd: number })[]>> {
-  const { data, error } = await admin.from('package_sources').select('*').eq('package_id', packageId).order('created_at', { ascending: false })
+  const { data, error } = await admin.from('package_sources').select('*').eq('package_id', packageId).neq('kind', 'photo').order('created_at', { ascending: false })
   if (error) return fail(500, /relation .* does not exist|package_sources/i.test(error.message) ? 'The package_sources table is missing: run migration 0034 (supabase/migrations/0034_package_sources.sql) in the Supabase SQL editor.' : error.message)
   return {
     ok: true,
@@ -202,6 +205,64 @@ export async function registerUploadedFile(admin: SupabaseClient, packageId: str
     return ok
   }
   return insertFileRow(admin, packageId, path, name, ok.value, bytes.length)
+}
+
+// ─── Trip photos (WP14) ─────────────────────────────────────────────────────────────
+
+/** Checks for a photo the admin took: size, real image bytes (no PDF), and at most MAX_TRIP_PHOTOS per trip. */
+async function validatePhoto(admin: SupabaseClient, packageId: string, bytes: Buffer): Promise<SourceResult<DetectedFile>> {
+  if (bytes.length === 0) return fail(400, 'That file is empty.')
+  if (bytes.length > MAX_FILE_BYTES) return fail(413, 'That photo is larger than 10 MB. Save a smaller copy and try again.')
+  const detected = detectFile(bytes)
+  if (!detected || detected.kind !== 'screenshot') return fail(400, 'Only PNG, JPG and WebP photos are accepted.')
+  const { count } = await admin.from('package_sources').select('id', { count: 'exact', head: true }).eq('package_id', packageId).eq('kind', 'photo')
+  if ((count ?? 0) >= MAX_TRIP_PHOTOS) return fail(409, `This trip already has ${MAX_TRIP_PHOTOS} trip photos. Delete one before adding another.`)
+  return { ok: true, value: detected }
+}
+
+async function insertPhotoRow(admin: SupabaseClient, packageId: string, path: string, name: string, detected: DetectedFile, size: number): Promise<SourceResult<PackageSourceRow>> {
+  const { data, error } = await admin
+    .from('package_sources')
+    // model_calls 1: a photo is never read by the model, and this keeps the extract claim from ever matching it.
+    .insert({ package_id: packageId, kind: 'photo', storage_path: path, file_name: cleanName(name) || `photo.${detected.ext}`, mime_type: detected.mediaType, file_bytes: size, status: 'uploaded', model_calls: 1 })
+    .select('*')
+    .single()
+  if (error || !data) {
+    await admin.storage.from(SOURCES_BUCKET).remove([path])
+    const needsMigration = /kind_check|violates check/i.test(error?.message ?? '')
+    return fail(500, needsMigration ? 'Run migration 0037 (supabase/migrations/0037_trip_recap.sql) in the Supabase SQL editor, then try again.' : (error?.message ?? 'Could not save the photo.'))
+  }
+  return { ok: true, value: data as PackageSourceRow }
+}
+
+/** A small photo sent in the request: stored in the private bucket and added as a 'photo' row. */
+export async function createPhotoSource(admin: SupabaseClient, packageId: string, file: { name: string; bytes: Buffer }): Promise<SourceResult<PackageSourceRow>> {
+  const ok = await validatePhoto(admin, packageId, file.bytes)
+  if (!ok.ok) return ok
+  const path = `${packageId}/photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ok.value.ext}`
+  const up = await admin.storage.from(SOURCES_BUCKET).upload(path, file.bytes, { contentType: ok.value.mediaType, upsert: false })
+  if (up.error) return fail(500, bucketMessage(up.error.message))
+  return insertPhotoRow(admin, packageId, path, file.name, ok.value, file.bytes.length)
+}
+
+/** Step 2 of the big-photo path (the browser put it in the bucket with a signed link from createSignedUpload). */
+export async function registerUploadedPhoto(admin: SupabaseClient, packageId: string, path: string, name: string): Promise<SourceResult<PackageSourceRow>> {
+  if (!path.startsWith(`${packageId}/`) || path.includes('..')) return fail(400, 'That upload does not belong to this trip.')
+  const { data: existing } = await admin.from('package_sources').select('id').eq('storage_path', path).maybeSingle()
+  if (existing) return fail(409, 'That upload was already added.')
+  const size = await objectSize(admin, path)
+  if (size == null || size > MAX_FILE_BYTES) {
+    await admin.storage.from(SOURCES_BUCKET).remove([path])
+    return fail(size == null ? 422 : 413, size == null ? 'The uploaded photo could not be checked, so it was removed. Try again.' : 'That photo is larger than 10 MB. Save a smaller copy and try again.')
+  }
+  const bytes = await downloadSourceFile(admin, { storage_path: path })
+  if (!bytes) return fail(404, 'The uploaded photo was not found. Try again.')
+  const ok = await validatePhoto(admin, packageId, bytes)
+  if (!ok.ok) {
+    await admin.storage.from(SOURCES_BUCKET).remove([path])
+    return ok
+  }
+  return insertPhotoRow(admin, packageId, path, name, ok.value, bytes.length)
 }
 
 /** A link source. The page is fetched when extraction runs, not now. Only public http(s) links. */
