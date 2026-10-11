@@ -11,7 +11,8 @@ import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { readHealSummary } from '@/lib/content-heal-run'
-import { HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
+import { HARD_WAITING_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { clearAllPromotionFailures, readPromotionFailures } from '@/lib/promotion'
 import { completenessScore } from '@/lib/package-completeness'
 import { openFindings, dismissFindings } from '@/lib/source-watch'
 import { checkPastTripsForRecap } from '@/lib/content-drift'
@@ -25,7 +26,7 @@ import { pastTripSlugs } from '@/lib/past-trip'
 const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
 
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale' | 'dismiss-source-watch'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale' | 'dismiss-source-watch' | 'dismiss-promotion'
 
 export interface Issue {
   id: string
@@ -153,6 +154,23 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
       fix: `A guide is skipped after ${MAX_GUIDE_ATTEMPTS} failed tries so it cannot keep spending AI credits. Check ANTHROPIC_API_KEY in Vercel; click Dismiss to let them be tried again.`,
       actions: [{ label: 'Dismiss', kind: 'dismiss-guides' }],
     })
+  }
+
+  // Parts of a "Promote this package" click that did not work (WP15). One item lists every trip and the parts that failed.
+  try {
+    const promo = Object.values(await readPromotionFailures(admin))
+    if (promo.length) {
+      issues.push({
+        id: PROMOTION_ISSUE_ID,
+        area: 'system',
+        title: `${promo.length} trip promotion${promo.length === 1 ? '' : 's'} had a problem`,
+        detail: promo.map((f) => `${f.name}: ${f.steps.join('; ')}`).join(' | '),
+        fix: 'If it says the AI key is missing or wrong, check ANTHROPIC_API_KEY in Vercel and redeploy. If it says a database update is missing, run migration 0039. Then click Dismiss and press Promote this package on the trip again.',
+        actions: [{ label: 'Dismiss', kind: 'dismiss-promotion' }],
+      })
+    }
+  } catch {
+    // a promotion note is never worth failing the list
   }
 
   // Drafts the safety checks held back for a reason only a person should judge (WP10). The count comes from the last
@@ -373,6 +391,7 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
   }
   if (kind === 'dismiss-guides') return (await clearAllGuideFailures(admin)).error ?? null
   if (kind === 'dismiss-page-copy') return (await clearAllCopyFailures(admin)).error ?? null
+  if (kind === 'dismiss-promotion') return (await clearAllPromotionFailures(admin)).error ?? null
   if (kind === 'dismiss-page-copy-stale') {
     // Empties the stored list but keeps the "checked at" stamps, so the daily check resumes on schedule.
     let state: Record<string, unknown> = {}

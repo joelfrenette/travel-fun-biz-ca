@@ -21,6 +21,9 @@ export interface TopicIdea {
   /** The keyword set the post is shooting for: primary first (same as `keyword`), then secondary phrases of
    * the same topic. Absent on ideas that are about a single phrase. */
   keywords?: string[]
+  /** Set when the idea was made for one package by "Promote this package" (WP15): the writer then grounds the post
+   * in that exact trip instead of guessing from the angle's words. */
+  package_slug?: string | null
 }
 
 export interface BlogTopicQueueRow {
@@ -39,6 +42,8 @@ export interface BlogTopicQueueRow {
   cluster_id?: string | null
   title_idea?: string | null
   score?: number | null
+  /** Migration 0039 column: the package an idea was made for by Promote this package. Null/absent otherwise. */
+  package_slug?: string | null
 }
 
 /** The keyword set of a queue row: its `keywords` when recorded, otherwise just its one phrase. */
@@ -226,7 +231,7 @@ export interface PackageGrounding {
  * or keyword mentions the package's destination or name. Returns null when nothing matches -
  * never guesses a "closest" package, since grounding a post in the wrong product would be worse
  * than not grounding it at all. */
-export async function findGroundingPackage(admin: SupabaseClient, topic: Pick<TopicIdea, 'angle' | 'keyword'>): Promise<PackageGrounding | null> {
+export async function findGroundingPackage(admin: SupabaseClient, topic: Pick<TopicIdea, 'angle' | 'keyword'> & { package_slug?: string | null }): Promise<PackageGrounding | null> {
   const { data, error } = await admin
     .from('travel_packages')
     .select('name, slug, destination, short_description, full_description, highlights, available_from, available_to')
@@ -235,6 +240,11 @@ export async function findGroundingPackage(admin: SupabaseClient, topic: Pick<To
   if (error || !data) return null
   const haystack = `${topic.angle} ${topic.keyword}`.toLowerCase()
   const rows = data as PackageGrounding[]
+  // An idea made for one package by Promote this package (WP15) is grounded in exactly that package.
+  if (topic.package_slug) {
+    const exact = rows.find((p) => p.slug === topic.package_slug)
+    if (exact) return exact
+  }
   return (
     rows.find((p) => {
       const dest = p.destination?.toLowerCase()

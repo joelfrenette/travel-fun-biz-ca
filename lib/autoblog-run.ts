@@ -225,7 +225,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
       await setTopicStatus(admin, row.id, 'used', {})
       continue
     }
-    topic = { angle: row.angle, keyword: row.keyword, why: row.why, source: row.source, keywords: keywordSetOf(row) }
+    topic = { angle: row.angle, keyword: row.keyword, why: row.why, source: row.source, keywords: keywordSetOf(row), package_slug: row.package_slug ?? null }
     queueRowId = row.id
     break
   }

@@ -357,8 +357,13 @@ const ORIGIN_ORDER: Record<GuideCandidate['origin'], number> = { destination: 0,
  * MAX_GUIDE_ATTEMPTS times is skipped. */
 export async function pickNextCandidate(admin: SupabaseClient, candidates: GuideCandidate[]): Promise<GuideCandidate | null> {
   const failures = await readGuideFailures(admin)
-  const eligible = candidates.filter((c) => c.origin !== 'package' && (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
+  const eligible = candidates.filter((c) => (c.origin !== 'package' || c.priority) && (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
   if (eligible.length === 0) return null
+
+  // A guide that "Promote this package" put at the front of the line (WP15) is written before the normal rotation.
+  // It still goes through the same quality gate, caps and publish mode as any other guide.
+  const promoted = eligible.filter((c) => c.priority)
+  if (promoted.length > 0) return promoted.sort((a, b) => ORIGIN_ORDER[a.origin] - ORIGIN_ORDER[b.origin] || (a.kind === 'destinations' ? -1 : 0) - (b.kind === 'destinations' ? -1 : 0))[0]
 
   const { data } = await admin.from('guides').select('kind, created_at').order('created_at', { ascending: false })
   const newest = new Map<string, string>()

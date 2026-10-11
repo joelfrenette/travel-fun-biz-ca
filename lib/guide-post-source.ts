@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { GUIDE_KINDS, guideKinds, guidePath, type GuideKind } from '@/lib/guides'
+import { isPastTrip } from '@/lib/past-trip'
 
 // What the social-posting pass needs to know about a guide row in post_distribution (migration 0030: a row
 // whose `path` is set refers to a guide page, not a blog post). Kept in its own file with no import of
@@ -29,6 +30,44 @@ export function guideFromPath(path: string): { kind: GuideKind; slug: string } |
   return null
 }
 
+/** The ledger slug of a trip's own social post (WP15, "Promote this package"): `package-<slug>`. Also the UTM campaign. */
+export function packageDistributionSlug(slug: string): string {
+  return `package-${slug}`
+}
+
+/** The public path of a trip page, as stored in the ledger row. */
+export function packageDistributionPath(slug: string): string {
+  return `/packages/${slug}`
+}
+
+/** Which trip a ledger path points at (`/packages/<slug>`), or null for anything else (so a bad path can never
+ * turn into a link to somewhere else). */
+export function packageSlugFromPath(path: string): string | null {
+  const m = /^\/packages\/([a-z0-9][a-z0-9-]*)$/.exec(path)
+  return m ? m[1] : null
+}
+
+/** The published, not-yet-past trip at /packages/<slug>, shaped like the fields the posting pass reads. Null when the
+ * trip is gone, unpublished or already happened (nothing is sent: a past trip's recap page does the promoting). Throws
+ * on a database error so it is retried like any other failure. */
+async function loadPackagePostSource(admin: SupabaseClient, slug: string): Promise<GuidePostSource | null> {
+  const cols = 'name, short_description, meta_description, image_url, highlights, status, available_to'
+  let res = await admin.from('travel_packages').select(`${cols}, recap_mode`).eq('slug', slug).maybeSingle()
+  // Before migration 0037 there is no recap_mode column; the date alone then decides.
+  if (res.error && /recap_mode|column|schema cache/i.test(res.error.message)) res = (await admin.from('travel_packages').select(cols).eq('slug', slug).maybeSingle()) as typeof res
+  if (res.error) throw new Error(`travel_packages: ${res.error.message}`)
+  const data = res.data as { name: string; short_description: string | null; meta_description: string | null; image_url: string | null; highlights: string[] | null; status: string; available_to: string | null; recap_mode?: string | null } | null
+  if (!data || data.status !== 'published' || isPastTrip(data)) return null
+  const points = (data.highlights ?? []).filter((h): h is string => typeof h === 'string' && h.trim().length > 0).map((h) => `- ${h}`)
+  const grounding = [data.short_description ? `- ${data.short_description}` : '', ...points].filter(Boolean).join('\n').slice(0, 1500)
+  return {
+    title: data.name,
+    cover_image_url: data.image_url || null,
+    meta_description: data.meta_description || data.short_description || null,
+    grounding: grounding || undefined,
+  }
+}
+
 /** The fields runDistributionLocked reads from a blog post, taken from a guide instead. */
 export interface GuidePostSource {
   title: string
@@ -43,6 +82,8 @@ export interface GuidePostSource {
  * Throws on a database error, so a read failure is retried like any other failure and not mistaken for
  * "unpublished". */
 export async function loadGuidePostSource(admin: SupabaseClient, path: string): Promise<GuidePostSource | null> {
+  const pkgSlug = packageSlugFromPath(path)
+  if (pkgSlug) return loadPackagePostSource(admin, pkgSlug)
   const ref = guideFromPath(path)
   if (!ref) return null
   const { data, error } = await admin
