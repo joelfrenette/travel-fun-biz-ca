@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { samplePackages } from '@/content/packages'
 import type { TravelPackage } from '@/types/travel'
+import { isPastTrip } from '@/lib/past-trip'
 
 // A dated traveler update on a trip ("where we went, what happened") - roadmap use case
 // 6aed9806. Admin-entered only; never AI-generated, since it's a first-person account of a real
@@ -61,6 +62,13 @@ export interface DbPackage {
   sort_order: number
   not_included: string | null
   keywords: string[]
+  /** Convert to Past Trip (WP14, migration 0037). Optional: absent until the migration is applied. */
+  recap_mode?: 'auto' | 'recap' | 'live' | null
+  recap_summary?: string | null
+  recap_highlights?: string[] | null
+  recap_generated_at?: string | null
+  next_trip_slug?: string | null
+  alert_tag?: string | null
   created_at: string
   updated_at: string
 }
@@ -167,6 +175,18 @@ export async function getNextUpcomingPackageInCategory(category: string, exclude
     return null
   }
   return data
+}
+
+/** The trip a recap page's "Join the next trip" points to: the admin's pick (next_trip_slug) when it is a
+ * published trip that has not happened, else the soonest upcoming trip in the same category. */
+export async function getNextTripForRecap(pkg: DbPackage): Promise<DbPackage | null> {
+  const slug = pkg.next_trip_slug?.trim()
+  if (slug && slug !== pkg.slug) {
+    const chosen = await getPublishedPackageBySlug(slug)
+    // A chosen trip that has itself already happened is no "next trip": fall back to the category lookup.
+    if (chosen && chosen.id !== pkg.id && !isPastTrip(chosen)) return chosen
+  }
+  return getNextUpcomingPackageInCategory(pkg.category, pkg.id)
 }
 
 /** Upcoming published trips to show on a blog post, so reading leads to enquiring instead of

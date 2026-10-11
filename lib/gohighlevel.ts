@@ -182,6 +182,26 @@ export async function submitLeadToGoHighLevel(lead: ContactSubmission): Promise<
   }
 }
 
+/** "Tell me about the next one" from a past trip page (WP14): the same contact upsert as every other lead, with the
+ * trip's alert tag. Only the tags are added; no broad contact read, no opportunity. */
+export async function subscribeTripAlertToGoHighLevel(values: { email: string; name?: string; alertTag: string; attribution?: Attribution }): Promise<Result> {
+  const cfg = config()
+  if (!cfg) return { ok: false, error: 'GoHighLevel is not configured' }
+
+  try {
+    return await upsertContact(cfg, {
+      ...(values.name ? splitName(values.name) : {}),
+      email: values.email,
+      source: 'Website Trip Alert',
+      tags: [values.alertTag, `site-${SITE_ID}`, 'email-consent', ...(isTestPerson({ email: values.email, name: values.name }) ? ['test-data'] : []), ...attributionTags(values.attribution)],
+      customFields: [{ key: 'lead_source', value: 'Website Trip Alert' }, ...attributionFields(values.attribution)],
+    })
+  } catch (error) {
+    console.error('[gohighlevel] trip alert failed:', error)
+    return { ok: false, error: 'Could not reach GoHighLevel' }
+  }
+}
+
 export async function subscribeNewsletterToGoHighLevel(values: NewsletterSubmission): Promise<Result> {
   const cfg = config()
   if (!cfg) return { ok: false, error: 'GoHighLevel is not configured' }

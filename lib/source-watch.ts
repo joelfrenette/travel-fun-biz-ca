@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { fetchSourceText } from '@/lib/package-extract'
+import { isPastTrip } from '@/lib/past-trip'
 
 // Weekly, free check that the supplier page behind a published trip still agrees with the trip page (growth
 // loop WP11). For each published package whose booking or more-info link is a real supplier page (not the
@@ -43,6 +44,13 @@ export interface WatchedPackage {
   more_info_url: string | null
   available_from: string | null
   available_to: string | null
+  recap_mode?: string | null
+}
+
+/** A past trip (lib/past-trip.ts) is never watched: its supplier page saying "sold out" or "cancelled" is old news
+ * and must never push anyone to unpublish a page that now earns traffic as a recap. */
+export function watchableTrips<T extends Pick<WatchedPackage, 'available_to' | 'recap_mode'>>(trips: T[], today: string): T[] {
+  return trips.filter((t) => !isPastTrip(t, today))
 }
 
 /** ISO week label such as 2026-W41, for the once-a-week claim. */
@@ -179,7 +187,10 @@ export function rotateByWeek<T>(list: T[], now: Date): T[] {
 
 /** The check itself. Fetches each page as text (the same fetcher the importer uses), scans it, stores findings. */
 export async function runSourceWatch(admin: SupabaseClient, now = new Date()): Promise<{ ok: boolean; note: string; retry?: boolean }> {
-  const { data, error } = await admin.from('travel_packages').select('slug, name, booking_url, more_info_url, available_from, available_to, departure_dates').eq('status', 'published')
+  let read = await admin.from('travel_packages').select('slug, name, booking_url, more_info_url, available_from, available_to, departure_dates, recap_mode').eq('status', 'published')
+  // Before migration 0037 there is no recap_mode column: read without it (every trip then counts as 'auto').
+  if (read.error) read = (await admin.from('travel_packages').select('slug, name, booking_url, more_info_url, available_from, available_to, departure_dates').eq('status', 'published')) as typeof read
+  const { data, error } = read
   if (error) return { ok: false, note: `could not read the trips: ${error.message}`, retry: true }
 
   const started = Date.now()
@@ -187,7 +198,7 @@ export async function runSourceWatch(admin: SupabaseClient, now = new Date()): P
   let checked = 0
   let unreadable = 0
   const seen = new Set<string>()
-  const trips = rotateByWeek((data ?? []) as WatchedPackage[], now)
+  const trips = rotateByWeek(watchableTrips((data ?? []) as WatchedPackage[], now.toISOString().slice(0, 10)), now)
   for (const pkg of trips) {
     for (const url of watchedUrls(pkg)) {
       // One fetch can take up to a minute, so a new one starts only while at least FETCH_MARGIN_MS of the budget is left.

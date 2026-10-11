@@ -1,6 +1,7 @@
 import { dbPackageToTravelPackage, type DbPackage } from '@/lib/packages'
 import { getAllPublishedPackages, groupPackagesByDestination } from '@/lib/package-grouping'
 import type { TravelPackage } from '@/types/travel'
+import { isPastTrip } from '@/lib/past-trip'
 
 // SEO backlog (e3/f3-4): a page per destination that lists both upcoming trips and past-trip
 // recaps for it, so a search for "Italy trips" or "Tahiti vacation" has a real landing page
@@ -25,12 +26,10 @@ export async function getDestinationPage(slug: string): Promise<DestinationPage 
   const group = groupPackagesByDestination(rows).get(slug)
   if (!group) return null
 
-  const today = new Date().toISOString().slice(0, 10)
-  const isPastTrip = (row: DbPackage) => !!row.available_to && row.available_to < today
-
+  // The one shared rule (lib/past-trip.ts), so a trip forced "live" or "recap" in the admin matches its own page.
   return {
     destination: group.destination,
     upcoming: group.packages.filter((row) => !isPastTrip(row)).map(dbPackageToTravelPackage),
-    recaps: group.packages.filter(isPastTrip),
+    recaps: group.packages.filter((row) => isPastTrip(row)),
   }
 }

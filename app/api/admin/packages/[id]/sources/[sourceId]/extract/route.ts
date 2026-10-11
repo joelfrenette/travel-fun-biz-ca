@@ -5,7 +5,7 @@ import { getPackageById } from '@/lib/packages'
 import { completenessScore } from '@/lib/package-completeness'
 import { extractPackageDraft, extractPackageDraftFromImage, extractPackageDraftFromPdf, fetchSourceText, type ExtractedDraft, type ModelUsage } from '@/lib/package-extract'
 import { proposeEnrichment, applyEnrichment, autoFaqs, type Enrichment } from '@/lib/package-enrich'
-import { getSource, downloadSourceFile, saveExtraction, markSourceFailed, estimateCostUsd, savePhotoCandidates, type PhotoCandidate } from '@/lib/package-sources'
+import { getSource, RECAP_LOG_NAME, downloadSourceFile, saveExtraction, markSourceFailed, estimateCostUsd, savePhotoCandidates, type PhotoCandidate } from '@/lib/package-sources'
 import { autoPickPhotos, type PhotoAddResult } from '@/lib/supplier-photos'
 
 export const maxDuration = 300
@@ -33,6 +33,9 @@ export async function POST(request: Request, { params }: { params: { id: string;
   const admin = getSupabaseAdmin()
   const source = await getSource(admin, params.id, params.sourceId)
   if (!source) return NextResponse.json({ error: 'Source not found' }, { status: 404 })
+  // A trip photo (WP14) is for the gallery, never read by the model.
+  if (source.kind === 'photo') return NextResponse.json({ error: 'A trip photo is not read by the AI.' }, { status: 400 })
+  if (source.file_name === RECAP_LOG_NAME) return NextResponse.json({ error: 'That row is the recap change log, not a source to read.' }, { status: 400 })
 
   // Atomic claim: one extraction per source unless the last try failed (or a claim went stale), so a double click
   // cannot pay twice.

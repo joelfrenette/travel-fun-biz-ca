@@ -211,6 +211,22 @@ export function plainAction(i: Issue): PlainAction {
       urlLabel: 'Open this trip',
     }
   }
+  if (i.id.startsWith('package:recap:')) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'This trip already happened. Do not take the page down: Google already knows it, and a recap keeps it bringing visitors and sign-ups for the next trip like it. This is a nudge, not an error.',
+      steps: [
+        'Open the trip with the link below. The "Convert to Past Trip" card is near the top.',
+        'Drop in photos from the trip (they stay private until you click "Add to gallery" on the ones you want).',
+        'Type 3 to 8 short journal notes: a date and a line about what happened.',
+        'Click "Write the recap". If it passes the safety checks it goes live right away, and you can click "Edit" to change the words or "Undo recap" to take it back.',
+        'Pick the next trip to point visitors to, then you are done.',
+      ],
+      url: i.link ? adminLink(i.link.href) : adminLink('/admin/packages'),
+      urlLabel: 'Open Convert to Past Trip',
+    }
+  }
   if (i.id.startsWith('source-watch:')) {
     return {
       id: i.id,
