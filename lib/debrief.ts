@@ -160,10 +160,14 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   // Test leads and signups (made-up people used to try the forms) are never counted here.
   const leadsTotal = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', start).lt('created_at', end))
   const signups = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).eq('package', 'Newsletter signup').gte('created_at', start).lt('created_at', end))
-  stats.push({ value: leadsTotal === null || signups === null ? '?' : String(leadsTotal - signups), label: 'New leads' })
+  // "Tell me about the next one" signups from past trip pages (WP14) are saved with package "Trip alert: <tag>"; they
+  // are counted on their own, not as contact-form leads.
+  const alerts = await countOf(admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).like('package', 'Trip alert:%').gte('created_at', start).lt('created_at', end))
+  const formLeads = leadsTotal === null || signups === null || alerts === null ? null : leadsTotal - signups - alerts
+  stats.push({ value: formLeads === null ? '?' : String(formLeads), label: 'New leads' })
   stats.push({ value: signups === null ? '?' : String(signups), label: 'Newsletter signups' })
-  if (leadsTotal === null || signups === null) yesterday.push('Leads and signups: could not read them.')
-  else yesterday.push(`New leads from the contact form: ${leadsTotal - signups}. Newsletter signups: ${signups}.`)
+  if (formLeads === null || signups === null) yesterday.push('Leads and signups: could not read them.')
+  else yesterday.push(`New leads from the contact form: ${formLeads}. Newsletter signups: ${signups}.${alerts ? ` Next-trip alert signups: ${alerts}.` : ''}`)
   // Which post and format earned them (links we post carry utm_campaign = the post, utm_content = the format)
   const { data: credited } = await admin.from('leads').select('utm_campaign, utm_content').eq('is_test', false).gte('created_at', start).lt('created_at', end).not('utm_campaign', 'is', null)
   if (credited?.length) {
@@ -203,13 +207,22 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   const issues = (await collectIssues(admin).catch(() => [])).sort((a, b) => Number(a.area === 'setup') - Number(b.area === 'setup'))
   // Thin trip pages are one line in their own section ("3 trip pages need more details"), not one card each.
   const thinTrips = issues.filter((i) => i.id.startsWith('package:thin:'))
-  const actions = issues.filter((i) => !i.id.startsWith('package:thin:')).map(plainAction)
+  // Past trips with no recap (WP14) are one line too: "N past trips have no recap yet".
+  const noRecap = issues.filter((i) => i.id.startsWith('package:recap:'))
+  const actions = issues.filter((i) => !i.id.startsWith('package:thin:') && !i.id.startsWith('package:recap:')).map(plainAction)
+  const recapLines = noRecap.length
+    ? [
+        `${noRecap.length} past trip${noRecap.length === 1 ? ' has' : 's have'} no recap yet: ${noRecap.map((i) => i.title.replace(/^The (.*) trip has no recap yet$/, '$1')).slice(0, 6).join('; ')}${noRecap.length > 6 ? `; and ${noRecap.length - 6} more` : ''}.`,
+        'Keep them published. To fix one: open Packages, edit the trip, and use the "Convert to Past Trip" card (photos, journal notes, then "Write the recap").',
+      ]
+    : []
   const tripPages = thinTrips.length
     ? [
         `${thinTrips.length} trip page${thinTrips.length === 1 ? ' needs' : 's need'} more details: ${thinTrips.map((i) => i.title.replace(/^The (.*) trip page is thin \(score (\d+) of 100\)$/, '$1, score $2 of 100')).slice(0, 6).join('; ')}${thinTrips.length > 6 ? `; and ${thinTrips.length - 6} more` : ''}.`,
         'To fix one: open Packages, click its score, and drop a screenshot, a PDF or a link into the "Add details" box.',
       ]
     : []
+  tripPages.push(...recapLines)
 
   // Ideas and decisions waiting on Joel
   const trackerItems: { title: string; priority: string }[] = []

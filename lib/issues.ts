@@ -14,6 +14,8 @@ import { readHealSummary } from '@/lib/content-heal-run'
 import { HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
 import { completenessScore } from '@/lib/package-completeness'
 import { openFindings, dismissFindings } from '@/lib/source-watch'
+import { checkPastTripsForRecap } from '@/lib/content-drift'
+import { pastTripSlugs } from '@/lib/past-trip'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -284,9 +286,29 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     // a trip page nudge is never worth failing the list
   }
 
+  // Past trips with no recap yet (WP14). A past trip stays published; this nudge says to add the recap. Area 'setup'
+  // (amber), so it never triggers an alert email, and it clears itself once the trip has a recap (or is set to live).
+  try {
+    for (const f of await checkPastTripsForRecap(admin)) {
+      issues.push({
+        id: `package:recap:${f.packageSlug}`,
+        area: 'setup',
+        title: `The ${f.packageName} trip has no recap yet`,
+        detail: f.detail,
+        fix: 'Open the trip and use the Convert to Past Trip card: add your photos and 3 or more journal notes, then click Write the recap. Do not unpublish the page.',
+        link: { label: 'Open Convert to Past Trip', href: f.href },
+      })
+    }
+  } catch {
+    // a recap nudge is never worth failing the list
+  }
+
   // The weekly supplier page check found something. Never changes a trip: it is Joel's decision.
   try {
-    const findings = await openFindings(admin)
+    // A trip that already happened is never flagged (WP14): findings stored before it passed are dropped here.
+    const open = await openFindings(admin)
+    const past = await pastTripSlugs(admin, [...new Set(open.map((f) => f.slug))]).catch(() => new Set<string>())
+    const findings = open.filter((f) => !past.has(f.slug))
     const seen = new Set<string>()
     for (const f of findings) {
       if (seen.has(f.slug)) continue
