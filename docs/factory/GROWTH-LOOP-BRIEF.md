@@ -471,3 +471,10 @@ the first selected photo also becomes the cover (auto, since he just chose it).
 
 Rules: no new vendor; isAuthorized on every route; caps as stated; never a screenshot image in a gallery;
 no em dashes; offline checks for the candidate filter and the FAQ gate.
+
+WP12 addition (Joel, 2026-10-10 late): supplier photos are AUTO-PICKED, not hand-picked. Rule: for a `url`
+source only, after extraction, take up to 6 candidate images that pass the filter (same host or its CDN,
+jpg/png/webp, at least 800px wide when the tag or the fetched header says so, not a logo/icon/sprite by
+name, not duplicated), upload them through `uploadImagePackageVariants`, append to `gallery_urls` (max 12),
+set `image_url` from the first when the trip has none, and log every added URL as an edit with Revert.
+Store the source page URL as `image_source` credit. The admin picker stays for adding or removing more.
