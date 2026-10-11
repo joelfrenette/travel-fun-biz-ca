@@ -62,6 +62,8 @@ const REPAIRABLE_SAMPLES = [
   '2 FAQ questions, need 3 to 5',
   '7 key takeaways, need 3 to 5',
   'ran out of time for FAQ',
+  'external or email link (https://example.com)',
+  'link that is not an internal path',
   'dead internal link: /packages/nope',
   'link to a page that was not confirmed to exist (/packages/nope)',
   'link inside FAQ, takeaways or meta text',
@@ -93,9 +95,7 @@ const HARD_SAMPLES = [
   'the intro has a heading',
   'the first sentence is a question, not a direct answer',
   'stale year in title (2024)',
-  'external or email link (https://example.com)',
   'web address in text',
-  'link that is not an internal path',
   'needs a person: "x" holds a price, a date or a named person',
   'a brand new blocker nobody classified yet',
 ]
@@ -213,15 +213,40 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     const exp = makeGuide({ 1: ['When I visited last year the harbour was calm.', 'The harbour is the best place to eat.'] })
     const r = await run(exp)
     check('HARD: an experience claim stops the repair, the text is exactly as it came in', r.hard.length > 0 && r.edits.length === 0 && r.fields.body === exp.body && r.calls === 0)
+    // Joel's rule (2026-10-10): an ungrounded price or exact date is DELETED (never reworded) where the paragraph keeps 2+ sentences.
     const price = makeGuide({ 2: ['Rooms cost $200 a night.'] })
     const rp = await run(price)
-    check('HARD: a flagged sentence with a price makes it a person’s call', rp.hard.some((h) => /needs a person/.test(h)) && rp.edits.length === 0 && rp.fields.body === price.body && rp.calls === 0)
-    const ext = makeGuide({ 2: ['See [this](https://example.com).'] })
-    const re = await run(ext)
-    check('HARD: an outside link is never stripped silently', re.hard.length > 0 && re.edits.length === 0 && re.fields.body === ext.body)
+    check('price: an ungrounded price sentence is deleted, the gate is clean, no model used', rp.blockers.length === 0 && !rp.fields.body.includes('$200') && rp.calls === 0 && rp.hard.length === 0)
+    check('price: the edit is method delete with the reason "ungrounded price or date"', rp.edits.length === 1 && rp.edits[0].method === 'delete' && /ungrounded price or date/.test(rp.edits[0].reason) && rp.edits[0].before.includes('$200') && !rp.edits[0].after.includes('$200'))
+    check('price: only that sentence went, nothing was added', rp.fields.body.length < price.body.length && rp.fields.body.replace(/\s+/g, ' ').includes('Local markets sell fruit'))
     const date = makeGuide({ 2: ['The ship sails on June 5 each season.'] })
     const rd = await run(date)
-    check('HARD: an exact date is a person’s call', rd.edits.length === 0 && rd.fields.body === date.body)
+    check('date: an exact date sentence is deleted the same way', rd.blockers.length === 0 && !rd.fields.body.includes('June 5') && rd.edits[0]?.method === 'delete' && /ungrounded price or date/.test(rd.edits[0].reason))
+    const cad = makeGuide({ 2: ['Fares start at 450 CAD per person.'] })
+    const rc = await run(cad)
+    check('price: "450 CAD per person" is deleted too', rc.blockers.length === 0 && !rc.fields.body.includes('450'))
+    // Where the paragraph would drop under two sentences, it stays HARD and nothing is touched.
+    const tiny = makeGuide({})
+    tiny.sections[2] = { heading: HEADINGS[2], body: 'Dinner is a nice break. Rooms cost $200 a night.' }
+    tiny.body = tiny.sections.map((s) => `## ${s.heading}\n\n${s.body}`).join('\n\n')
+    const rtiny = await repairContent(guideItem(tiny), { model: noModel })
+    check('price: in a 2-sentence paragraph it cannot be deleted, so it is HARD and untouched', rtiny.hard.some((h) => /needs a person/.test(h)) && rtiny.edits.length === 0 && rtiny.fields.body === tiny.body && rtiny.calls === 0)
+    const faqPrice = makeGuide({}, { faq: [{ q: 'What does it cost?', a: 'Rooms cost $200 a night.' }, ...makeGuide().faq] })
+    const rfp = await run(faqPrice)
+    check('price: a FAQ pair holding a price is deleted when enough pairs remain', rfp.blockers.length === 0 && rfp.fields.faq.length === 4 && rfp.edits.some((e) => e.field === 'faq' && e.method === 'delete'))
+    const person = makeGuide({ 2: ['Chef Anna Rossi cooks here nightly.'] })
+    const rper = await run(person)
+    check('person: a sentence about a named person stays HARD and untouched', rper.hard.some((h) => /needs a person/.test(h)) && rper.edits.length === 0 && rper.fields.body === person.body)
+    // Outside links: the link goes, the words stay (the address in a link is not a typed-in web address).
+    const ext = makeGuide({ 2: ['See [this page](https://example.com) for more.'] })
+    const re = await run(ext)
+    check('ext-link: an outside link loses the link and keeps its label', re.hard.length === 0 && re.blockers.length === 0 && re.fields.body.includes('See this page for more.') && !re.fields.body.includes('example.com') && re.calls === 0 && re.edits[0].method === 'fixer')
+    const mail = makeGuide({ 2: ['Write to [us](mailto:hi@example.com) today.'] })
+    const rm = await run(mail)
+    check('ext-link: a mailto link is handled the same way', rm.blockers.length === 0 && rm.fields.body.includes('Write to us today.'))
+    const bare = makeGuide({ 2: ['Visit https://example.com for more.'] })
+    const rb = await run(bare)
+    check('ext-link: a web address typed into the text stays HARD', rb.hard.some((h) => /web address/.test(h)) && rb.edits.length === 0 && rb.fields.body === bare.body)
   }
 
   // -------------------------------------------------------------------------------------------------
@@ -232,10 +257,10 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     const seen: string[] = []
     const model: ModelCall = async (prompt) => {
       seen.push(prompt)
-      return JSON.stringify({ rewrites: [{ id: 0, text: 'Our team can help you find tours.' }, { id: 1, text: 'The harbour is a pleasant place to eat.' }] })
+      return JSON.stringify({ rewrites: [{ id: 0, text: 'Tours are popular.' }, { id: 1, text: 'The harbour is a place to eat.' }] })
     }
     const r = await run(bad, model)
-    check('model: both sentences are reworded and the gate is clean', r.blockers.length === 0 && r.fields.body.includes('Our team can help you find tours.') && r.fields.body.includes('pleasant place to eat'), r.blockers.join(' | '))
+    check('model: both sentences are reworded (only with words they already had) and the gate is clean', r.blockers.length === 0 && r.fields.body.includes('Tours are popular.') && r.fields.body.includes('The harbour is a place to eat.'), r.blockers.join(' | '))
     check('model: ONE call covered both sentences, method ai', r.calls === 1 && seen.length === 1 && r.edits[0].method === 'ai')
     check('model: the prompt forbids new facts and lists only the offenders', /never add a fact/i.test(seen[0]) && seen[0].includes('We offer tours every year.') && !seen[0].includes('Small cafes line'))
     check('model: the prompt carries only the flagged sentences, no grounding, no package names', !seen[0].includes('Greek Isles') && !seen[0].includes('Subject:') && !seen[0].includes('Small cafes'))
@@ -244,8 +269,23 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     const sneaky: ModelCall = async () => JSON.stringify({ rewrites: [{ id: 0, text: 'The harbour has 40 cafes.' }] })
     const rs = await run(makeGuide({ 1: ['The harbour is the best place to eat.'] }), sneaky)
     check('model: a rewrite that adds a number is rejected, the fallback deletes the sentence', rs.blockers.length === 0 && !rs.fields.body.includes('40') && rs.edits[0].method === 'delete', rs.blockers.join(' | '))
-    check('validateRewrite rejects: longer, a new name, a new link, a price', validateRewrite('The harbour is the best place to eat.', 'The harbour is a really pleasant and quiet place to sit and eat dinner.', makeDetectCtx('guide', gateCtx.grounding)) === 'longer than the original' && /name/.test(validateRewrite('The harbour is the best place to eat.', 'Eat at Aquavit Terrace.', makeDetectCtx('guide', gateCtx.grounding)) ?? '') && validateRewrite('Eat well here.', 'Eat well [here](/packages/x).', makeDetectCtx('guide', gateCtx.grounding)) === 'adds a link' && validateRewrite('Eat well here.', 'Eat for $5.', makeDetectCtx('guide', gateCtx.grounding)) !== null)
-    check('validateRewrite accepts a shorter clean rewrite', validateRewrite('The harbour is the best place to eat.', 'The harbour is a calm place to eat.', makeDetectCtx('guide', gateCtx.grounding)) === null)
+    check('validateRewrite rejects: longer, a new name, a new link, a price', validateRewrite('The harbour is the best place to eat.', 'The harbour is a really pleasant and quiet place to sit and eat dinner.', makeDetectCtx('guide', gateCtx.grounding)) === 'longer than the original' && validateRewrite('The harbour is the best place to eat.', 'Eat at Aquavit Terrace.', makeDetectCtx('guide', gateCtx.grounding)) !== null && validateRewrite('Eat well here.', 'Eat well [here](/packages/x).', makeDetectCtx('guide', gateCtx.grounding)) === 'adds a link' && validateRewrite('Eat well here.', 'Eat for $5.', makeDetectCtx('guide', gateCtx.grounding)) !== null)
+    check('validateRewrite accepts a shorter clean rewrite', validateRewrite('The harbour is the best place to eat.', 'The harbour is a place to eat.', makeDetectCtx('guide', gateCtx.grounding)) === null)
+
+    // S1: the subset guard. A rewrite may only reuse the original's words plus a few neutral ones.
+    for (const type of ['guide', 'post'] as const) {
+      const cx = makeDetectCtx(type, 'Rhine trip', [])
+      const rej = (label: string, original: string, rewrite: string) => check(`subset guard (${type}): ${label} is rejected`, validateRewrite(original, rewrite, cx) !== null, String(validateRewrite(original, rewrite, cx)))
+      rej('"four-night" -> "week-long"', 'It is a four-night sailing.', 'It is a week-long sailing.')
+      rej('"wheelchair accessible"', 'The ship is the best for families.', 'The ship is wheelchair accessible.')
+      rej('"free to enter"', 'The museum is world-class.', 'The museum is free to enter.')
+      rej('"safe for all travellers with visas"', 'The old town is famous.', 'The old town is safe for all travellers with visas.')
+      rej('"We guarantee"', 'The staff are the best.', 'We guarantee the staff.')
+      rej('"Hotel Hassler"', 'The hotel is famous.', 'Hotel Hassler is famous.')
+      rej('"we offered"', 'The tours are famous.', 'We offered tours.')
+      check(`subset guard (${type}): "famous" -> "well known" is accepted`, validateRewrite('The old town is famous for its markets.', 'The old town is well known for its markets.', cx) === null, String(validateRewrite('The old town is famous for its markets.', 'The old town is well known for its markets.', cx)))
+      check(`subset guard (${type}): dropping the flagged words is accepted`, validateRewrite('The old town has the best markets.', 'The old town has markets.', cx) === null)
+    }
 
     // The model may delete.
     const del: ModelCall = async () => JSON.stringify({ rewrites: [{ id: 0, delete: true }] })
@@ -358,9 +398,9 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
 
     const withNum: ComposedPost = { ...good, body: good.body.replace('You unpack once.', 'You unpack once. The ship holds 180 guests.') }
     const item = buildPostItem(withNum, now, ctx)
-    const reword: ModelCall = async () => JSON.stringify({ rewrites: [{ id: 0, text: 'The ship is comfortable.' }] })
+    const reword: ModelCall = async () => JSON.stringify({ rewrites: [{ id: 0, text: 'The ship holds guests.' }] })
     const r = await repairContent(item, { model: reword, maxCalls: 1 })
-    check('post: a number is reworded with ONE call and the post gate is clean', r.blockers.length === 0 && r.calls === 1 && r.fields.body.includes('The ship is comfortable.') && r.edits[0].method === 'ai', r.blockers.join(' | '))
+    check('post: a number is reworded with ONE call and the post gate is clean', r.blockers.length === 0 && r.calls === 1 && r.fields.body.includes('The ship holds guests.') && r.edits[0].method === 'ai', r.blockers.join(' | '))
     const stored = buildPostItem(withNum, now, ctx, { storedBody: (b) => `${b}\n\nCTA` })
     const rs = await repairContent(stored, { model: reword, maxCalls: 1 })
     check('post: the logged body is the stored body (call to action appended)', rs.edits[0].before.endsWith('\n\nCTA') && rs.edits[0].after.endsWith('\n\nCTA'))
@@ -371,7 +411,10 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     check('post: a dead link is stripped with no model', rdead.blockers.length === 0 && rdead.calls === 0 && rdead.fields.body.includes('the Rhine trip') && !rdead.fields.body.includes('nope'))
     const ext = buildPostItem({ ...good, body: good.body + '\n\n[x](https://example.com)' }, now, ctx)
     const rext = await repairContent(ext, { model: noModel, maxCalls: 1 })
-    check('post: an external link is HARD (a person decides)', rext.hard.length > 0 && rext.edits.length === 0)
+    check('post: an external link loses the link and keeps its words, no model', rext.hard.length === 0 && rext.blockers.length === 0 && rext.calls === 0 && rext.fields.body.includes('\n\nx') && !rext.fields.body.includes('example.com'), rext.blockers.join(' | '))
+    const priceDel = buildPostItem({ ...good, body: good.body.replace('You unpack once.', 'You unpack once. Prices start from $1,200 per person.') }, now, ctx)
+    const rpd = await repairContent(priceDel, { model: noModel, maxCalls: 1 })
+    check('post: a price sentence inside a longer paragraph is deleted (Joel rule), not reworded', rpd.blockers.length === 0 && !rpd.fields.body.includes('1,200') && rpd.edits[0]?.method === 'delete', rpd.blockers.join(' | '))
     const price = buildPostItem({ ...good, body: good.body + '\n\nPrices start from $1,200 per person.' }, now, ctx)
     const rprice = await repairContent(price, { model: noModel, maxCalls: 1 })
     check('post: a price is HARD', rprice.edits.length === 0 && rprice.blockers.length > 0)
@@ -500,6 +543,10 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     check('heal: an existing mention becomes a link to a page about the SAME destination', plan.fields.body.includes('[Santorini](/destinations/santorini)') && !plan.fields.body.includes('/destinations/rome'))
     check('heal: only the first mention is linked', (plan.fields.body.match(/\]\(\/destinations\/santorini\)/g) ?? []).length === 1)
     check('heal: the model is asked for what is still missing (FAQ, takeaways), not for the body', plan.generate.includes('faq') && plan.generate.includes('key_takeaways') && !plan.generate.includes('meta_description'))
+    const noStrip = planCheapFixes({ type: 'post', path: '/blog/x', fields, limits: { faqMin: 3, faqMax: 5, takeMin: 3, takeMax: 5, metaTitleMax: 60, metaDescMax: 155, ogTitleMax: 60, ogDescMax: 110 }, destSlugs: ['santorini'] }, ['dead-links'], existing, [dest], { stripDead: false })
+    check('heal: with an incomplete site index no link is stripped', noStrip.fields.body.includes('[this](/packages/ghost)'))
+    const guardTitle = planCheapFixes({ type: 'guide', path: '/hotels/x', fields: { ...fields, title: `Title ${EM} one`, summary: `Opening ${EM} line.` }, limits: { faqMin: 4, faqMax: 6, takeMin: 3, takeMax: 5, metaTitleMax: 60, metaDescMax: 155, ogTitleMax: 60, ogDescMax: 110 }, destSlugs: [] }, ['dashes'], existing, [])
+    check('heal: a title and a guide summary are never changed by a fixer', guardTitle.fields.title === `Title ${EM} one` && guardTitle.fields.summary === `Opening ${EM} line.` && !guardTitle.fields.body.includes(EM))
     check('heal: edits are tracked with the right methods', plan.tracker.methods.get('body')?.has('links') === true && plan.tracker.methods.get('body')?.has('fixer') === true)
     const words = (s: string) => s.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[^\p{L}\s]/gu, ' ').split(/\s+/).filter(Boolean).join(' ')
     check('heal: the words of the body are unchanged apart from the dash and the dead link target', words(plan.fields.body).replace(/\bRelated\b.*$/, '').length > 0 && words(plan.fields.body).includes('Plan a trip to Santorini it is easy'))

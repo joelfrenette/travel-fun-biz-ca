@@ -113,8 +113,8 @@ export const BLOCKER_RULES: BlockerRule[] = [
   { id: 'refusal', pattern: /^model refusal/, klass: 'hard', how: 'person', note: 'the model refused or apologised' },
   { id: 'experience', pattern: /experience claim/, klass: 'hard', how: 'person', note: 'a first-person experience claim' },
   { id: 'stale-year', pattern: /^stale year/, klass: 'hard', how: 'person', note: 'an old year in the title' },
-  { id: 'external-link', pattern: /^(external or email link|web address in text|link that is not an internal path)/, klass: 'hard', how: 'person', note: 'a link to another website' },
-  { id: 'person-needed', pattern: /^needs a person:/, klass: 'hard', how: 'person', note: 'a price, a date, or a named person in the flagged text' },
+  { id: 'web-address', pattern: /^web address in text/, klass: 'hard', how: 'person', note: 'a web address typed into the text (not a link whose words can stay)' },
+  { id: 'person-needed', pattern: /^needs a person:/, klass: 'hard', how: 'person', note: 'a named person, or a price or exact date that cannot be deleted (its paragraph would drop under 2 sentences) or that the facts give' },
   // REPAIRABLE: reword or remove, then re-gate.
   { id: 'dashes', pattern: /dash (present|character)|contains a long dash/, klass: 'repairable', how: 'fixer', note: 'a long dash' },
   { id: 'length', pattern: /^(social (title|description) too long|meta (title|description) over|OG (title|description) over)/, klass: 'repairable', how: 'fixer', note: 'meta or share text too long' },
@@ -129,6 +129,7 @@ export const BLOCKER_RULES: BlockerRule[] = [
   { id: 'venue', pattern: /^named venue or person not in brief/, klass: 'repairable', how: 'rewrite', note: 'a named venue not in the brief (a sentence that looks like a named person is HARD, see isNamedPersonLike)' },
   { id: 'weather', pattern: /^weather, crowd or season word/, klass: 'repairable', how: 'rewrite', note: 'a weather, crowd or season word (page copy)' },
   { id: 'verdict', pattern: /^(says which destination is better|the first sentence compares)/, klass: 'repairable', how: 'rewrite', note: 'verdict phrasing (compare pages)' },
+  { id: 'ext-link', pattern: /^(external or email link|link that is not an internal path)/, klass: 'repairable', how: 'fixer', note: 'a link to another website or an email address (the link goes, the words stay)' },
   { id: 'dead-link', pattern: /^(dead internal link|link to a page that was not confirmed)/, klass: 'repairable', how: 'fixer', note: 'a link to a page that does not exist (the link goes, the words stay)' },
   { id: 'faq-link', pattern: /^(link inside FAQ, takeaways or meta text|link inside a FAQ)/, klass: 'repairable', how: 'fixer', note: 'a link inside FAQ, takeaways or meta text' },
   { id: 'no-link', pattern: /^no internal link/, klass: 'repairable', how: 'fixer', note: 'no internal link (a real page is added)' },
@@ -201,6 +202,11 @@ function internalPath(href: string): string | null {
 /** Removes markdown links for which `shouldStrip(href)` is true, keeping the anchor text. */
 export function stripLinks(text: string, shouldStrip: (href: string) => boolean): string {
   return text.replace(MD_LINK, (all, bang: string, label: string, href: string) => (bang ? all : shouldStrip(href) ? label : all))
+}
+
+/** Links to another website or an email address lose the link and keep their words. */
+export function stripExternalLinks(text: string): string {
+  return stripLinks(text, (href) => /^(?:https?:\/\/|mailto:|www\.)/i.test(href) && internalPath(href) === null)
 }
 
 export function stripAllLinks(text: string): string {
@@ -302,11 +308,10 @@ export interface DetectCtx {
   allowedText: string
   groundNums: Set<string>
   /** Posts: the post gate only checks numbers and links, so a reword is judged on numbers alone (the gate decides the rest). */
-  lenient: boolean
 }
 
 export function makeDetectCtx(type: ContentType, grounding: string, names: string[] = []): DetectCtx {
-  return { type, grounding, allowedText: [grounding, ...names].join(' '), groundNums: new Set(numbersIn(grounding)), lenient: type === 'post' }
+  return { type, grounding, allowedText: [grounding, ...names].join(' '), groundNums: new Set(numbersIn(grounding)) }
 }
 
 /** Why a sentence would trip the gate (the same lists the gates use), as short instructions. Empty means clean.
@@ -427,6 +432,21 @@ export function replaceUnit(f: RepairFields, o: Offender, replacement: string | 
   }
 }
 
+// Words a rewrite may always use (they carry no claim of their own). Everything else must come from the original.
+const NEUTRAL_WORDS = new Set(['well', 'known', 'popular', 'many', 'some', 'often', 'can', 'may', 'several', 'a', 'an', 'the', 'and', 'or', 'with', 'for', 'to', 'of', 'in', 'on', 'at', 'is', 'are', 'it', 'this', 'that', 'trip', 'visit', 'visitors', 'travellers', 'guests', 'area', 'place'])
+// Function words dropped before comparing (no content of their own).
+const STOP_WORDS = new Set(['be', 'been', 'was', 'were', 'am', 'has', 'have', 'had', 'will', 'would', 'by', 'from', 'but', 'if', 'so', 'than', 'then', 'there', 'these', 'those', 'which', 'who', 'what', 'when', 'where', 'while', 'into', 'over', 'under', 'up', 'out', 'about', 'as', 'you', 'your', 'he', 'she', 'they', 'their', 'his', 'her', 'its', 'do', 'does', 'one'])
+
+const stem = (w: string) => (w.length > 4 ? w.replace(/(?:ingly|edly|ing|ied|ies|ed|es|ly|s)$/, '') : w.length > 3 ? w.replace(/s$/, '') : w)
+
+/** The content words of a text, lowercased and stemmed, with function words and the neutral allowlist dropped.
+ * Link syntax is reduced to its anchor text. */
+export function contentStems(text: string): string[] {
+  const plain = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').toLowerCase()
+  const words = plain.match(/[\p{L}\p{N}]+/gu) ?? []
+  return words.filter((w) => !NEUTRAL_WORDS.has(w) && !STOP_WORDS.has(w)).map(stem)
+}
+
 /** Why a model rewrite must be thrown away, or null when it is acceptable. A rewrite may only shorten: it must not
  * be longer than the original, add a number, a name, a link, a price or a date, or keep the problem. */
 export function validateRewrite(original: string, rewrite: string, ctx: DetectCtx): string | null {
@@ -440,10 +460,11 @@ export function validateRewrite(original: string, rewrite: string, ctx: DetectCt
   const origLinks = new Set(internalLinksOfText(original))
   if (internalLinksOfText(text).some((l) => !origLinks.has(l))) return 'adds a link'
   if (isPriceOrDate(text) && !isPriceOrDate(original)) return 'adds a price or date'
-  if (ctx.lenient) {
-    // Posts: judged on numbers alone here; the post gate runs again on the whole post afterwards.
-    return numbersIn(proseOf(text)).some((n) => !ctx.groundNums.has(n)) ? 'keeps a number that is not in the source facts' : null
-  }
+  // Subset guard: a rewrite may only reuse the words the original already had (plus a few neutral ones). This is what
+  // stops the model slipping in a new claim ("wheelchair accessible", "free to enter", "we guarantee") that no list catches.
+  const known = new Set(contentStems(original))
+  const extra = contentStems(text).find((w) => !known.has(w))
+  if (extra) return `uses a word the original did not have (${extra})`
   if (namedThingsNotInBrief(text, `${original} ${ctx.allowedText}`).length) return 'adds a name'
   if (sentenceProblems(text, ctx).length) return 'still has the problem'
   return null
@@ -630,6 +651,21 @@ function blockSentenceCount(text: string, needle: string): number {
     if (block.includes(needle)) return bodySentences(block).filter((s) => !s.heading).length
   }
   return 0
+}
+
+/** Deletes one flagged sentence (nothing else), only where the deletion is allowed: a body sentence whose paragraph
+ * keeps two or more sentences, a FAQ pair or takeaway when the list stays long enough. Never a heading, never meta
+ * text. Null when not allowed. Never rewords. */
+export function deleteSentenceOnly(f: RepairFields, o: Offender, limits: RepairLimits): RepairFields | null {
+  if (o.field === 'body') {
+    if (/^\s*#{1,6}\s/.test(o.text) || blockSentenceCount(f.body, o.text) - 1 < 2) return null
+  } else if (o.field === 'faq_q' || o.field === 'faq_a') {
+    if (f.faq.length - 1 < limits.faqMin) return null
+  } else if (o.field === 'takeaway') {
+    if (f.key_takeaways.length - 1 < limits.takeMin) return null
+  } else return null
+  const next = replaceUnit(f, o, null)
+  return next === f ? null : next
 }
 
 /** One deterministic repair for one offender, or null if none is allowed. The clause after the flagged word may go;
@@ -866,17 +902,49 @@ export async function repairContent(item: RepairItem, opts: RepairOptions = {}):
 
   let blockers = item.gate(original)
   if (blockers.length === 0) return { fields: original, blockers: [], hard: [], edits: [], calls: 0, note: 'already clean' }
+
+  // A link to another website loses the link and keeps its words (the gates also flag its address as "web address in
+  // text", so this runs before the HARD check; a bare address typed into the text stays HARD).
+  let cur = original
+  if (blockers.some((b) => /^(external or email link|link that is not an internal path|web address in text)/.test(b))) {
+    const stripped = mapFields(original, stripExternalLinks)
+    if (!sameFields(stripped, original)) {
+      for (const fld of LOGICAL) if (serializeField(item.type, stripped, fld) !== serializeField(item.type, original, fld)) tracker.touch(fld, 'fixer', 'removed a link to another website (the words stay)')
+      cur = stripped
+      blockers = item.gate(cur)
+      if (blockers.length === 0) return { fields: cur, blockers: [], hard: [], edits: buildEdits(item, original, cur, tracker, 0), calls: 0, note: 'repaired' }
+    }
+  }
   const first = classifyBlockers(blockers)
   if (first.hard.length) return untouched(blockers, first.hard, 'a HARD blocker needs a person')
 
-  // A flagged sentence that holds a price, a date or a named person is a person's call: touch nothing.
-  const sensitive = detect(original, blockers).find((o) => isPriceOrDate(o.text) || isNamedPersonLike(o.text))
-  if (sensitive) {
-    const why = `needs a person: "${sensitive.text.replace(LEADING_MARKER, '').slice(0, 80)}" holds a price, a date or a named person`
-    return untouched([...blockers, why], [why], 'a price, date or named person is in the flagged text')
+  // A flagged sentence about a named person is a person's call. A flagged sentence holding a price or an exact date
+  // that the facts do not give is DELETED (never reworded, never added to), but only where its paragraph keeps two or
+  // more sentences; where it cannot be deleted it is HARD. A price or date the facts do give is left to a person too.
+  {
+    const gcx = ctx.groundNums
+    const sensitiveNow = () => detect(cur, blockers).filter((o) => isPriceOrDate(o.text) || isNamedPersonLike(o.text))
+    const needsPerson = (o: Offender) => {
+      const why = `needs a person: "${o.text.replace(LEADING_MARKER, '').slice(0, 80)}" holds a price, a date or a named person`
+      return untouched([...blockers, why], [why], 'a price, date or named person is in the flagged text')
+    }
+    for (let guard = 0; guard < MAX_REPAIR_SENTENCES; guard++) {
+      const found = sensitiveNow()
+      if (found.length === 0) break
+      const person = found.find((o) => isNamedPersonLike(o.text))
+      if (person) return needsPerson(person)
+      const o = found[0]
+      const ungrounded = numbersIn(proseOf(o.text)).some((n) => !gcx.has(n))
+      const next = ungrounded ? deleteSentenceOnly(cur, o, item.limits) : null
+      if (!next) return needsPerson(o)
+      tracker.touch(logicalOf(o.field), 'delete', 'ungrounded price or date')
+      cur = next
+    }
+    if (sensitiveNow().length) return needsPerson(sensitiveNow()[0])
+    blockers = item.gate(cur)
+    if (blockers.length === 0) return { fields: cur, blockers: [], hard: [], edits: buildEdits(item, original, cur, tracker, 0), calls: 0, note: 'repaired' }
   }
 
-  let cur = original
   const finish = (): RepairResult => {
     const finalBlockers = item.gate(cur)
     const finalClass = classifyBlockers(finalBlockers)
@@ -918,7 +986,7 @@ export async function repairContent(item: RepairItem, opts: RepairOptions = {}):
   if (offenders.length && offenders.length <= MAX_REPAIR_SENTENCES && canCall()) {
     calls++
     const list = offenders.map((o, i) => `${i}. [${o.why}] ${o.text.slice(o.prefix.length)}`).join('\n')
-    const prompt = `Each numbered text below is a sentence (or a short field) from a travel agency web page. Each has a problem named in the square brackets. Fix every one of them in one of two ways: (a) rewrite it so it no longer has the problem, or (b) delete it, when it cannot be fixed by rewording.\n\nRules: never add a fact, name, number, date, price, count, claim or link. The rewrite must not be longer than the original. Keep only what the sentence already says; where a flagged word or number goes, use plain neutral words or leave the idea out. Keep markdown formatting. Never use the long dash character.\n\n${list}\n\nReturn ONLY minified JSON: {"rewrites":[{"id":0,"text":"..."},{"id":1,"delete":true}]}`
+    const prompt = `Each numbered text below is a sentence (or a short field) from a travel agency web page. Each has a problem named in the square brackets. Fix every one of them in one of two ways: (a) rewrite it so it no longer has the problem, or (b) delete it, when it cannot be fixed by rewording.\n\nRules: never add a fact, name, number, date, price, count, claim or link. The rewrite must not be longer than the original. Use only words that already appear in the sentence, plus plain joining words (a, the, and, with, well known, many, often); where a flagged word or number goes, drop it or leave the idea out. If that leaves nothing sensible, delete the sentence. Keep markdown formatting. Never use the long dash character.\n\n${list}\n\nReturn ONLY minified JSON: {"rewrites":[{"id":0,"text":"..."},{"id":1,"delete":true}]}`
     const answer = await model(prompt, 4000, timeout())
     const parsed = answer ? parseModelJson<{ rewrites?: { id?: number; text?: unknown; delete?: unknown }[] }>(answer) : null
     const rewrites = parsed && Array.isArray(parsed.rewrites) ? parsed.rewrites : []
