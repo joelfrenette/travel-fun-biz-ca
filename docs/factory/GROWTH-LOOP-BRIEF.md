@@ -577,3 +577,48 @@ related guide/destination link line when the description has none (no AI). NEVER
 dates, inclusions, itinerary, booking_url, status, or the description body. Log to content_edits with
 content_type 'package', Undo works. Past trips are scored but only get FAQ and links fixes (their body is frozen
 by WP14's rule).
+
+### WP15 (2026-10-11, Joel): "Promote this package": one click builds the marketing actions around a trip (migration 0039)
+
+Joel's words: once a package is live we begin promoting it with all our marketing tools: blog content for the
+trip, the hotel, the cruise, the cities, the events; the package feeds blog post ideas; so a "promote this
+package" button that builds marketing actions around the package contents.
+
+Owner files: new `lib/promotion.ts`, new `components/admin/promote-panel.tsx` (one import + one render line in the
+editor area of `app/admin/packages/page.tsx`, below the past-trip panel; and a "Promote" button per row on the
+Autopilot content map or the packages list), `app/api/admin/packages/[id]/promote/route.ts`, `lib/blog-topics.ts`
+(queue rows gain `package_slug`: additive), `lib/guides.ts` (candidate priority: additive), `lib/guide-distribution.ts`
+pattern reused for a package social post (do not change the send path), `lib/keywords.ts` (trackKeyword only),
+`lib/issues.ts` / `lib/plain-steps.ts` (one item), `lib/debrief.ts` / `lib/brief-html.ts` (one line),
+`supabase/migrations/0039_promotions.sql`.
+
+Table `package_promotions`: id, package_id, started_at, plan jsonb (the actions and their ids), status
+(active|paused|done), created_at. `blog_topic_queue` gains nullable `package_slug text`. RLS on, no policy.
+
+The button creates a PLAN (no spend beyond the existing caps; every action is queued into the machinery that
+already exists, which then runs on its normal cadence):
+1. Keywords (free): track phrases built from the package: name, "<destination> group trip", "<destination>
+   <category>", "<hotel or ship name>" when the name or short_description names one, "<destination> from
+   canada", and up to 5 phrases from the package's own keywords column; next weekly engine run clusters them.
+2. Blog ideas (one AI call, bounded): 4 to 6 ideas for THIS package: the destination, the hotel or ship or cruise
+   line if named, the cities on the itinerary, the trip style (singles, girls trip, river cruise...), the timing
+   ("<destination> in <month>"); each with a working title, angle, primary + secondary keywords drawn from the
+   tracked phrases and the package text, package_slug set; validated with the same checks as the engine plan
+   (no superlatives, no numbers not in the package, dedupe against posts and queue); saved as `approved` so the
+   next Mon/Wed/Fri posts use them in score order (Joel asked for this to be automatic).
+3. Guides: add candidates for the destination, the hotel/resort, the ship/cruise line (when named) to the front
+   of the guide rotation (a `priority_until` on the candidate list stored in app_settings, 30 days), so the
+   daily guide step writes them first; they still obey the gate and the named-property rules.
+4. Social: enrol ONE post about the package page itself (post_distribution row with path /packages/<slug>,
+   title = package name, same captions/hooks/UTM, campaign = `package-<slug>`), one per package per 30 days,
+   through the same enrol pattern as guides (held when distribution_mode is prepare; never a new send path).
+5. Compare and best-time: make sure the package's destination pair and best-time pages exist in the page-copy
+   candidate list (they do automatically when the package is published; just verify and note).
+6. The panel shows the plan and its progress: phrases tracked (and their opportunity label after the engine
+   runs), ideas queued/written (with links to the posts), guides written/published, the social send and its
+   networks, clicks and leads credited to the package path (from content_performance when present).
+
+Caps: at most 1 promotion per package per 30 days (button says when it last ran); the AI call max_tokens
+bounded; nothing posts, renders or spends outside the existing daily/weekly caps. A promotion for a past trip is
+refused with a plain note ("this trip already happened; its recap page does the promoting"). Rules: no em
+dashes; no invented facts (ideas are validated against the package text); isAuthorized.
