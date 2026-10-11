@@ -203,11 +203,13 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   const issues = (await collectIssues(admin).catch(() => [])).sort((a, b) => Number(a.area === 'setup') - Number(b.area === 'setup'))
   // Thin trip pages are one line in their own section ("3 trip pages need more details"), not one card each.
   const thinTrips = issues.filter((i) => i.id.startsWith('package:thin:'))
-  const actions = issues.filter((i) => !i.id.startsWith('package:thin:')).map(plainAction)
-  const tripPages = thinTrips.length
+  // Trips agents sent for approval (WP13) are one line in the same section, not one card each.
+  const agentTrips = issues.filter((i) => i.id.startsWith('agent-submission:'))
+  const actions = issues.filter((i) => !i.id.startsWith('package:thin:') && !i.id.startsWith('agent-submission:')).map(plainAction)
+  const tripPages = thinTrips.length || agentTrips.length
     ? [
-        `${thinTrips.length} trip page${thinTrips.length === 1 ? ' needs' : 's need'} more details: ${thinTrips.map((i) => i.title.replace(/^The (.*) trip page is thin \(score (\d+) of 100\)$/, '$1, score $2 of 100')).slice(0, 6).join('; ')}${thinTrips.length > 6 ? `; and ${thinTrips.length - 6} more` : ''}.`,
-        'To fix one: open Packages, click its score, and drop a screenshot, a PDF or a link into the "Add details" box.',
+        ...(agentTrips.length ? [`${agentTrips.length} trip${agentTrips.length === 1 ? '' : 's'} sent by agents ${agentTrips.length === 1 ? 'is' : 'are'} waiting for your approval: ${agentTrips.map((i) => i.title.replace(/^An agent sent a trip to approve: /, '')).slice(0, 6).join('; ')}.`] : []),
+        ...(thinTrips.length ? [`${thinTrips.length} trip page${thinTrips.length === 1 ? ' needs' : 's need'} more details: ${thinTrips.map((i) => i.title.replace(/^The (.*) trip page is thin \(score (\d+) of 100\)$/, '$1, score $2 of 100')).slice(0, 6).join('; ')}${thinTrips.length > 6 ? `; and ${thinTrips.length - 6} more` : ''}.`, 'To fix one: open Packages, click its score, and drop a screenshot, a PDF or a link into the "Add details" box.'] : []),
       ]
     : []
 

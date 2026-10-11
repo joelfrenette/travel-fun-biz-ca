@@ -284,6 +284,24 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     // a trip page nudge is never worth failing the list
   }
 
+  // A trip an agent sent and is waiting for Joel (WP13). One item per trip, amber (area 'setup', so it never triggers an
+  // alert email). Clears itself when Joel approves it or sends it back.
+  try {
+    const { data: waiting } = await admin.from('package_submissions').select('package_id, agent_name, trip_name').eq('submission_state', 'submitted').not('package_id', 'is', null).order('submitted_at', { ascending: true }).limit(20)
+    for (const s of (waiting ?? []) as { package_id: string; agent_name: string; trip_name: string | null }[]) {
+      issues.push({
+        id: `agent-submission:${s.package_id}`,
+        area: 'setup',
+        title: `An agent sent a trip to approve: ${s.trip_name ?? 'a new trip'}`,
+        detail: `${s.agent_name} sent it. It is a draft: nothing is live until you approve it.`,
+        fix: 'Open the draft, read it, fix anything that is wrong, then Approve (publishes it) or Send back with a note the agent can read.',
+        link: { label: 'Open the draft', href: `/admin/packages?edit=${s.package_id}` },
+      })
+    }
+  } catch {
+    // before migration 0036 the table does not exist; no item
+  }
+
   // The weekly supplier page check found something. Never changes a trip: it is Joel's decision.
   try {
     const findings = await openFindings(admin)

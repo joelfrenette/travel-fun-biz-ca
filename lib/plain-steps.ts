@@ -211,6 +211,21 @@ export function plainAction(i: Issue): PlainAction {
       urlLabel: 'Open this trip',
     }
   }
+  if (i.id.startsWith('agent-submission:')) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'An agent used the private link you gave them and sent you a trip. It is only a draft. Nobody can see it on the site until you approve it.',
+      steps: [
+        'Open the draft with the link below. The top of the page says who sent it.',
+        'Read each part. The AI filled in what the agent dropped and left blank what it could not find. Fix anything that is wrong in the form.',
+        'Check the Still missing list. If the price or length of the trip is empty, type it in before you publish.',
+        'Click "Approve and publish" to put it on the site, or "Send back to the agent" and write what to change. The agent can read your note on their page.',
+      ],
+      url: i.link ? adminLink(i.link.href) : adminLink('/admin/packages'),
+      urlLabel: 'Open the draft',
+    }
+  }
   if (i.id.startsWith('source-watch:')) {
     return {
       id: i.id,
