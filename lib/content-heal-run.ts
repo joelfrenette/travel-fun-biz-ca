@@ -32,7 +32,7 @@ import { pingIndexNow } from '@/lib/indexnow'
 import type { DbPackage } from '@/lib/packages'
 import { completenessScore } from '@/lib/package-completeness'
 import { hasFaqs, hasFaqSource } from '@/lib/package-faqs'
-import { healTripFaqs, tripFaqDailyKey } from '@/lib/package-enrich'
+import { healTripFaqs, tripFaqDailyKey, tripFaqsOff } from '@/lib/package-enrich'
 import { guideKinds, GUIDE_KINDS, guidePath, type GuideKind } from '@/lib/guides'
 import { linkedPackageSlugs } from '@/lib/page-copy-composer'
 import { SEO_PASS_SCORE, SEO_FIX, seoScore, type SeoCheckId, type SeoInput, type SeoResult } from '@/lib/seo-score'
@@ -717,6 +717,12 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
   return { ok: problems.length === 0, note }
 }
 
+/** True while a "the last call gave nothing usable" marker (an ISO time) is younger than NOGEN_DAYS. Pure. */
+export function nogenActive(stamp: string | null, now: number = Date.now()): boolean {
+  const t = Date.parse(stamp ?? '')
+  return Number.isFinite(t) && now - t < NOGEN_DAYS * 86_400_000
+}
+
 /** Published trips the heal may write FAQs for: a description of 150+ words, no FAQs, and a trip completeness score
  * under 70. Lowest score first. Pure. */
 export function tripsNeedingFaqs<T extends Row>(rows: T[]): { row: T; score: number }[] {
@@ -742,18 +748,15 @@ async function healTripPageFaqs(
     const due = tripsNeedingFaqs((data ?? []) as Row[])
     if (due.length === 0) return out
 
-    // FAQs an admin took back out stay out: a reverted ai_faqs edit on a trip's source means leave it alone.
-    const ids = due.map((d) => str(d.row.id))
-    const { data: srcs } = await admin.from('package_sources').select('package_id, package_edits').in('package_id', ids)
-    const reverted = new Set<string>()
-    for (const s of (srcs ?? []) as { package_id: string; package_edits: { field?: string; reverted?: boolean }[] | null }[]) {
-      if ((s.package_edits ?? []).some((e) => e.field === 'ai_faqs' && e.reverted)) reverted.add(s.package_id)
-    }
-
     for (const { row } of due) {
       if (Date.now() - ctx.started > HEAL_BUDGET_MS) break
       const id = str(row.id)
-      if (reverted.has(id)) continue
+      // All the cheap "not today" checks come BEFORE a slot is claimed, so a trip that will be skipped never uses
+      // one of the day's 6. FAQs an admin took out stay out (durable app_settings memory, survives deleting the
+      // source); a trip whose last call answered but gave nothing usable waits 7 days, like the other pages.
+      if (await tripFaqsOff(admin, id)) continue
+      const nogenKey = `${NOGEN_PREFIX}:trip:${id}`
+      if (nogenActive(await getSetting(admin, nogenKey))) continue
       const slot = await claimRepairSlot(admin, `trip:${id}`)
       if (!slot.ok) {
         if (!/cap of/.test(slot.reason ?? '')) out.problems.push(slot.reason ?? 'no repair slot')
@@ -765,6 +768,7 @@ async function healTripPageFaqs(
         out.calls++
         await recordRepairSpend(admin, 1)
       }
+      if (r.answeredEmpty) await setSetting(admin, nogenKey, new Date().toISOString()).catch(() => undefined)
       if (r.applied) {
         out.fixed++
         ctx.onChanged(`/packages/${str(row.slug)}`)

@@ -109,20 +109,125 @@ function normNumber(n: string): string {
 
 /** Topics that are legal, money or health advice. An answer may mention one only when the row itself does. */
 const POLICY_TOPICS: [RegExp, string][] = [
-  [/\brefund/i, 'refund'],
-  [/\bdeposit/i, 'deposit'],
-  [/\bcancel/i, 'cancel'],
+  [/\brefund(?:s|ed|able|ing)?\b/i, 'refund'],
+  [/\bdeposits?\b/i, 'deposit'],
+  [/\bcancel(?:s|ed|led|ling|ing|lation|lations)?\b/i, 'cancel'],
   [/\bvisas?\b/i, 'visa'],
   [/\bpassports?\b/i, 'passport'],
-  [/\bvaccin/i, 'vaccin'],
-  [/\bmedical/i, 'medical'],
-  [/\binsurance/i, 'insurance'],
+  [/\bvaccin(?:e|es|ated|ation|ations)\b/i, 'vaccin'],
+  [/\bmedical(?:ly)?\b/i, 'medical'],
+  [/\binsurance\b/i, 'insurance'],
   [/\bfitness\b/i, 'fitness'],
-  [/\bwheelchair|\baccessib/i, 'access'],
+  [/\bwheelchairs?\b|\baccessib(?:le|ility)\b/i, 'access'],
 ]
 
-/** Reasons one question and answer must not go live. Empty means clean. `grounding` is the row's own text. */
-export function faqBlockers(pair: PackageFaq, grounding: string): string[] {
+// ─── Word-level grounding (WP12 fix round 1) ────────────────────────────────────────
+
+const STOP_WORDS = new Set(
+  ('a about above after again all also am an and any are as at be because been before being below between both but by can could did do does doing down during each few for from further had has have having he her here hers him his how i if in into is it its itself just me more most my no nor not now of off on once only or other our out over own same she should so some such than that the their theirs them then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yes may might many much often usually every get gets getting go goes going let lets one ones way ways time times well'
+  ).split(/\s+/),
+)
+
+/** A light stem: plural, past and -ing endings off. Two words match when their stems share the first five letters. */
+export function stemWord(w: string): string {
+  let s = w.toLowerCase()
+  if (s.length > 4 && s.endsWith('ies')) s = `${s.slice(0, -3)}y`
+  else if (s.length > 5 && s.endsWith('ing')) s = s.slice(0, -3)
+  else if (s.length > 4 && s.endsWith('ed')) s = s.slice(0, -2)
+  else if (s.length > 4 && s.endsWith('es')) s = s.slice(0, -2)
+  else if (s.length > 3 && s.endsWith('s') && !s.endsWith('ss')) s = s.slice(0, -1)
+  return s
+}
+const stemKey = (w: string) => stemWord(w).slice(0, 5)
+
+const wordsOf = (t: string): string[] => t.toLowerCase().match(/[a-z]+(?:'[a-z]+)?/g) ?? []
+const contentWords = (t: string): string[] => wordsOf(t).filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
+
+/** Share of an answer's content words that occur (by light stem) in the row text, 0 to 1. */
+export function groundedShare(answer: string, grounding: string): number {
+  const known = new Set(contentWords(grounding).map(stemKey))
+  const words = contentWords(answer)
+  if (words.length === 0) return 1
+  return words.filter((w) => known.has(stemKey(w))).length / words.length
+}
+export const GROUNDED_SHARE_MIN = 0.85
+
+/** Capitalised words in an answer that are not the first word of a sentence and do not appear in the row text. */
+export function capitalisedStrangers(answer: string, grounding: string): string[] {
+  const known = new Set(wordsOf(grounding).map((w) => w.replace(/'s$/, '')))
+  const out: string[] = []
+  for (const sentence of answer.split(/(?<=[.!?])\s+|\n+/)) {
+    const tokens = sentence.match(/[\p{L}][\p{L}'’-]*/gu) ?? []
+    tokens.forEach((tok, i) => {
+      if (i === 0 || tok === 'I' || !/^\p{Lu}/u.test(tok)) return
+      const bare = tok.toLowerCase().replace(/['’]s$/, '')
+      if (!known.has(bare)) out.push(tok)
+    })
+  }
+  return [...new Set(out)]
+}
+
+const INCLUDE_TRIGGER = /\b(?:included?|includes|including|covered|covers?|free|complimentary|gratuities|gratuity|tips?|tipping)\b/i
+/** The trigger words that are not things themselves; tips, tipping and gratuities ARE things and must be listed. */
+const INCLUDE_FILLER = /^(?:included?|includes|including|covered|covers?|free|complimentary)$/i
+const NEGATION = /\b(?:not|no|never|without|excluded?|excludes|isn't|aren't|doesn't|don't|extra)\b|n't\b/i
+/** Words in an "included" sentence that are not things (time words, filler, trip words). */
+const GENERIC_NOUNS = new Set(['trip', 'trips', 'tour', 'tours', 'journey', 'package', 'price', 'prices', 'morning', 'mornings', 'evening', 'evenings', 'day', 'days', 'night', 'nights', 'week', 'cost', 'costs', 'travel', 'traveller', 'travellers', 'traveler', 'travelers', 'group', 'guests', 'guest', 'people', 'details', 'detail', 'part', 'items', 'item', 'things', 'thing', 'else', 'rest', 'listed', 'stated', 'below', 'above', 'anything', 'everything', 'something', 'cost', 'charge', 'charges', 'fee', 'fees', 'booking', 'page'])
+
+/** For each sentence that says something is included, covered, free or tipped: every thing it names must be in the
+ * row's included list (or, for a negated sentence, its not-included list). Returns the words that are not. */
+export function includedClaimStrangers(answer: string, lists: { includes: string; excludes: string }): string[] {
+  const out: string[] = []
+  for (const sentence of answer.split(/(?<=[.!?])\s+|\n+/)) {
+    if (!INCLUDE_TRIGGER.test(sentence)) continue
+    const list = NEGATION.test(sentence) ? lists.excludes : lists.includes
+    const known = new Set(contentWords(list).map(stemKey))
+    for (const w of contentWords(sentence)) {
+      if (w.length < 4 || INCLUDE_FILLER.test(w) || GENERIC_NOUNS.has(w) || NEGATION.test(w)) continue
+      if (/(?:ed|ing|ly)$/.test(w) && w !== 'tipping') continue // verbs and adverbs, not things
+      if (!known.has(stemKey(w))) out.push(w)
+    }
+  }
+  return [...new Set(out)]
+}
+
+const AGENCY_SUBJECT_FAQ = /\b(?:we|our (?:team|hosts?|guides?|advisors?|agents?|staff|company|agency))\b/i
+const AGENCY_VERB_FAQ = /\b(?:include[sd]?|provide[sd]?|arrange[sd]?|organi[sz]e[sd]?|handle[sd]?|cover[sd]?|guarantee[sd]?|offer(?:s|ed)?|host(?:s|ed)?|run|runs|ran)\b/i
+/** A sentence where the agency says it does, arranges or guarantees something. Only "we can help" and "our team can help" are allowed. */
+export function agencyDoes(answer: string): string[] {
+  const out: string[] = []
+  for (const sentence of answer.split(/(?<=[.!?])\s+|\n+/)) {
+    const rest = sentence.replace(/\b(?:we|our team) can help\b/gi, ' ')
+    const m = AGENCY_SUBJECT_FAQ.exec(rest)
+    if (m && AGENCY_VERB_FAQ.test(rest.slice(m.index + m[0].length))) out.push(sentence.trim())
+  }
+  return out
+}
+
+const NUMBER_WORDS = 'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|dozen'
+const PEOPLE_COUNT = new RegExp(`\\b(${NUMBER_WORDS}|\\d+)(?:[- ](?:${NUMBER_WORDS}))?\\s+(?:guests|travell?ers|people|passengers|participants|singles)\\b`, 'gi')
+const TENS_WORD = /\b(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|hundreds|thousand|thousands|dozens?)\b/gi
+
+/** Counts of people, and tens or hundreds written as words, that the row text does not itself contain. */
+export function peopleCountClaims(answer: string, grounding: string): string[] {
+  const lower = grounding.toLowerCase()
+  const out: string[] = []
+  for (const m of answer.matchAll(PEOPLE_COUNT)) {
+    const phrase = m[0].toLowerCase()
+    if (!lower.includes(phrase)) out.push(m[0])
+  }
+  for (const m of answer.matchAll(TENS_WORD)) if (!new RegExp(`\\b${m[0]}\\b`, 'i').test(grounding)) out.push(m[0])
+  return [...new Set(out)]
+}
+
+export interface FaqLists {
+  includes: string
+  excludes: string
+}
+
+/** Reasons one question and answer must not go live. Empty means clean. `grounding` is the row's own text; `lists`
+ * are its included and not-included lists (default: the whole grounding, which is weaker). */
+export function faqBlockers(pair: PackageFaq, grounding: string, lists: FaqLists = { includes: grounding, excludes: grounding }): string[] {
   const blockers: string[] = []
   const t = `${pair.question}\n${pair.answer}`
   if (!pair.question.trim() || !pair.answer.trim()) return ['empty']
@@ -143,19 +248,28 @@ export function faqBlockers(pair: PackageFaq, grounding: string): string[] {
   if (RECENCY_PATTERNS.some((p) => p.test(t))) blockers.push('unverifiable recency claim')
   if (COUNT_CLAIM.test(t) || ungroundedWordCounts(t, grounding).length) blockers.push('a count or size not in the trip text')
   if (SCHEDULE_PATTERN.test(t)) blockers.push('schedule stated as fact')
-  const claims = agencyClaims(pair.answer)
+  const claims = [...agencyClaims(pair.answer), ...agencyDoes(pair.answer)]
   if (claims.length) blockers.push(`claim about what the agency has done or does: "${claims[0].slice(0, 80)}"`)
   const names = namedThingsNotInBrief(pair.answer, grounding)
   if (names.length) blockers.push(`name not in the trip text: ${names.slice(0, 3).join(', ')}`)
+  const caps = capitalisedStrangers(pair.answer, grounding)
+  if (caps.length) blockers.push(`capitalised word not in the trip text: ${caps.slice(0, 3).join(', ')}`)
+  const people = peopleCountClaims(pair.answer, grounding)
+  if (people.length) blockers.push(`a count of people not in the trip text: ${people.slice(0, 2).join(', ')}`)
   if (/https?:\/\/|\bwww\./i.test(t)) blockers.push('web address in text')
   const lower = grounding.toLowerCase()
-  for (const [re, stem] of POLICY_TOPICS) if (re.test(pair.answer) && !lower.includes(stem)) blockers.push(`policy or advice topic the trip text never mentions (${stem})`)
+  const both = `${pair.question} ${pair.answer}`
+  for (const [re, stem] of POLICY_TOPICS) if (re.test(both) && !lower.includes(stem)) blockers.push(`policy or advice topic the trip text never mentions (${stem})`)
+  const share = groundedShare(pair.answer, grounding)
+  if (share < GROUNDED_SHARE_MIN) blockers.push(`only ${Math.round(share * 100)}% of the answer's words are in the trip text (needs ${Math.round(GROUNDED_SHARE_MIN * 100)}%)`)
+  const things = includedClaimStrangers(pair.answer, lists)
+  if (things.length) blockers.push(`says something is included, covered or free that the included list does not name: ${things.slice(0, 3).join(', ')}`)
   return blockers
 }
 
 /** Repairs dashes, drops every pair that fails the gate, and caps the list. Fewer than FAQ_MIN survivors gives
  * []. Pure: the model's raw list goes in, the list that may be published comes out. */
-export function gateFaqs(raw: unknown, grounding: string): { faqs: PackageFaq[]; discarded: number; reasons: string[] } {
+export function gateFaqs(raw: unknown, grounding: string, lists?: FaqLists): { faqs: PackageFaq[]; discarded: number; reasons: string[] } {
   const list = Array.isArray(raw) ? raw : []
   const faqs: PackageFaq[] = []
   const reasons: string[] = []
@@ -169,7 +283,7 @@ export function gateFaqs(raw: unknown, grounding: string): { faqs: PackageFaq[];
       discarded++
       continue
     }
-    const blockers = faqBlockers({ question: q, answer: a }, grounding)
+    const blockers = faqBlockers({ question: q, answer: a }, grounding, lists)
     if (blockers.length) {
       discarded++
       reasons.push(...blockers.slice(0, 1))
@@ -195,7 +309,8 @@ HARD RULES:
 5. Never claim personal experience or a past trip, never say what the agency or its hosts have done or always do. You may say "we can help you plan" and speak to the reader as "you".
 6. Name no hotel, ship, restaurant, person or place that is not in the TRIP DETAILS.
 7. No dashes of any kind, no web addresses, no markdown. Canadian spelling, warm, plain English, each answer 1 to 3 sentences.
-8. Questions are what a real traveller would ask about THIS trip (what is included, what is not, what a typical day looks like, who it suits, how big the group is) and only those the details can answer.`
+8. Reuse the wording of the TRIP DETAILS: at least 85 percent of the words in an answer must come from them. Say something is included, covered, free or tipped only if it is named in the Included list, and not included only if it is named in the Not included list. Never say "we include", "we provide", "we arrange" or "we handle".
+9. Questions are what a real traveller would ask about THIS trip (what is included, what is not, what a typical day looks like, who it suits, how big the group is) and only those the details can answer.`
 
 function prompt(context: string): string {
   return `${RULES}\n\nWrite ${FAQ_MIN + 1} to ${FAQ_MAX} questions with answers. Return ONLY minified JSON of this exact shape: {"faqs":[{"question":"...","answer":"..."}]}\n\nTRIP DETAILS:\n${context}`
@@ -214,6 +329,8 @@ export interface FaqResult {
   status?: number
   /** True when a model call was made (it may have been billed even if every pair was dropped). */
   called: boolean
+  /** True when the model answered but nothing passed the gate (the heal then waits 7 days before trying again). */
+  answered?: boolean
 }
 
 /** Full result, for callers that show why nothing came back. Never throws. */
@@ -229,10 +346,10 @@ export async function generatePackageFaqsDetailed(pkg: FaqInput): Promise<FaqRes
     const u = (payload as { usage?: { input_tokens?: number; output_tokens?: number } } | null)?.usage
     const usage = { input: u?.input_tokens ?? 0, output: u?.output_tokens ?? 0 }
     const parsed = parseModelJson<{ faqs?: unknown }>(anthropicText(payload))
-    const gated = gateFaqs(parsed?.faqs, context)
+    const gated = gateFaqs(parsed?.faqs, context, { includes: listText(pkg.price_includes), excludes: listText(pkg.not_included) })
     if (gated.faqs.length === 0) {
       return {
-        faqs: [], discarded: gated.discarded, called: true, model: r.model, usage, status: 422,
+        faqs: [], discarded: gated.discarded, called: true, answered: true, model: r.model, usage, status: 422,
         error: gated.discarded > 0
           ? `The AI draft did not pass the quality check (${gated.reasons[0] ?? 'too few usable answers'}), so no FAQs were added. Add more detail to the trip and try again.`
           : 'The package details do not say enough to write honest FAQs yet. Add more detail and try again.',

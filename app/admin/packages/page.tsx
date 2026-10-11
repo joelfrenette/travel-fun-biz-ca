@@ -670,11 +670,13 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
+          package_id: formData.id || '',
           name: formData.name || '',
           destination: formData.destination || '',
           duration: formData.duration || '',
           price_display: formData.price_display || '',
           short_description: formData.short_description || '',
+          full_description: formData.full_description || '',
           highlights: formData.highlights || '',
           price_includes: formData.price_includes || '',
           not_included: formData.not_included || '',

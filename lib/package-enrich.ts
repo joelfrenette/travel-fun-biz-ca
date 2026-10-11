@@ -3,6 +3,7 @@ import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/
 import { getPackageById, updatePackage, type DbPackage } from '@/lib/packages'
 import { pingIndexNow } from '@/lib/indexnow'
 import { claimDailyOnce } from '@/lib/content-edits'
+import { getSettingStrict, setSetting } from '@/lib/app-settings'
 import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
 import type { ExtractedDraft, ModelUsage } from '@/lib/package-extract'
 import type { PackageEdit, PackageSourceRow } from '@/lib/package-sources'
@@ -544,6 +545,21 @@ export async function commitEdits(
 
 // ─── FAQs after a description lands (WP12) ──────────────────────────────────────────
 
+/** Durable "an admin took the automatic FAQs out" memory. Lives in app_settings, NOT on the source row, so deleting
+ * the source cannot bring the automatic FAQs back. Both automatic paths skip a trip while it exists; the admin
+ * "Generate FAQs" button clears it. */
+export const tripFaqOffKey = (packageId: string) => `trip_faq_off:${packageId}`
+
+/** True while the memory exists. A failed read counts as "off": nothing is generated when it cannot be checked. */
+export async function tripFaqsOff(admin: SupabaseClient, packageId: string): Promise<boolean> {
+  const r = await getSettingStrict(admin, tripFaqOffKey(packageId))
+  return !!r.error || r.value !== null
+}
+
+export async function clearTripFaqOff(admin: SupabaseClient, packageId: string): Promise<void> {
+  await admin.from('app_settings').delete().eq('key', tripFaqOffKey(packageId))
+}
+
 /** Once-a-day marker shared by this path and the daily heal, so one trip costs at most one FAQ call a day. */
 export const tripFaqDailyKey = (packageId: string) => `trip-faq:${packageId}`
 
@@ -561,6 +577,7 @@ export async function autoFaqs(
   const none = { applied: [] as string[], pkg: null, calls: 0 }
   try {
     if (hasFaqs(pkg.ai_faqs) || !hasFaqSource(pkg) || !isAiConfigured()) return none
+    if (await tripFaqsOff(admin, pkg.id)) return none
     if (!(await claimDailyOnce(admin, tripFaqDailyKey(pkg.id)))) return none
     const made = await generatePackageFaqsDetailed(pkg)
     const calls = made.called ? 1 : 0
@@ -594,10 +611,11 @@ async function addSourceUsage(admin: SupabaseClient, sourceId: string, usage: Mo
  * text whose stored text is the trip's own description, so the same Revert, the same list and the same delete rules
  * apply. Caller has already taken the repair slot and the daily marker. Returns whether FAQs were applied.
  */
-export async function healTripFaqs(admin: SupabaseClient, pkg: DbPackage): Promise<{ applied: boolean; called: boolean; error?: string }> {
+export async function healTripFaqs(admin: SupabaseClient, pkg: DbPackage): Promise<{ applied: boolean; called: boolean; answeredEmpty?: boolean; error?: string }> {
   if (hasFaqs(pkg.ai_faqs) || !hasFaqSource(pkg)) return { applied: false, called: false }
+  if (await tripFaqsOff(admin, pkg.id)) return { applied: false, called: false }
   const made = await generatePackageFaqsDetailed(pkg)
-  if (made.faqs.length === 0) return { applied: false, called: made.called, error: made.error }
+  if (made.faqs.length === 0) return { applied: false, called: made.called, answeredEmpty: !!made.answered, error: made.error }
   const fresh = await getPackageById(pkg.id)
   if (!fresh || hasFaqs(fresh.ai_faqs)) return { applied: false, called: made.called }
   const at = new Date().toISOString()
@@ -627,6 +645,18 @@ export async function healTripFaqs(admin: SupabaseClient, pkg: DbPackage): Promi
   return { applied: true, called: made.called }
 }
 
+const GALLERY_MAX = 12
+
+/** Undo ONE photo edit against the gallery as it is now: an add takes that stored address out (nothing else), a
+ * remove puts it back at the end if there is room. Pure. */
+export function revertGalleryItem(e: Pick<PackageEdit, 'op' | 'stored'>, current: string[]): { ok: true; next: string[] } | { ok: false; reason: string } {
+  const stored = e.stored as string
+  if (e.op === 'add') return { ok: true, next: current.filter((u) => u !== stored) }
+  if (current.includes(stored)) return { ok: true, next: current }
+  if (current.length >= GALLERY_MAX) return { ok: false, reason: `The gallery is full (${GALLERY_MAX} photos), so a removed photo could not be put back.` }
+  return { ok: true, next: [...current, stored] }
+}
+
 /** Puts back what this source changed. A field is restored only if it still holds what the source wrote; if
  * someone edited it since, it is left alone and reported. */
 export async function revertSourceEdits(admin: SupabaseClient, packageId: string, source: Pick<PackageSourceRow, 'id' | 'package_edits'>): Promise<{ reverted: string[]; skipped: { field: string; reason: string }[] }> {
@@ -645,6 +675,19 @@ export async function revertSourceEdits(admin: SupabaseClient, packageId: string
   // Newest first, so two edits to one field unwind in the right order.
   for (const e of [...live].reverse()) {
     const current = e.field in updates ? updates[e.field] : row[e.field]
+    // A photo edit is undone one photo at a time against the CURRENT gallery, so an unrelated gallery change made
+    // since (a manual add, another source's photo) does not block it and is not lost.
+    if (e.field === 'gallery_urls' && e.op && e.stored) {
+      const r = revertGalleryItem(e, Array.isArray(current) ? (current as string[]) : [])
+      if (!r.ok) {
+        skipped.push({ field: e.field, reason: r.reason })
+        continue
+      }
+      updates.gallery_urls = r.next
+      e.reverted = true
+      reverted.push(e.field)
+      continue
+    }
     if (stableJson(current ?? null) !== stableJson(e.after ?? null)) {
       skipped.push({ field: e.field, reason: 'It was changed after this source wrote it, so it was left alone.' })
       continue
@@ -658,6 +701,9 @@ export async function revertSourceEdits(admin: SupabaseClient, packageId: string
     if (!updated) return { reverted: [], skipped: [...skipped, ...reverted.map((f) => ({ field: f, reason: 'the database refused the update' }))] }
     const stillApplied = [...new Set(edits.filter((e) => !e.reverted).map((e) => e.field))]
     await admin.from('package_sources').update({ package_edits: edits, applied_fields: stillApplied, status: stillApplied.length ? 'applied' : 'extracted', updated_at: new Date().toISOString() }).eq('id', source.id)
+    // Taking the automatic FAQs out is remembered for good (app_settings, not this row): neither automatic path
+    // writes them again, even if this source is deleted. The admin Generate FAQs button clears it.
+    if (reverted.includes('ai_faqs')) await setSetting(admin, tripFaqOffKey(packageId), new Date().toISOString()).catch(() => null)
     if (updated.status === 'published') await pingIndexNow([`/packages/${updated.slug}`]).catch(() => null)
   }
   return { reverted, skipped }

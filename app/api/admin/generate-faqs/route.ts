@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { generatePackageFaqsDetailed } from '@/lib/package-faqs'
+import { clearTripFaqOff } from '@/lib/package-enrich'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
 export const maxDuration = 60
 
@@ -29,6 +31,9 @@ export async function POST(request: Request) {
       max_people: body.max_people,
     })
     if (r.error) return NextResponse.json({ error: r.error }, { status: r.status ?? 500 })
+    // An admin asking for FAQs on a saved trip lifts the "FAQs were taken out" memory, so the automatic paths may
+    // write them again if they are ever empty. (Only on success: a failed press changes nothing.)
+    if (typeof body.package_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.package_id)) await clearTripFaqOff(getSupabaseAdmin(), body.package_id).catch(() => undefined)
     return NextResponse.json({
       faqs: r.faqs,
       model: r.model,
