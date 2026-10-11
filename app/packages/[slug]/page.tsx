@@ -24,6 +24,7 @@ import { TripTestimonials } from "@/components/trip-testimonials"
 import { TripGallery } from "@/components/trip-gallery"
 import { TripVideo } from "@/components/trip-video"
 import { TripJournal } from "@/components/trip-journal"
+import { LinkifiedText } from "@/components/linkified-text"
 
 export const revalidate = 300
 
@@ -201,7 +202,7 @@ export default async function PackagePage({ params }: Props) {
               <div>
                 <h2 className="mb-3 text-2xl font-bold">{translate(language, "About this trip")}</h2>
                 <div className="space-y-4 text-pretty leading-relaxed text-muted-foreground">
-                  {description.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
+                  {description.split(/\n{2,}/).map((para, i) => <p key={i}><LinkifiedText text={para} /></p>)}
                 </div>
               </div>
             )}

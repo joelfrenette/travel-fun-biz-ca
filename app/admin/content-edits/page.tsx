@@ -12,7 +12,7 @@ import { Loader2, Undo2 } from "lucide-react"
 
 interface Edit {
   id: string
-  content_type: "post" | "guide" | "page_copy"
+  content_type: "post" | "guide" | "page_copy" | "package"
   path: string
   field: string
   reason: string
@@ -34,6 +34,9 @@ const FIELD_LABEL: Record<string, string> = {
   og_description: "Share description",
   faq: "FAQ",
   key_takeaways: "Key takeaways",
+  ai_faqs: "Trip FAQ",
+  keywords: "Keywords",
+  og_image: "Share picture",
 }
 const METHOD_LABEL: Record<Edit["method"], string> = {
   ai: "Reworded by AI",
@@ -42,7 +45,7 @@ const METHOD_LABEL: Record<Edit["method"], string> = {
   links: "Link added",
   generate: "Written from the page",
 }
-const TYPE_LABEL = { post: "Post", guide: "Guide", page_copy: "Page copy" } as const
+const TYPE_LABEL = { post: "Post", guide: "Guide", page_copy: "Page copy", package: "Trip" } as const
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -54,11 +57,11 @@ const clip = (s: string, n = 280) => (s.length > n ? `${s.slice(0, n)}...` : s)
 function changedBits(edit: Edit): { removed: string[]; added: string[] } {
   const before = edit.before ?? ""
   const after = edit.after ?? ""
-  if (edit.field === "faq" || edit.field === "key_takeaways") {
+  if (edit.field === "faq" || edit.field === "key_takeaways" || edit.field === "ai_faqs" || edit.field === "keywords") {
     const items = (raw: string): string[] => {
       try {
         const v = JSON.parse(raw)
-        return Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : `${x?.q ?? ""} ${x?.a ?? ""}`.trim())) : []
+        return Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : `${x?.q ?? x?.question ?? ""} ${x?.a ?? x?.answer ?? ""}`.trim())) : []
       } catch {
         return []
       }
@@ -136,6 +139,7 @@ export default function ContentEditsPage() {
               <option value="post">Blog posts</option>
               <option value="guide">Guides</option>
               <option value="page_copy">Compare and best-time copy</option>
+              <option value="package">Trip pages</option>
             </select>
             <Button size="sm" variant="outline" asChild><Link href="/admin/autopilot">Back to Autopilot</Link></Button>
           </div>

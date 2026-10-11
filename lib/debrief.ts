@@ -73,7 +73,7 @@ export interface EditsSection {
 }
 
 const EDITS_LINES_MAX = 15
-const EDIT_TYPE: Record<string, string> = { post: 'blog post', guide: 'guide', page_copy: 'compare or best-time page' }
+const EDIT_TYPE: Record<string, string> = { post: 'blog post', guide: 'guide', page_copy: 'compare or best-time page', package: 'trip page' }
 const EDIT_FIELD: Record<string, string> = {
   body: 'page text',
   links: 'links',
@@ -84,6 +84,9 @@ const EDIT_FIELD: Record<string, string> = {
   og_description: 'share description',
   faq: 'FAQ',
   key_takeaways: 'key takeaways',
+  ai_faqs: 'trip FAQ',
+  keywords: 'keywords',
+  og_image: 'share picture',
 }
 const EDIT_METHOD: Record<string, string> = { ai: 'reworded by AI', delete: 'removed', fixer: 'plain fix', links: 'link added', generate: 'written from the page text' }
 

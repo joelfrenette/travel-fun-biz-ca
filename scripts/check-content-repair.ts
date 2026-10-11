@@ -26,7 +26,24 @@ import {
   type ModelCall,
   type RepairFields,
 } from '../lib/content-repair'
-import { buildCopyItem, buildGuideItem, buildPostItem, guideFields, repairComposedGuide } from '../lib/content-repair-adapters'
+import {
+  appendRelatedLine,
+  assemblePackageChanges,
+  buildCopyItem,
+  buildGuideItem,
+  buildPackageItem,
+  buildPostItem,
+  guideFields,
+  isPastTripRow,
+  PACKAGE_FIX_COLUMNS,
+  PACKAGE_FORBIDDEN_COLUMNS,
+  PACKAGE_WRITABLE_COLUMNS,
+  relatedLinksLine,
+  repairComposedGuide,
+  tripGenerationWanted,
+  tripKeywords,
+  writeTripMeta,
+} from '../lib/content-repair-adapters'
 import { claimDailyOnce, claimRepairSlot, columnsFor, REPAIR_ITEMS_PER_DAY, storedValue } from '../lib/content-edits'
 import { addRelatedLinks, linkFirstMention, mergeFaq, planCheapFixes } from '../lib/content-heal-run'
 import { seoScore, internalLinkPathsOf } from '../lib/seo-score'
@@ -617,6 +634,127 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     check('publish: draft mode still holds a clean guide', !publishDecision('hotels', 'draft', 'pipeline', []).publish)
     check('publish: blockers always hold it, whatever the kind', !publishDecision('resorts', 'publish', 'pipeline', ['superlative or rating claim (best)']).publish)
     for (const k of ['destinations', 'cruise-lines', 'hotels', 'resorts', 'ships', 'river-cruises', 'yachts'] as const) check(`publish: a clean ${k} guide goes live in publish mode`, publishDecision(k, 'publish', 'pipeline', []).publish)
+  }
+
+  // -------------------------------------------------------------------------------------------------
+  // 13. Trip pages (wave 3): score input, the allow-list of fields, past trips, the related line, keywords, meta
+  // -------------------------------------------------------------------------------------------------
+  {
+    const sentence = 'The group walks the old lanes together and eats lunch by the water. '
+    const longText = sentence.repeat(30).trim()
+    const trip = {
+      id: 't1',
+      slug: 'santorini-escape',
+      name: 'Santorini Escape',
+      destination: 'Santorini',
+      country: 'Greece',
+      category: 'Group Trip',
+      duration: '7 days',
+      tags: [] as string[],
+      short_description: 'A week in Santorini with a small group.',
+      full_description: longText,
+      image_url: 'https://cdn.example.com/santorini.jpg',
+      og_image_url: null as string | null,
+      meta_title: null as string | null,
+      meta_description: null as string | null,
+      keywords: [] as string[],
+      ai_faqs: null as unknown,
+      available_from: '2027-05-01',
+      available_to: '2027-05-08',
+    }
+    const existing = new Set(['/', '/destinations/santorini', '/hotels/blue-dome', '/ships/aegean-star', '/resorts/third-guide', '/packages/santorini-escape'])
+    const targets = [
+      { path: '/destinations/santorini', title: 'Santorini', dest: 'santorini', rank: 0 },
+      { path: '/hotels/blue-dome', title: 'Blue Dome', dest: 'santorini', rank: 1 },
+      { path: '/ships/aegean-star', title: 'Aegean Star', dest: 'santorini', rank: 1 },
+      { path: '/resorts/third-guide', title: 'Third Guide', dest: 'santorini', rank: 1 },
+      { path: '/best-time-to-visit/santorini', title: 'the best time to visit Santorini', dest: 'santorini', rank: 2 },
+      { path: '/packages/other-trip', title: 'Other Trip', dest: 'santorini', rank: 3 },
+      { path: '/destinations/rome', title: 'Rome', dest: 'rome', rank: 0 },
+    ]
+    const ctx = { existing, keyword: null as string | null, today: '2026-10-11' }
+    const goodFaqs = [1, 2, 3, 4].map((n) => ({ question: `What is stop ${n} like on this trip?`, answer: 'The group walks the old lanes together.' }))
+
+    // The score input.
+    const item = buildPackageItem(trip, ctx)
+    const scoreThin = seoScore(item.seo)
+    check('trip score: an empty-SEO trip scores under 70 and names the gaps', scoreThin.score < 70 && scoreThin.failed.includes('meta-description') && scoreThin.failed.includes('faq') && scoreThin.failed.includes('internal-link'), JSON.stringify(scoreThin.failed))
+    check('trip score: key takeaways and H2s do not apply to a trip page', !scoreThin.failed.includes('takeaways') && !scoreThin.failed.includes('h2-count') && !scoreThin.reasons.some((r) => /takeaway/.test(r)))
+    check('trip score: the keyword is the name when no keyword_research row points at the page, else that keyword', item.keyword === 'Santorini Escape' && buildPackageItem(trip, { ...ctx, keyword: 'santorini group trip' }).keyword === 'santorini group trip')
+    check('trip score: body is the short and the full description, FAQ comes from ai_faqs, the page path is /packages/<slug>', item.seo.body.includes('A week in Santorini') && item.seo.body.includes('old lanes') && item.seo.faq.length === 0 && buildPackageItem({ ...trip, ai_faqs: goodFaqs }, ctx).seo.faq.length === 4 && item.path === '/packages/santorini-escape')
+    check('trip score: a picture counts as having alt text (the page uses the trip name), no picture does not', item.seo.hasImageAlt === true && buildPackageItem({ ...trip, image_url: null }, ctx).seo.hasImageAlt === false)
+    check('trip score: schema types follow the page (TouristTrip live, Article once past, FAQPage with FAQs)', item.seo.jsonLdTypes.join() === 'TouristTrip' && buildPackageItem({ ...trip, available_to: '2026-01-01', ai_faqs: goodFaqs }, ctx).seo.jsonLdTypes.join() === 'Article,FAQPage')
+    const filled = buildPackageItem({ ...trip, meta_title: 'Santorini Escape: a week in Santorini', meta_description: 'A week in Santorini with a small group. Walk the old lanes together and eat lunch by the water.', ai_faqs: goodFaqs, full_description: `${longText}\n\nRelated: [Santorini](/destinations/santorini).` }, ctx)
+    check('trip score: filling the gaps lifts the trip to 70 or more', seoScore(filled.seo).score >= 70, String(seoScore(filled.seo).score))
+    check('trip score: the past-trip test is one helper (end date before today)', isPastTripRow({ available_to: '2026-10-10' }, '2026-10-11') && !isPastTripRow({ available_to: '2026-10-11' }, '2026-10-11') && !isPastTripRow({ available_to: null }, '2026-10-11'))
+
+    // The allow-list of fields.
+    const generated = { meta_title: 'Santorini Escape: a week in Santorini', meta_description: 'A week in Santorini with a small group. Walk the old lanes together and eat lunch by the water.', faqs: goodFaqs }
+    const live = assemblePackageChanges(trip, { past: false, existing, targets }, generated)
+    const liveFixes = live.map((c) => c.fix).sort().join()
+    check('trip fixes: a live empty trip gets meta, share picture, keywords, FAQ and the related line, nothing else', liveFixes === 'ai_faqs,keywords,links,meta,meta,og_image', liveFixes)
+    const writable = new Set(PACKAGE_WRITABLE_COLUMNS)
+    check('trip fixes: the allow-list and the forbidden list do not overlap', PACKAGE_FORBIDDEN_COLUMNS.every((c) => !writable.has(c)) && [...writable].sort().join() === 'ai_faqs,full_description,keywords,meta_description,meta_title,og_image_url')
+    const payload = Object.fromEntries(live.map((c) => [c.column, c.value]))
+    check('trip fixes: the update payload built from every change writes only allow-listed columns, never a forbidden one', Object.keys(payload).every((k) => writable.has(k)) && Object.keys(payload).every((k) => !PACKAGE_FORBIDDEN_COLUMNS.includes(k)), Object.keys(payload).join())
+    check('trip fixes: every fix maps only to columns on the allow-list', (Object.keys(PACKAGE_FIX_COLUMNS) as (keyof typeof PACKAGE_FIX_COLUMNS)[]).every((f) => PACKAGE_FIX_COLUMNS[f].every((c) => writable.has(c))) && live.every((c) => PACKAGE_FIX_COLUMNS[c.fix].includes(c.column)))
+    check('trip fixes: the name, price, dates, inclusions, itinerary, links and status are never in a change, whatever the row holds', live.every((c) => !['name', 'slug', 'price_display', 'price_value', 'currency', 'available_from', 'available_to', 'departure_dates', 'price_includes', 'not_included', 'itinerary', 'booking_url', 'more_info_url', 'status', 'short_description'].includes(c.column)))
+    const descChange = live.find((c) => c.column === 'full_description')
+    check('trip fixes: the description changes only by ONE line added at the end (the original text is untouched)', !!descChange && (descChange.value as string).startsWith(trip.full_description) && (descChange.value as string).slice(trip.full_description.length).trim().split('\n').filter(Boolean).length === 1)
+    check('trip fixes: only EMPTY fields are filled (a trip with its own meta, picture, keywords and FAQs is left alone)', assemblePackageChanges({ ...trip, meta_title: 'x', meta_description: 'y', og_image_url: 'https://z/i.jpg', keywords: ['a'], ai_faqs: goodFaqs }, { past: false, existing, targets }, generated).map((c) => c.fix).join() === 'links')
+    check('trip fixes: an edit an admin undid stays undone', !assemblePackageChanges(trip, { past: false, existing, targets, skip: new Set(['ai_faqs', 'links', 'og_image']) }, generated).some((c) => ['ai_faqs', 'links', 'og_image'].includes(c.field)))
+
+    // Past trips: FAQ and links only.
+    const past = assemblePackageChanges({ ...trip, available_to: '2026-01-01' }, { past: true, existing, targets }, generated)
+    check('past trip: only FAQ and links fixes (no meta, share picture or keywords)', past.map((c) => c.fix).sort().join() === 'ai_faqs,links', past.map((c) => c.fix).join())
+    check('past trip: no meta text is even asked for', tripGenerationWanted({ ...trip, available_to: '2026-01-01' }, true).metaTitle === false && tripGenerationWanted({ ...trip, available_to: '2026-01-01' }, true).metaDescription === false && tripGenerationWanted(trip, false).metaTitle === true)
+
+    // The related line.
+    const rel = relatedLinksLine(trip, targets, existing)
+    check('related line: the destination page and at most 2 guides, never a package, a best-time page or another place', !!rel && rel.paths.join() === '/destinations/santorini,/hotels/blue-dome,/ships/aegean-star' && rel.line === 'Related: [Santorini](/destinations/santorini), [Blue Dome](/hotels/blue-dome), [Aegean Star](/ships/aegean-star).', rel?.line)
+    check('related line: only pages that exist', relatedLinksLine(trip, targets, new Set(['/', '/destinations/santorini']))?.paths.join() === '/destinations/santorini' && relatedLinksLine(trip, targets, new Set(['/'])) === null)
+    check('related line: nothing for a trip with no destination', relatedLinksLine({ ...trip, destination: '' }, targets, existing) === null)
+    const once = appendRelatedLine(trip.full_description, rel!.line)
+    check('related line: appended as its own paragraph after the whole description', once === `${trip.full_description}\n\n${rel!.line}`)
+    check('related line: idempotent (a second run adds nothing)', appendRelatedLine(once, rel!.line) === null && assemblePackageChanges({ ...trip, full_description: once! }, { past: false, existing, targets }, {}).every((c) => c.fix !== 'links'))
+    check('related line: not added when the description already links to a page on this site, or is empty', appendRelatedLine('See [the guide](/blog/x) first.', rel!.line) === null && appendRelatedLine('', rel!.line) === null && appendRelatedLine(null, rel!.line) === null && appendRelatedLine('   ', rel!.line) === null)
+    check('related line: an outside link does not count as an internal link', appendRelatedLine('See [a site](https://example.com/x).', rel!.line) !== null)
+    check('related line: no long dash even if a guide name has one', !/[–—]/.test(relatedLinksLine(trip, [{ path: '/hotels/blue-dome', title: `Blue ${EM} Dome`, dest: 'santorini', rank: 1 }], existing)!.line))
+    check('related line: the audit row keeps the full description as `before`', descChange?.before === trip.full_description && descChange.after === descChange.value && descChange.field === 'links')
+    // Undo: revert restores `before` for every trip field, and a changed field needs force.
+    const afterRow = { ...trip, meta_title: generated.meta_title, meta_description: generated.meta_description, og_image_url: trip.image_url, keywords: payload.keywords, ai_faqs: goodFaqs.map((f) => ({ answer: f.answer, question: f.question })), full_description: descChange!.value }
+    check('undo: what the row holds matches the audit `after` for every trip field (so Undo needs no force)', live.every((c) => storedValue('package', afterRow as never, c.field) === c.after), live.map((c) => c.field).join())
+    check('undo: restoring `before` puts back the empty value, the keywords list, the FAQ list and the old description', live.every((c) => {
+      const cols = columnsFor('package', c.field, c.before)
+      return !!cols && Object.keys(cols).join() === c.column
+    }) && JSON.stringify(columnsFor('package', 'ai_faqs', '[]')) === '{"ai_faqs":null}' && JSON.stringify(columnsFor('package', 'links', trip.full_description)) === JSON.stringify({ full_description: trip.full_description }) && JSON.stringify(columnsFor('package', 'og_image', '')) === '{"og_image_url":null}')
+    check('undo: a field the trip heal never writes cannot be restored through a trip edit', columnsFor('package', 'title', 'x') === null && columnsFor('package', 'body', 'x') === null && columnsFor('package', 'keywords', 'not json') === null)
+
+    // Keywords (no model).
+    const kws = tripKeywords(trip)
+    check('keywords: 5 to 8 phrases built only from the row (name, place, type, length)', kws.length >= 5 && kws.length <= 8 && kws.includes('santorini escape') && kws.includes('santorini group trip') && kws.every((k) => k === k.toLowerCase() && !/[–—]/.test(k)), kws.join(' | '))
+    check('keywords: no duplicates, and a row that says too little gets none', new Set(kws).size === kws.length && tripKeywords({ name: 'Trip', destination: '' }).length === 0)
+    check('keywords: written only while the list is empty', assemblePackageChanges({ ...trip, keywords: ['already there'] }, { past: false, existing, targets }, {}).every((c) => c.fix !== 'keywords'))
+
+    // Meta text: one injectable call, gated.
+    const okWriter = async () => ({ raw: { meta_title: 'Santorini Escape: a week in Santorini', meta_description: 'A week in Santorini with a small group. Walk the old lanes together and eat lunch by the water.' } as Record<string, unknown> })
+    const metaOk = await writeTripMeta(trip, { title: true, description: true }, okWriter)
+    check('meta: a clean answer is accepted (title and description) with ONE call', metaOk.called && metaOk.meta_title === 'Santorini Escape: a week in Santorini' && !!metaOk.meta_description && !metaOk.answeredEmpty)
+    let writerCalls = 0
+    const badWriter = async () => {
+      writerCalls++
+      return { raw: { meta_title: 'The best Santorini trip, 5 stars', meta_description: 'Join us on the number one trip of 2031 for only 4999 dollars, voted best by 12000 travellers across the whole world today.' } as Record<string, unknown> }
+    }
+    const metaBad = await writeTripMeta(trip, { title: true, description: true }, badWriter)
+    check('meta: a superlative, an invented number or a price is dropped, and the heal is told the model answered empty', writerCalls === 1 && !metaBad.meta_title && !metaBad.meta_description && metaBad.answeredEmpty, JSON.stringify(metaBad))
+    const metaShort = await writeTripMeta(trip, { title: true, description: true }, async () => ({ raw: { meta_title: 'Hi', meta_description: 'Too short.' } }))
+    check('meta: a title or description outside its length range is dropped, never padded', !metaShort.meta_title && !metaShort.meta_description)
+    const metaNone = await writeTripMeta(trip, { title: false, description: false }, async () => { throw new Error('should not be called') })
+    check('meta: nothing wanted means no call', !metaNone.called)
+    const metaFail = await writeTripMeta(trip, { title: true, description: false }, async () => ({ raw: null, error: 'timeout' }))
+    check('meta: a failed call writes nothing and is not marked "answered empty" (retried tomorrow)', metaFail.called && !metaFail.answeredEmpty && !metaFail.meta_title)
+    check('meta: generated text fills only an empty field', assemblePackageChanges({ ...trip, meta_title: 'Mine', meta_description: null }, { past: false, existing, targets: [] }, { meta_title: 'Other', meta_description: generated.meta_description }).filter((c) => c.fix === 'meta').map((c) => c.field).join() === 'meta_description')
+    check('trip fixes: no em or en dash in any text the heal writes', live.every((c) => !/[–—]/.test(c.after) && !/[–—]/.test(c.reason)))
   }
 
   console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`)
