@@ -9,6 +9,7 @@ import { getDestinationPage, getDestinationSlugs } from '@/lib/destinations'
 import { getComparePage, getComparePairSlugs } from '@/lib/compare-destinations'
 import { getBestTimeToVisitPage, getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { SITE_NAME } from '@/lib/site'
+import { isPastTrip } from '@/lib/past-trip'
 import { cleanTitle, isAllowedPhotoUrl, parseOgPath, type OgTarget } from '@/lib/og-path'
 
 export * from '@/lib/og-path'
@@ -67,6 +68,8 @@ export async function resolveOgTarget(target: OgTarget): Promise<OgContent | nul
   if (prefix === 'packages') {
     const pkg = await getPublishedPackageBySlug(slug)
     if (!pkg) return null
+    // A past trip (WP14) shares its own first trip photo; a live trip is unchanged.
+    if (isPastTrip(pkg)) return { title: cleanTitle(pkg.name, SITE_NAME), kindLabel: 'Trip recap', photoUrl: firstPhoto(pkg.gallery_urls?.[0], pkg.og_image_url, pkg.image_url) }
     return { title: cleanTitle(pkg.name, SITE_NAME), kindLabel: 'Trip', photoUrl: firstPhoto(pkg.og_image_url, pkg.image_url) }
   }
 

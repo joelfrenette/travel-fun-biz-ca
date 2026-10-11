@@ -61,6 +61,13 @@ export interface DbPackage {
   sort_order: number
   not_included: string | null
   keywords: string[]
+  /** Convert to Past Trip (WP14, migration 0037). Optional: absent until the migration is applied. */
+  recap_mode?: 'auto' | 'recap' | 'live' | null
+  recap_summary?: string | null
+  recap_highlights?: string[] | null
+  recap_generated_at?: string | null
+  next_trip_slug?: string | null
+  alert_tag?: string | null
   created_at: string
   updated_at: string
 }
@@ -167,6 +174,17 @@ export async function getNextUpcomingPackageInCategory(category: string, exclude
     return null
   }
   return data
+}
+
+/** The trip a recap page's "Join the next trip" points to: the admin's pick (next_trip_slug) when it is a
+ * published trip that has not happened, else the soonest upcoming trip in the same category. */
+export async function getNextTripForRecap(pkg: DbPackage): Promise<DbPackage | null> {
+  const slug = pkg.next_trip_slug?.trim()
+  if (slug && slug !== pkg.slug) {
+    const chosen = await getPublishedPackageBySlug(slug)
+    if (chosen && chosen.id !== pkg.id) return chosen
+  }
+  return getNextUpcomingPackageInCategory(pkg.category, pkg.id)
 }
 
 /** Upcoming published trips to show on a blog post, so reading leads to enquiring instead of
