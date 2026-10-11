@@ -158,7 +158,8 @@ export function blockerKinds(blockers: string[]): Set<string> {
 // ---------------------------------------------------------------------------------------------------
 
 const LEADING_MARKER = /^\s*(?:[-*]\s+|\d+[.)]\s+|#{1,6}\s+)/
-const MD_LINK = /(!?)\[([^\]]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/g
+// The target may hold one level of parentheses, for example /wiki/Paris_(France).
+const MD_LINK = /(!?)\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)(?:\s+"[^"]*")?\)/g
 
 const wordsOf = (s: string) => s.split(/\s+/).filter(Boolean).length
 
@@ -172,7 +173,9 @@ export function bodySentences(text: string): { text: string; prefix: string; hea
       out.push({ text: line.trim(), prefix: marker.trim() ? marker.trimStart() : '', heading: true })
       continue
     }
-    const sentences = line.split(/(?<=[a-zA-Z)"'][.!?])\s+/)
+    // A digit may end a sentence ("from $450. Book now"); a list number at the start of the line ("1. First") is not one.
+    const sentences = line.split(/(?<=[a-zA-Z0-9)"'][.!?])\s+/)
+    if (sentences.length > 1 && /^\s*\d{1,2}[.)]$/.test(sentences[0])) sentences.splice(0, 2, `${sentences[0]} ${sentences[1]}`)
     sentences.forEach((s, i) => {
       if (!s.trim()) return
       // A sentence keeps its own list marker only when it starts the line.
@@ -437,14 +440,20 @@ const NEUTRAL_WORDS = new Set(['well', 'known', 'popular', 'many', 'some', 'ofte
 // Function words dropped before comparing (no content of their own).
 const STOP_WORDS = new Set(['be', 'been', 'was', 'were', 'am', 'has', 'have', 'had', 'will', 'would', 'by', 'from', 'but', 'if', 'so', 'than', 'then', 'there', 'these', 'those', 'which', 'who', 'what', 'when', 'where', 'while', 'into', 'over', 'under', 'up', 'out', 'about', 'as', 'you', 'your', 'he', 'she', 'they', 'their', 'his', 'her', 'its', 'do', 'does', 'one'])
 
-const stem = (w: string) => (w.length > 4 ? w.replace(/(?:ingly|edly|ing|ied|ies|ed|es|ly|s)$/, '') : w.length > 3 ? w.replace(/s$/, '') : w)
+const stem = (w: string) => {
+  if (/ies$/.test(w) && w.length > 4) return w.replace(/ies$/, 'y')
+  if (/ied$/.test(w) && w.length > 4) return w.replace(/ied$/, 'y')
+  return w.length > 4 ? w.replace(/(?:ingly|edly|ing|ed|es|ly|s)$/, '') : w.length > 3 ? w.replace(/s$/, '') : w
+}
+// The allowlist is compared by stem too, so plural forms ("guests", "travellers", "places") match.
+const NEUTRAL_STEMS = new Set([...NEUTRAL_WORDS].map(stem))
 
 /** The content words of a text, lowercased and stemmed, with function words and the neutral allowlist dropped.
  * Link syntax is reduced to its anchor text. */
 export function contentStems(text: string): string[] {
   const plain = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').toLowerCase()
   const words = plain.match(/[\p{L}\p{N}]+/gu) ?? []
-  return words.filter((w) => !NEUTRAL_WORDS.has(w) && !STOP_WORDS.has(w)).map(stem)
+  return words.filter((w) => !STOP_WORDS.has(w)).map(stem).filter((s) => !NEUTRAL_STEMS.has(s))
 }
 
 /** Why a model rewrite must be thrown away, or null when it is acceptable. A rewrite may only shorten: it must not
@@ -592,11 +601,12 @@ export const callModelText: ModelCall = async (prompt, maxTokens, timeoutMs) => 
 }
 
 /** One model call that writes the requested missing fields from the page text. Returns what survived the filters. */
-export async function generateExtras(model: ModelCall, f: RepairFields, keys: GenKey[], limits: RepairLimits, keyword: string | null, bodyCtx: DetectCtx, timeoutMs = CALL_TIMEOUT_MS): Promise<Partial<Pick<RepairFields, GenKey>>> {
-  if (keys.length === 0) return {}
+export async function generateExtras(model: ModelCall, f: RepairFields, keys: GenKey[], limits: RepairLimits, keyword: string | null, bodyCtx: DetectCtx, timeoutMs = CALL_TIMEOUT_MS): Promise<{ got: Partial<Pick<RepairFields, GenKey>>; answered: boolean }> {
+  if (keys.length === 0) return { got: {}, answered: false }
   const text = await model(generationPrompt(f, keys, limits, keyword), 3000, timeoutMs)
-  if (!text) return {}
-  return acceptGenerated(parseModelJson<Record<string, unknown>>(text), keys, limits, bodyCtx)
+  // `answered` is true only when the model returned text; a null or failed call is not "nothing usable".
+  if (!text) return { got: {}, answered: false }
+  return { got: acceptGenerated(parseModelJson<Record<string, unknown>>(text), keys, limits, bodyCtx), answered: true }
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -965,7 +975,7 @@ export async function repairContent(item: RepairItem, opts: RepairOptions = {}):
     if (keys.length) {
       calls++
       const bodyCtx = makeDetectCtx(item.type, plainForPrompt(cur), [...(item.names ?? []), item.fields.title ?? '', item.keyword ?? ''])
-      const got = await generateExtras(model, cur, keys, item.limits, item.keyword ?? null, bodyCtx, timeout())
+      const { got } = await generateExtras(model, cur, keys, item.limits, item.keyword ?? null, bodyCtx, timeout())
       const gotKeys = Object.keys(got) as GenKey[]
       if (gotKeys.length) {
         const next: RepairFields = { ...cur, ...got }

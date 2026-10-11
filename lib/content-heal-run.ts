@@ -644,9 +644,10 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
       usedCall = true
       calls++
       // Three FAQ questions are enough for the score, even where the write-time gate wants four.
-      const got = await generateExtras(callModelText, fields, keys, { ...item.limits, faqMin: Math.min(3, item.limits.faqMin) }, item.keyword, bodyCtx)
+      const { got, answered } = await generateExtras(callModelText, fields, keys, { ...item.limits, faqMin: Math.min(3, item.limits.faqMin) }, item.keyword, bodyCtx)
       const next = cloneFields(fields)
-      if (Object.keys(got).length === 0) await setSetting(admin, `${NOGEN_PREFIX}:${itemKey}`, new Date().toISOString())
+      // Only when the model answered and nothing was accepted; a failed or empty call is retried tomorrow.
+      if (answered && Object.keys(got).length === 0) await setSetting(admin, `${NOGEN_PREFIX}:${itemKey}`, new Date().toISOString())
       if (got.faq) {
         const merged = mergeFaq(fields.faq, got.faq, item.limits.faqMax)
         if (merged.length >= 3) next.faq = merged

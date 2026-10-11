@@ -19,6 +19,9 @@ import {
   repairContent,
   ruleFor,
   stripDeadLinks,
+  stripAllLinks,
+  internalLinksOfText,
+  generateExtras,
   validateRewrite,
   type ModelCall,
   type RepairFields,
@@ -271,6 +274,13 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     check('model: a rewrite that adds a number is rejected, the fallback deletes the sentence', rs.blockers.length === 0 && !rs.fields.body.includes('40') && rs.edits[0].method === 'delete', rs.blockers.join(' | '))
     check('validateRewrite rejects: longer, a new name, a new link, a price', validateRewrite('The harbour is the best place to eat.', 'The harbour is a really pleasant and quiet place to sit and eat dinner.', makeDetectCtx('guide', gateCtx.grounding)) === 'longer than the original' && validateRewrite('The harbour is the best place to eat.', 'Eat at Aquavit Terrace.', makeDetectCtx('guide', gateCtx.grounding)) !== null && validateRewrite('Eat well here.', 'Eat well [here](/packages/x).', makeDetectCtx('guide', gateCtx.grounding)) === 'adds a link' && validateRewrite('Eat well here.', 'Eat for $5.', makeDetectCtx('guide', gateCtx.grounding)) !== null)
     check('validateRewrite accepts a shorter clean rewrite', validateRewrite('The harbour is the best place to eat.', 'The harbour is a place to eat.', makeDetectCtx('guide', gateCtx.grounding)) === null)
+
+    // Round 2 checks.
+    const cx2 = makeDetectCtx('guide', 'x', [])
+    check('stems: "cities" matches "city", and plural neutral words match', validateRewrite('The cities are the best.', 'The city is well known.', cx2) === null && validateRewrite('The best places for guests.', 'The place for guest.', cx2) === null, String(validateRewrite('The cities are the best.', 'The city is well known.', cx2)))
+    check('split: a digit can end a sentence ("from $450. Book now")', bodySentences('Trips start from $450. Book now today.').length === 2 && bodySentences('1. First thing here.').length === 1)
+    check('links: a target with parentheses is one link', stripAllLinks('See [Paris](/wiki/Paris_(France)) now.') === 'See Paris now.' && internalLinksOfText('[a](/x_(y))').join() === '/x_(y)')
+    check('generateExtras: answered is false for a null call, true for text with nothing accepted', (await generateExtras(async () => null, guideFields(makeGuide()), ['faq'], { faqMin: 3, faqMax: 5, takeMin: 3, takeMax: 5, metaTitleMax: 60, metaDescMax: 155, ogTitleMax: 60, ogDescMax: 110 }, null, makeDetectCtx('guide', 'x', []))).answered === false && (await generateExtras(async () => '{"faq":[]}', guideFields(makeGuide()), ['faq'], { faqMin: 3, faqMax: 5, takeMin: 3, takeMax: 5, metaTitleMax: 60, metaDescMax: 155, ogTitleMax: 60, ogDescMax: 110 }, null, makeDetectCtx('guide', 'x', []))).answered === true)
 
     // S1: the subset guard. A rewrite may only reuse the original's words plus a few neutral ones.
     for (const type of ['guide', 'post'] as const) {
