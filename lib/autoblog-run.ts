@@ -321,9 +321,10 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     final = gated.value
     blockers = gated.blockers
     repairLogIds = gated.logIds
-    // Until migration 0033 is applied there is no audit log, so the shared repair stays off. The older one-call
-    // repair (numbers and links only) keeps working meanwhile, so applying this code first loses nothing.
-    if (blockers.length && /migration 0033/.test(gated.note)) {
+    // Until migration 0033 is applied there is no audit log, and once the day's 6 repair slots are used there is no
+    // room for another shared repair: either way the older one-call repair (numbers and links only) keeps working,
+    // so a post is never worse off than before WP10.
+    if (blockers.length && /migration 0033|cap of \d+ repaired pages|repair slot/.test(gated.note)) {
       const legacy = await gateWithRepair(composed, new Date(), gateCtx)
       final = legacy.post
       blockers = legacy.blockers

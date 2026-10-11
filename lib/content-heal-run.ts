@@ -51,6 +51,8 @@ export const HEAL_BELOW = SEO_PASS_SCORE
 /** No new page is started after this long into a run (each can wait on a model call). */
 const HEAL_BUDGET_MS = 60_000
 const REVERT_MEMORY_DAYS = 60
+const NOGEN_PREFIX = 'content_heal_nogen'
+const NOGEN_DAYS = 7
 
 type Row = Record<string, unknown>
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
@@ -120,6 +122,8 @@ interface Target {
 }
 
 interface SiteIndex {
+  /** False when any read failed or the trips list came back empty. An incomplete index must never be used to strip links. */
+  ok: boolean
   existing: Set<string>
   targets: Target[]
   /** package id -> destination slug, and package slug -> destination slug */
@@ -136,7 +140,9 @@ export async function buildSiteIndex(admin: SupabaseClient): Promise<SiteIndex> 
   const destByPackageSlug = new Map<string, string>()
   const seenDest = new Set<string>()
 
-  const { data: pkgs } = await admin.from('travel_packages').select('id, slug, name, destination').eq('status', 'published')
+  let complete = true
+  const { data: pkgs, error: pkgError } = await admin.from('travel_packages').select('id, slug, name, destination').eq('status', 'published')
+  if (pkgError) complete = false
   for (const p of (pkgs ?? []) as { id: string; slug: string | null; name: string | null; destination: string | null }[]) {
     const dest = p.destination ? generateSlug(p.destination) : ''
     if (p.slug) {
@@ -159,14 +165,15 @@ export async function buildSiteIndex(admin: SupabaseClient): Promise<SiteIndex> 
       targets.push({ path: `/best-time-to-visit/${b.slug}`, title: `the best time to visit ${b.destination}`, dest: b.slug, rank: 2 })
     }
   } catch {
-    // a page that cannot be listed is just not offered
+    complete = false
   }
   try {
     for (const c of await getComparePairSlugs()) existing.add(`/compare/${c.pairSlug}`)
   } catch {
-    // same
+    complete = false
   }
-  const { data: guides } = await admin.from('guides').select('kind, slug, name, parent_slug').eq('status', 'published')
+  const { data: guides, error: guideError } = await admin.from('guides').select('kind, slug, name, parent_slug').eq('status', 'published')
+  if (guideError) complete = false
   for (const g of (guides ?? []) as { kind: GuideKind; slug: string; name: string; parent_slug: string | null }[]) {
     if (!GUIDE_KINDS.includes(g.kind) || !g.slug) continue
     const path = guidePath(g.kind, g.slug)
@@ -174,9 +181,12 @@ export async function buildSiteIndex(admin: SupabaseClient): Promise<SiteIndex> 
     const dest = g.kind === 'destinations' ? g.slug : g.parent_slug
     if (g.kind !== 'destinations' && dest) targets.push({ path, title: g.name, dest, rank: 1 })
   }
-  const { data: posts } = await admin.from('posts').select('slug').eq('status', 'published')
+  const { data: posts, error: postError } = await admin.from('posts').select('slug').eq('status', 'published')
+  if (postError) complete = false
   for (const p of (posts ?? []) as { slug: string }[]) if (p.slug) existing.add(`/blog/${p.slug}`)
-  return { existing, targets, destByPackageId, destByPackageSlug }
+  // A site with published trips always has /packages/<slug> pages: none at all means the read came back empty.
+  if (![...existing].some((p) => p.startsWith('/packages/'))) complete = false
+  return { ok: complete, existing, targets, destByPackageId, destByPackageSlug }
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -415,10 +425,18 @@ export function planCheapFixes(
   failed: SeoCheckId[],
   existing: Set<string>,
   targets: Target[],
+  opts: { stripDead?: boolean } = {},
 ): HealPlan {
   const tracker = new Tracker()
   let f = cloneFields(item.fields)
-  const touchChanged = (next: RepairFields, method: ContentEdit['method'], reason: string) => {
+  const touchChanged = (candidate: RepairFields, method: ContentEdit['method'], reason: string) => {
+    // The heal never changes a title or a guide's opening summary (a title carries the slug; both are the page's
+    // headline wording), so a fixer that maps every field leaves those two exactly as they were.
+    const next: RepairFields = { ...candidate }
+    if (f.title === undefined) delete next.title
+    else next.title = f.title
+    if (f.summary === undefined) delete next.summary
+    else next.summary = f.summary
     for (const fld of ['title', 'body', 'meta_title', 'meta_description', 'og_title', 'og_description', 'faq', 'key_takeaways'] as const) {
       if (serializeField(item.type, next, fld) !== serializeField(item.type, f, fld)) tracker.touch(fld, method, reason)
     }
@@ -434,7 +452,7 @@ export function planCheapFixes(
   if (!sameFields(clamped, f)) touchChanged(clamped, 'fixer', 'cut meta or share text to its length limit')
 
   // Links to pages that do not exist lose the link (the words stay).
-  if (failedSet.has('dead-links')) touchChanged(mapFields(f, (s) => stripDeadLinks(s, existing)), 'fixer', 'removed a link to a page that does not exist (the words stay)')
+  if (failedSet.has('dead-links') && opts.stripDead !== false) touchChanged(mapFields(f, (s) => stripDeadLinks(s, existing)), 'fixer', 'removed a link to a page that does not exist (the words stay)')
 
   // A page with no internal link gets up to two links to real pages that share its destination.
   let addedLinks: string[] = []
@@ -593,15 +611,22 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
     const fixable = s.result.failed.some((id) => SEO_FIX[id] !== null)
     if (!fixable) continue
 
-    const plan = planCheapFixes(item, s.result.failed, idx.existing, idx.targets)
+    // With an incomplete site index no link is stripped (a page that looks missing may only be unread).
+    const plan = planCheapFixes(item, s.result.failed, idx.existing, idx.targets, { stripDead: idx.ok })
     // An edit that was reverted stays reverted: those fields go back to what they were.
     let fields = plan.fields
     for (const field of reverted) fields = restoreField(fields, item.fields, field)
+    const itemKey = `${item.type}:${item.type === 'page_copy' ? item.path : item.id}`
     let wantsModel = aiOn && plan.generate.filter((k) => !reverted.has(k)).length > 0
+    // A page whose generation call produced nothing usable is not retried for 7 days, so one stubborn page cannot
+    // take a slot every day and starve the others.
+    if (wantsModel) {
+      const stamp = Date.parse((await getSetting(admin, `${NOGEN_PREFIX}:${itemKey}`)) ?? '')
+      if (Number.isFinite(stamp) && Date.now() - stamp < NOGEN_DAYS * 86_400_000) wantsModel = false
+    }
     const cheapChanged = !sameFields(fields, item.fields)
     if (!cheapChanged && !wantsModel) continue
 
-    const itemKey = `${item.type}:${item.type === 'page_copy' ? item.path : item.id}`
     const slot = await claimRepairSlot(admin, itemKey)
     if (!slot.ok) {
       if (/cap of/.test(slot.reason ?? '')) break
@@ -621,6 +646,7 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
       // Three FAQ questions are enough for the score, even where the write-time gate wants four.
       const got = await generateExtras(callModelText, fields, keys, { ...item.limits, faqMin: Math.min(3, item.limits.faqMin) }, item.keyword, bodyCtx)
       const next = cloneFields(fields)
+      if (Object.keys(got).length === 0) await setSetting(admin, `${NOGEN_PREFIX}:${itemKey}`, new Date().toISOString())
       if (got.faq) {
         const merged = mergeFaq(fields.faq, got.faq, item.limits.faqMax)
         if (merged.length >= 3) next.faq = merged
@@ -672,7 +698,7 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
   const avg = after.length ? Math.round(after.reduce((n, x) => n + x, 0) / after.length) : null
   const lowest = [...scored].sort((a, b) => a.result.score - b.result.score).slice(0, 5).map((s) => ({ type: s.item.type, path: s.item.path, score: s.result.score, reasons: s.result.reasons.slice(0, 3) }))
   const hardWaiting = await countHardWaiting(admin)
-  const note = `scored ${scored.length} page${scored.length === 1 ? '' : 's'}${avg !== null ? ` (average ${avg})` : ''}, ${queue.length} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${problems.length ? `; ${problems.join('; ')}` : ''}`
+  const note = `scored ${scored.length} page${scored.length === 1 ? '' : 's'}${avg !== null ? ` (average ${avg})` : ''}, ${queue.length} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${problems.length ? `; ${problems.join('; ')}` : ''}`
   const summary: HealSummary = { at: new Date().toISOString(), scored: scored.length, avg, below: queue.length, lowest, healedPages, edits: editCount, hardWaiting, calls, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }

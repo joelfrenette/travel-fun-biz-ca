@@ -7,6 +7,8 @@ import type { GuideSection } from '@/lib/guides'
 import { claimRepairSlot, editsLoggable, insertEdits, recordRepairSpend, attachEdits, deleteEdits } from '@/lib/content-edits'
 import {
   classifyBlockers,
+  mapFields,
+  stripExternalLinks,
   MIN_MS_PER_CALL,
   repairContent,
   type ContentEdit,
@@ -57,22 +59,33 @@ async function runRepair(admin: SupabaseClient, item: RepairItem, opts: WrapOpts
     note,
   })
   if (startBlockers.length === 0) return untouched('already clean')
-  const cls = classifyBlockers(startBlockers)
+  // A link to another website is mended by taking the link off (the gates also flag its address as "web address in
+  // text"), so the HARD check looks at the blockers that would remain after that.
+  const cls = classifyBlockers(item.gate(mapFields(item.fields, stripExternalLinks)))
   if (cls.hard.length) return untouched('held for a person (a HARD blocker)', cls.hard)
   if (!(await editsLoggable(admin))) return untouched('not repaired: the content_edits table is not set up (apply migration 0033)')
   const slot = await claimRepairSlot(admin, opts.itemKey)
   if (!slot.ok) return untouched(`not repaired: ${slot.reason ?? 'no slot'}`)
 
-  const result = await repairContent(item, { maxCalls: opts.maxCalls, deadlineMs: opts.deadlineMs, model: opts.model })
-  await recordRepairSpend(admin, result.calls)
-  if (result.edits.length === 0) return { result, logIds: [], applied: false, note: result.note }
+  // Anything unexpected from here on leaves the page exactly as it came in (and takes back any audit rows), so a
+  // repair problem can never break the write that called it.
+  let loggedIds: string[] = []
+  try {
+    const result = await repairContent(item, { maxCalls: opts.maxCalls, deadlineMs: opts.deadlineMs, model: opts.model })
+    await recordRepairSpend(admin, result.calls)
+    if (result.edits.length === 0) return { result, logIds: [], applied: false, note: result.note }
 
-  const logged = await insertEdits(admin, result.edits)
-  if (logged.error) {
-    // No audit row, no edit: the page is blocked exactly as it came in.
-    return { result: { fields: item.fields, blockers: startBlockers, hard: [], edits: [], calls: result.calls, note: 'not repaired' }, logIds: [], applied: false, note: `not repaired: the audit log could not be written (${logged.error})` }
+    const logged = await insertEdits(admin, result.edits)
+    if (logged.error) {
+      // No audit row, no edit: the page is blocked exactly as it came in.
+      return { result: { fields: item.fields, blockers: startBlockers, hard: [], edits: [], calls: result.calls, note: 'not repaired' }, logIds: [], applied: false, note: `not repaired: the audit log could not be written (${logged.error})` }
+    }
+    loggedIds = logged.ids
+    return { result, logIds: logged.ids, applied: true, note: result.note }
+  } catch (e) {
+    await deleteEdits(admin, loggedIds).catch(() => undefined)
+    return untouched(`not repaired: ${e instanceof Error ? e.message : 'unexpected error'}`)
   }
-  return { result, logIds: logged.ids, applied: true, note: result.note }
 }
 
 // ---------------------------------------------------------------------------------------------------

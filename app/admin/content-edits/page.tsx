@@ -163,7 +163,7 @@ export default function ContentEditsPage() {
                   <p className="text-xs text-muted-foreground">{new Date(e.created_at).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium", timeStyle: "short" })} &middot; {e.reason}</p>
                 </div>
                 {!e.reverted_at && (
-                  <Button size="sm" variant="outline" disabled={!!busy} onClick={() => { if (confirm(`Put the original ${FIELD_LABEL[e.field]?.toLowerCase() ?? e.field} back on ${e.path}?${e.published_after ? " This changes a live page." : ""}`)) revert(e) }}>
+                  <Button size="sm" variant="outline" disabled={!!busy} onClick={() => { if (confirm(`Put the original ${FIELD_LABEL[e.field]?.toLowerCase() ?? e.field} back on ${e.path}?${e.published_after ? " This changes a live page." : ""}${e.method === "ai" || e.method === "delete" ? "\n\nThis restores wording the quality gate had blocked, so it may bring back a phrase the checks do not allow." : ""}`)) revert(e) }}>
                     {busy === e.id ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Undo2 className="mr-1 h-4 w-4" />}Undo
                   </Button>
                 )}
