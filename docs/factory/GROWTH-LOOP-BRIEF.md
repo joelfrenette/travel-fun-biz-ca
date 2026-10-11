@@ -443,3 +443,31 @@ Collette finding shows up.
 Rules: no fact ever enters the database without a stored source; the model never sees a source without
 the grounding check; the admin can delete a source and revert its edits; `isAuthorized` on every route;
 file size cap 10MB, PDF pages cap 30, image cap 5; cost per extraction shown; no new vendor.
+
+### WP12 (2026-10-10, Joel's ask): after a trip description lands, FAQs come automatically; supplier photos become the gallery (no migration)
+
+Follows WP11. Owner files: new `lib/package-faqs.ts` (lift the prompt and parsing out of
+`app/api/admin/generate-faqs/route.ts` into a lib function the route then calls), `lib/package-enrich.ts`
+(call it after a description is applied), new `lib/supplier-photos.ts`, `lib/package-extract.ts` (collect
+candidate image URLs when fetching a URL source), `lib/package-sources.ts` (store candidates on the source),
+`components/admin/package-sources-panel.tsx` (a photo picker row), `app/api/admin/packages/[id]/sources/[sourceId]/photos/route.ts`,
+`scripts/check-package-completeness.ts` (extend).
+
+FAQs: when `applyEnrichment` has just applied a `full_description` (or the row already has one and
+`ai_faqs` is empty), generate 4-6 FAQs with ONE model call grounded ONLY in the row's own text
+(description, highlights, inclusions, itinerary) through the same gate as copy (no numbers not in the row,
+no superlatives, no agency claims, no dashes), apply when `ai_faqs` is empty, log the edit (package_edits or
+content_edits), never overwrite existing FAQs. Also expose it in the WP10 heal as a cheap fix for thin trip
+pages (score only, 1 call per page per day, under the same 6-slot cap) if WP10 is on main; otherwise skip.
+
+Supplier photos: for a `url` source only (never a screenshot or PDF), while fetching the page collect
+`<img>` and `og:image` candidates (absolute https, same host or its CDN subdomains, jpg/png/webp, skip icons
+and anything under 400px when the tag says so, max 12), store them on the source as `photo_candidates`
+(public URLs on the supplier's site; nothing downloaded yet). The admin sees thumbnails with checkboxes and
+"Add selected to gallery"; selected photos go through `uploadImagePackageVariants` into our storage and are
+appended to `gallery_urls` (max 12 total), logged as an edit with Revert (remove the appended URLs). No
+automatic gallery fill: Joel picks, because supplier photo rights vary. If the trip has no `image_url`,
+the first selected photo also becomes the cover (auto, since he just chose it).
+
+Rules: no new vendor; isAuthorized on every route; caps as stated; never a screenshot image in a gallery;
+no em dashes; offline checks for the candidate filter and the FAQ gate.
