@@ -522,7 +522,9 @@ export async function fetchSourceText(url: string, opts: { safe?: boolean } = {}
   let html = plain ?? ''
   let pageUrl = plainFetch?.finalUrl ?? parsed.toString()
   let text = plain ? htmlToText(plain) : ''
-  if (text.length < 200 && process.env.SCRAPINGBEE_API_KEY) {
+  // Never in safe mode (a stranger's link): the third-party renderer would fetch the address from its own network
+  // without our hop checks. The 422 "paste the text instead" answer below is what such a page gets.
+  if (!opts.safe && text.length < 200 && process.env.SCRAPINGBEE_API_KEY) {
     const bee = new URL('https://app.scrapingbee.com/api/v1/')
     bee.searchParams.set('api_key', process.env.SCRAPINGBEE_API_KEY)
     bee.searchParams.set('url', parsed.toString())
@@ -550,6 +552,7 @@ export async function fetchSourceText(url: string, opts: { safe?: boolean } = {}
 }
 
 const SAFE_HOPS = 3
+const SAFE_MAX_BYTES = 2_000_000
 
 /** The page fetch for links typed by a stranger. Same rules as the supplier photo download (lib/supplier-photos.ts
  * fetchSupplierPhoto): manual redirects, hopRejection on every hop (https, not private, same registrable domain, DNS
@@ -579,8 +582,10 @@ export async function fetchHtmlSafe(
       }
       if (!res.ok) return null
       if (!/html|xml|text\/plain/i.test(res.headers.get('content-type') || '')) return null
+      const declared = Number(res.headers.get('content-length') || 0)
+      if (declared > SAFE_MAX_BYTES) return null
       const html = await res.text()
-      return { html: html.length > 2_000_000 ? html.slice(0, 2_000_000) : html, finalUrl: current }
+      return { html: html.length > SAFE_MAX_BYTES ? html.slice(0, SAFE_MAX_BYTES) : html, finalUrl: current }
     }
     return null
   } catch {

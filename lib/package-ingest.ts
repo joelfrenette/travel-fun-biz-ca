@@ -166,7 +166,7 @@ export async function ingestSourceForPackage(admin: SupabaseClient, packageId: s
         if (!pictures) return await failBeforePay(404, 'The stored file could not be read (missing, or over 10 MB). Delete this source and add it again.')
         const prepared = await prepareImages(pictures)
         if (prepared.error) return await failBeforePay(413, prepared.error)
-        r =await extractPackageDraftFromImages(prepared.images, label, prepared.sliced)
+        r = await extractPackageDraftFromImages(prepared.images, label, prepared.sliced)
       }
       if (r.error) return await failBeforePay(r.error.status, r.error.message)
       draft = r.draft

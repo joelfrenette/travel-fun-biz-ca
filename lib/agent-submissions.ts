@@ -302,13 +302,21 @@ export async function decideSubmission(admin: SupabaseClient, packageId: string,
     if (!pkg) return fail(404, 'The trip could not be read.')
     const missing = publishBlockers(pkg as unknown as Record<string, unknown>)
     if (missing.length) return { ...fail(400, `Fill in these first, in the form below: ${missing.join(', ')}.`), missing }
+    // Claim the transition FIRST: only the request that moves the row to approved publishes, so a double click cannot
+    // publish (and ping search engines) twice. If the publish then fails, the claim is given back.
+    const prior = sub.submission_state
+    const { data: claimed } = await admin.from('package_submissions').update({ submission_state: 'approved', decided_at: t, updated_at: t }).eq('id', sub.id).in('submission_state', ['in_progress', 'submitted', 'rejected']).select('id').maybeSingle()
+    if (!claimed) return fail(409, 'This trip was already decided.')
     const pub = await publishTrip(packageId)
-    if (!pub.ok) return fail(pub.status, pub.error)
-    await admin.from('package_submissions').update({ submission_state: 'approved', decided_at: t, updated_at: t }).eq('id', sub.id)
+    if (!pub.ok) {
+      await admin.from('package_submissions').update({ submission_state: prior, decided_at: null, updated_at: new Date().toISOString() }).eq('id', sub.id).eq('submission_state', 'approved')
+      return fail(pub.status, pub.error)
+    }
     return { ok: true, state: 'approved' }
   }
   const clean = (note ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, 1000)
   if (!clean) return fail(400, 'Write a short note for the agent so they know what to change.')
-  await admin.from('package_submissions').update({ submission_state: 'rejected', review_note: clean, decided_at: t, updated_at: t }).eq('id', sub.id)
+  const { data: moved } = await admin.from('package_submissions').update({ submission_state: 'rejected', review_note: clean, decided_at: t, updated_at: t }).eq('id', sub.id).in('submission_state', ['submitted', 'in_progress']).select('id').maybeSingle()
+  if (!moved) return fail(409, 'This trip was already decided.')
   return { ok: true, state: 'rejected' }
 }

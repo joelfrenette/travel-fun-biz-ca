@@ -146,6 +146,11 @@ function check(name: string, ok: boolean, detail: unknown = '') {
   check('S2: a first hop that is private is refused without any request', (await (async () => { let called = false; const r = await fetchHtmlSafe('https://a.example/x', { fetch: (async () => { called = true; return page() }) as unknown as typeof fetch, lookup: async () => ['127.0.0.1'] }); return r === null && !called })()))
   check('S2: a non-HTML answer is refused', (await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => new Response('x', { status: 200, headers: { 'content-type': 'application/pdf' } }) }), lookup: publicDns })) === null)
 
+  check('S2: a declared body over 2 MB is refused before it is read', (await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => new Response('x', { status: 200, headers: { 'content-type': 'text/html', 'content-length': '2500000' } }) }), lookup: publicDns })) === null)
+  const bigBody = '<html>' + 'a'.repeat(2_500_000)
+  const cut = await fetchHtmlSafe('https://a.example/x', { fetch: route({ 'https://a.example/x': () => new Response(bigBody, { status: 200, headers: { 'content-type': 'text/html' } }) }), lookup: publicDns })
+  check('S2: a body with no declared length is cut at 2 MB', !!cut && cut.html.length === 2_000_000, cut?.html.length)
+
   // 3 and 4 (S2): atomic daily slots, taken before the model call
   const keys = new Set<string>()
   const fakeAdmin = { from: () => ({ insert: async (row: { key: string }) => (keys.has(row.key) ? { error: { message: 'duplicate key' } } : (keys.add(row.key), { error: null })) }) } as never

@@ -149,7 +149,7 @@ export async function completeTrip(admin: SupabaseClient, packageId: string): Pr
   if (!logSourceId || text.trim().length < 40) return done({ ok: false, error: 'Nothing has been read yet. Add something and let it be read first.', pkg: row })
   if (!isAiConfigured()) return done({ ok: false, error: 'The AI is not set up (ANTHROPIC_API_KEY is missing).', pkg: row })
 
-  // Per-trip daily cap on this pass, counted from the log: each pass leaves at least a 'generate' or 'auto' completion note.
+  // Per-trip daily cap on this pass, by atomic slot (lib/slots.ts).
   // Atomic slot BEFORE the model call (shared by admin and agent): two clicks at once cannot both get the last slot.
   if (!(await claimSlot(admin, `trip_complete:${packageId}`, WIZARD_CAPS.completePerTripPerDay))) {
     return done({ ok: false, error: 'This trip has been completed as many times as is allowed today. Try again tomorrow.', pkg: row })
