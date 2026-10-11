@@ -3,6 +3,8 @@ import { SITE_URL, site } from '@/lib/site'
 import { collectIssues } from '@/lib/issues'
 import { plainAction, CHECKLIST_URL, type PlainAction } from '@/lib/plain-steps'
 import { readHealLog } from '@/lib/heal'
+import { listEdits } from '@/lib/content-edits'
+import { readHealSummary } from '@/lib/content-heal-run'
 import { ghlListPublishedPosts } from '@/lib/ghl-social'
 import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 import { isAutopilotOn } from '@/lib/autopilot'
@@ -54,7 +56,54 @@ export interface Brief {
   /** "What is working": the top style per kind, or one line saying there are not enough posts yet. */
   working: string[]
   healed: string[]
+  /** WP10 "Edits made": what the site changed on its own pages in the last 24 hours, and drafts waiting on a person. */
+  edits: EditsSection
   trackerItems: { title: string; priority: string }[]
+}
+
+export interface EditsSection {
+  /** One line per automatic edit (what, where, reason, method), newest first, at most EDITS_LINES_MAX. */
+  lines: string[]
+  /** How many edits there were in total (lines is capped). */
+  total: number
+  /** Drafts held back for a person (from the last daily heal), or null when it has not run. */
+  hardWaiting: number | null
+}
+
+const EDITS_LINES_MAX = 15
+const EDIT_TYPE: Record<string, string> = { post: 'blog post', guide: 'guide', page_copy: 'compare or best-time page' }
+const EDIT_FIELD: Record<string, string> = {
+  body: 'page text',
+  links: 'links',
+  title: 'title',
+  meta_title: 'meta title',
+  meta_description: 'meta description',
+  og_title: 'share title',
+  og_description: 'share description',
+  faq: 'FAQ',
+  key_takeaways: 'key takeaways',
+}
+const EDIT_METHOD: Record<string, string> = { ai: 'reworded by AI', delete: 'removed', fixer: 'plain fix', links: 'link added', generate: 'written from the page text' }
+
+/** The "Edits made" section: every automatic edit in the last 24 hours that has not been undone. Never throws. */
+async function buildEditsSection(admin: SupabaseClient, now: Date): Promise<EditsSection> {
+  let lines: string[] = []
+  let total = 0
+  try {
+    const { edits } = await listEdits(admin, { sinceIso: new Date(now.getTime() - 86_400_000).toISOString(), limit: 200 })
+    const live = edits.filter((e) => !e.reverted_at)
+    total = live.length
+    lines = live.slice(0, EDITS_LINES_MAX).map((e) => `${EDIT_TYPE[e.content_type] ?? e.content_type} ${e.path}: ${EDIT_FIELD[e.field] ?? e.field} (${EDIT_METHOD[e.method] ?? e.method}). ${e.reason}`)
+  } catch {
+    // the section just stays empty
+  }
+  let hardWaiting: number | null = null
+  try {
+    hardWaiting = (await readHealSummary(admin))?.hardWaiting ?? null
+  } catch {
+    hardWaiting = null
+  }
+  return { lines, total, hardWaiting }
 }
 
 async function countOf(q: PromiseLike<{ count: number | null; error: unknown }>): Promise<number | null> {
@@ -186,6 +235,7 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
     yesterday,
     today,
     healed,
+    edits: await buildEditsSection(admin, now),
     trackerItems: trackerItems.slice(0, 4),
   }
 }
@@ -209,6 +259,16 @@ export function renderBrief(b: Brief): { subject: string; html: string; text: st
     'WHAT IS WORKING',
     ...b.working.map((t) => `- ${t}`),
     ...(b.healed.length ? ['', 'FIXED BY ITSELF', ...b.healed.map((t) => `- ${t}`)] : []),
+    ...(b.edits.total > 0 || b.edits.hardWaiting
+      ? [
+          '',
+          'EDITS MADE (last 24 hours)',
+          ...(b.edits.total > 0 ? b.edits.lines.map((t) => `- ${t}`) : ['- No automatic edits.']),
+          ...(b.edits.total > b.edits.lines.length ? [`- and ${b.edits.total - b.edits.lines.length} more`] : []),
+          ...(b.edits.hardWaiting ? [`- ${b.edits.hardWaiting} draft${b.edits.hardWaiting === 1 ? ' is' : 's are'} waiting on you (held back for a price, a date, a claim or a link a person should judge).`] : []),
+          `Review or undo them: ${SITE_URL}/admin/content-edits`,
+        ]
+      : []),
     ...(b.trackerItems.length ? ['', 'WAITING ON YOU (not urgent)', ...b.trackerItems.map((t) => `- ${t.priority}: ${t.title}`), `Tracker: ${TRACKER_URL}`] : []),
     '',
     `Content Autopilot: ${SITE_URL}/admin/autopilot`,

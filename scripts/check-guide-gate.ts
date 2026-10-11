@@ -110,11 +110,14 @@ check('draft mode note says why', /guides_publish_mode=draft/.test(publishDecisi
 check('blockers are the note', /superlative/.test(publishDecision('destinations', 'publish', 'pipeline', ['superlative (best)']).note ?? ''))
 check('publish mode lets a clean destination go live', publishDecision('destinations', 'publish', 'pipeline', []).publish)
 check('publish mode lets a clean cruise line go live', publishDecision('cruise-lines', 'publish', 'pipeline', []).publish)
+// WP10 (Joel, 2026-10-10): named properties may go live in publish mode once the gate is clean AFTER the self-repair.
+// Blockers still hold them, and draft mode still holds them.
 for (const k of ['hotels', 'resorts', 'ships', 'river-cruises', 'yachts'] as const) {
-  check(k + ' never published by the pipeline', !publishDecision(k, 'publish', 'pipeline', []).publish)
+  check(k + ' goes live in publish mode when no blocker is left', publishDecision(k, 'publish', 'pipeline', []).publish)
+  check(k + ' is held by any blocker', !publishDecision(k, 'publish', 'pipeline', ['superlative or rating claim (best)']).publish)
+  check(k + ' is held in draft mode', !publishDecision(k, 'draft', 'pipeline', []).publish)
 }
-check('admin write never publishes a clean hotel', !publishDecision('hotels', 'publish', 'admin', []).publish)
-for (const k of ['hotels', 'resorts', 'ships', 'river-cruises', 'yachts'] as const) check(k + ' draft for admin source too', !publishDecision(k, 'publish', 'admin', []).publish)
+check('admin write publishes a clean hotel in publish mode', publishDecision('hotels', 'publish', 'admin', []).publish)
 blocked('we can host groups every spring is blocked', 'We can host groups every spring.')
 blocked('our advisors visited is blocked', 'Our advisors visited the island.')
 blocked('I have stayed is blocked', 'I have stayed nearby.')

@@ -474,4 +474,5 @@ export function guideBlockers(guide: ComposedGuide, ctx: GateContext): string[] 
 }
 
 // Shared with lib/page-copy-composer.ts, which applies the same rules to compare and best-time copy.
-export { numbersIn, proseOf, clamp, strings, callText, PLACEHOLDER_PATTERNS, REFUSAL_PATTERNS, EXPERIENCE_CLAIM_PATTERNS, SUPERLATIVE_PATTERNS, RECENCY_PATTERNS, COUNT_CLAIM, SCHEDULE_PATTERN }
+// WP10 (lib/content-repair.ts) reuses WORD_NUMBER_PATTERNS to find the sentences behind a gate blocker.
+export { numbersIn, proseOf, clamp, strings, callText, PLACEHOLDER_PATTERNS, REFUSAL_PATTERNS, EXPERIENCE_CLAIM_PATTERNS, SUPERLATIVE_PATTERNS, RECENCY_PATTERNS, COUNT_CLAIM, SCHEDULE_PATTERN, WORD_NUMBER_PATTERNS }

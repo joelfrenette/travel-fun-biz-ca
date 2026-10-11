@@ -551,7 +551,12 @@ export function applyRewrites(post: ComposedPost, offenders: Offender[], rewrite
 const REPAIRABLE = /^(number not in|word number not in|link to a page|external or email link|link inside a FAQ)/
 const MAX_REPAIR_SENTENCES = 12
 
-/** The quality gate plus ONE automatic repair. When the only blockers are numbers or links the
+/** NOTE (WP10): lib/autoblog-run.ts now uses repairComposedPost in lib/content-repair-adapters.ts (the shared repair:
+ * plain-code fixers, one model call, a deterministic fallback, an audit trail). This older one-call version is kept
+ * as the fallback for the days before migration 0033 (the audit table) is applied, and because
+ * scripts/check-content-styles.ts still exercises it.
+ *
+ * The quality gate plus ONE automatic repair. When the only blockers are numbers or links the
  * model was not allowed to use, one extra model call rewrites just the offending sentences, then
  * the gate runs once more. Never more than one retry; a post still blocked is saved as a draft. */
 export async function gateWithRepair(

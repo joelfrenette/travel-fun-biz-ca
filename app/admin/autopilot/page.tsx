@@ -9,6 +9,7 @@ import { PostingCard } from "@/components/admin/posting-card"
 import { WhatIsWorkingCard } from "@/components/admin/what-is-working-card"
 import { GuidesPanel } from "@/components/admin/guides-panel"
 import { PageCopyPanel } from "@/components/admin/page-copy-panel"
+import { SelfHealingCard } from "@/components/admin/self-healing-card"
 import { Loader2, Rocket, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 interface Row {
@@ -34,7 +35,7 @@ interface State {
   shotstackEnv: "stage" | "v1"
   distributionMode: "off" | "prepare" | "auto"
   cron: { light: "green" | "amber" | "gray"; label: string }
-  lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "guides" | "copy" | "post" | "repurpose" | "heal" | "debrief" | "performance"; ok: boolean; note: string }[] } | null
+  lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "guides" | "copy" | "post" | "repurpose" | "heal-content" | "heal" | "debrief" | "performance"; ok: boolean; note: string }[] } | null
   keyword: { budget: number; configured: boolean; lastRunAt: string | null; log: { at: string; spentUsd: number; added: number; seeds: string[] }[] }
   issues: { id: string; area: "post" | "carousel" | "video" | "system" | "setup"; title: string; detail: string; fix?: string; actions?: { label: string; kind: string; slug?: string }[] }[]
   rows: Row[]
@@ -181,7 +182,7 @@ export default function AutopilotPage() {
                 {state.lastRun.steps.map((st) => (
                   <li key={st.step} className="flex items-start gap-2">
                     {st.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
-                    <span><span className="font-medium capitalize">{({ repurpose: "carousel and video", post: "post to social", keywords: "keyword research", heal: "self-repair", debrief: "daily brief email", performance: "performance snapshot", write: "write and publish", guides: "guide pages", copy: "page copy" } as Record<string, string>)[st.step] ?? st.step}</span><span className="text-muted-foreground"> - {st.note}</span></span>
+                    <span><span className="font-medium capitalize">{({ repurpose: "carousel and video", post: "post to social", keywords: "keyword research", heal: "self-repair", debrief: "daily brief email", performance: "performance snapshot", write: "write and publish", guides: "guide pages", copy: "page copy", "heal-content": "self-healing content" } as Record<string, string>)[st.step] ?? st.step}</span><span className="text-muted-foreground"> - {st.note}</span></span>
                   </li>
                 ))}
               </ol>
@@ -206,6 +207,8 @@ export default function AutopilotPage() {
         <GuidesPanel variant="card" />
 
         <PageCopyPanel />
+
+        <SelfHealingCard />
 
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">

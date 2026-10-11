@@ -399,3 +399,6 @@ export function copyPublishDecision(blockers: string[], mode: PageCopyPublishMod
 }
 
 export { MAX_BRIEF_PACKAGES_PER_DESTINATION }
+
+// WP10 (lib/content-repair.ts) reuses these to find the sentences behind a gate blocker.
+export { VERDICT, COMPARATIVE, VAGUE_QUANTITY, sentencesOfText }
