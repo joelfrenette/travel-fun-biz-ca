@@ -21,11 +21,31 @@ export interface PackageEdit {
   field: string
   before: unknown
   after: unknown
-  method: 'auto' | 'click'
+  /** auto: filled in by the site; click: chosen by the admin; generate: written by the model from the page's own text. */
+  method: 'auto' | 'click' | 'generate'
   at: string
   reverted?: boolean
   /** Written before the trip changed; cleared once the change succeeded. */
   pending?: boolean
+  /** Photo edits only (gallery_urls and the cover columns): which candidate photo, and what happened to it. */
+  photo?: string
+  op?: 'add' | 'remove'
+  /** The address of our stored copy of the photo. */
+  stored?: string
+  /** The supplier page the photo came from, shown as the photo credit. */
+  credit?: string
+  /** True on the gallery edit that also made this photo the trip's cover. */
+  cover?: boolean
+}
+
+/** One photo found on a supplier page (nothing is downloaded when it is listed). */
+export interface PhotoCandidate {
+  url: string
+  width: number | null
+  height: number | null
+  origin: 'og' | 'img' | 'srcset'
+  /** The address the page was read from after redirects (the domain this photo was accepted against). */
+  page?: string
 }
 
 export interface PackageSourceRow {
@@ -42,6 +62,8 @@ export interface PackageSourceRow {
   extracted_fields: unknown
   applied_fields: string[]
   package_edits: PackageEdit[]
+  /** Photos found on a link source's page (migration 0035); null for other kinds or before the migration. */
+  photo_candidates?: PhotoCandidate[] | null
   status: SourceStatus
   error: string | null
   model: string | null
@@ -244,6 +266,13 @@ export async function saveExtraction(
 ): Promise<string | null> {
   const { error } = await admin.from('package_sources').update({ ...patch, status: 'extracted', error: null, updated_at: new Date().toISOString() }).eq('id', id)
   return error?.message ?? null
+}
+
+/** Stores the photos found on a link source's page (migration 0035). Returns the error text, or null. */
+export async function savePhotoCandidates(admin: SupabaseClient, id: string, candidates: PhotoCandidate[]): Promise<string | null> {
+  const { error } = await admin.from('package_sources').update({ photo_candidates: candidates, updated_at: new Date().toISOString() }).eq('id', id)
+  if (!error) return null
+  return /photo_candidates|column|schema cache/i.test(error.message) ? 'The photo list could not be saved: run migration 0035 (supabase/migrations/0035_package_source_photos.sql).' : error.message
 }
 
 export async function markSourceFailed(admin: SupabaseClient, id: string, message: string, opts: { resetCalls?: boolean } = {}): Promise<void> {

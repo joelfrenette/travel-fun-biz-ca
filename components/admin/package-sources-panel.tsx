@@ -27,7 +27,8 @@ interface FieldChange {
   reason: string
   held?: boolean
 }
-interface PackageEdit { field: string; before: unknown; after: unknown; method: "auto" | "click"; at: string; reverted?: boolean }
+interface PackageEdit { field: string; before: unknown; after: unknown; method: "auto" | "click" | "generate"; at: string; reverted?: boolean; photo?: string; op?: "add" | "remove"; stored?: string }
+interface PhotoItem { url: string; width: number | null; height: number | null; origin: string; added: boolean; stored: string | null; cover: boolean }
 interface SourceItem {
   id: string
   kind: "screenshot" | "pdf" | "url" | "text"
@@ -45,6 +46,8 @@ interface SourceItem {
   model_calls: number
   cost_usd: number
   preview_url: string | null
+  /** Link sources only: photos found on the page and whether each is in the gallery because of this source. */
+  photos?: PhotoItem[]
 }
 interface Completeness { score: number; reasons: string[]; thin: boolean }
 
@@ -53,7 +56,7 @@ const FIELD_LABEL: Record<string, string> = {
   price_display: "Price shown", price_value: "Price number", currency: "Currency", available_from: "First date", available_to: "Last date",
   departure_dates: "Departure dates", price_includes: "What is included", not_included: "What is not included", max_people: "Largest group",
   booking_url: "Booking link", more_info_url: "More info link", category: "Category", itinerary: "Itinerary", full_description: "Full description",
-  highlights: "Highlights", meta_title: "Search title", meta_description: "Search description", keywords: "Keywords",
+  ai_faqs: "FAQs", gallery_urls: "Gallery photos", highlights: "Highlights", meta_title: "Search title", meta_description: "Search description", keywords: "Keywords",
 }
 
 function authHeaders(json = true): HeadersInit {
@@ -97,6 +100,7 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
   const [text, setText] = useState("")
   const [open, setOpen] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [picked, setPicked] = useState<Record<string, string[]>>({})
   const fileInput = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -216,6 +220,28 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
     }
   }
 
+  /** Add (copy into our storage and append to the gallery) or remove photos this source brought in. */
+  async function photoAction(id: string, body: { add?: string[]; remove?: string[] }) {
+    setBusy(`photos:${id}`)
+    try {
+      const r = await call(`/${id}/photos`, { method: "POST", headers: authHeaders(), body: JSON.stringify(body) }, "Photos")
+      const added = (r.added ?? []).length
+      const removed = (r.removed ?? []).length
+      const skipped = (r.skipped ?? []) as { url: string; reason: string }[]
+      toast({
+        title: added ? `Added ${added} photo${added === 1 ? "" : "s"} to the gallery` : removed ? `Removed ${removed} photo${removed === 1 ? "" : "s"} from the gallery` : "Nothing changed",
+        description: skipped.length ? `Skipped ${skipped.length}: ${skipped[0].reason}${skipped.length > 1 ? " (and others)" : ""}` : undefined,
+      })
+      setPicked((p) => ({ ...p, [id]: [] }))
+      onChanged?.()
+    } catch (e) {
+      toast({ title: "Could not change the photos", description: e instanceof Error ? e.message : "Try again", variant: "destructive" })
+    } finally {
+      setBusy("")
+      load()
+    }
+  }
+
   const working = busy !== ""
 
   return (
@@ -302,6 +328,39 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
                   </div>
                 </div>
                 {s.error && <p className="border-t px-3 py-2 text-xs text-destructive">{s.error}</p>}
+                {live.some((e) => e.field === "ai_faqs") && <p className="border-t px-3 py-2 text-xs text-muted-foreground">FAQs were written automatically from the trip description (only its own words). Revert its changes to take them out.</p>}
+                {s.kind === "url" && (s.photos?.length ?? 0) > 0 && (
+                  <div className="space-y-2 border-t p-3">
+                    <p className="text-xs text-muted-foreground">
+                      Photos found on that page. Up to 6 were added to the gallery automatically (real photos from the supplier's own site, at least 800 pixels wide, no logos). Check you may use them. A ticked photo is in the gallery now. Add more with the boxes, or remove one.
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+                      {s.photos!.map((p) => {
+                        const on = (picked[s.id] ?? []).includes(p.url)
+                        return (
+                          <div key={p.url} className={`relative overflow-hidden rounded-md border ${p.added ? "border-emerald-500" : on ? "border-primary" : ""}`}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={p.url} alt="" loading="lazy" referrerPolicy="no-referrer" className="aspect-video w-full object-cover" />
+                            {p.added ? (
+                              <div className="flex items-center justify-between gap-1 p-1 text-xs">
+                                <span className="font-medium text-emerald-700 dark:text-emerald-300">&#10003; added{p.cover ? ", cover" : ""}</span>
+                                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-destructive" disabled={working} onClick={() => photoAction(s.id, { remove: [p.url] })}>Remove</Button>
+                              </div>
+                            ) : (
+                              <label className="flex cursor-pointer items-center gap-1 p-1 text-xs">
+                                <input type="checkbox" checked={on} disabled={working} onChange={(e) => setPicked((prev) => ({ ...prev, [s.id]: e.target.checked ? [...(prev[s.id] ?? []), p.url] : (prev[s.id] ?? []).filter((u) => u !== p.url) }))} />
+                                {p.width ? `${p.width}px` : "add"}
+                              </label>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <Button size="sm" variant="outline" disabled={working || (picked[s.id] ?? []).length === 0} onClick={() => photoAction(s.id, { add: (picked[s.id] ?? []).slice(0, 6) })}>
+                      {busy === `photos:${s.id}` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}Add more to the gallery{(picked[s.id] ?? []).length ? ` (${Math.min(6, (picked[s.id] ?? []).length)})` : ""}
+                    </Button>
+                  </div>
+                )}
                 {isOpen && (
                   <div className="space-y-3 border-t p-3">
                     <div className="overflow-x-auto">
@@ -350,7 +409,7 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
             )
           })}
         </div>
-        <p className="text-xs text-muted-foreground">Changes are saved on the trip right away. The form below reloads after a change, so save anything you typed there first. FAQs and gallery photos are not filled in from a source: use the buttons in the form.</p>
+        <p className="text-xs text-muted-foreground">Changes are saved on the trip right away. The form below reloads after a change, so save anything you typed there first. Once a trip has a description, FAQs are written from that description alone. A link source also adds up to 6 of the supplier's own photos to the gallery. Screenshots and PDFs never add gallery photos.</p>
       </CardContent>
     </Card>
   )

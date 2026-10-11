@@ -2,6 +2,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { getPackageById, updatePackage, type DbPackage } from '@/lib/packages'
 import { pingIndexNow } from '@/lib/indexnow'
+import { claimDailyOnce } from '@/lib/content-edits'
+import { getSettingStrict, setSetting } from '@/lib/app-settings'
+import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
 import type { ExtractedDraft, ModelUsage } from '@/lib/package-extract'
 import type { PackageEdit, PackageSourceRow } from '@/lib/package-sources'
 import {
@@ -456,6 +459,9 @@ export interface ApplyResult {
   applied: string[]
   skipped: { field: string; reason: string }[]
   pkg: DbPackage | null
+  /** Model calls made after the fields were written (the FAQ call, 0 or 1) and their tokens. */
+  faqCalls?: number
+  faqUsage?: ModelUsage
 }
 
 /**
@@ -489,11 +495,34 @@ export async function applyEnrichment(
     updates[c.field] = after
     edits.push({ field: c.field, before: row[c.field] ?? null, after, method, at })
   }
-  if (edits.length === 0) return { applied: [], skipped, pkg: latest }
+  if (edits.length === 0) {
+    // Nothing to write, but a trip that already has a long description and no FAQs still gets them (WP12).
+    const faq = await autoFaqs(admin, latest, sourceId)
+    return { applied: faq.applied, skipped, pkg: faq.pkg ?? latest, faqCalls: faq.calls, faqUsage: faq.usage }
+  }
+  const result = await commitEdits(admin, pkg.id, sourceId, updates, edits, skipped, latest)
+  if (result.applied.length === 0 || !result.pkg) return result
+  // After a description (or any change on a trip that already has one): FAQs, when there are none.
+  const faq = await autoFaqs(admin, result.pkg, sourceId)
+  return { ...result, applied: [...result.applied, ...faq.applied], pkg: faq.pkg ?? result.pkg, faqCalls: faq.calls, faqUsage: faq.usage }
+}
 
-  // Audit first: the pending entries are written BEFORE the trip changes, so a change can never exist without a
-  // record of what it replaced. If the record cannot be written, nothing is applied. If the trip update fails, the
-  // pending entries are taken back out.
+/**
+ * The one place a change reaches the trip page and its log. Audit first: the pending entries are written BEFORE
+ * the trip changes, so a change can never exist without a record of what it replaced. If the record cannot be
+ * written, nothing is applied. If the trip update fails, the pending entries are taken back out. Also used by the
+ * FAQ and supplier photo steps (WP12), so every automatic change shares one log and one Revert.
+ */
+export async function commitEdits(
+  admin: SupabaseClient,
+  packageId: string,
+  sourceId: string,
+  updates: Record<string, unknown>,
+  edits: PackageEdit[],
+  skipped: { field: string; reason: string }[],
+  latest: DbPackage,
+): Promise<ApplyResult> {
+  const at = edits[0]?.at ?? new Date().toISOString()
   const { data: src, error: readError } = await admin.from('package_sources').select('package_edits, applied_fields').eq('id', sourceId).maybeSingle()
   const prior = ((src as { package_edits?: PackageEdit[] } | null)?.package_edits ?? []) as PackageEdit[]
   const priorFields = (((src as { applied_fields?: string[] } | null)?.applied_fields) ?? []) as string[]
@@ -502,7 +531,7 @@ export async function applyEnrichment(
   const logged = await admin.from('package_sources').update({ package_edits: [...prior, ...pending], updated_at: at }).eq('id', sourceId)
   if (logged.error) return { applied: [], skipped: [...skipped, ...edits.map((e) => ({ field: e.field, reason: 'the change could not be recorded, so it was not made' }))], pkg: latest }
 
-  const updated = await updatePackage(pkg.id, updates as Partial<DbPackage>)
+  const updated = await updatePackage(packageId, updates as Partial<DbPackage>)
   if (!updated) {
     await admin.from('package_sources').update({ package_edits: prior, updated_at: new Date().toISOString() }).eq('id', sourceId)
     return { applied: [], skipped: [...skipped, ...edits.map((e) => ({ field: e.field, reason: 'the database refused the update' }))], pkg: latest }
@@ -512,6 +541,120 @@ export async function applyEnrichment(
 
   if (updated.status === 'published') await pingIndexNow([`/packages/${updated.slug}`]).catch(() => null)
   return { applied: edits.map((e) => e.field), skipped, pkg: updated }
+}
+
+// ─── FAQs after a description lands (WP12) ──────────────────────────────────────────
+
+/** Durable "an admin took the automatic FAQs out" memory. Lives in app_settings, NOT on the source row, so deleting
+ * the source cannot bring the automatic FAQs back. Both automatic paths skip a trip while it exists; the admin
+ * "Generate FAQs" button clears it. */
+export const tripFaqOffKey = (packageId: string) => `trip_faq_off:${packageId}`
+
+/** True while the memory exists. A failed read counts as "off": nothing is generated when it cannot be checked. */
+export async function tripFaqsOff(admin: SupabaseClient, packageId: string): Promise<boolean> {
+  const r = await getSettingStrict(admin, tripFaqOffKey(packageId))
+  return !!r.error || r.value !== null
+}
+
+export async function clearTripFaqOff(admin: SupabaseClient, packageId: string): Promise<void> {
+  await admin.from('app_settings').delete().eq('key', tripFaqOffKey(packageId))
+}
+
+/** Once-a-day marker shared by this path and the daily heal, so one trip costs at most one FAQ call a day. */
+export const tripFaqDailyKey = (packageId: string) => `trip-faq:${packageId}`
+
+/**
+ * Writes FAQs for a trip that has a full description of 150+ words and NO FAQs yet: one model call grounded only
+ * in the row's own text, gated (lib/package-faqs.ts), logged as an `ai_faqs` edit with method 'generate' that the
+ * source's Revert puts back. Never overwrites FAQs that exist (checked again after the model call, on a fresh read
+ * of the row). `sourceId` is the log target: package_edits on that source. Never throws.
+ */
+export async function autoFaqs(
+  admin: SupabaseClient,
+  pkg: DbPackage,
+  sourceId: string,
+): Promise<{ applied: string[]; pkg: DbPackage | null; calls: number; usage?: ModelUsage }> {
+  const none = { applied: [] as string[], pkg: null, calls: 0 }
+  try {
+    if (hasFaqs(pkg.ai_faqs) || !hasFaqSource(pkg) || !isAiConfigured()) return none
+    if (await tripFaqsOff(admin, pkg.id)) return none
+    if (!(await claimDailyOnce(admin, tripFaqDailyKey(pkg.id)))) return none
+    const made = await generatePackageFaqsDetailed(pkg)
+    const calls = made.called ? 1 : 0
+    if (made.faqs.length === 0) return { ...none, calls, usage: made.usage }
+    const fresh = await getPackageById(pkg.id)
+    if (!fresh || hasFaqs(fresh.ai_faqs)) return { ...none, calls, usage: made.usage }
+    const at = new Date().toISOString()
+    const edit: PackageEdit = { field: 'ai_faqs', before: fresh.ai_faqs ?? null, after: made.faqs, method: 'generate', at }
+    const r = await commitEdits(admin, pkg.id, sourceId, { ai_faqs: made.faqs }, [edit], [], fresh)
+    if (made.usage) await addSourceUsage(admin, sourceId, made.usage)
+    return { applied: r.applied, pkg: r.applied.length ? r.pkg : null, calls, usage: made.usage }
+  } catch (e) {
+    console.error('[package-enrich] autoFaqs failed', e)
+    return none
+  }
+}
+
+/** Adds a later model call's tokens and call count to the source's own totals (what the admin sees as its cost). */
+async function addSourceUsage(admin: SupabaseClient, sourceId: string, usage: ModelUsage): Promise<void> {
+  const { data } = await admin.from('package_sources').select('input_tokens, output_tokens, model_calls').eq('id', sourceId).maybeSingle()
+  const s = data as { input_tokens: number | null; output_tokens: number | null; model_calls: number | null } | null
+  if (!s) return
+  await admin
+    .from('package_sources')
+    .update({ input_tokens: (s.input_tokens ?? 0) + usage.input, output_tokens: (s.output_tokens ?? 0) + usage.output, model_calls: (s.model_calls ?? 0) + 1, updated_at: new Date().toISOString() })
+    .eq('id', sourceId)
+}
+
+/**
+ * The heal's version (no admin source in play): the FAQs are logged on a small "Automatic FAQs" source row of kind
+ * text whose stored text is the trip's own description, so the same Revert, the same list and the same delete rules
+ * apply. Caller has already taken the repair slot and the daily marker. Returns whether FAQs were applied.
+ */
+export async function healTripFaqs(admin: SupabaseClient, pkg: DbPackage): Promise<{ applied: boolean; called: boolean; answeredEmpty?: boolean; error?: string }> {
+  if (hasFaqs(pkg.ai_faqs) || !hasFaqSource(pkg)) return { applied: false, called: false }
+  if (await tripFaqsOff(admin, pkg.id)) return { applied: false, called: false }
+  const made = await generatePackageFaqsDetailed(pkg)
+  if (made.faqs.length === 0) return { applied: false, called: made.called, answeredEmpty: !!made.answered, error: made.error }
+  const fresh = await getPackageById(pkg.id)
+  if (!fresh || hasFaqs(fresh.ai_faqs)) return { applied: false, called: made.called }
+  const at = new Date().toISOString()
+  const { data: row, error } = await admin
+    .from('package_sources')
+    .insert({
+      package_id: pkg.id,
+      kind: 'text',
+      file_name: 'Automatic FAQs (written from the trip description)',
+      extracted_text: (fresh.full_description ?? '').slice(0, 20_000),
+      status: 'uploaded',
+      model: made.model ?? null,
+      input_tokens: made.usage?.input ?? 0,
+      output_tokens: made.usage?.output ?? 0,
+      model_calls: 1,
+    })
+    .select('id')
+    .single()
+  if (error || !row) return { applied: false, called: made.called, error: error?.message ?? 'could not record the FAQs' }
+  const sourceId = (row as { id: string }).id
+  const edit: PackageEdit = { field: 'ai_faqs', before: fresh.ai_faqs ?? null, after: made.faqs, method: 'generate', at }
+  const r = await commitEdits(admin, pkg.id, sourceId, { ai_faqs: made.faqs }, [edit], [], fresh)
+  if (r.applied.length === 0) {
+    await admin.from('package_sources').delete().eq('id', sourceId)
+    return { applied: false, called: made.called, error: r.skipped[0]?.reason }
+  }
+  return { applied: true, called: made.called }
+}
+
+const GALLERY_MAX = 12
+
+/** Undo ONE photo edit against the gallery as it is now: an add takes that stored address out (nothing else), a
+ * remove puts it back at the end if there is room. Pure. */
+export function revertGalleryItem(e: Pick<PackageEdit, 'op' | 'stored'>, current: string[]): { ok: true; next: string[] } | { ok: false; reason: string } {
+  const stored = e.stored as string
+  if (e.op === 'add') return { ok: true, next: current.filter((u) => u !== stored) }
+  if (current.includes(stored)) return { ok: true, next: current }
+  if (current.length >= GALLERY_MAX) return { ok: false, reason: `The gallery is full (${GALLERY_MAX} photos), so a removed photo could not be put back.` }
+  return { ok: true, next: [...current, stored] }
 }
 
 /** Puts back what this source changed. A field is restored only if it still holds what the source wrote; if
@@ -532,6 +675,19 @@ export async function revertSourceEdits(admin: SupabaseClient, packageId: string
   // Newest first, so two edits to one field unwind in the right order.
   for (const e of [...live].reverse()) {
     const current = e.field in updates ? updates[e.field] : row[e.field]
+    // A photo edit is undone one photo at a time against the CURRENT gallery, so an unrelated gallery change made
+    // since (a manual add, another source's photo) does not block it and is not lost.
+    if (e.field === 'gallery_urls' && e.op && e.stored) {
+      const r = revertGalleryItem(e, Array.isArray(current) ? (current as string[]) : [])
+      if (!r.ok) {
+        skipped.push({ field: e.field, reason: r.reason })
+        continue
+      }
+      updates.gallery_urls = r.next
+      e.reverted = true
+      reverted.push(e.field)
+      continue
+    }
     if (stableJson(current ?? null) !== stableJson(e.after ?? null)) {
       skipped.push({ field: e.field, reason: 'It was changed after this source wrote it, so it was left alone.' })
       continue
@@ -545,6 +701,9 @@ export async function revertSourceEdits(admin: SupabaseClient, packageId: string
     if (!updated) return { reverted: [], skipped: [...skipped, ...reverted.map((f) => ({ field: f, reason: 'the database refused the update' }))] }
     const stillApplied = [...new Set(edits.filter((e) => !e.reverted).map((e) => e.field))]
     await admin.from('package_sources').update({ package_edits: edits, applied_fields: stillApplied, status: stillApplied.length ? 'applied' : 'extracted', updated_at: new Date().toISOString() }).eq('id', source.id)
+    // Taking the automatic FAQs out is remembered for good (app_settings, not this row): neither automatic path
+    // writes them again, even if this source is deleted. The admin Generate FAQs button clears it.
+    if (reverted.includes('ai_faqs')) await setSetting(admin, tripFaqOffKey(packageId), new Date().toISOString()).catch(() => null)
     if (updated.status === 'published') await pingIndexNow([`/packages/${updated.slug}`]).catch(() => null)
   }
   return { reverted, skipped }

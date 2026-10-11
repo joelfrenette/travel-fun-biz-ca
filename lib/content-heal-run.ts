@@ -29,6 +29,10 @@ import {
 import { claimDailyOnce, claimRepairSlot, countEditsSince, editsLoggable, insertEdits, readRepairSpend, recordRepairSpend, deleteEdits, repairDay, startOfSiteDayIso, REPAIR_ITEMS_PER_DAY } from '@/lib/content-edits'
 import { COPY_LIMITS, GUIDE_LIMITS, sectionsOf } from '@/lib/content-repair-adapters'
 import { pingIndexNow } from '@/lib/indexnow'
+import type { DbPackage } from '@/lib/packages'
+import { completenessScore } from '@/lib/package-completeness'
+import { hasFaqs, hasFaqSource } from '@/lib/package-faqs'
+import { healTripFaqs, tripFaqDailyKey, tripFaqsOff } from '@/lib/package-enrich'
 import { guideKinds, GUIDE_KINDS, guidePath, type GuideKind } from '@/lib/guides'
 import { linkedPackageSlugs } from '@/lib/page-copy-composer'
 import { SEO_PASS_SCORE, SEO_FIX, seoScore, type SeoCheckId, type SeoInput, type SeoResult } from '@/lib/seo-score'
@@ -692,6 +696,14 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
     editCount += edits.length
     changedPaths.push(item.path)
   }
+  // 2b. Trip pages (WP12): ONE fix only. A published trip scoring under 70 on the trip completeness score, with a
+  // description of 150+ words and no FAQs, gets FAQs written from its own text. Nothing else on a trip is read for
+  // fixing or changed. Same 6-slot daily cap and the same once-per-page-per-day marker as the pages above.
+  const trips = await healTripPageFaqs(admin, { started, aiOn, onChanged: (path) => changedPaths.push(path) })
+  healedPages += trips.fixed
+  editCount += trips.fixed
+  calls += trips.calls
+  problems.push(...trips.problems)
   if (changedPaths.length) await pingIndexNow(changedPaths).catch(() => undefined)
 
   // 3. The numbers for the card, the brief and Needs attention.
@@ -703,6 +715,69 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
   const summary: HealSummary = { at: new Date().toISOString(), scored: scored.length, avg, below: queue.length, lowest, healedPages, edits: editCount, hardWaiting, calls, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }
+}
+
+/** True while a "the last call gave nothing usable" marker (an ISO time) is younger than NOGEN_DAYS. Pure. */
+export function nogenActive(stamp: string | null, now: number = Date.now()): boolean {
+  const t = Date.parse(stamp ?? '')
+  return Number.isFinite(t) && now - t < NOGEN_DAYS * 86_400_000
+}
+
+/** Published trips the heal may write FAQs for: a description of 150+ words, no FAQs, and a trip completeness score
+ * under 70. Lowest score first. Pure. */
+export function tripsNeedingFaqs<T extends Row>(rows: T[]): { row: T; score: number }[] {
+  return rows
+    .filter((r) => hasFaqSource(r as unknown as DbPackage) && !hasFaqs(r.ai_faqs))
+    .map((row) => ({ row, score: completenessScore(row as unknown as DbPackage).score }))
+    .filter((x) => x.score < HEAL_BELOW)
+    .sort((a, b) => a.score - b.score)
+}
+
+/** The trip-page part of the heal: FAQs for trips that have a description and none. Never throws, and touches no
+ * other trip field. Each page costs at most one model call a day (shared with the automatic path after a source is
+ * read) and one of the day's repair slots. */
+async function healTripPageFaqs(
+  admin: SupabaseClient,
+  ctx: { started: number; aiOn: boolean; onChanged: (path: string) => void },
+): Promise<{ fixed: number; calls: number; problems: string[] }> {
+  const out = { fixed: 0, calls: 0, problems: [] as string[] }
+  if (!ctx.aiOn) return out
+  try {
+    const { data, error } = await admin.from('travel_packages').select('*').eq('status', 'published')
+    if (error) return { ...out, problems: [`could not read the trips (${error.message})`] }
+    const due = tripsNeedingFaqs((data ?? []) as Row[])
+    if (due.length === 0) return out
+
+    for (const { row } of due) {
+      if (Date.now() - ctx.started > HEAL_BUDGET_MS) break
+      const id = str(row.id)
+      // All the cheap "not today" checks come BEFORE a slot is claimed, so a trip that will be skipped never uses
+      // one of the day's 6. FAQs an admin took out stay out (durable app_settings memory, survives deleting the
+      // source); a trip whose last call answered but gave nothing usable waits 7 days, like the other pages.
+      if (await tripFaqsOff(admin, id)) continue
+      const nogenKey = `${NOGEN_PREFIX}:trip:${id}`
+      if (nogenActive(await getSetting(admin, nogenKey))) continue
+      const slot = await claimRepairSlot(admin, `trip:${id}`)
+      if (!slot.ok) {
+        if (!/cap of/.test(slot.reason ?? '')) out.problems.push(slot.reason ?? 'no repair slot')
+        break
+      }
+      if (!(await claimDailyOnce(admin, tripFaqDailyKey(id)))) continue
+      const r = await healTripFaqs(admin, row as unknown as DbPackage)
+      if (r.called) {
+        out.calls++
+        await recordRepairSpend(admin, 1)
+      }
+      if (r.answeredEmpty) await setSetting(admin, nogenKey, new Date().toISOString()).catch(() => undefined)
+      if (r.applied) {
+        out.fixed++
+        ctx.onChanged(`/packages/${str(row.slug)}`)
+      } else if (r.error && /could not record|database|refused/i.test(r.error)) out.problems.push(`${str(row.slug)}: ${r.error}`)
+    }
+  } catch (e) {
+    out.problems.push(`trip FAQs: ${e instanceof Error ? e.message : 'failed'}`)
+  }
+  return out
 }
 
 /** The new score columns for a fixed page, so the card is right straight away. */
