@@ -98,6 +98,9 @@ export function hasFaqs(faqs: unknown): boolean {
 
 // ─── The gate ───────────────────────────────────────────────────────────────────────
 
+/** An en dash or an em dash, built from code points so no dash character sits in this file. */
+const LONG_DASH = new RegExp(`[${String.fromCharCode(0x2013)}${String.fromCharCode(0x2014)}]`)
+
 function normNumber(n: string): string {
   const c = n.replace(/,/g, '').replace(/\.+$/, '')
   const f = Number(c)
@@ -131,7 +134,7 @@ export function faqBlockers(pair: PackageFaq, grounding: string): string[] {
   const strangers = [...new Set(numbersIn(prose).map(normNumber).filter((n) => !allowed.has(n)))]
   if (strangers.length) blockers.push(`number not in the trip text: ${strangers.slice(0, 4).join(', ')}`)
 
-  if (/[–—]/.test(t) || /\s--\s/.test(t)) blockers.push('dash present')
+  if (LONG_DASH.test(t) || /\s--\s/.test(t)) blockers.push('dash present')
   if (PLACEHOLDER_PATTERNS.some((p) => p.test(t))) blockers.push('placeholder text')
   if (REFUSAL_PATTERNS.some((p) => p.test(t))) blockers.push('model refusal in text')
   // The voice rules read the ANSWER only: a traveller's question says "I" ("How do I book?") and that is fine.
