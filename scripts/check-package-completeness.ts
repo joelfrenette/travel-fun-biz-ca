@@ -11,6 +11,7 @@ import { gateFaqs, faqBlockers, faqContext, hasFaqSource, hasFaqs, FAQ_MIN, FAQ_
 import { tripsNeedingFaqs, nogenActive } from '../lib/content-heal-run'
 import { revertGalleryItem, tripFaqOffKey, tripFaqsOff } from '../lib/package-enrich'
 import type { PackageEdit } from '../lib/package-sources'
+import { planStrips, scaledSize, prepareImages, SLICE_RULES, STRIP_STEP } from '../lib/screenshot-slices'
 
 let failed = 0
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -187,14 +188,53 @@ const goodWriter: CopyWriter = async () => {
   const fileDraft = groundDraft({ fields: { price_display: 'From $2,499 CAD per person', price_value: 2499, duration: '7 nights', duration_days: 8, max_people: 24, available_from: '2027-06-12', supplier: 'Island Hopper Tours', destination: 'Athens', booking_url: 'https://www.islandhopper.example/book' } }, `${transcript} Book at https://www.islandhopper.example/book`, undefined, 'm')
   for (const kind of ['screenshot', 'pdf'] as const) {
     const fe = await proposeEnrichment(blankPkg as any, fileDraft, { transcript: `${transcript} Book at https://www.islandhopper.example/book`, kind, writeCopy: goodWriter })
-    const blocked = ['price_display', 'price_value', 'duration', 'duration_days', 'max_people', 'available_from', 'booking_url']
-    check(`${kind}: every price/date/link/duration/group-size fact is click-only`, blocked.every((f) => changeOf(fe.facts, f) && changeOf(fe.facts, f).autoApply === false), blocked.map((f) => [f, changeOf(fe.facts, f)?.autoApply]))
+    const blocked = ['price_display', 'price_value', 'duration', 'duration_days', 'max_people', 'booking_url']
+    check(`${kind}: a date written as month, day and year in the transcript auto-applies`, changeOf(fe.facts, 'available_from')?.autoApply === true, changeOf(fe.facts, 'available_from'))
+    check(`${kind}: every price/link/duration/group-size fact is click-only`, blocked.every((f) => changeOf(fe.facts, f) && changeOf(fe.facts, f).autoApply === false), blocked.map((f) => [f, changeOf(fe.facts, f)?.autoApply]))
     check(`${kind}: supplier and destination still auto-apply`, changeOf(fe.facts, 'supplier')?.autoApply === true && changeOf(fe.facts, 'destination')?.autoApply === true)
   }
   const ue = await proposeEnrichment(blankPkg as any, fileDraft, { transcript: `${transcript} Book at https://www.islandhopper.example/book`, kind: 'url', sourceUrl: 'https://islandhopper.example/greece', writeCopy: goodWriter })
   check('url source: a link on the same site or parent domain auto-applies', changeOf(ue.facts, 'booking_url')?.autoApply === true, changeOf(ue.facts, 'booking_url'))
   const ue2 = await proposeEnrichment(blankPkg as any, fileDraft, { transcript: `${transcript} Book at https://www.islandhopper.example/book`, kind: 'url', sourceUrl: 'https://other-site.example/page', writeCopy: goodWriter })
   check('url source: a link on a different site is click-only', changeOf(ue2.facts, 'booking_url')?.autoApply === false)
+
+  // WP13 rule: screenshot dates auto-apply only with month, day and year together in the transcript
+  {
+    const t1 = 'Winter getaway! January 22-24, 2027. Hosted by Island Hopper Tours in the mountains.'
+    const mk = (fields: Record<string, unknown>): ExtractedDraft => ({ fields, evidence: {}, missing: [], dropped: [], model: 'm' } as unknown as ExtractedDraft)
+    const d1 = groundDraft({ fields: { available_from: '2027-01-22', available_to: '2027-01-24' } }, t1, undefined, 'm')
+    const e1 = await proposeEnrichment(blankPkg as any, d1, { transcript: t1, kind: 'screenshot', writeCopy: goodWriter })
+    check('screenshot "January 22-24, 2027": both dates auto-apply', changeOf(e1.facts, 'available_from')?.autoApply === true && changeOf(e1.facts, 'available_to')?.autoApply === true, [changeOf(e1.facts, 'available_from')?.autoApply, changeOf(e1.facts, 'available_to')?.autoApply])
+    const t2 = 'Winter getaway in the mountains in 2027 with Island Hopper Tours.'
+    const e2 = await proposeEnrichment(blankPkg as any, mk({ available_from: '2027-01-22', departure_dates: ['2027-01-22'] }), { transcript: t2, kind: 'screenshot', writeCopy: goodWriter })
+    check('screenshot with only "2027": the date is click-only', changeOf(e2.facts, 'available_from')?.autoApply === false && changeOf(e2.facts, 'departure_dates')?.autoApply === false)
+    const e3 = await proposeEnrichment(blankPkg as any, d1, { transcript: t1, kind: 'pdf', writeCopy: goodWriter })
+    check('pdf "January 22-24, 2027": dates auto-apply too, price stays click-only', changeOf(e3.facts, 'available_from')?.autoApply === true)
+    const e4 = await proposeEnrichment({ ...blankPkg, available_from: '2027-02-01' } as any, d1, { transcript: t1, kind: 'screenshot', writeCopy: goodWriter })
+    check('a date already on the page is never overwritten automatically', changeOf(e4.facts, 'available_from')?.autoApply === false)
+  }
+
+  // WP13: tall scrolling screenshots are cut into overlapping strips
+  {
+    check('slices: short picture stays one strip', JSON.stringify(planStrips(1400)) === '[{"top":0,"height":1400}]' && planStrips(600).length === 1)
+    const s2 = planStrips(2400)
+    check('slices: 2400px tall is 2 strips, the second starts 1280px down', s2.length === 2 && s2[0].top === 0 && s2[0].height === 1400 && s2[1].top === STRIP_STEP && s2[1].top + s2[1].height === 2400, s2)
+    const s3 = planStrips(3500)
+    check('slices: no strip is taller than 1400 and neighbours share 120px', s3.every((s) => s.height <= SLICE_RULES.maxStripHeight) && s3.every((s, i) => i === 0 || s3[i - 1].top + s3[i - 1].height - s.top === SLICE_RULES.overlap) && s3[s3.length - 1].top + s3[s3.length - 1].height === 3500, s3)
+    const sw = scaledSize(3200, 4000)
+    check('slices: wider than 1600 is scaled to 1600 first', sw.width === 1600 && sw.height === 2000 && sw.scaled && !scaledSize(600, 2000).scaled)
+    const sharp = (await import('sharp')).default
+    const tall = await sharp({ create: { width: 600, height: 3000, channels: 3, background: { r: 240, g: 240, b: 240 } } }).png().toBuffer()
+    const prepared = await prepareImages([{ buffer: tall, mediaType: 'image/png' }])
+    const dims = await Promise.all(prepared.images.map(async (i) => (await sharp(i.buffer).metadata())))
+    check('slices: a synthetic 600x3000 PNG becomes 3 strips of width 600, none over 1400 tall', prepared.sliced && prepared.images.length === 3 && dims.every((m) => m.width === 600 && (m.height ?? 0) <= 1400), dims.map((m) => [m.width, m.height]))
+    const wide = await sharp({ create: { width: 2400, height: 800, channels: 3, background: { r: 10, g: 10, b: 10 } } }).png().toBuffer()
+    const pw = await prepareImages([{ buffer: wide, mediaType: 'image/png' }])
+    check('slices: a 2400px wide picture is scaled to 1600 and not cut', pw.images.length === 1 && (await sharp(pw.images[0].buffer).metadata()).width === 1600 && !pw.sliced)
+    const small = await sharp({ create: { width: 600, height: 900, channels: 3, background: { r: 1, g: 2, b: 3 } } }).png().toBuffer()
+    const ps = await prepareImages([{ buffer: small, mediaType: 'image/png' }, { buffer: tall, mediaType: 'image/png' }])
+    check('slices: a set keeps order; a short picture is passed through byte for byte', ps.images.length === 4 && ps.images[0].buffer.equals(small) && ps.report[1].strips === 3)
+  }
 
   // Round 2: currency, link hosts, dash ranges, rotation
   const usdText = 'Island cruise. From $2,499 USD per person for 7 nights. Departs June 12, 2027.'

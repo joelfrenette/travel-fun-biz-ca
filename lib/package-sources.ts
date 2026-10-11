@@ -53,6 +53,8 @@ export interface PackageSourceRow {
   package_id: string
   kind: SourceKind
   storage_path: string | null
+  /** Screenshots dropped together as one set (migration 0036): the 2nd, 3rd... picture; storage_path is the 1st. */
+  extra_paths?: string[] | null
   public_url: string | null
   source_url: string | null
   file_name: string | null
@@ -136,10 +138,79 @@ async function validateFile(admin: SupabaseClient, packageId: string, bytes: Buf
     const pages = pdfPageCount(bytes)
     if (pages > MAX_PDF_PAGES) return fail(413, `That PDF has ${pages} pages. The limit is ${MAX_PDF_PAGES}. Save just the pages about this trip and try again.`)
   } else {
-    const { count } = await admin.from('package_sources').select('id', { count: 'exact', head: true }).eq('package_id', packageId).eq('kind', 'screenshot')
-    if ((count ?? 0) >= MAX_IMAGES_PER_PACKAGE) return fail(409, `This trip already has ${MAX_IMAGES_PER_PACKAGE} screenshots. Delete one before adding another.`)
+    const have = await countImages(admin, packageId)
+    if (have >= MAX_IMAGES_PER_PACKAGE) return fail(409, `This trip already has ${MAX_IMAGES_PER_PACKAGE} screenshots. Delete one before adding another.`)
   }
   return { ok: true, value: detected }
+}
+
+/** Screenshots already on a trip, counting every picture of a set (the cap is on pictures, not on sources). */
+export async function countImages(admin: SupabaseClient, packageId: string): Promise<number> {
+  const { data } = await admin.from('package_sources').select('extra_paths').eq('package_id', packageId).eq('kind', 'screenshot')
+  return ((data ?? []) as { extra_paths?: string[] | null }[]).reduce((n, r) => n + 1 + (r.extra_paths?.length ?? 0), 0)
+}
+
+/**
+ * Screenshots dropped together become ONE source (one row, one model call): the first is storage_path, the rest are
+ * extra_paths, in the order given. Every picture must be a PNG, JPG or WebP within the size cap, and the trip may hold
+ * at most MAX_IMAGES_PER_PACKAGE pictures in all. Nothing is stored unless every picture passes.
+ */
+export async function createImageSetSource(admin: SupabaseClient, packageId: string, files: { name: string; bytes: Buffer }[]): Promise<SourceResult<PackageSourceRow>> {
+  if (files.length === 0) return fail(400, 'No file provided')
+  const detected: DetectedFile[] = []
+  for (const f of files) {
+    if (f.bytes.length === 0) return fail(400, 'One of those files is empty.')
+    if (f.bytes.length > MAX_FILE_BYTES) return fail(413, 'That file is larger than 10 MB. Save a smaller copy and try again.')
+    const d = detectFile(f.bytes)
+    if (!d || d.kind !== 'screenshot') return fail(400, files.length > 1 ? 'Pictures dropped together must all be PNG, JPG or WebP screenshots. Add a PDF on its own.' : 'Only PNG, JPG, WebP screenshots and PDF files are accepted.')
+    detected.push(d)
+  }
+  const have = await countImages(admin, packageId)
+  if (have + files.length > MAX_IMAGES_PER_PACKAGE) return fail(409, `This trip can hold ${MAX_IMAGES_PER_PACKAGE} screenshots and already has ${have}. Delete one before adding more.`)
+  const paths: string[] = []
+  for (let i = 0; i < files.length; i++) {
+    const path = `${packageId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${detected[i].ext}`
+    const up = await admin.storage.from(SOURCES_BUCKET).upload(path, files[i].bytes, { contentType: detected[i].mediaType, upsert: false })
+    if (up.error) {
+      if (paths.length) await admin.storage.from(SOURCES_BUCKET).remove(paths)
+      return fail(500, bucketMessage(up.error.message))
+    }
+    paths.push(path)
+  }
+  const first = cleanName(files[0].name) || `upload.${detected[0].ext}`
+  const { data, error } = await admin
+    .from('package_sources')
+    .insert({
+      package_id: packageId,
+      kind: 'screenshot',
+      storage_path: paths[0],
+      ...(paths.length > 1 ? { extra_paths: paths.slice(1) } : {}),
+      file_name: paths.length > 1 ? `${first} (+${paths.length - 1} more)`.slice(0, 120) : first,
+      mime_type: detected[0].mediaType,
+      file_bytes: files.reduce((n, f) => n + f.bytes.length, 0),
+      status: 'uploaded',
+    })
+    .select('*')
+    .single()
+  if (error || !data) {
+    await admin.storage.from(SOURCES_BUCKET).remove(paths)
+    return fail(500, error?.message ?? 'Could not save the source.')
+  }
+  return { ok: true, value: data as PackageSourceRow }
+}
+
+/** Every stored picture of a screenshot source, in order (one for a single screenshot). Null if any cannot be read. */
+export async function downloadSourceImages(admin: SupabaseClient, row: Pick<PackageSourceRow, 'storage_path' | 'extra_paths' | 'mime_type'>): Promise<{ buffer: Buffer; mediaType: 'image/png' | 'image/jpeg' | 'image/webp' }[] | null> {
+  const paths = [row.storage_path, ...(row.extra_paths ?? [])].filter((p): p is string => !!p)
+  if (paths.length === 0) return null
+  const out: { buffer: Buffer; mediaType: 'image/png' | 'image/jpeg' | 'image/webp' }[] = []
+  for (const p of paths) {
+    const buffer = await downloadSourceFile(admin, { storage_path: p })
+    if (!buffer) return null
+    const d = detectFile(buffer)
+    out.push({ buffer, mediaType: d && d.kind === 'screenshot' ? d.mediaType : ((row.mime_type as 'image/png' | 'image/jpeg' | 'image/webp') ?? 'image/png') })
+  }
+  return out
 }
 
 function bucketMessage(message: string): string {
@@ -289,7 +360,8 @@ export async function markSourceFailed(admin: SupabaseClient, id: string, messag
 export async function deleteSource(admin: SupabaseClient, row: PackageSourceRow): Promise<SourceResult<true>> {
   const live = (row.package_edits ?? []).filter((e) => !e.reverted)
   if (live.length) return fail(409, `This source changed ${live.length} field${live.length === 1 ? '' : 's'} on the trip page. Revert its changes first, or choose "Revert and delete".`)
-  if (row.storage_path) await admin.storage.from(SOURCES_BUCKET).remove([row.storage_path])
+  const stored = [row.storage_path, ...(row.extra_paths ?? [])].filter((p): p is string => !!p)
+  if (stored.length) await admin.storage.from(SOURCES_BUCKET).remove(stored)
   const { error } = await admin.from('package_sources').delete().eq('id', row.id)
   return error ? fail(500, error.message) : { ok: true, value: true }
 }

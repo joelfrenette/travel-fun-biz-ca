@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
+import { SubmissionBanner } from "@/components/admin/submission-banner"
 import { supabase } from "@/integrations/supabase/client"
 import { Loader2, Upload, Link as LinkIcon, FileText, Image as ImageIcon, ClipboardPaste, Trash2, Undo2, ChevronDown, ChevronRight, ExternalLink } from "lucide-react"
 
@@ -158,6 +159,27 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
     }
   }
 
+  /** Several screenshots dropped together become ONE source and one read (tall ones are cut into strips on the server). */
+  async function addFiles(files: File[]) {
+    if (files.length <= 1) {
+      if (files[0]) await addFile(files[0])
+      return
+    }
+    if (files.some((f) => f.type === "application/pdf")) {
+      toast({ title: "Drop a PDF on its own", description: "Pictures dropped together are read together. Add the PDF in a separate drop.", variant: "destructive" })
+      return
+    }
+    if (files.reduce((n, f) => n + f.size, 0) > SERVER_UPLOAD_MAX) {
+      toast({ title: "Those pictures are over 4 MB together", description: "Drop fewer or smaller ones at a time.", variant: "destructive" })
+      return
+    }
+    await addAndRead(async () => {
+      const form = new FormData()
+      files.forEach((f) => form.append("file", f))
+      return call("", { method: "POST", headers: authHeaders(false), body: form }, "Upload")
+    })
+  }
+
   async function addFile(file: File) {
     await addAndRead(async () => {
       if (file.size <= SERVER_UPLOAD_MAX) {
@@ -245,6 +267,9 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
   const working = busy !== ""
 
   return (
+    <>
+    {/* A trip an agent sent shows who sent it, with Approve and Send back (WP13); nothing for other trips. */}
+    <SubmissionBanner packageId={packageId} onChanged={onChanged} />
     <Card className="mx-auto mb-6 max-w-4xl">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -262,19 +287,21 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f && !working) addFile(f) }}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length && !working) addFiles(fs) }}
           onClick={() => !working && fileInput.current?.click()}
           className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-6 text-center text-sm transition-colors ${dragging ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-primary/60"} ${working ? "opacity-60" : ""}`}
         >
           {busy === "add" ? <Loader2 className="h-6 w-6 animate-spin" /> : <Upload className="h-6 w-6 text-muted-foreground" />}
           <p className="font-medium">Drop a screenshot or PDF here, or click to choose one</p>
-          <p className="text-xs text-muted-foreground">PNG, JPG, WebP or PDF, up to 10 MB (PDFs up to 30 pages, up to 5 screenshots per trip). It is read right away: one AI read, a few cents.</p>
+          <p className="text-xs text-muted-foreground">PNG, JPG, WebP or PDF, up to 10 MB (PDFs up to 30 pages, up to 5 screenshots per trip). Screenshots dropped together are read together as one. It is read right away: one AI read, a few cents.</p>
+          <p className="text-xs text-muted-foreground">Facebook posts and events cannot be read from a link. Take a scrolling screenshot (SnagIt, or Windows Snip with scroll) and drop it here.</p>
           <input
             ref={fileInput}
             type="file"
+            multiple
             accept="image/png,image/jpeg,image/webp,application/pdf"
             className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) addFile(f) }}
+            onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; if (fs.length) addFiles(fs) }}
           />
         </div>
 
@@ -412,5 +439,6 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
         <p className="text-xs text-muted-foreground">Changes are saved on the trip right away. The form below reloads after a change, so save anything you typed there first. Once a trip has a description, FAQs are written from that description alone. A link source also adds up to 6 of the supplier's own photos to the gallery. Screenshots and PDFs never add gallery photos.</p>
       </CardContent>
     </Card>
+    </>
   )
 }

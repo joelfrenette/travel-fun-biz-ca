@@ -417,10 +417,14 @@ export const MAX_TRANSCRIPT_CHARS = 20_000
 
 const FILE_TRANSCRIPT_RULE = `Also return "transcript": a verbatim copy of ALL the text you can read in the attached file, in reading order (up to ${MAX_TRANSCRIPT_CHARS.toLocaleString()} characters), copied exactly as written: do not summarise, translate, correct or tidy it. Describe nothing you cannot read as text. If you can read no text, return an empty string. The "evidence" quotes and every fact must come from this transcript, so a number you cannot see in the file must be null.`
 
-function filePrompt(what: 'screenshot' | 'PDF', label: string): string {
+/** Added to the prompt when several pictures are sent in one call (WP13). `sliced` = at least one tall screenshot was cut into strips. */
+export const STRIPS_NOTE = `The attached images are ONE scrolling screenshot (or a set of screenshots of the same post or page), top to bottom, in order. Neighbouring strips of one screenshot overlap by about 120 pixels, so a line near a join may appear twice: transcribe it once. Read them as a single document.`
+export const SET_NOTE = `The attached images are screenshots of the same post, event or page, in order. Read them together as a single document.`
+
+function filePrompt(what: 'screenshot' | 'PDF', label: string, note?: string): string {
   const shape = OUTPUT_SHAPE.replace(/\}$/, ',"transcript":string}')
   return `${promptCore(` (the attached ${what}${label ? `, "${label.replace(/["\n\r]/g, ' ').slice(0, 120)}"` : ''})`)}
-
+${note ? `\n${note}\n` : ''}
 ${FILE_TRANSCRIPT_RULE}
 
 Output shape (this replaces the one above, it adds "transcript"): ${shape}
@@ -434,10 +438,10 @@ export type FileExtractResult =
 
 type ContentBlock = Exclude<AnthropicContent, string>[number]
 
-async function extractFromFile(fileBlock: ContentBlock, what: 'screenshot' | 'PDF', label: string): Promise<FileExtractResult> {
+async function extractFromFile(fileBlocks: ContentBlock[], what: 'screenshot' | 'PDF', label: string, note?: string): Promise<FileExtractResult> {
   if (!isAiConfigured()) return { draft: null, error: { status: 503, message: 'AI extraction is not configured: set ANTHROPIC_API_KEY.' } }
   // The file goes first, then the instructions: the layout the API recommends for documents and images.
-  const call = await callExtraction([fileBlock, { type: 'text', text: filePrompt(what, label) }], 12_000, 'Try a smaller or clearer file.')
+  const call = await callExtraction([...fileBlocks, { type: 'text', text: filePrompt(what, label, note) }], 12_000, 'Try a smaller or clearer file.')
   if (call.error) return { draft: null, error: call.error }
   const transcript = (typeof call.parsed.transcript === 'string' ? call.parsed.transcript : '').replace(/\r\n?/g, '\n').trim().slice(0, MAX_TRANSCRIPT_CHARS)
   if (transcript.length < 40) {
@@ -451,13 +455,20 @@ async function extractFromFile(fileBlock: ContentBlock, what: 'screenshot' | 'PD
  * extraction prompt plus a request for a verbatim transcript. ONE model call. The transcript is what the
  * facts are grounded against, so an invented number still fails grounding. */
 export function extractPackageDraftFromImage(buffer: Buffer, mediaType: 'image/png' | 'image/jpeg' | 'image/webp', sourceLabel: string): Promise<FileExtractResult> {
-  return extractFromFile({ type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } }, 'screenshot', sourceLabel)
+  return extractFromFile([{ type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } }], 'screenshot', sourceLabel)
+}
+
+/** Several pictures (the strips of a tall scrolling screenshot, or screenshots dropped together) in ONE model call,
+ * in order, each as its own image block, with the note that they are one document top to bottom (WP13). */
+export function extractPackageDraftFromImages(images: { buffer: Buffer; mediaType: 'image/png' | 'image/jpeg' | 'image/webp' }[], sourceLabel: string, sliced: boolean): Promise<FileExtractResult> {
+  const blocks: ContentBlock[] = images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.buffer.toString('base64') } }))
+  return extractFromFile(blocks, 'screenshot', sourceLabel, images.length > 1 ? (sliced ? STRIPS_NOTE : SET_NOTE) : undefined)
 }
 
 /** A supplier PDF: sent to the model as a document block (the API reads text and page images itself, so no
  * separate text extraction library is needed). ONE model call, same transcript rule as the image path. */
 export function extractPackageDraftFromPdf(buffer: Buffer, sourceLabel: string): Promise<FileExtractResult> {
-  return extractFromFile({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }, 'PDF', sourceLabel)
+  return extractFromFile([{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }], 'PDF', sourceLabel)
 }
 
 // ─── Fetching a link into plain text ────────────────────────────────────────────────
