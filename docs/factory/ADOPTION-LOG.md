@@ -416,3 +416,52 @@ Vercel key is fine (brief shows real Search Console data); record cleared.
 
 **Unverified:** every new admin screen in a browser (admin login); the first real screenshot drop; the first
 auto-picked photos; the Outlook rendering of the new alert; the first automatic FAQ on a trip.
+
+## Growth loop, wave 3: trip pages (2026-10-11, 02:00 to 06:30 UTC)
+
+Same loop. Merged to main: wave 3 trip SEO pass (dac0f9f, migration 0038), WP14 Convert to Past Trip (be2dd45,
+0037), WP13 AI-first Add Package wizard + agent links (8c367c3, 0036), favicon (15d9652). Migrations applied through
+0038. Check scripts: 12, all green on main (`check-agent-invites`, `check-recap` added).
+
+**Shipped:**
+- Favicon: the red "Fun" script from the real logo on a black tile (app/icon.png 512, app/apple-icon.png 180);
+  the live site had no favicon (404) and the repo held the template "N" placeholder. Verified live.
+- Wave 3: the daily heal scores every published trip and may write ONLY meta_title, meta_description, keywords,
+  ai_faqs and one appended "Related:" line in full_description (live trips only; past trips get FAQ fixes only);
+  runtime allow-list at the write; 2 of the 6 daily repair slots reserved for trips; Undo through content_edits with
+  content_type 'package'; markdown links in descriptions render as site-only links (LinkifiedText).
+- WP14: past trips are NEVER unpublished (rule enforced through `lib/past-trip.ts` in the page, destinations, drift,
+  source watch, OG). "Convert to Past Trip" panel in the editor: recap mode (auto/recap/live), trip photos (private,
+  then gallery), journal notes, "Write the recap" (one model call grounded in Joel's notes + the row; auto-publishes
+  when the 15-rule gate is clean: digits and number words in the notes, no prices/superlatives/quotes/weather or
+  feelings not in the notes, every sentence 60% supported by the notes, capitalised names only from the notes, notes
+  under 40 words never auto-publish; "Replace the live recap?" when one exists; Undo recap). Public recap page keeps
+  URL, H1, canonical, title, description and every original block; adds "This trip happened <Month Year>", the
+  recap, highlights, gallery and journal above, an email-only "tell me about the next one" alert form (CASL
+  wording, honeypot, 5 per 10 min, lead saved first, GHL tag alert:<category> + site-ca), Event + BreadcrumbList
+  schema, first gallery photo as the share image. Verified live on Sandy Toes (the recap text itself is still
+  empty until Joel adds notes).
+- WP13: Add Package is one AI-first wizard (`components/package-wizard.tsx`) for the admin button and the public
+  agent page `/submit-trip/<token>`: drop many files/links/text at once (tall screenshots sliced into 1400px strips
+  and sent in one call; Facebook posts and events cannot be read from a link, so the hint says take a scrolling
+  screenshot), a draft row is created at once, each source is read with the same grounding rules (screenshot/PDF
+  dates now auto-apply when month+day+year are together; prices, links, durations and group sizes from files stay
+  click-only), one "complete the trip" pass proposes name/slug/destination/category/tags/copy/meta/keywords/FAQs and
+  a "Still missing" checklist with nudges, pictures (auto-picked supplier photos or an illustrative destination
+  cover), review with "Improve with AI" per field. Admin: Publish now / Save as draft. Agent: iterative drafts that
+  stay in_progress until "Send to Joel", then locked; Joel approves (publishes) or sends back with a note; every
+  agent write is refused once the trip is published; Needs attention item + brief line. Agent links: per-agent
+  token, 30-day expiry, revocable, limits (5 drafts/day, 10 sources/day, 20 photos/day, 20 trips total), hop-safe
+  link reads with no third-party fallback on the agent path, atomic daily caps on AI improve (12/trip) and complete
+  (3/trip).
+- Keyword engine: plan prompt and validator reject superlatives; volume lookup skips phrases Google Ads rejects.
+
+**Joel's decisions this wave:** never unpublish past trips; recaps auto-publish; screenshot dates auto-apply;
+supplier photos auto-picked; agents work iteratively and only Joel publishes; favicon = big red Fun on black;
+Southern Italy & Sicily left live while he checks with Collette; English only, ever; stop after these merges.
+
+**Unverified:** every new admin screen and the public agent page in a browser; a real screenshot through the
+wizard; a real recap write; an agent round trip; the first trip heal; Outlook rendering of the new brief lines.
+
+**Next (filed, not started):** WP15 "Promote this package" (tracker row set back to backlog); gate tuning from week-1
+evidence; the daytime items from the earlier entries.
