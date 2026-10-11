@@ -17,6 +17,7 @@ const WEEK_KEY_PREFIX = 'source_watch_week:'
 const FUNNEL_HOSTS = new Set(['info.travelfunbiz.com'])
 const MAX_PAGES = 12
 const TIME_BUDGET_MS = 60_000
+const FETCH_MARGIN_MS = 45_000
 
 export interface SourceWatchFinding {
   slug: string
@@ -105,18 +106,21 @@ export function rowMonths(from: string | null, to: string | null): string[] {
 }
 
 /** Pure: what a supplier page's text says that disagrees with the trip. No network. */
-export function scanPageText(text: string, pkg: Pick<WatchedPackage, 'available_from' | 'available_to'>, today = new Date().toISOString().slice(0, 10)): { kind: 'cancelled' | 'dates'; snippet: string }[] {
+export function scanPageText(text: string, pkg: Pick<WatchedPackage, 'available_from' | 'available_to'> & { departure_dates?: string[] | null }, today = new Date().toISOString().slice(0, 10)): { kind: 'cancelled' | 'dates'; snippet: string }[] {
   const found: { kind: 'cancelled' | 'dates'; snippet: string }[] = []
 
   for (const m of text.matchAll(CANCEL_RE)) {
     const before = text.slice(Math.max(0, m.index! - 70), m.index!)
     if (POLICY_BEFORE.test(before)) continue
+    // "Join the waitlist" in a site menu is not news: a waitlist counts only when it is about this tour.
+    if (/^wait/i.test(m[0]) && !/this tour|this trip|departure/i.test(text.slice(Math.max(0, m.index! - 120), m.index! + m[0].length + 120))) continue
     found.push({ kind: 'cancelled', snippet: snippetAround(text, m.index!, m[0].length) })
     break // one example is enough to look
   }
 
-  const expected = rowMonths(pkg.available_from, pkg.available_to)
-  const lastDate = pkg.available_to ?? pkg.available_from
+  const departures = (pkg.departure_dates ?? []).filter((d) => typeof d === 'string' && /^\d{4}-\d{2}/.test(d))
+  const expected = [...new Set([...rowMonths(pkg.available_from, pkg.available_to), ...departures.map((d) => d.slice(0, 7))])]
+  const lastDate = [pkg.available_to, pkg.available_from, ...departures].filter((d): d is string => !!d).sort().pop()
   if (expected.length && lastDate && lastDate >= today) {
     const mentioned = new Map<string, number>()
     for (const m of text.matchAll(MONTH_YEAR_RE)) {
@@ -165,9 +169,9 @@ export async function dismissFindings(admin: SupabaseClient, slug: string): Prom
 }
 
 /** The check itself. Fetches each page as text (the same fetcher the importer uses), scans it, stores findings. */
-export async function runSourceWatch(admin: SupabaseClient, now = new Date()): Promise<{ ok: boolean; note: string }> {
-  const { data, error } = await admin.from('travel_packages').select('slug, name, booking_url, more_info_url, available_from, available_to').eq('status', 'published')
-  if (error) return { ok: false, note: `could not read the trips: ${error.message}` }
+export async function runSourceWatch(admin: SupabaseClient, now = new Date()): Promise<{ ok: boolean; note: string; retry?: boolean }> {
+  const { data, error } = await admin.from('travel_packages').select('slug, name, booking_url, more_info_url, available_from, available_to, departure_dates').eq('status', 'published')
+  if (error) return { ok: false, note: `could not read the trips: ${error.message}`, retry: true }
 
   const started = Date.now()
   const findings: SourceWatchFinding[] = []
@@ -176,7 +180,8 @@ export async function runSourceWatch(admin: SupabaseClient, now = new Date()): P
   const seen = new Set<string>()
   for (const pkg of (data ?? []) as WatchedPackage[]) {
     for (const url of watchedUrls(pkg)) {
-      if (checked + unreadable >= MAX_PAGES || Date.now() - started > TIME_BUDGET_MS) break
+      // One fetch can take up to a minute, so a new one starts only while at least FETCH_MARGIN_MS of the budget is left.
+      if (checked + unreadable >= MAX_PAGES || TIME_BUDGET_MS - (Date.now() - started) < FETCH_MARGIN_MS) break
       if (seen.has(`${pkg.slug}|${url}`)) continue
       seen.add(`${pkg.slug}|${url}`)
       const page = await fetchSourceText(url)
@@ -204,7 +209,13 @@ export async function runSourceWatchIfDue(admin: SupabaseClient, now = new Date(
   const { error } = await admin.from('app_settings').insert({ key, value: now.toISOString() })
   if (error) return (error as { code?: string }).code === '23505' ? null : { ok: false, note: `could not claim this week's check: ${error.message}` }
   const result = await runSourceWatch(admin, now)
-  // A run that could not even read the trips gives the claim back so the next pass tries again.
-  if (!result.ok) await admin.from('app_settings').delete().eq('key', key)
+  if (result.retry) {
+    // The trips could not even be read, so nothing was fetched: give the claim back so the next pass tries again.
+    await admin.from('app_settings').delete().eq('key', key)
+  } else if (!result.ok) {
+    // Pages were already fetched (and possibly paid for), so the claim stays: a failed save is noted on the
+    // claim itself instead of re-running every fetch on every pass.
+    await admin.from('app_settings').update({ value: result.note.slice(0, 300) }).eq('key', key)
+  }
   return result
 }

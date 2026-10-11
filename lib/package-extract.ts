@@ -146,12 +146,47 @@ function ungroundedNumbers(value: string, sourceDigits: Set<string>): string[] {
 
 /** ISO dates the model returns won't literally appear in a source that says "October 12, 2026",
  * so a date is grounded when its year and day-of-month both appear as numbers in the source. */
-function dateGrounded(iso: string, sourceDigits: Set<string>): boolean {
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+
+/** A date is grounded only when the source writes that month, day and year TOGETHER: "June 12, 2027",
+ * "12 June 2027", "June 12-19, 2027" (either end), "2027-06-12", "06/12/2027" or "12/06/2027". A year and a
+ * day that merely both appear somewhere in the text do not count. */
+export function dateGrounded(iso: string, source: string): boolean {
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (!m) return false
-  const day = String(parseInt(m[3], 10))
-  return sourceDigits.has(m[1]) && (sourceDigits.has(day) || sourceDigits.has(m[3]))
+  const y = m[1]
+  const mo = parseInt(m[2], 10)
+  const d = parseInt(m[3], 10)
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return false
+  const name = MONTH_NAMES[mo - 1]
+  const mon = `(?:${name}|${name.slice(0, 3)}${name.length > 3 ? '\\.?' : ''}${name === 'september' ? '|sept\\.?' : ''})`
+  const day = `0?${d}(?:st|nd|rd|th)?`
+  const text = source.toLowerCase()
+  const patterns = [
+    `\\b${mon}\\s+${day}\\b(?:\\s*(?:-|to|and|through)\\s*\\d{1,2}(?:st|nd|rd|th)?)?,?\\s+${y}\\b`,
+    `\\b${mon}\\s+\\d{1,2}(?:st|nd|rd|th)?\\s*(?:-|to|and|through)\\s*${day}\\b,?\\s+${y}\\b`,
+    `\\b${day}\\s+(?:of\\s+)?${mon}\\b,?\\s+${y}\\b`,
+    `\\b${y}-0?${mo}-0?${d}\\b`,
+    `\\b${y}/0?${mo}/0?${d}\\b`,
+    `\\b0?${mo}/0?${d}/${y}\\b`,
+    `\\b0?${d}/0?${mo}/${y}\\b`,
+    `\\b0?${d}\\.0?${mo}\\.${y}\\b`,
+  ]
+  return patterns.some((p) => new RegExp(p, 'i').test(text))
 }
+
+/** True when `n` sits within three words of one of the unit words, on either side ("up to 24 travellers",
+ * "7-night", "guests: 24"). A stray number elsewhere in the source does not ground a count. */
+export function numberNextToUnit(n: number, source: string, units: string): boolean {
+  const num = String(Math.trunc(n))
+  const text = source.toLowerCase()
+  const after = new RegExp(`\\b${num}\\b\\W+(?:\\w+\\W+){0,3}?(?:${units})\\b`)
+  const before = new RegExp(`\\b(?:${units})\\b\\W+(?:\\w+\\W+){0,3}?${num}\\b`)
+  return after.test(text) || before.test(text)
+}
+
+const DAY_UNITS = 'nights?|days?'
+const PEOPLE_UNITS = 'people|persons?|guests?|travell?ers?|passengers?|spots?|seats?'
 
 function asStringArray(v: unknown): string[] | null {
   if (!Array.isArray(v)) return null
@@ -209,16 +244,25 @@ export function groundDraft(
         const n = typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v.replace(/,/g, '')) : NaN
         if (!Number.isFinite(n)) { drop(field, v, 'not a number'); missing.push(field); break }
         const whole = String(Math.trunc(n))
-        // duration_days is allowed to be derived from a stated night count (7 nights -> 8 days).
-        const grounded = sourceDigits.has(whole) || (field === 'duration_days' && sourceDigits.has(String(Math.trunc(n) - 1)))
-        if (!grounded) { drop(field, v, `${whole} does not appear in the source`); missing.push(field); break }
+        let grounded: boolean
+        if (field === 'price_value') {
+          // The number must be inside the price as shown (or the quote backing it), not just anywhere in the source.
+          const shown = `${typeof fields.price_display === 'string' ? fields.price_display : ''} ${evidence.price_display ?? ''} ${typeof rawEvidence.price_value === 'string' && normSource.includes(norm(rawEvidence.price_value)) ? rawEvidence.price_value : ''}`
+          grounded = digitRuns(shown).has(whole)
+        } else if (field === 'duration_days') {
+          // A stated night count also grounds the day count (7 nights -> 8 days).
+          grounded = numberNextToUnit(n, source, DAY_UNITS) || numberNextToUnit(n - 1, source, 'nights?')
+        } else {
+          grounded = numberNextToUnit(n, source, PEOPLE_UNITS)
+        }
+        if (!grounded) { drop(field, v, field === 'price_value' ? `${whole} is not in the price shown` : `${whole} does not appear next to a ${field === 'duration_days' ? 'night or day' : 'people, guests or travellers'} word in the source`); missing.push(field); break }
         fields[field] = n
         keepEvidence(field)
         break
       }
       case 'available_from':
       case 'available_to': {
-        if (typeof v !== 'string' || !dateGrounded(v, sourceDigits)) { drop(field, v, 'date is not stated in the source (or not YYYY-MM-DD)'); missing.push(field); break }
+        if (typeof v !== 'string' || !dateGrounded(v, source)) { drop(field, v, 'the source does not write this month, day and year together (or it is not YYYY-MM-DD)'); missing.push(field); break }
         fields[field] = v
         keepEvidence(field)
         break
@@ -226,8 +270,8 @@ export function groundDraft(
       case 'departure_dates': {
         const arr = asStringArray(v)
         if (!arr) { drop(field, v, 'not a list of dates'); missing.push(field); break }
-        const ok = arr.filter((d) => dateGrounded(d, sourceDigits))
-        const bad = arr.filter((d) => !dateGrounded(d, sourceDigits))
+        const ok = arr.filter((d) => dateGrounded(d, source))
+        const bad = arr.filter((d) => !dateGrounded(d, source))
         if (bad.length) drop(field, bad, 'these dates are not stated in the source')
         if (ok.length) { fields[field] = ok; keepEvidence(field) } else missing.push(field)
         break

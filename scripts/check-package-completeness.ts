@@ -3,7 +3,7 @@
 // Run: pnpm dlx tsx scripts/check-package-completeness.ts
 import { completenessScore, THIN_BELOW } from '../lib/package-completeness'
 import { proposeEnrichment, copyBlockers, itemSupported, type CopyWriter } from '../lib/package-enrich'
-import { groundDraft, type ExtractedDraft } from '../lib/package-extract'
+import { groundDraft, dateGrounded, numberNextToUnit, type ExtractedDraft } from '../lib/package-extract'
 import { detectFile, pdfPageCount, estimateCostUsd } from '../lib/package-sources'
 import { watchedUrls, scanPageText, rowMonths, isoWeek } from '../lib/source-watch'
 
@@ -24,11 +24,13 @@ check('thin trip lists plain reasons', thinLive.reasons.length === 7 && thinLive
 check('399 word description earns nothing, 400 earns 30', completenessScore({ full_description: words(399) }).score === 0 && completenessScore({ full_description: words(400) }).score === 30)
 check('3 highlights earn nothing, 4 earn 15', completenessScore({ highlights: ['a', 'b', 'c'] }).score === 0 && completenessScore({ highlights: ['a', 'b', 'c', 'd'] }).score === 15)
 check('included 10, not included 5', completenessScore({ price_includes: 'Breakfast' }).score === 10 && completenessScore({ not_included: 'Flights' }).score === 5)
-check('itinerary: 2 days nothing, 3 days 15, {days:[3]} 15', completenessScore({ itinerary: [{}, {}] }).score === 0 && completenessScore({ itinerary: [{ a: 1 }, { a: 2 }, { a: 3 }] }).score === 15 && completenessScore({ itinerary: { days: [1, 2, 3] } }).score === 15)
+const stops = (n: number) => Array.from({ length: n }, (_, i) => ({ day: i + 1, title: `Stop ${i + 1}`, description: '' }))
+check('itinerary: 2 stops nothing, 3 stops 15', completenessScore({ itinerary: stops(2) }).score === 0 && completenessScore({ itinerary: stops(3) }).score === 15)
+check('itinerary scores only what the page renders (array of titled stops)', completenessScore({ itinerary: [{}, {}, {}] }).score === 0 && completenessScore({ itinerary: { days: [1, 2, 3] } }).score === 0 && completenessScore({ itinerary: 'a\nb\nc' }).score === 0)
 check('faqs: 2 nothing, 3 earn 10', completenessScore({ ai_faqs: [{ question: 'q', answer: 'a' }, { question: 'q', answer: 'a' }] }).score === 0 && completenessScore({ ai_faqs: [1, 2, 3].map(() => ({ question: 'q', answer: 'a' })) }).score === 10)
 check('gallery: 2 nothing, 3 earn 10', completenessScore({ gallery_urls: ['a', 'b'] }).score === 0 && completenessScore({ gallery_urls: ['a', 'b', 'c'] }).score === 10)
 check('departure dates alone earn 5', completenessScore({ departure_dates: ['2027-05-01'] }).score === 5)
-const full = completenessScore({ full_description: words(450), highlights: ['a', 'b', 'c', 'd'], price_includes: 'x', not_included: 'y', itinerary: [1, 2, 3], ai_faqs: [1, 2, 3].map(() => ({ question: 'q', answer: 'a' })), gallery_urls: ['a', 'b', 'c'], departure_dates: ['2027-05-01'] })
+const full = completenessScore({ full_description: words(450), highlights: ['a', 'b', 'c', 'd'], price_includes: 'x', not_included: 'y', itinerary: stops(3), ai_faqs: [1, 2, 3].map(() => ({ question: 'q', answer: 'a' })), gallery_urls: ['a', 'b', 'c'], departure_dates: ['2027-05-01'] })
 check('everything present is 100 and not thin', full.score === 100 && !full.thin && full.reasons.length === 0, full)
 check('exactly 60 is not thin, 59 is', completenessScore({ full_description: words(400), highlights: ['a', 'b', 'c', 'd'], price_includes: 'x', not_included: 'y' }).thin === false && THIN_BELOW === 60 && completenessScore({ full_description: words(400), highlights: ['a', 'b', 'c', 'd'], price_includes: 'x' }).score === 55)
 
@@ -149,12 +151,57 @@ const goodWriter: CopyWriter = async () => {
   check('copyBlockers: clean text passes', copyBlockers(sentence.repeat(12), { grounding: transcript, field: 'full_description' }).length === 0)
   check('copyBlockers: thousands separators match (2,499 vs 2499)', copyBlockers('Prices start from 2499 per person and the group is small and friendly for everyone who joins.', { grounding: 'From $2,499 CAD', field: 'meta_description' }).length === 0)
 
+  // ─── Round 1 QA rules ─────────────────────────────────────────────────────────────
+  // Rule 1: price_value must sit inside the price as shown
+  const pv = groundDraft({ fields: { price_display: 'From $2,499 CAD per person', price_value: 2499 } }, transcript, undefined, 'm')
+  check('price_value matching the price shown is kept', pv.fields.price_value === 2499)
+  const pvBad = groundDraft({ fields: { price_display: 'From $2,499 CAD per person', price_value: 24 } }, transcript, undefined, 'm')
+  check('price_value from a stray number elsewhere (24 travellers) is dropped', pvBad.fields.price_value === undefined && pvBad.dropped.some((d) => d.field === 'price_value'))
+  const hasPrice = await proposeEnrichment({ ...emptyPkg, price_display: 'From $1,999 CAD', price_value: null } as any, draft, { transcript, writeCopy: goodWriter })
+  check('price_value is click-only when the page already shows a price', changeOf(hasPrice.facts, 'price_value')?.autoApply === false)
+  const usd = groundDraft({ fields: { price_display: 'From $2,499 CAD per person', price_value: 2499, currency: 'CAD' } }, transcript, undefined, 'm')
+  const curr = await proposeEnrichment({ ...emptyPkg, currency: 'USD' } as any, usd, { transcript, writeCopy: goodWriter })
+  check('currency differs from a deliberate USD row: price shown and number are click-only', changeOf(curr.facts, 'price_display')?.autoApply === false && changeOf(curr.facts, 'price_value')?.autoApply === false && /Currency differs/.test(changeOf(curr.facts, 'price_display')?.reason))
+  const dflt = await proposeEnrichment(emptyPkg as any, usd, { transcript, writeCopy: goodWriter })
+  check('the CAD default counts as unset: price still auto-applies from a text source', changeOf(dflt.facts, 'price_display')?.autoApply === true && changeOf(dflt.facts, 'price_value')?.autoApply === true)
+
+  // Rule 2: dates need month, day and year together
+  check('dateGrounded: month day, year', dateGrounded('2027-06-12', 'Departs June 12, 2027.') && dateGrounded('2027-06-12', 'Departs 12 June 2027') && dateGrounded('2027-06-19', 'June 12-19, 2027') && dateGrounded('2027-06-12', 'Date: 2027-06-12') && dateGrounded('2027-06-12', 'on 06/12/2027'))
+  check('dateGrounded: scattered year and day are not enough', !dateGrounded('2027-06-12', 'Copyright 2027. Call 12 people. Room 12.') && !dateGrounded('2027-06-12', 'July 12, 2027') && !dateGrounded('2027-06-12', 'June 2027, 12 nights'))
+  const dd = groundDraft({ fields: { available_from: '2027-06-12', departure_dates: ['2027-06-12', '2027-08-30'] } }, transcript, undefined, 'm')
+  check('an ungrounded departure date is dropped, a grounded one kept', JSON.stringify(dd.fields.departure_dates) === '["2027-06-12"]')
+
+  // Rule 3: counts next to a unit word
+  check('numberNextToUnit: 24 travellers, 7 nights, 7-night', numberNextToUnit(24, 'Group size up to 24 travellers', 'people|travell?ers?') && numberNextToUnit(7, '7 nights from Athens', 'nights?|days?') && numberNextToUnit(7, 'a 7-night cruise', 'nights?'))
+  check('numberNextToUnit: a number far from any unit does not count', !numberNextToUnit(24, 'Call 24 hours. Cabins sleep many guests comfortably on board today', 'guests?|people') && !numberNextToUnit(14, 'Booking opens 14 March for everyone this year. Eight nights at sea', 'nights?|days?'))
+  const cnt = groundDraft({ fields: { max_people: 2027, duration_days: 12 } }, transcript, undefined, 'm')
+  check('max_people and duration_days from unrelated numbers are dropped', cnt.fields.max_people === undefined && cnt.fields.duration_days === undefined)
+
+  // Rule 4: file sources never auto-apply prices, dates, links, duration, group size
+  const blankPkg = { ...emptyPkg, destination: null, booking_url: null }
+  const fileDraft = groundDraft({ fields: { price_display: 'From $2,499 CAD per person', price_value: 2499, duration: '7 nights', duration_days: 8, max_people: 24, available_from: '2027-06-12', supplier: 'Island Hopper Tours', destination: 'Athens', booking_url: 'https://www.islandhopper.example/book' } }, `${transcript} Book at https://www.islandhopper.example/book`, undefined, 'm')
+  for (const kind of ['screenshot', 'pdf'] as const) {
+    const fe = await proposeEnrichment(blankPkg as any, fileDraft, { transcript: `${transcript} Book at https://www.islandhopper.example/book`, kind, writeCopy: goodWriter })
+    const blocked = ['price_display', 'price_value', 'duration', 'duration_days', 'max_people', 'available_from', 'booking_url']
+    check(`${kind}: every price/date/link/duration/group-size fact is click-only`, blocked.every((f) => changeOf(fe.facts, f) && changeOf(fe.facts, f).autoApply === false), blocked.map((f) => [f, changeOf(fe.facts, f)?.autoApply]))
+    check(`${kind}: supplier and destination still auto-apply`, changeOf(fe.facts, 'supplier')?.autoApply === true && changeOf(fe.facts, 'destination')?.autoApply === true)
+  }
+  const ue = await proposeEnrichment(blankPkg as any, fileDraft, { transcript: `${transcript} Book at https://www.islandhopper.example/book`, kind: 'url', sourceUrl: 'https://islandhopper.example/greece', writeCopy: goodWriter })
+  check('url source: a link on the same site or parent domain auto-applies', changeOf(ue.facts, 'booking_url')?.autoApply === true, changeOf(ue.facts, 'booking_url'))
+  const ue2 = await proposeEnrichment(blankPkg as any, fileDraft, { transcript: `${transcript} Book at https://www.islandhopper.example/book`, kind: 'url', sourceUrl: 'https://other-site.example/page', writeCopy: goodWriter })
+  check('url source: a link on a different site is click-only', changeOf(ue2.facts, 'booking_url')?.autoApply === false)
+
+  // Rule 9: PDF page count reads page tree nodes only
+  check('pdfPageCount ignores outline /Count values', pdfPageCount(Buffer.from('%PDF-1.4 /Type /Outlines /Count 99 >> /Type /Pages /Kids [1 0 R] /Count 4 >>')) === 4)
+
   // Source watch (pure parts)
   const none = { available_from: '2027-06-12', available_to: '2027-06-19' }
   check('watchedUrls skips the funnel root and keeps a supplier page', JSON.stringify(watchedUrls({ booking_url: 'https://info.travelfunbiz.com/', more_info_url: 'https://www.collette.com/group/abc' })) === '["https://www.collette.com/group/abc"]')
   check('watchedUrls skips null and non-web links', watchedUrls({ booking_url: null, more_info_url: 'mailto:a@b.c' }).length === 0)
   check('page that says Tour Cancelled is flagged', scanPageText('Greek Isles. Tour Cancelled. Contact us.', none, '2026-10-10').some((f) => f.kind === 'cancelled'))
-  check('sold out and wait list are flagged', scanPageText('This departure is sold out', none, '2026-10-10').length === 1 && scanPageText('Join the waitlist today', none, '2026-10-10').length === 1)
+  check('sold out and wait list are flagged', scanPageText('This departure is sold out', none, '2026-10-10').length === 1 && scanPageText('This departure has a waitlist now', none, '2026-10-10').length === 1)
+  check('a generic waitlist link is not flagged', scanPageText('Subscribe to our newsletter or join the waitlist today', none, '2026-10-10').length === 0)
+  check('a departure date month counts as expected for the date check', scanPageText('Departing September 3, 2027', { ...none, departure_dates: ['2027-09-03'] }, '2026-10-10').length === 0)
   check('cancellation policy wording is not flagged', scanPageText('If the trip is cancelled by the traveller, fees apply. Free cancellation up to 60 days.', none, '2026-10-10').length === 0)
   check('dates that include the trip month are fine', scanPageText('Departing June 12, 2027 from Toronto', none, '2026-10-10').length === 0)
   check('dates that never include the trip month are flagged', scanPageText('Now departing September 3, 2027', none, '2026-10-10').some((f) => f.kind === 'dates'))

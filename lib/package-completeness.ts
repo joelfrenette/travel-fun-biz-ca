@@ -38,16 +38,11 @@ function hasText(v: string | string[] | null | undefined): boolean {
   return typeof v === 'string' && v.trim().length > 0
 }
 
-/** Days in an itinerary stored as an array of days, or an object holding a `days` array. A dated outline
- * given as a plain string also counts when it has 3+ non-empty lines. */
+/** Stops in an itinerary that the trip page can show. */
 function itineraryDays(itinerary: unknown): number {
-  if (Array.isArray(itinerary)) return itinerary.filter((d) => d != null && (typeof d !== 'string' || d.trim())).length
-  if (typeof itinerary === 'string') return itinerary.split('\n').filter((l) => l.trim()).length
-  if (itinerary && typeof itinerary === 'object') {
-    const days = (itinerary as { days?: unknown }).days
-    if (Array.isArray(days)) return days.length
-  }
-  return 0
+  // Only what the trip page actually shows counts: an array of stops that each have a title.
+  if (!Array.isArray(itinerary)) return 0
+  return itinerary.filter((d) => d && typeof d === 'object' && typeof (d as { title?: unknown }).title === 'string' && (d as { title: string }).title.trim()).length
 }
 
 function faqCount(faqs: unknown): number {

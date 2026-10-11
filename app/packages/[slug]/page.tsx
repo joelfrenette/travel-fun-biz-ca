@@ -129,7 +129,7 @@ export default async function PackagePage({ params }: Props) {
           ...(pkg.available_to ? { endDate: pkg.available_to } : {}),
           provider: { "@type": "TravelAgency", name: SITE_NAME, url: absoluteUrl("/") },
           ...(pkg.price_value
-            ? { offers: { "@type": "Offer", price: pkg.price_value, priceCurrency: "USD", url: pageUrl, availability: "https://schema.org/InStock" } }
+            ? { offers: { "@type": "Offer", price: pkg.price_value, priceCurrency: pkg.currency || "CAD", url: pageUrl, availability: "https://schema.org/InStock" } }
             : {}),
         },
       ]

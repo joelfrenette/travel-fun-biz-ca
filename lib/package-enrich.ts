@@ -112,7 +112,50 @@ function asList(v: unknown): string[] {
 
 // ─── Facts ──────────────────────────────────────────────────────────────────────────
 
-function proposeFacts(pkg: Partial<DbPackage>, draft: ExtractedDraft, transcript: string | undefined): FieldChange[] {
+/** Facts a screenshot or PDF may never fill in by itself: the model reads them off an image, so a person looks
+ * at the file next to the proposal and clicks Use this. */
+export const FILE_CLICK_ONLY_FIELDS = new Set(['price_display', 'price_value', 'available_from', 'available_to', 'departure_dates', 'booking_url', 'more_info_url', 'duration', 'duration_days', 'max_people'])
+const URL_FIELDS = new Set(['booking_url', 'more_info_url'])
+
+/** Same host as the page that was read, or one is a parent domain of the other (www.x.com and x.com, book.x.com and x.com). */
+export function sameSiteHost(a: string, b: string): boolean {
+  try {
+    const ha = new URL(a).hostname.toLowerCase()
+    const hb = new URL(b).hostname.toLowerCase()
+    return ha === hb || ha.endsWith(`.${hb}`) || hb.endsWith(`.${ha}`)
+  } catch {
+    return false
+  }
+}
+
+export interface SourceContext {
+  kind?: 'screenshot' | 'pdf' | 'url' | 'text'
+  /** The address that was fetched, for a link source. */
+  sourceUrl?: string
+}
+
+/** Why a field may not be filled in automatically even if empty and grounded (null = no extra restriction). */
+function clickOnlyReason(field: string, row: Record<string, unknown>, draft: ExtractedDraft, ctx: SourceContext): string | null {
+  const fields = draft.fields as Record<string, unknown>
+  if ((ctx.kind === 'screenshot' || ctx.kind === 'pdf') && FILE_CLICK_ONLY_FIELDS.has(field)) {
+    return `This was read from a ${ctx.kind === 'pdf' ? 'PDF' : 'screenshot'}. Look at the file (View, next to the source) and click Use this if it is right.`
+  }
+  if (ctx.kind === 'url' && URL_FIELDS.has(field) && (!ctx.sourceUrl || typeof fields[field] !== 'string' || !sameSiteHost(fields[field] as string, ctx.sourceUrl))) {
+    return 'This link is on a different website than the page that was read. Check it, then click Use this.'
+  }
+  if (field === 'price_value' && !isEmptyValue(row.price_display)) return 'The trip page already shows a price, so the price number is only changed when you click.'
+  if (field === 'price_display' || field === 'price_value') {
+    const extracted = fields.currency
+    const rowCur = typeof row.currency === 'string' ? row.currency : ''
+    // The column defaults to CAD, so CAD counts as "not set": only a deliberate other currency can disagree.
+    if ((extracted === 'CAD' || extracted === 'USD') && rowCur && rowCur !== 'CAD' && extracted !== rowCur) {
+      return `Currency differs: the source says ${extracted}, the trip page uses ${rowCur}. Check it, then click.`
+    }
+  }
+  return null
+}
+
+function proposeFacts(pkg: Partial<DbPackage>, draft: ExtractedDraft, transcript: string | undefined, ctx: SourceContext = {}): FieldChange[] {
   const out: FieldChange[] = []
   const sourceNorm = transcript ? normText(transcript) : null
   const row = pkg as Record<string, unknown>
@@ -158,17 +201,18 @@ function proposeFacts(pkg: Partial<DbPackage>, draft: ExtractedDraft, transcript
     if (sameValue(current, proposed)) continue
 
     const empty = isEmptyValue(current)
+    const restricted = clickOnlyReason(field, row, draft, ctx)
     out.push({
       field,
       current,
       proposed,
       evidence,
-      autoApply: empty && grounded,
+      autoApply: empty && grounded && !restricted,
       reason: empty
-        ? grounded
+        ? grounded && !restricted
           ? 'Filled in automatically: the trip page had nothing here and the source states it.'
-          : `Not filled in automatically. ${note || 'Check it, then click Use this.'}`
-        : `Differs from what the trip page says now. Nothing was changed. Click Replace if the source is right.${note ? ` ${note}` : ''}`,
+          : `Not filled in automatically. ${restricted || note || 'Check it, then click Use this.'}`
+        : `Differs from what the trip page says now. Nothing was changed. Click Replace if the source is right.${restricted ? ` ${restricted}` : ''}${note ? ` ${note}` : ''}`,
     })
   }
   return out
@@ -389,9 +433,9 @@ async function proposeCopy(
 export async function proposeEnrichment(
   pkg: Partial<DbPackage>,
   draft: ExtractedDraft,
-  opts: { transcript?: string; writeCopy?: CopyWriter } = {},
+  opts: { transcript?: string; writeCopy?: CopyWriter } & SourceContext = {},
 ): Promise<Enrichment> {
-  const facts = proposeFacts(pkg, draft, opts.transcript)
+  const facts = proposeFacts(pkg, draft, opts.transcript, { kind: opts.kind, sourceUrl: opts.sourceUrl })
   const c = await proposeCopy(pkg, draft, opts.transcript, opts.writeCopy ?? modelCopyWriter)
   return { facts, copy: c.copy, usage: c.usage, calls: c.calls, copyNote: c.note }
 }
@@ -443,12 +487,23 @@ export async function applyEnrichment(
   }
   if (edits.length === 0) return { applied: [], skipped, pkg: latest }
 
-  const updated = await updatePackage(pkg.id, updates as Partial<DbPackage>)
-  if (!updated) return { applied: [], skipped: [...skipped, ...edits.map((e) => ({ field: e.field, reason: 'the database refused the update' }))], pkg: latest }
-
-  const { data: src } = await admin.from('package_sources').select('package_edits, applied_fields').eq('id', sourceId).maybeSingle()
+  // Audit first: the pending entries are written BEFORE the trip changes, so a change can never exist without a
+  // record of what it replaced. If the record cannot be written, nothing is applied. If the trip update fails, the
+  // pending entries are taken back out.
+  const { data: src, error: readError } = await admin.from('package_sources').select('package_edits, applied_fields').eq('id', sourceId).maybeSingle()
   const prior = ((src as { package_edits?: PackageEdit[] } | null)?.package_edits ?? []) as PackageEdit[]
-  const appliedFields = [...new Set([...(((src as { applied_fields?: string[] } | null)?.applied_fields) ?? []), ...edits.map((e) => e.field)])]
+  const priorFields = (((src as { applied_fields?: string[] } | null)?.applied_fields) ?? []) as string[]
+  if (readError || !src) return { applied: [], skipped: [...skipped, ...edits.map((e) => ({ field: e.field, reason: 'the change could not be recorded, so it was not made' }))], pkg: latest }
+  const pending = edits.map((e) => ({ ...e, pending: true }))
+  const logged = await admin.from('package_sources').update({ package_edits: [...prior, ...pending], updated_at: at }).eq('id', sourceId)
+  if (logged.error) return { applied: [], skipped: [...skipped, ...edits.map((e) => ({ field: e.field, reason: 'the change could not be recorded, so it was not made' }))], pkg: latest }
+
+  const updated = await updatePackage(pkg.id, updates as Partial<DbPackage>)
+  if (!updated) {
+    await admin.from('package_sources').update({ package_edits: prior, updated_at: new Date().toISOString() }).eq('id', sourceId)
+    return { applied: [], skipped: [...skipped, ...edits.map((e) => ({ field: e.field, reason: 'the database refused the update' }))], pkg: latest }
+  }
+  const appliedFields = [...new Set([...priorFields, ...edits.map((e) => e.field)])]
   await admin.from('package_sources').update({ package_edits: [...prior, ...edits], applied_fields: appliedFields, status: 'applied', updated_at: at }).eq('id', sourceId)
 
   if (updated.status === 'published') await pingIndexNow([`/packages/${updated.slug}`]).catch(() => null)

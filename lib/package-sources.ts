@@ -24,6 +24,8 @@ export interface PackageEdit {
   method: 'auto' | 'click'
   at: string
   reverted?: boolean
+  /** Written before the trip changed; cleared once the change succeeded. */
+  pending?: boolean
 }
 
 export interface PackageSourceRow {
@@ -69,9 +71,11 @@ export function detectFile(buf: Buffer): DetectedFile | null {
  * unknown rather than blocking. */
 export function pdfPageCount(buf: Buffer): number {
   const text = buf.toString('latin1')
-  const counts = [...text.matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]))
+  // Only the /Count of page-tree nodes (/Type /Pages) is a page count; outlines and other /Count values are not.
+  const counts = [...text.matchAll(/\/Type\s*\/Pages\b(?:(?!>>)[\s\S]){0,4000}?\/Count\s+(\d+)|\/Count\s+(\d+)(?:(?!>>)[\s\S]){0,4000}?\/Type\s*\/Pages\b/g)].map((m) => Number(m[1] ?? m[2]))
   if (counts.length) return Math.max(...counts)
-  return (text.match(/\/Type\s*\/Page[^s]/g) ?? []).length
+  // Unknown (page tree inside a compressed stream): allowed, and the 10 MB file cap is what bounds it.
+  return 0
 }
 
 /** The uploaded name, made safe to show and to store (the stored object key never uses it). */
@@ -159,6 +163,11 @@ export async function registerUploadedFile(admin: SupabaseClient, packageId: str
   if (!path.startsWith(`${packageId}/`) || path.includes('..')) return fail(400, 'That upload does not belong to this trip.')
   const { data: existing } = await admin.from('package_sources').select('id').eq('storage_path', path).maybeSingle()
   if (existing) return fail(409, 'That upload was already added.')
+  const size = await objectSize(admin, path)
+  if (size != null && size > MAX_FILE_BYTES) {
+    await admin.storage.from(SOURCES_BUCKET).remove([path])
+    return fail(413, 'That file is larger than 10 MB. Save a smaller copy and try again.')
+  }
   const bytes = await downloadSourceFile(admin, { storage_path: path })
   if (!bytes) return fail(404, 'The uploaded file was not found. Try the upload again.')
   const ok = await validateFile(admin, packageId, bytes)
@@ -200,9 +209,24 @@ export async function signedPreviewUrl(admin: SupabaseClient, row: Pick<PackageS
   return error ? null : (data?.signedUrl ?? null)
 }
 
+/** Size in bytes of a stored object, from the storage listing's metadata (null if it cannot be found). */
+export async function objectSize(admin: SupabaseClient, path: string): Promise<number | null> {
+  const slash = path.lastIndexOf('/')
+  const dir = slash >= 0 ? path.slice(0, slash) : ''
+  const name = slash >= 0 ? path.slice(slash + 1) : path
+  const { data, error } = await admin.storage.from(SOURCES_BUCKET).list(dir, { search: name, limit: 5 })
+  if (error) return null
+  const hit = (data ?? []).find((o) => o.name === name) as { metadata?: { size?: number } } | undefined
+  const size = hit?.metadata?.size
+  return typeof size === 'number' ? size : null
+}
+
 /** The uploaded file's bytes, read with the service role. */
 export async function downloadSourceFile(admin: SupabaseClient, row: Pick<PackageSourceRow, 'storage_path'>): Promise<Buffer | null> {
   if (!row.storage_path) return null
+  // Look at the object's recorded size first, so an oversized file is never pulled into memory.
+  const size = await objectSize(admin, row.storage_path)
+  if (size == null || size > MAX_FILE_BYTES) return null
   const { data, error } = await admin.storage.from(SOURCES_BUCKET).download(row.storage_path)
   if (error || !data) return null
   return Buffer.from(await data.arrayBuffer())

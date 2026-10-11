@@ -46,4 +46,7 @@ alter table public.package_sources enable row level security;
 
 -- Private bucket for the uploaded files. No storage policies: only the service role touches it, and the
 -- admin preview uses a 60 second signed URL.
-insert into storage.buckets (id, name, public) values ('package-sources', 'package-sources', false) on conflict do nothing;
+-- The bucket itself refuses anything over 10 MB or that is not a PNG, JPG, WebP or PDF.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('package-sources', 'package-sources', false, 10485760, array['image/png', 'image/jpeg', 'image/webp', 'application/pdf'])
+on conflict (id) do update set file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types, public = false;
