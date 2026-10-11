@@ -13,6 +13,7 @@ import { selfHeal } from '@/lib/heal'
 import { runDebriefIfDue } from '@/lib/debrief'
 import { snapshotContentPerformance } from '@/lib/content-performance'
 import { plainAction, HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
+import { alertHtml } from '@/lib/brief-html'
 import { runGuidesStep } from '@/lib/guide-run'
 import { runPageCopyStep } from '@/lib/page-copy-run'
 import { runHealContentIfDue } from '@/lib/content-heal-run'
@@ -219,13 +220,17 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     // re-send this email every six hours for as long as they wait.
     const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup' && i.id !== HARD_WAITING_ISSUE_ID)
     if (open.length) {
-      await sendThrottledAlert(admin, `Autopilot: ${open.length} thing${open.length === 1 ? '' : 's'} need attention`, [
-        ...open.flatMap((i) => {
-          const a = plainAction(i)
-          return [`* ${a.title}`, `  ${a.why}`, ...a.steps.map((s, k) => `  ${k + 1}) ${s}`), `  ${a.urlLabel}: ${a.url}`, ...(a.paste ? [`  Paste to Claude: ${a.paste}`] : []), '']
-        }),
-        'See everything: https://www.travelfunbiz.ca/admin/autopilot',
-      ])
+      const actions = open.map(plainAction)
+      const dateLabel = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto', weekday: 'long', month: 'long', day: 'numeric' })
+      await sendThrottledAlert(
+        admin,
+        `Autopilot: ${open.length} thing${open.length === 1 ? '' : 's'} need${open.length === 1 ? 's' : ''} attention`,
+        [
+          ...actions.flatMap((a) => [`* ${a.title}`, `  ${a.why}`, ...a.steps.map((s, k) => `  ${k + 1}) ${s}`), `  ${a.urlLabel}: ${a.url}`, ...(a.paste ? [`  Paste to Claude: ${a.paste}`] : []), '']),
+          'See everything: https://www.travelfunbiz.ca/admin/autopilot',
+        ],
+        alertHtml(actions, dateLabel),
+      )
     }
   } catch {
     // an alert problem must never fail the pipeline

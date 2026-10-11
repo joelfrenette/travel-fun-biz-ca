@@ -24,7 +24,7 @@ export function alertsConfigured(): boolean {
 }
 
 /** Sends one alert email, at most once per throttle window. Never throws. Returns what happened. */
-export async function sendThrottledAlert(admin: SupabaseClient, subject: string, lines: string[]): Promise<'sent' | 'throttled' | 'not-configured' | 'failed'> {
+export async function sendThrottledAlert(admin: SupabaseClient, subject: string, lines: string[], html?: string): Promise<'sent' | 'throttled' | 'not-configured' | 'failed'> {
   if (!alertsConfigured()) return 'not-configured'
   try {
     const last = Date.parse((await getSetting(admin, LAST_ALERT_KEY)) ?? '')
@@ -37,6 +37,9 @@ export async function sendThrottledAlert(admin: SupabaseClient, subject: string,
         to: [notifyTo()],
         subject,
         text: lines.join('\n'),
+        // The same look as the daily brief when the caller built one (lib/brief-html.ts alertHtml); the plain
+        // text stays as the fallback every mail program can show.
+        ...(html ? { html } : {}),
       }),
       signal: AbortSignal.timeout(15_000),
     })

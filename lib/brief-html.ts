@@ -1,4 +1,4 @@
-import { SITE_URL } from '@/lib/site'
+import { SITE_URL, SITE_NAME } from '@/lib/site'
 import { CHECKLIST_URL, type PlainAction } from '@/lib/plain-steps'
 import type { Brief } from '@/lib/debrief'
 
@@ -72,7 +72,7 @@ export function briefHtml(b: Brief): string {
 
   const header =
     `<tr><td align="center" bgcolor="${RED}" style="background:${RED};padding:26px 28px 24px 28px">` +
-    `<div style="font-size:12px;letter-spacing:2.4px;color:#ffd6d6;font-weight:800">TRAVELFUN.BIZ &nbsp;&middot;&nbsp; DAILY BRIEF</div>` +
+    `<div style="font-size:12px;letter-spacing:2.4px;color:#ffd6d6;font-weight:800">${esc(SITE_NAME.toUpperCase())} &nbsp;&middot;&nbsp; DAILY BRIEF</div>` +
     `<div style="font-size:28px;line-height:34px;font-weight:800;color:#ffffff;padding-top:8px">Good morning, Joel</div>` +
     `<div style="font-size:15px;color:#ffe3e3;padding-top:4px">${esc(b.dateLabel)}</div>` +
     `<div style="padding-top:16px"><table ${T} align="center"><tr><td bgcolor="#ffffff" style="background:#ffffff;border-radius:16px;padding:8px 18px;font-weight:800;font-size:13px;color:${pillColor};font-family:${FONT}">${esc(pill)}</td></tr></table></div>` +
@@ -118,6 +118,32 @@ export function briefHtml(b: Brief): string {
     `<table ${T} width="100%" bgcolor="#f4efec" style="background:#f4efec;font-family:${FONT}"><tr><td align="center" style="padding:24px 10px">` +
     `<table ${T} width="640" align="center" bgcolor="#ffffff" style="width:640px;max-width:100%;background:#ffffff">` +
     header + needs + yesterday + today + working + healed + edits + tripPages + waiting + footer +
+    `</table></td></tr></table>`
+  )
+}
+
+/** The "needs attention" alert email, in the same look as the daily brief (Joel, 2026-10-10: the plain-text
+ * alert looked ugly next to the brief). Same header, numbered action cards with a button, same footer.
+ * Nothing new is computed here: the actions arrive already written by plainAction(). */
+export function alertHtml(actions: PlainAction[], dateLabel: string): string {
+  const n = actions.length
+  const header =
+    `<tr><td align="center" bgcolor="${RED}" style="background:${RED};padding:26px 28px 24px 28px">` +
+    `<div style="font-size:12px;letter-spacing:2.4px;color:#ffd6d6;font-weight:800">${esc(SITE_NAME.toUpperCase())} &nbsp;&middot;&nbsp; NEEDS ATTENTION</div>` +
+    `<div style="font-size:28px;line-height:34px;font-weight:800;color:#ffffff;padding-top:8px">${n} thing${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you</div>` +
+    `<div style="font-size:15px;color:#ffe3e3;padding-top:4px">${esc(dateLabel)}</div>` +
+    `</td></tr>`
+  const body = section(`Do these (${n})`, actions.slice(0, 8).map((a, i) => actionCard(a, i + 1)).join('') + (n > 8 ? `<div style="font-size:14px;color:${SOFT}">${n - 8} more on the <a href="${SITE_URL}/admin/autopilot" style="color:${RED}">Content Autopilot page</a>.</div>` : ''))
+  const footer =
+    `<tr><td style="padding:30px 28px 0 28px"></td></tr>` +
+    `<tr><td align="center" bgcolor="${INK}" style="background:${INK};padding:20px 28px;font-size:13px;line-height:20px;color:#bfb2ae">` +
+    `<b style="color:#ffffff">Aiva</b> from ${esc(SITE_NAME)}<br>` +
+    `<a href="${SITE_URL}/admin/autopilot" style="color:#ff8a86">See everything on Content Autopilot</a>` +
+    `</td></tr>`
+  return (
+    `<table ${T} width="100%" bgcolor="#f4efec" style="background:#f4efec;font-family:${FONT}"><tr><td align="center" style="padding:24px 10px">` +
+    `<table ${T} width="640" align="center" bgcolor="#ffffff" style="width:640px;max-width:100%;background:#ffffff">` +
+    header + body + footer +
     `</table></td></tr></table>`
   )
 }
