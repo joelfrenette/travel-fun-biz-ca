@@ -15,11 +15,15 @@ interface Summary {
   scored: number
   avg: number | null
   below: number
-  lowest: { type: "post" | "guide" | "page_copy"; path: string; score: number; reasons: string[] }[]
+  lowest: { type: "post" | "guide" | "page_copy" | "package"; path: string; score: number; reasons: string[] }[]
   healedPages: number
   edits: number
   hardWaiting: number
   calls: number
+  /** How many of the scored pages are trip pages (absent in a summary saved before trips were scored). */
+  trips?: number
+  /** Trip pages fixed by the last run. */
+  tripsFixed?: number
   note: string
 }
 
@@ -36,7 +40,7 @@ function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
 }
 
-const TYPE_LABEL = { post: "Post", guide: "Guide", page_copy: "Page copy" } as const
+const TYPE_LABEL = { post: "Post", guide: "Guide", page_copy: "Page copy", package: "Trip" } as const
 
 export function SelfHealingCard() {
   const { toast } = useToast()
@@ -82,7 +86,7 @@ export function SelfHealingCard() {
           <div>
             <h2 className="flex items-center gap-2 font-semibold"><Wrench className="h-4 w-4" />Self-healing</h2>
             <p className="max-w-2xl text-xs text-muted-foreground">
-              Once a day every live post, guide and compare or best-time page gets an SEO score. For pages under 70 the site fixes the cheap things by itself: long dashes, over-long meta text, broken links, a link to a real page about the same place, and a missing FAQ or meta text written from the page&apos;s own words. When a draft is held back for a banned phrase, the site rewords or removes just that sentence and publishes if it then passes. It never adds a fact, and never touches a price, a date, a claim that &quot;we went there&quot;, or a link to another website. Every change is listed with an Undo button.
+              Once a day every live post, guide, trip page and compare or best-time page gets an SEO score. For pages under 70 the site fixes the cheap things by itself: long dashes, over-long meta text, broken links, a link to a real page about the same place, and a missing FAQ or meta text written from the page&apos;s own words. On a trip page it only fills fields that are empty (meta text, keywords, FAQ) and adds one &quot;Related&quot; line of links to the end of the description when it has none (a trip that already happened only gets a FAQ); 2 of the 6 daily slots are kept for trips; it never changes a trip&apos;s name, price, dates, what is included, itinerary or links. When a draft is held back for a banned phrase, the site rewords or removes just that sentence and publishes if it then passes. It never adds a fact, and never touches a price, a date, a claim that &quot;we went there&quot;, or a link to another website. Every change is listed with an Undo button.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -100,7 +104,7 @@ export function SelfHealingCard() {
         )}
 
         <div className="grid gap-2 text-sm sm:grid-cols-4">
-          <Stat label="Pages scored" value={s ? String(s.scored) : "-"} hint={s ? `last run ${new Date(s.at).toLocaleDateString("en-CA", { timeZone: "America/Toronto" })}` : "has not run yet"} />
+          <Stat label="Pages scored" value={s ? String(s.scored) : "-"} hint={s ? `${s.trips != null ? `${s.trips} trip pages included, ` : ""}last run ${new Date(s.at).toLocaleDateString("en-CA", { timeZone: "America/Toronto" })}` : "has not run yet"} />
           <Stat label="Average score" value={s?.avg != null ? `${s.avg} / 100` : "-"} hint={s ? `${s.below} under 70` : ""} />
           <Stat label="Fixed by itself today" value={card.editsToday === null ? "?" : String(card.editsToday)} hint={`${card.slotsUsed ?? "?"} of ${card.slotCap} pages used today`} />
           <Stat label="Waiting on a person" value={s ? String(s.hardWaiting) : "-"} hint="drafts held back for a price, date, claim or link" warn={!!s && s.hardWaiting > 0} />

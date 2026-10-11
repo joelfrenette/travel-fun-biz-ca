@@ -14,6 +14,10 @@ import { EST_COST_USD_PER_CALL, type ContentEdit, type ContentType, type EditFie
 
 /** At most this many pages are repaired or healed per day across posts, guides and page copy. */
 export const REPAIR_ITEMS_PER_DAY = 6
+/** Slots of the day kept for trip pages; posts, guides and page copy share the other REPAIR_ITEMS_PER_DAY minus this. */
+export const TRIP_RESERVED_SLOTS = 2
+/** The itemKey prefix a trip's slot uses. */
+export const TRIP_SLOT_PREFIX = 'package:'
 /** At most this many model calls per page (posts 1). */
 export const REPAIR_CALLS_PER_ITEM = 2
 /** The most the repair and heal steps can spend in a day: items x calls x the per-call estimate. */
@@ -62,6 +66,12 @@ export async function claimRepairSlot(admin: SupabaseClient, itemKey: string, pe
   if (error) return { ok: false, used: 0, reason: `could not read today's repair slots: ${error.message}` }
   const rows = (data ?? []) as { key: string; value: string }[]
   if (rows.some((r) => r.value === itemKey)) return { ok: true, used: rows.length }
+  // Trip pages keep TRIP_RESERVED_SLOTS of the day's slots: every other kind of page may use at most the rest.
+  if (!itemKey.startsWith(TRIP_SLOT_PREFIX)) {
+    const pageCap = Math.max(0, perDay - TRIP_RESERVED_SLOTS)
+    const pagesUsed = rows.filter((r) => !r.value.startsWith(TRIP_SLOT_PREFIX)).length
+    if (pagesUsed >= pageCap) return { ok: false, used: rows.length, reason: `today's cap of ${pageCap} repaired pages is used (the rest is kept for trip pages)` }
+  }
   for (let n = 1; n <= perDay; n++) {
     if (rows.some((r) => r.key === `${prefix}${n}`)) continue
     const { error: insertError } = await admin.from('app_settings').insert({ key: `${prefix}${n}`, value: itemKey })
@@ -169,12 +179,31 @@ export async function countEditsSince(admin: SupabaseClient, sinceIso: string): 
 
 type Row = Record<string, unknown>
 
-const TABLE: Record<ContentType, string> = { post: 'posts', guide: 'guides', page_copy: 'page_copy' }
+const TABLE: Record<ContentType, string> = { post: 'posts', guide: 'guides', page_copy: 'page_copy', package: 'travel_packages' }
 
 const asString = (v: unknown) => (typeof v === 'string' ? v : '')
 
+/** A trip's FAQ list in a fixed key order, as JSON (a jsonb round trip reorders keys, so the audit log never relies on it). */
+function tripFaqJson(v: unknown): string {
+  const list = Array.isArray(v) ? v : []
+  return JSON.stringify(list.filter((f) => f && typeof f.question === 'string' && typeof f.answer === 'string').map((f) => ({ question: f.question, answer: f.answer })))
+}
+
 /** What a stored row holds for one audit field, in the same form the audit log stores it. */
 export function storedValue(type: ContentType, row: Row, field: EditField): string {
+  if (type === 'package') {
+    switch (field) {
+      case 'links':
+      case 'body':
+        return asString(row.full_description)
+      case 'keywords':
+        return JSON.stringify(Array.isArray(row.keywords) ? row.keywords : [])
+      case 'ai_faqs':
+        return tripFaqJson(row.ai_faqs)
+      default:
+        return asString(row[field])
+    }
+  }
   switch (field) {
     case 'body':
     case 'links':
@@ -190,6 +219,27 @@ export function storedValue(type: ContentType, row: Row, field: EditField): stri
 
 /** The columns to write to put `text` (an audit field value) back into a row. Null when the text cannot be restored. */
 export function columnsFor(type: ContentType, field: EditField, text: string): Row | null {
+  if (type === 'package') {
+    // A trip edit puts back exactly the one column it changed, and only those the trip heal can write.
+    switch (field) {
+      case 'meta_title':
+      case 'meta_description':
+        return { [field]: text.trim() ? text : null }
+      case 'links':
+        return { full_description: text.trim() ? text : null }
+      case 'keywords':
+      case 'ai_faqs':
+        try {
+          const value = JSON.parse(text)
+          if (!Array.isArray(value)) return null
+          return field === 'keywords' ? { keywords: value } : { ai_faqs: value.length ? value : null }
+        } catch {
+          return null
+        }
+      default:
+        return null
+    }
+  }
   switch (field) {
     case 'body':
     case 'links': {
@@ -224,6 +274,12 @@ async function findRow(admin: SupabaseClient, type: ContentType, id: string | nu
   if (id) {
     const { data } = await admin.from(table).select('*').eq('id', id).maybeSingle()
     if (data) return data as Row
+  }
+  if (type === 'package') {
+    const slug = /^\/packages\/([^/]+)$/.exec(path)?.[1]
+    if (!slug) return null
+    const { data } = await admin.from('travel_packages').select('*').eq('slug', slug).maybeSingle()
+    return (data as Row | null) ?? null
   }
   if (type === 'post') {
     const slug = /^\/blog\/([^/]+)$/.exec(path)?.[1]

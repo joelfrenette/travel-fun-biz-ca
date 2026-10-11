@@ -26,11 +26,13 @@ import { hasDash } from '@/lib/seo-score'
 // database access: lib/content-edits.ts holds the audit log, the daily slots and revert, and
 // lib/content-repair-adapters.ts connects it to posts, guides and page copy.
 
-export type ContentType = 'post' | 'guide' | 'page_copy'
-export type EditField = 'body' | 'title' | 'meta_title' | 'meta_description' | 'og_title' | 'og_description' | 'faq' | 'key_takeaways' | 'links'
+export type ContentType = 'post' | 'guide' | 'page_copy' | 'package'
+/** `ai_faqs` and `keywords` are trip page (package) fields, written only by the trip pass of the heal
+ * (lib/content-heal-run.ts); the text repair never touches them. */
+export type EditField = 'body' | 'title' | 'meta_title' | 'meta_description' | 'og_title' | 'og_description' | 'faq' | 'key_takeaways' | 'links' | 'ai_faqs' | 'keywords'
 export type EditMethod = 'ai' | 'delete' | 'fixer' | 'links' | 'generate'
 /** The fields a repair can touch. `links` is not one of them: it is how a body edit made only of links is labelled. */
-type LogicalField = Exclude<EditField, 'links'>
+type LogicalField = Exclude<EditField, 'links' | 'ai_faqs' | 'keywords'>
 
 export interface FaqPair {
   q: string

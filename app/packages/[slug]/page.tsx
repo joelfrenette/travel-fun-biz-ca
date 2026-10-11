@@ -24,6 +24,7 @@ import { TripTestimonials } from "@/components/trip-testimonials"
 import { TripGallery } from "@/components/trip-gallery"
 import { TripVideo } from "@/components/trip-video"
 import { TripJournal } from "@/components/trip-journal"
+import { LinkifiedText } from "@/components/linkified-text"
 
 export const revalidate = 300
 
@@ -83,6 +84,8 @@ export default async function PackagePage({ params }: Props) {
   const notIncluded = splitLines(pkg.not_included)
   const faqs = faqsOf(pkg)
   const description = pkg.full_description || pkg.short_description || ""
+  // Structured data gets the description without the site-link markdown the heal may add ("[text](/path)" -> "text").
+  const plainDescription = description.replace(/\[([^\]\n]+)\]\(\/[^)\s]*\)/g, "$1")
   const pageUrl = absoluteUrl(`/packages/${pkg.slug}`)
   const image = pkg.image_url || DEFAULT_OG_IMAGE
 
@@ -95,7 +98,7 @@ export default async function PackagePage({ params }: Props) {
           "@context": "https://schema.org",
           "@type": "Article",
           headline: pkg.name,
-          description: pkg.short_description || description,
+          description: pkg.short_description || plainDescription,
           image,
           url: pageUrl,
           mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
@@ -118,7 +121,7 @@ export default async function PackagePage({ params }: Props) {
           "@context": "https://schema.org",
           "@type": "TouristTrip",
           name: pkg.name,
-          description: pkg.short_description || description,
+          description: pkg.short_description || plainDescription,
           url: pageUrl,
           image,
           touristType: pkg.category,
@@ -201,7 +204,7 @@ export default async function PackagePage({ params }: Props) {
               <div>
                 <h2 className="mb-3 text-2xl font-bold">{translate(language, "About this trip")}</h2>
                 <div className="space-y-4 text-pretty leading-relaxed text-muted-foreground">
-                  {description.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
+                  {description.split(/\n{2,}/).map((para, i) => <p key={i}><LinkifiedText text={para} /></p>)}
                 </div>
               </div>
             )}
