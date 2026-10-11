@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { samplePackages } from '@/content/packages'
 import type { TravelPackage } from '@/types/travel'
+import { isPastTrip } from '@/lib/past-trip'
 
 // A dated traveler update on a trip ("where we went, what happened") - roadmap use case
 // 6aed9806. Admin-entered only; never AI-generated, since it's a first-person account of a real
@@ -182,7 +183,8 @@ export async function getNextTripForRecap(pkg: DbPackage): Promise<DbPackage | n
   const slug = pkg.next_trip_slug?.trim()
   if (slug && slug !== pkg.slug) {
     const chosen = await getPublishedPackageBySlug(slug)
-    if (chosen && chosen.id !== pkg.id) return chosen
+    // A chosen trip that has itself already happened is no "next trip": fall back to the category lookup.
+    if (chosen && chosen.id !== pkg.id && !isPastTrip(chosen)) return chosen
   }
   return getNextUpcomingPackageInCategory(pkg.category, pkg.id)
 }

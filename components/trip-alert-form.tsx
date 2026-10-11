@@ -35,6 +35,15 @@ export function TripAlertForm({ slug, language }: { slug: string; language: Lang
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug, email: email.trim(), name: name.trim() || undefined, consent, company_website: honeypot, attribution: getAttribution() }),
       })
+      if (res.status === 429) {
+        setError(translate(language, "Too many sign-ups from your connection just now. Please wait a few minutes and try again."))
+        return
+      }
+      if (res.status === 400) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string }
+        setError(body.message || translate(language, "Please check your email address and tick the box."))
+        return
+      }
       if (!res.ok) throw new Error("failed")
       track("trip_alert_signup", { page_path: window.location.pathname })
       setDone(true)

@@ -3,7 +3,8 @@
 // No network, no database, no model call.
 // Run: pnpm dlx tsx scripts/check-recap.ts
 import { isPastTrip, normaliseRecapMode, happenedLabel, defaultAlertTag, cleanAlertTag, effectiveAlertTag, hasRecap } from '../lib/past-trip'
-import { recapBlockers, recapGrounding, cleanRecap, usableNotes, RECAP_WORDS_MIN, type RecapTrip, type RecapNote } from '../lib/recap-composer'
+import { recapBlockers, recapGrounding, cleanRecap, usableNotes, RECAP_WORDS_MIN, gateRecap, notesWordCount, NOTES_MIN_WORDS, NOTES_TOO_SHORT_REASON, type RecapTrip, type RecapNote } from '../lib/recap-composer'
+import { RECAP_LOG_NAME } from '../lib/package-sources'
 import { recapDriftFindings, type PackageDriftRow } from '../lib/content-drift'
 import { watchableTrips } from '../lib/source-watch'
 import { cleanJournal } from '../lib/recap-run'
@@ -57,7 +58,7 @@ const withText = (extra: string) => ({ ...good, summary: `${good.summary} ${extr
 const blocked = (extra: string) => recapBlockers(withText(extra), grounding, trip.name)
 check('a number not in the notes is held (numbers)', blocked('Forty-two of us joined and 37 swam.').some((b) => /number not in/.test(b)), blocked('37 swam.'))
 check('a made-up count in words is held', blocked('We tried four restaurants that week.').some((b) => /count written in words/.test(b)))
-check('a number that IS in the notes passes (the 12th of May)', blocked('We arrived on May 12.').length === 0, blocked('We arrived on May 12.'))
+check('a number that IS in the notes passes (the 12th of May)', blocked('We met the group in Athens on May 12.').length === 0, blocked('We met the group in Athens on May 12.'))
 check('a price is held', blocked('It cost $2,499 per person.').length > 0 && blocked('Great price for what you get.').some((b) => /price/.test(b)))
 check('a deal or discount is held', blocked('We got a great deal.').some((b) => /price, deal/.test(b)))
 check('superlatives are held (best, award-winning, 5-star, world-class)', ['It was the best hotel.', 'An award-winning ship.', 'A 5-star resort.', 'World-class dining.'].every((t) => blocked(t).some((b) => /superlative/.test(b))))
@@ -66,12 +67,38 @@ check('a date beyond the row (another month) is held', blocked('We went back in 
 check('a year not in the row is held', blocked('It was just like 2019.').some((b) => /number not in/.test(b)))
 check('a made-up venue or person is held', blocked('Dinner was at Taverna Poseidon with Maria Papadopoulos.').some((b) => /named place or person/.test(b)), blocked('Dinner was at Taverna Poseidon.'))
 check('a quote or guest testimonial is held', blocked('One guest said "it changed my life".').some((b) => /quote/.test(b)) && blocked('Guests said it was lovely.').some((b) => /quote/.test(b)))
-check('"we" and "our" are allowed (first person, Joel\'s account)', blocked('We loved every minute and our group laughed a lot.').length === 0, blocked('We loved every minute.'))
+check('"we" and "our" are allowed (first person, Joel\'s account)', blocked('We walked up to the village for lunch and our group had a slow beach afternoon.').length === 0, blocked('We walked up to the village for lunch.'))
 check('a dash or a link is held', blocked('A long day — and a good one.').some((b) => /dash/.test(b)) && blocked('See https://example.com.').some((b) => /link/.test(b)))
 check('cleanRecap removes dashes before the gate sees them', !/—|–/.test(cleanRecap({ summary: 'A long day — a good one.', highlights: ['a – b'] }).summary))
 check('RECAP_WORDS_MIN is the 110 floor', RECAP_WORDS_MIN === 110)
 check('notes with nothing written are not counted', usableNotes([{ date: '2026-05-12', title: '', body: '' }, ...notes]).length === 3)
 check('journal input: date and title required, blank rows dropped, sorted', cleanJournal([{ date: '', title: '', body: '' }, { date: '2026-05-14', title: 'b', body: 'x' }, { date: '2026-05-12', title: 'a', body: '' }])?.map((e) => e.title).join('') === 'ab' && cleanJournal([{ date: 'bad', title: 'x', body: '' }]) === null)
+
+// ─── QA round 1: the stricter gate (sentence support, names, number words, weather and feelings, thin notes) ───
+const alaska: RecapTrip = { name: 'Alaska Cruise', destination: 'Alaska', available_from: '2026-06-01', available_to: '2026-06-08', short_description: null, full_description: null, highlights: null }
+const alaskaNotes: RecapNote[] = [
+  { date: '2026-06-01', title: 'Boarding', body: 'We boarded the ship in Juneau and found the spa on deck five.' },
+  { date: '2026-06-03', title: 'Glacier day', body: 'The glacier views were calm and the spa was great.' },
+  { date: '2026-06-05', title: 'Ashore', body: 'We walked the town and had coffee.' },
+]
+const aG = recapGrounding(alaska, usableNotes(alaskaNotes))
+const only = (sentence: string, re: RegExp, g = aG, name = alaska.name) => recapBlockers({ summary: sentence, highlights: [] }, g, name).filter((b) => re.test(b))
+check('support: "we toured a winery and met the captain" fails against spa/glacier/Juneau notes', only('We toured a winery and met the captain.', /not backed by the notes/).length === 1, only('We toured a winery and met the captain.', /not backed/))
+check('support: "the spa was great and the glacier views were calm" passes', only('The spa was great and the glacier views were calm.', /not backed by the notes/).length === 0, only('The spa was great and the glacier views were calm.', /not backed/))
+check('support: one unsupported sentence is enough to hold the whole recap', recapBlockers({ ...good, summary: `${good.summary} We toured a winery and met the captain.` }, grounding, trip.name).some((b) => /not backed/.test(b)))
+check('support: an unsupported highlight is held too', recapBlockers({ ...good, highlights: [...good.highlights.slice(0, 2), 'A private wine tasting with the captain'] }, grounding, trip.name).some((b) => /not backed/.test(b)))
+check('support: light stemming counts walked/walk and views/view as the same word', only('We walk the town for coffee.', /not backed by the notes/).length === 0)
+check('names: a mid-sentence capitalised word not in the notes is held (Dubrovnik, Maria)', only('We sailed to Dubrovnik.', /a name the notes/).length === 1 && only('Our friend Maria came along.', /a name the notes/).length === 1)
+check('names: Juneau passes because the notes say it', only('We boarded the ship in Juneau.', /a name the notes/).length === 0)
+check('names: a capital at the start of a sentence is not a name', only('Coffee was had in the town.', /a name the notes/).length === 0)
+check('number words: "two", "a dozen", "a couple of", "hundreds" are held', ['We saw two whales.', 'A dozen of us went ashore.', 'We spent a couple of hours there.', 'Hundreds of birds flew by.'].every((t) => only(t, /number written in words/).length === 1), ['We saw two whales.'].map((t) => only(t, /number written in words/)))
+check('number words: allowed when the notes use the same word', only('We saw two whales.', /number written in words/, recapGrounding(alaska, usableNotes([...alaskaNotes, { date: '2026-06-06', title: 'Whales', body: 'We saw two whales from the deck.' }]))).length === 0)
+check('weather: "warm and sunny" is held unless the notes say it', only('It was warm and sunny on deck.', /weather, crowd or season/).length === 1 && only('It was warm and sunny on deck.', /weather, crowd or season/, recapGrounding(alaska, usableNotes([...alaskaNotes, { date: '2026-06-06', title: 'Deck', body: 'It was warm and sunny on deck.' }]))).length === 0)
+check('feelings: "nobody got seasick" is held unless the notes say it', only('Nobody got seasick.', /how people felt/).length === 1 && only('Nobody got seasick.', /how people felt/, recapGrounding(alaska, usableNotes([...alaskaNotes, { date: '2026-06-06', title: 'Sea', body: 'Nobody got seasick on the crossing.' }]))).length === 0)
+const shortNotes: RecapNote[] = [{ date: '2026-06-01', title: 'a', body: 'We boarded.' }, { date: '2026-06-02', title: 'b', body: 'Glacier day.' }, { date: '2026-06-03', title: 'c', body: 'Spa day.' }]
+check('thin notes: under 40 words in total never auto-publish (draft with the reason)', notesWordCount(shortNotes) < NOTES_MIN_WORDS && gateRecap(good, grounding, trip.name, shortNotes)[0] === NOTES_TOO_SHORT_REASON && NOTES_TOO_SHORT_REASON === 'add a few more notes so the recap stays true to the trip')
+check('thin notes: 40 words or more do not add that reason', notesWordCount(notes) >= NOTES_MIN_WORDS && !gateRecap(good, grounding, trip.name, notes).includes(NOTES_TOO_SHORT_REASON), notesWordCount(notes))
+check('the Convert to Past Trip log row name is shared by the list filter and the extract guard', RECAP_LOG_NAME === 'Recap (written from journal notes)')
 
 // ─── Never unpublish a past trip ────────────────────────────────────────────────────
 const rows: PackageDriftRow[] = [

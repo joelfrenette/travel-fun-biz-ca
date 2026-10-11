@@ -20,7 +20,7 @@ const SERVER_UPLOAD_MAX = 4 * 1024 * 1024
 interface Journal { date: string; title: string; body: string }
 interface Photo { id: string; file_name: string | null; preview_url: string | null; added: boolean; stored: string | null }
 interface Choice { slug: string; name: string; category: string; available_from: string | null }
-interface Draft { summary: string; highlights: string[]; blockers: string[]; at: string }
+interface Draft { summary: string; highlights: string[]; blockers: string[]; at: string; readyToReplace?: boolean }
 interface State {
   migrated: boolean
   mode: "auto" | "recap" | "live"
@@ -201,6 +201,7 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
     await run("write", "Writing the recap", async () => {
       const r = await post({ action: "write" }, "Writing the recap")
       if (r.published) toast({ title: "Recap written and published", description: "It is live on the trip page. Use Edit to change the words or Undo recap to take it back." })
+      else if (r.replaceable) toast({ title: "A new recap is ready", description: "A recap is already live, so nothing changed yet. Read the new one below and click Replace the live recap if you want it." })
       else toast({ title: "Recap written but held back", description: "The checks did not pass, so it is not on the page. The reasons are shown below.", variant: "destructive" })
       onChanged?.()
     })
@@ -217,6 +218,14 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
       setEditing(false)
       setEditBlockers([])
       toast({ title: "Recap updated" })
+      onChanged?.()
+    })
+  }
+
+  async function replaceLive() {
+    await run("replace", "Replacing the recap", async () => {
+      await post({ action: "replace" }, "Replacing the recap")
+      toast({ title: "The live recap was replaced", description: "Undo recap puts the earlier one back." })
       onChanged?.()
     })
   }
@@ -338,7 +347,17 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
           </div>
           {!enoughNotes && <p className="text-xs text-amber-700">Add at least {s.notesNeeded} journal notes (and save them) to enable this button.</p>}
 
-          {s.draft && (
+          {s.draft?.readyToReplace && (
+            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-semibold">Replace the live recap?</p>
+              <p>A new recap passed the checks. Your current recap (it may include your own edits) is still the one on the page until you click.</p>
+              <p className="whitespace-pre-line rounded bg-white/70 p-2 text-foreground">{s.draft.summary}</p>
+              {s.draft.highlights.length > 0 && <ul className="list-disc pl-5">{s.draft.highlights.map((h) => <li key={h}>{h}</li>)}</ul>}
+              <Button type="button" size="sm" disabled={busy === "replace"} onClick={replaceLive}>{busy === "replace" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Replace the live recap"}</Button>
+            </div>
+          )}
+
+          {s.draft && !s.draft.readyToReplace && (
             <div className="space-y-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
               <p className="font-semibold">A recap was written but is NOT on the page. The checks held it back:</p>
               <ul className="list-disc pl-5">{s.draft.blockers.map((b) => <li key={b}>{b}</li>)}</ul>

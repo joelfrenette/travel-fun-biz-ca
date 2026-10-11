@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getPackageById } from '@/lib/packages'
 import { defaultAlertTag, effectiveAlertTag, hasRecap, isPastTrip, normaliseRecapMode } from '@/lib/past-trip'
 import { RECAP_NOTES_MIN } from '@/lib/recap-composer'
-import { addTripPhotoToGallery, listTripPhotos, notesOf, readDraft, saveEditedRecap, saveSettings, undoRecap, upcomingChoices, writeRecap } from '@/lib/recap-run'
+import { addTripPhotoToGallery, listTripPhotos, notesOf, readDraft, replaceWithDraft, saveEditedRecap, saveSettings, undoRecap, upcomingChoices, writeRecap } from '@/lib/recap-run'
 import { MAX_TRIP_PHOTOS } from '@/lib/package-sources'
 
 export const maxDuration = 120
@@ -63,7 +63,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (body.action === 'write') {
     const r = await writeRecap(admin, params.id)
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
-    return NextResponse.json(r.published ? { published: true, summary: r.recap.summary, highlights: r.recap.highlights } : { published: false, summary: r.recap.summary, highlights: r.recap.highlights, blockers: r.blockers })
+    return NextResponse.json(r.published ? { published: true, summary: r.recap.summary, highlights: r.recap.highlights } : { published: false, replaceable: !!r.replaceable, summary: r.recap.summary, highlights: r.recap.highlights, blockers: r.blockers })
+  }
+  if (body.action === 'replace') {
+    const r = await replaceWithDraft(admin, params.id)
+    return r.ok ? NextResponse.json({ published: true }) : NextResponse.json({ error: r.error }, { status: r.status })
   }
   if (body.action === 'edit') {
     const r = await saveEditedRecap(admin, params.id, body)

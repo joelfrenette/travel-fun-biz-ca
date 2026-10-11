@@ -1,5 +1,6 @@
 import { isAiConfigured, parseModelJson } from '@/lib/ai-verify'
 import { callText, removeDashes, numbersIn, proseOf, ungroundedWordCounts, namedThingsNotInBrief, SUPERLATIVE_PATTERNS, PLACEHOLDER_PATTERNS, REFUSAL_PATTERNS, RECENCY_PATTERNS } from '@/lib/guide-composer'
+import { unexcusedWeatherWords } from '@/lib/page-copy-composer'
 import { happenedLabel } from '@/lib/past-trip'
 
 // Writes the recap of a trip that already happened (growth loop WP14): a short past-tense summary and a few
@@ -87,6 +88,7 @@ ${recapGrounding(trip, notes)}
 
 Rules:
 - Write "summary": ${RECAP_WORDS_MIN + 10} to ${RECAP_WORDS_MAX - 20} words in the PAST tense, warm and plain, Canadian spelling. "We" and "our" are allowed because the notes are the host's own account. Open with one sentence that says what the trip was and where it went.
+- Stay close to the notes: reuse their own words and facts, sentence by sentence. A check rejects any sentence whose words are mostly not in the notes or the page, any capitalised name that is not in them, any number word (two, twenty, a dozen), and any weather or "how everyone felt" claim they do not make.
 - Use only things the notes or the page text say. If a detail is not there, leave it out. Do not invent a venue, a restaurant, a person, a guest's name, a quote, a review, or what anyone said or felt. No quotation marks at all.
 - Write no digits unless the exact same number is in the GROUNDING; keep amounts vague and in words only when the grounding says them. State no prices, costs, deals or discounts. Mention a month only if the GROUNDING names it.
 - Do not use best, number one, award-winning, any star rating, top-rated, world-class, finest, luxury, famous, or similar claims about any place or company. Do not say the trip was brand new or recently built.
@@ -96,6 +98,11 @@ Return ONLY minified JSON: {"summary":"...","highlights":["..."]}`
 }
 
 const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
+
+/** Words written in the journal notes (titles and bodies) in total. */
+export function notesWordCount(notes: RecapNote[]): number {
+  return notes.reduce((n, x) => n + wordCount(`${x.title} ${x.body}`), 0)
+}
 
 /** Tidies what the model (or an editing admin) produced: dashes out, spaces collapsed, highlights trimmed. */
 export function cleanRecap(raw: { summary?: unknown; highlights?: unknown }): Recap {
@@ -116,6 +123,7 @@ const LINK_PATTERN = /https?:\/\/|\bwww\.|\]\(/i
 export function recapBlockers(recap: Recap, grounding: string, tripName: string): string[] {
   const blockers: string[] = []
   const all = [recap.summary, ...recap.highlights].join('\n')
+  const support = supportSet(`${grounding}\n${tripName}`)
   const words = wordCount(recap.summary)
   if (words < RECAP_WORDS_MIN) blockers.push(`summary too short (${words} words, need ${RECAP_WORDS_MIN} to ${RECAP_WORDS_MAX})`)
   if (words > RECAP_WORDS_MAX) blockers.push(`summary too long (${words} words, need ${RECAP_WORDS_MIN} to ${RECAP_WORDS_MAX})`)
@@ -149,8 +157,84 @@ export function recapBlockers(recap: Recap, grounding: string, tripName: string)
   // A restaurant, ship, person or place nobody gave us is a made-up detail until proven otherwise.
   const venues = namedThingsNotInBrief(all, `${grounding} ${tripName}`)
   if (venues.length) blockers.push(`named place or person not in the notes or the page: ${venues.slice(0, 3).join(', ')}`)
+
+  // Rule 2: ANY capitalised word in the middle of a sentence that the notes, the page or the trip name never use.
+  const known = new Set(wordsOf(`${grounding} ${tripName}`))
+  const strayCaps = new Set<string>()
+  for (const s of unitsOf(recap)) {
+    s.split(/\s+/).forEach((raw, i) => {
+      const w = raw.replace(/^[("'‘“]+|[.,;:!?)"'’”]+$/g, '').replace(/['’]s$/i, '')
+      if (i > 0 && /^[A-Z][\p{L}'’-]*$/u.test(w) && w !== 'I' && !known.has(w.toLowerCase())) strayCaps.add(w)
+    })
+  }
+  if (strayCaps.size) blockers.push(`a name the notes and the page never use: ${[...strayCaps].slice(0, 4).join(', ')}`)
+
+  // Rule 3: a bare number word (two, twenty, a dozen, a couple of) is a count unless the notes say the same word.
+  const strayNumberWords = [...new Set((all.match(NUMBER_WORDS) ?? []).map((w) => w.toLowerCase()))].filter((w) => !known.has(w.split(' ')[0]))
+  if (strayNumberWords.length) blockers.push(`a number written in words that the notes do not use: ${strayNumberWords.slice(0, 4).join(', ')}`)
+
+  // Rule 4: weather, crowd and season claims, and claims about how people felt, only when the notes say them.
+  const weather = unexcusedWeatherWords(all, grounding)
+  if (weather.length) blockers.push(`a weather, crowd or season claim the notes do not make: ${weather.slice(0, 4).join(', ')}`)
+  const feelings = [...new Set((all.match(FEELING_OR_GROUP_CLAIM) ?? []).map((w) => w.toLowerCase()))].filter((w) => !known.has(w))
+  if (feelings.length) blockers.push(`a claim about how people felt or what everyone did that the notes do not make: ${feelings.slice(0, 4).join(', ')}`)
+
+  // Rule 1: every sentence and every highlight must be mostly made of words the notes or the page use.
+  for (const s of unitsOf(recap)) {
+    const content = contentWords(s)
+    if (content.length === 0) continue
+    const unsupported = content.filter((w) => !support.has(w))
+    if (1 - unsupported.length / content.length < SUPPORT_MIN) {
+      blockers.push(`not backed by the notes (${Math.round((1 - unsupported.length / content.length) * 100)}% of its words appear there): "${s.slice(0, 70)}"`)
+    }
+  }
   return blockers
 }
+
+// ─── Sentence-level support ─────────────────────────────────────────────────────────
+
+export const SUPPORT_MIN = 0.6
+/** Notes shorter than this in total cannot back a recap that is published without a person reading it. */
+export const NOTES_MIN_WORDS = 40
+export const NOTES_TOO_SHORT_REASON = 'add a few more notes so the recap stays true to the trip'
+
+const STOPWORDS = new Set(
+  ('a about above across after again against all almost along also although always am among an and another any anyone anything are around as at away back be became because been before began being below between both but by came can come could did do does doing done down during each either else enough even ever every everyone everything few for from front further get got gave give go goes going gone good great had has have having he her here hers herself him himself his how however i if in inside into is it its itself just keep kept last later left less let like little long made make many may me might more most much must my myself near need never next no nor not now of off often on once one only onto or other others our ours ourselves out over own part per quite rather really same see seen she should since so some something sometimes still such take taken than that the their theirs them themselves then there these they thing things this those though through throughout thus time times to together too took toward towards under until up upon us used using very want wanted was way we well went were what when where whether which while who whom whose why will with within without would yes yet you your yours yourself ' +
+    'day days night nights trip trips group happened took spent enjoyed started ended began morning afternoon evening later soon first second third final lot bit new old big small ').split(/\s+/),
+)
+
+/** Light stem: ing, ed, es, s stripped from longer words, so "swam"/"swim" differ but "walked"/"walk" match. */
+export function stemOf(word: string): string {
+  const w = word.toLowerCase()
+  if (w.length <= 4) return w
+  return w.replace(/(ing|ed|es|s)$/, '')
+}
+
+const wordsOf = (text: string): string[] => (text.toLowerCase().match(/[\p{L}][\p{L}'’-]*/gu) ?? []).map((w) => w.replace(/['’]s$/, ''))
+
+/** Content words of a sentence: letters only, three or more, no stopwords, stemmed. */
+export function contentWords(sentence: string): string[] {
+  return wordsOf(sentence).filter((w) => w.length >= 3 && !STOPWORDS.has(w)).map(stemOf)
+}
+
+/** The grounding without its labels ("Trip:", "Destination:" ...), as a set of stemmed content words. */
+function supportSet(grounding: string): Set<string> {
+  const text = grounding
+    .split('\n')
+    .map((l) => l.replace(/^(?:Trip|Destination|Kind of trip|Length|When it happened|Trip dates|Page summary|Page description|Page highlights): /, ''))
+    .filter((l) => !/^Joel's own journal notes/.test(l))
+    .join('\n')
+  return new Set(contentWords(text))
+}
+
+/** Every sentence of the summary, and every highlight on its own. */
+function unitsOf(recap: Recap): string[] {
+  const sentences = recap.summary.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean)
+  return [...sentences, ...recap.highlights]
+}
+
+const NUMBER_WORDS = /\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|dozens?|couple of)\b/gi
+const FEELING_OR_GROUP_CLAIM = /\b(?:nobody|no one|everyone|everybody|all of us|each of us|seasick(?:ness)?|homesick|nervous|scared|afraid|tired|exhausted|thrilled|delighted|amazed|stunned|overjoyed|relieved|emotional|tears|cried|crying|laughed|laughing|cheered|stress(?:ed|ful)?|worried|anxious|bored|disappointed)\b/gi
 
 export type ComposedRecap = { ok: true; recap: Recap; blockers: string[]; grounding: string } | { ok: false; error: string }
 
@@ -165,5 +249,13 @@ export async function composeRecap(trip: RecapTrip, rawNotes: RecapNote[]): Prom
   const json = parseModelJson<{ summary?: unknown; highlights?: unknown }>(out.text)
   if (!json || typeof json !== 'object') return { ok: false, error: 'the recap came back in a form that could not be read' }
   const recap = cleanRecap(json)
-  return { ok: true, recap, blockers: recapBlockers(recap, grounding, trip.name), grounding }
+  return { ok: true, recap, blockers: gateRecap(recap, grounding, trip.name, notes), grounding }
+}
+
+/** The full gate for an automatic recap: recapBlockers plus the rule that notes under NOTES_MIN_WORDS words in total
+ * never allow auto-publishing, however clean the text looks. Pure. */
+export function gateRecap(recap: Recap, grounding: string, tripName: string, notes: RecapNote[]): string[] {
+  const blockers = recapBlockers(recap, grounding, tripName)
+  if (notesWordCount(notes) < NOTES_MIN_WORDS) blockers.unshift(NOTES_TOO_SHORT_REASON)
+  return blockers
 }

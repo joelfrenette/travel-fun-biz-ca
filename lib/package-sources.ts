@@ -17,6 +17,9 @@ export const SIGNED_URL_SECONDS = 60
  * gallery, and it is never sent to the model. Kept out of listSources: the Past trip panel owns them. */
 export type SourceKind = 'screenshot' | 'pdf' | 'url' | 'text' | 'photo'
 export const MAX_TRIP_PHOTOS = 20
+/** The file name of the per-trip log row that holds the recap's edit history (lib/recap-run.ts). It is not a source
+ * to read: hidden from the Add details list and refused by the extract route. */
+export const RECAP_LOG_NAME = 'Recap (written from journal notes)'
 export type SourceStatus = 'uploaded' | 'extracted' | 'applied' | 'failed'
 
 /** One logged change. `before` and `after` are the column values (a list stays a list). */
@@ -120,7 +123,7 @@ export async function listSources(admin: SupabaseClient, packageId: string): Pro
   if (error) return fail(500, /relation .* does not exist|package_sources/i.test(error.message) ? 'The package_sources table is missing: run migration 0034 (supabase/migrations/0034_package_sources.sql) in the Supabase SQL editor.' : error.message)
   return {
     ok: true,
-    value: ((data ?? []) as PackageSourceRow[]).map(({ extracted_text, ...rest }) => ({ ...rest, text_chars: extracted_text?.length ?? 0, cost_usd: estimateCostUsd(rest.input_tokens, rest.output_tokens) })),
+    value: ((data ?? []) as PackageSourceRow[]).filter((r) => r.file_name !== RECAP_LOG_NAME).map(({ extracted_text, ...rest }) => ({ ...rest, text_chars: extracted_text?.length ?? 0, cost_usd: estimateCostUsd(rest.input_tokens, rest.output_tokens) })),
   }
 }
 

@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     if (isHoneypotFilled(json)) return NextResponse.json({ success: true })
 
     const parsed = tripAlertSubmissionSchema.safeParse(json)
-    if (!parsed.success) return NextResponse.json({ error: 'Invalid data', issues: parsed.error.flatten() }, { status: 400 })
+    if (!parsed.success) return NextResponse.json({ error: 'Invalid data', message: parsed.error.issues[0]?.message ?? 'Please check your email address and the box.' }, { status: 400 })
 
     if (!(await allowRequest(request, 'trip-alert', 5, 600))) {
       return NextResponse.json({ error: 'Too many submissions - please try again shortly' }, { status: 429 })
@@ -40,8 +40,9 @@ export async function POST(request: Request) {
     if (backupId) await markLeadSent(backupId, result)
     if (result.ok) return NextResponse.json({ success: true })
 
+    // The detail stays in the server log; the visitor gets one fixed sentence (the sign-up is also saved in `leads`).
     console.error('[trip-alerts] not saved:', result.error)
-    return NextResponse.json({ error: result.error }, { status: result.error.includes('not configured') ? 503 : 502 })
+    return NextResponse.json({ error: 'We could not save your sign-up just now. Please try again in a few minutes.' }, { status: result.error.includes('not configured') ? 503 : 502 })
   } catch (error) {
     console.error('[trip-alerts] failed', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

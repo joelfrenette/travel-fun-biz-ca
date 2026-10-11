@@ -2,10 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getPackageById, updatePackage, type DbPackage, type JournalEntry } from '@/lib/packages'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { commitEdits, revertSourceEdits } from '@/lib/package-enrich'
-import { downloadSourceFile, signedPreviewUrl, type PackageEdit, type PackageSourceRow } from '@/lib/package-sources'
+import { downloadSourceFile, signedPreviewUrl, RECAP_LOG_NAME, type PackageEdit, type PackageSourceRow } from '@/lib/package-sources'
 import { addedPhotos, planPhotoAdds, PHOTO_RULES } from '@/lib/supplier-photos'
-import { composeRecap, cleanRecap, recapBlockers, recapGrounding, usableNotes, type Recap, type RecapNote } from '@/lib/recap-composer'
-import { cleanAlertTag, isPastTrip, normaliseRecapMode, todayYmd, type RecapMode } from '@/lib/past-trip'
+import { composeRecap, cleanRecap, recapBlockers, recapGrounding, usableNotes, notesWordCount, NOTES_MIN_WORDS, type Recap, type RecapNote } from '@/lib/recap-composer'
+import { cleanAlertTag, hasRecap, isPastTrip, normaliseRecapMode, todayYmd, type RecapMode } from '@/lib/past-trip'
 
 // The server side of the "Convert to Past Trip" panel (growth loop WP14). Joel's call (2026-10-11): "Write the
 // recap" writes AND publishes in one step when the quality gate is clean. A recap the gate holds is saved as an
@@ -13,7 +13,7 @@ import { cleanAlertTag, isPastTrip, normaliseRecapMode, todayYmd, type RecapMode
 // small "Recap" source row of the trip, so "Undo recap" restores what was there before (the same log and the
 // same Revert the Add details card uses). Nothing here ever unpublishes or hides a trip.
 
-export const RECAP_LOG_NAME = 'Recap (written from journal notes)'
+export { RECAP_LOG_NAME }
 export const recapDraftKey = (packageId: string) => `recap_draft:${packageId}`
 
 export interface RecapDraft {
@@ -21,6 +21,8 @@ export interface RecapDraft {
   highlights: string[]
   blockers: string[]
   at: string
+  /** A clean recap waiting for the admin's one-click "Replace the live recap?" (a recap is already live). */
+  readyToReplace?: boolean
 }
 
 export async function readDraft(admin: SupabaseClient, packageId: string): Promise<RecapDraft | null> {
@@ -87,24 +89,41 @@ async function publishRecap(admin: SupabaseClient, packageId: string, recap: Rec
 
 export type WriteResult =
   | { ok: true; published: true; recap: Recap; pkg: DbPackage | null }
-  | { ok: true; published: false; recap: Recap; blockers: string[] }
+  | { ok: true; published: false; recap: Recap; blockers: string[]; replaceable?: boolean }
   | { ok: false; status: number; error: string }
 
-/** "Write the recap": ONE model call, then the gate; published at once when clean, else saved as a draft with reasons. */
+/** "Write the recap": ONE model call, then the gate; published at once when clean, else saved as a draft with reasons.
+ * When a recap is already live (it may have been edited by hand), a clean new one is saved as a draft that waits for
+ * one click (replaceWithDraft) instead of silently overwriting it. */
 export async function writeRecap(admin: SupabaseClient, packageId: string): Promise<WriteResult> {
   const pkg = await getPackageById(packageId)
   if (!pkg) return { ok: false, status: 404, error: 'Trip not found.' }
   const composed = await composeRecap(pkg, notesOf(pkg))
   if (!composed.ok) return { ok: false, status: 422, error: composed.error }
-  if (composed.blockers.length > 0) {
-    const draft: RecapDraft = { summary: composed.recap.summary, highlights: composed.recap.highlights, blockers: composed.blockers, at: new Date().toISOString() }
+  const replacing = hasRecap(pkg)
+  if (composed.blockers.length > 0 || replacing) {
+    const draft: RecapDraft = { summary: composed.recap.summary, highlights: composed.recap.highlights, blockers: composed.blockers, at: new Date().toISOString(), ...(replacing && composed.blockers.length === 0 ? { readyToReplace: true } : {}) }
     const saved = await setSetting(admin, recapDraftKey(packageId), JSON.stringify(draft))
-    if (saved.error) return { ok: false, status: 500, error: `The recap was held back by the checks and could not be saved: ${saved.error}` }
-    return { ok: true, published: false, recap: composed.recap, blockers: composed.blockers }
+    if (saved.error) return { ok: false, status: 500, error: `The recap was written but could not be saved: ${saved.error}` }
+    return { ok: true, published: false, recap: composed.recap, blockers: composed.blockers, ...(draft.readyToReplace ? { replaceable: true } : {}) }
   }
   const done = await publishRecap(admin, packageId, composed.recap, 'generate')
   if (!done.ok) return done
   return { ok: true, published: true, recap: composed.recap, pkg: done.pkg }
+}
+
+/** The one click after "Replace the live recap?": publishes the waiting draft, after running the gate on it again
+ * against the notes as they are now. A draft the gate held is never published here. */
+export async function replaceWithDraft(admin: SupabaseClient, packageId: string): Promise<{ ok: true; pkg: DbPackage | null } | { ok: false; status: number; error: string }> {
+  const draft = await readDraft(admin, packageId)
+  if (!draft || !draft.readyToReplace) return { ok: false, status: 409, error: 'There is no new recap waiting to replace the live one. Click Write it again.' }
+  const pkg = await getPackageById(packageId)
+  if (!pkg) return { ok: false, status: 404, error: 'Trip not found.' }
+  const recap = cleanRecap({ summary: draft.summary, highlights: draft.highlights })
+  const notes = notesOf(pkg)
+  if (recapBlockers(recap, recapGrounding(pkg, notes), pkg.name).length > 0 || notesWordCount(notes) < NOTES_MIN_WORDS) return { ok: false, status: 422, error: 'The notes changed and the waiting recap no longer passes the checks. Click Write it again.' }
+  const done = await publishRecap(admin, packageId, recap, 'generate')
+  return done.ok ? { ok: true, pkg: done.pkg } : done
 }
 
 /** The admin's own edit of the recap text. Same gate; published at once when clean (a held edit is not saved). */
