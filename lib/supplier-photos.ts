@@ -44,13 +44,22 @@ const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|\[?::1\]?
 
 // ─── Hosts ──────────────────────────────────────────────────────────────────────────
 
-const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac'])
+/** Hosts where each customer gets a subdomain: treated as public suffixes. */
+export const SHARED_HOSTING_SUFFIXES = ['wixsite.com', 'myshopify.com', 'github.io', 'vercel.app', 'cloudfront.net', 'squarespace.com', 'godaddysites.com'] as const
+
+const SECOND_LEVEL =new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac'])
 
 /** The registrable domain of a host: www.x.com and cdn.x.com give x.com; shop.x.co.uk gives x.co.uk. A small rule,
  * not the full public suffix list: it only has to keep a supplier's own CDN hosts and refuse unrelated sites. */
 export function registrableDomain(host: string): string {
   const h = host.toLowerCase().replace(/\.$/, '')
   if (/^\d+\.\d+\.\d+\.\d+$/.test(h) || h.includes(':')) return h
+  // Shared hosting: every customer is a subdomain of one provider domain, so the provider's domain is a public
+  // suffix and the tenant is the label before it (a tenant's page must not admit another tenant's pictures).
+  for (const suffix of SHARED_HOSTING_SUFFIXES) {
+    if (h === suffix) return h
+    if (h.endsWith(`.${suffix}`)) return h.slice(0, -suffix.length - 1).split('.').slice(-1).concat(suffix).join('.')
+  }
   const labels = h.split('.')
   if (labels.length <= 2) return h
   const last = labels[labels.length - 1]
@@ -390,11 +399,186 @@ export async function probeImage(url: string, doFetch: typeof fetch = fetch): Pr
   }
 }
 
+// ─── Downloading a photo safely ─────────────────────────────────────────────────────
+
+/** True for an address that must never be fetched from the server: loopback, private, link-local, carrier-grade
+ * NAT, unspecified, unique-local and link-local IPv6, and IPv4 written inside IPv6 (::ffff:a.b.c.d or its hex form). */
+export function isPrivateIp(ip: string): boolean {
+  const s = ip.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  const v4 = (a: number, b: number): boolean =>
+    a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127) || a >= 224
+  const dotted = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s)
+  if (dotted) return v4(Number(dotted[1]), Number(dotted[2]))
+  if (!s.includes(':')) return false
+  const mapped = /^(?:0{0,4}:){0,5}:?ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(s) ?? /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(s)
+  if (mapped) return isPrivateIp(mapped[1])
+  const hexMapped = /^(?:0{0,4}:){0,5}:?ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(s)
+  if (hexMapped) {
+    const hi = parseInt(hexMapped[1], 16)
+    const lo = parseInt(hexMapped[2], 16)
+    return isPrivateIp(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
+  }
+  if (s === '::' || s === '::1') return true
+  const first = s.split(':')[0]
+  if (first === '') return true // other :: forms are not public addresses we would ever want
+  const head = parseInt(first, 16)
+  if (Number.isNaN(head)) return true
+  if ((head & 0xfe00) === 0xfc00) return true // fc00::/7
+  if ((head & 0xffc0) === 0xfe80) return true // fe80::/10
+  return false
+}
+
+export type PhotoDownload = { ok: true; buffer: Buffer; mediaType: string; finalUrl: string } | { ok: false; reason: string }
+
+export const PHOTO_MAX_HOPS = 3
+export const PHOTO_DOWNLOAD_TIMEOUT_MS = 10_000
+
+export interface DownloadDeps {
+  /** All addresses a host resolves to. */
+  lookup?: (host: string) => Promise<string[]>
+  fetch?: typeof fetch
+}
+
+async function defaultLookup(host: string): Promise<string[]> {
+  const dns = await import('node:dns/promises')
+  return (await dns.lookup(host, { all: true })).map((r) => r.address)
+}
+
+/** Why a single hop may not be fetched, or null: https, not a private literal, on the supplier's registrable
+ * domain, and resolving only to public addresses. */
+export async function hopRejection(url: string, pageUrls: string[], lookup: (host: string) => Promise<string[]>): Promise<string | null> {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return 'not a web address'
+  }
+  if (u.protocol !== 'https:') return 'not https'
+  if (u.username || u.password) return 'has a login in the address'
+  const host = u.hostname.replace(/^\[|\]$/g, '')
+  if (PRIVATE_HOST.test(host) || isPrivateIp(host)) return 'private address'
+  if (!pageUrls.some((p) => sameRegistrableDomain(p, url))) return 'different website'
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':')) return null
+  try {
+    const addrs = await lookup(host)
+    if (addrs.length === 0) return 'the host did not resolve'
+    if (addrs.some(isPrivateIp)) return 'resolves to a private address'
+  } catch {
+    return 'the host did not resolve'
+  }
+  return null
+}
+
+/**
+ * Downloads one supplier photo for the server, defensively. Redirects are followed by hand (at most 3 hops) and EVERY
+ * hop, the last included, must be https, not a private literal, on the supplier's registrable domain (so the domain
+ * that is actually downloaded from is checked, not only the listed one) and resolve only to public addresses. The
+ * whole thing has a 10 second limit, the body is streamed and aborted past 8 MB, and the bytes must start like a
+ * JPEG, PNG or WebP. Nothing is returned unless every check passed.
+ *
+ * Known limit: the name is resolved here and again by fetch, so a host that changes its answer between the two
+ * lookups (DNS rebinding) is not caught; the registrable-domain rule above keeps that to the supplier's own domain.
+ */
+export async function fetchSupplierPhoto(url: string, pageUrls: string[], deps: DownloadDeps = {}): Promise<PhotoDownload> {
+  const doFetch = deps.fetch ?? fetch
+  const lookup = deps.lookup ?? defaultLookup
+  const signal = AbortSignal.timeout(PHOTO_DOWNLOAD_TIMEOUT_MS)
+  try {
+    let current = url
+    for (let hop = 0; hop <= PHOTO_MAX_HOPS; hop++) {
+      const why = await hopRejection(current, pageUrls, lookup)
+      if (why) return { ok: false, reason: hop === 0 ? why : `a redirect went somewhere not allowed (${why})` }
+      const res = await doFetch(current, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          Referer: `${new URL(current).origin}/`,
+        },
+        redirect: 'manual',
+        signal,
+      })
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location')
+        if (!location) return { ok: false, reason: 'a redirect had no destination' }
+        if (hop === PHOTO_MAX_HOPS) return { ok: false, reason: `more than ${PHOTO_MAX_HOPS} redirects` }
+        try {
+          current = new URL(location, current).toString()
+        } catch {
+          return { ok: false, reason: 'a redirect had an unreadable destination' }
+        }
+        await res.body?.cancel().catch(() => undefined)
+        continue
+      }
+      if (!res.ok) return { ok: false, reason: `the supplier site answered ${res.status}` }
+      const declared = Number(res.headers.get('content-length'))
+      if (Number.isFinite(declared) && declared > PHOTO_RULES.maxBytes) {
+        await res.body?.cancel().catch(() => undefined)
+        return { ok: false, reason: 'larger than 8 MB' }
+      }
+      if (!res.body) return { ok: false, reason: 'the supplier site sent no data' }
+      const reader = res.body.getReader()
+      const chunks: Uint8Array[] = []
+      let total = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        total += value.byteLength
+        if (total > PHOTO_RULES.maxBytes) {
+          await reader.cancel().catch(() => undefined)
+          return { ok: false, reason: 'larger than 8 MB' }
+        }
+        chunks.push(value)
+      }
+      const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)))
+      const { detectFile } = await import('@/lib/package-sources')
+      const kind = detectFile(buffer)
+      if (!kind || kind.kind !== 'screenshot') return { ok: false, reason: 'the file is not a JPEG, PNG or WebP picture' }
+      return { ok: true, buffer, mediaType: kind.mediaType, finalUrl: current }
+    }
+    return { ok: false, reason: `more than ${PHOTO_MAX_HOPS} redirects` }
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError') ? 'the supplier site took too long' : 'the supplier site could not be reached' }
+  }
+}
+
+/** Width in pixels of an image, read with sharp (null when it cannot be read). */
+export async function imageWidth(buffer: Buffer): Promise<number | null> {
+  try {
+    const sharp = (await import('sharp')).default
+    return (await sharp(buffer).metadata()).width ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Download (every safety check) and then look at the real pixel width: under 800 is dropped before anything is
+ * uploaded. Never throws. */
+export async function vetPhoto(
+  url: string,
+  pageUrls: string[],
+  deps: { download?: (url: string, pageUrls: string[]) => Promise<PhotoDownload>; measure?: (buffer: Buffer) => Promise<number | null> } = {},
+): Promise<PhotoDownload> {
+  const download = deps.download ?? ((u: string, p: string[]) => fetchSupplierPhoto(u, p))
+  const measure = deps.measure ?? imageWidth
+  const got = await download(url, pageUrls).catch((): PhotoDownload => ({ ok: false, reason: 'the supplier site could not be reached' }))
+  if (!got.ok) return got
+  // The real pixel width, from the bytes: a tag's width attribute is only a hint.
+  const width = await measure(got.buffer).catch(() => null)
+  if (width === null) return { ok: false, reason: 'the picture could not be read' }
+  if (width < PHOTO_RULES.minWidth) return { ok: false, reason: `narrower than ${PHOTO_RULES.minWidth}px` }
+  return got
+}
+
 // ─── Adding photos (network + database) ─────────────────────────────────────────────
 
 export interface PhotoDeps {
   probe?: (url: string) => Promise<Probe>
-  upload?: (url: string, slugBase: string) => Promise<PackageImageUrls>
+  /** Safe download (default fetchSupplierPhoto). */
+  download?: (url: string, pageUrls: string[]) => Promise<PhotoDownload>
+  /** Pixel width of the downloaded bytes (default sharp metadata). */
+  measure?: (buffer: Buffer) => Promise<number | null>
+  /** Copies the bytes into our storage (default uploadGeneratedImageVariants). */
+  upload?: (buffer: Buffer, slugBase: string) => Promise<PackageImageUrls>
 }
 
 export interface PhotoAddResult {
@@ -444,7 +628,10 @@ export async function addSourcePhotos(
       else skipped.push({ url: c.url, reason: c.probe.reason })
     }
 
-    const upload = opts.deps?.upload ?? (async (u: string, slug: string) => (await import('@/lib/import-package')).uploadImagePackageVariants(u, slug))
+    const download = opts.deps?.download
+    const measure = opts.deps?.measure
+    const upload = opts.deps?.upload ?? (async (b: Buffer, slug: string) => (await import('@/lib/import-package')).uploadGeneratedImageVariants(b, slug))
+    const pageUrls = source.source_url ? [source.source_url] : []
     const started = Date.now()
     const budget = opts.budgetMs ?? 60_000
     const limit = Math.min(opts.max, room)
@@ -458,7 +645,12 @@ export async function addSourcePhotos(
         skipped.push({ url, reason: 'ran out of time; use Add more to try it again' })
         continue
       }
-      const stored = await upload(url, `${start.slug || 'trip'}-photo`).catch(() => null)
+      const got = await vetPhoto(url, pageUrls, { download, measure })
+      if (!got.ok) {
+        skipped.push({ url, reason: got.reason })
+        continue
+      }
+      const stored = await upload(got.buffer, `${start.slug || 'trip'}-photo`).catch(() => null)
       if (!stored || !stored.image_url) skipped.push({ url, reason: 'the photo could not be copied into our storage' })
       else done.push({ photo: url, stored })
     }

@@ -6,9 +6,10 @@ import { proposeEnrichment, sameSiteHost, copyBlockers, itemSupported, type Copy
 import { groundDraft, dateGrounded, numberNextToUnit, type ExtractedDraft } from '../lib/package-extract'
 import { detectFile, pdfPageCount, estimateCostUsd } from '../lib/package-sources'
 import { watchedUrls, scanPageText, rowMonths, isoWeek, rotateByWeek } from '../lib/source-watch'
-import { collectPhotoCandidates, registrableDomain, largestSrcset, rejectReason, planPhotoAdds, planPhotoRemoval, addedPhotos, photoViews, probeImage, PHOTO_RULES } from '../lib/supplier-photos'
-import { gateFaqs, faqBlockers, faqContext, hasFaqSource, hasFaqs, FAQ_MIN, FAQ_MAX } from '../lib/package-faqs'
-import { tripsNeedingFaqs } from '../lib/content-heal-run'
+import { collectPhotoCandidates, registrableDomain, largestSrcset, rejectReason, planPhotoAdds, planPhotoRemoval, addedPhotos, photoViews, probeImage, PHOTO_RULES, isPrivateIp, fetchSupplierPhoto, hopRejection, vetPhoto, imageWidth, sameRegistrableDomain } from '../lib/supplier-photos'
+import { gateFaqs, faqBlockers, faqContext, hasFaqSource, hasFaqs, FAQ_MIN, FAQ_MAX, capitalisedStrangers, groundedShare, includedClaimStrangers, agencyDoes, peopleCountClaims, GROUNDED_SHARE_MIN } from '../lib/package-faqs'
+import { tripsNeedingFaqs, nogenActive } from '../lib/content-heal-run'
+import { revertGalleryItem, tripFaqOffKey, tripFaqsOff } from '../lib/package-enrich'
 import type { PackageEdit } from '../lib/package-sources'
 
 let failed = 0
@@ -339,6 +340,117 @@ const goodWriter: CopyWriter = async () => {
   check(`faq gate: fewer than ${FAQ_MIN} survivors means no FAQs at all`, gateFaqs([...good.slice(0, 3), { question: 'What does it cost in total?', answer: 'The trip costs 2,499 dollars per person.' }, { question: 'Is it the best trip?', answer: 'It is the best trip on the Greek coast.' }], ctxText).faqs.length === 0)
   check('faq gate: duplicates and non-lists give nothing', gateFaqs([good[0], good[0], good[0], good[0]], ctxText).faqs.length === 0 && gateFaqs('not a list', ctxText).faqs.length === 0 && gateFaqs(null, ctxText).faqs.length === 0)
   check('faq: hasFaqs only counts real question and answer pairs', hasFaqs(good) && !hasFaqs([]) && !hasFaqs(null) && !hasFaqs([{ question: '', answer: '' }]))
+
+  // ─── WP12 fix round 1 ─────────────────────────────────────────────────────────────
+
+  // 1. Safe photo download
+  const priv = ['10.0.0.1', '10.255.255.255', '172.16.0.1', '172.31.255.1', '192.168.1.1', '169.254.169.254', '127.0.0.1', '127.8.8.8', '100.64.0.1', '100.127.255.255', '0.0.0.0', '::1', '::', 'fc00::1', 'fd12:3456::1', 'fe80::1', 'febf::1', '::ffff:10.0.0.1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:a00:1', '[::1]']
+  const pubIps = ['93.184.216.34', '8.8.8.8', '172.15.0.1', '172.32.0.1', '100.63.0.1', '100.128.0.1', '192.169.0.1', '169.255.0.1', '2606:4700::1111', '2001:4860:4860::8888', '::ffff:8.8.8.8']
+  check('private ranges: every one is refused', priv.every((ip) => isPrivateIp(ip)), priv.filter((ip) => !isPrivateIp(ip)))
+  check('public addresses just outside the private ranges are allowed', pubIps.every((ip) => !isPrivateIp(ip)), pubIps.filter((ip) => isPrivateIp(ip)))
+  const pagesP = ['https://www.islandhopper.example/tours/greece']
+  const pubLookup = async (_host?: string) => ['93.184.216.34']
+  check('hop: http, private literal, another site, private DNS answer, unresolvable are each refused', (await Promise.all([
+    hopRejection('http://www.islandhopper.example/a.jpg', pagesP, pubLookup),
+    hopRejection('https://127.0.0.1/a.jpg', pagesP, pubLookup),
+    hopRejection('https://[::1]/a.jpg', pagesP, pubLookup),
+    hopRejection('https://other.example/a.jpg', pagesP, pubLookup),
+    hopRejection('https://cdn.islandhopper.example/a.jpg', pagesP, async () => ['93.184.216.34', '10.0.0.5']),
+    hopRejection('https://cdn.islandhopper.example/a.jpg', pagesP, async () => ['::ffff:192.168.0.1']),
+    hopRejection('https://cdn.islandhopper.example/a.jpg', pagesP, async () => { throw new Error('nxdomain') }),
+  ])).every((r) => r !== null))
+  check('hop: a public CDN subdomain of the supplier passes', (await hopRejection('https://cdn.islandhopper.example/a.jpg', pagesP, pubLookup)) === null)
+
+  const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(30_000, 1)])
+  const respond = (map: Record<string, () => Response>): typeof fetch => (async (u: unknown) => { const f = map[String(u)]; if (!f) throw new Error(`unexpected ${String(u)}`); return f() }) as unknown as typeof fetch
+  const redirect = (to: string) => () => new Response(null, { status: 302, headers: { location: to } })
+  const dl = (map: Record<string, () => Response>, lookup: (h: string) => Promise<string[]> = pubLookup) => fetchSupplierPhoto('https://www.islandhopper.example/a.jpg', pagesP, { fetch: respond(map), lookup })
+  const okDl = await dl({ 'https://www.islandhopper.example/a.jpg': () => new Response(JPEG) })
+  check('download: a plain jpeg comes back with its type', okDl.ok && okDl.mediaType === 'image/jpeg' && okDl.buffer.length === JPEG.length)
+  const oneHop = await dl({ 'https://www.islandhopper.example/a.jpg': redirect('https://cdn.islandhopper.example/real.jpg'), 'https://cdn.islandhopper.example/real.jpg': () => new Response(JPEG) })
+  check('download: a redirect inside the supplier domain is followed', oneHop.ok && oneHop.finalUrl === 'https://cdn.islandhopper.example/real.jpg')
+  const offSite = await dl({ 'https://www.islandhopper.example/a.jpg': redirect('https://evil.example/real.jpg') })
+  check('download: a redirect to another domain is refused (final hop is checked)', !offSite.ok && /redirect/.test(offSite.reason) && /different website/.test(offSite.reason), offSite)
+  const toHttp = await dl({ 'https://www.islandhopper.example/a.jpg': redirect('http://www.islandhopper.example/real.jpg') })
+  check('download: a redirect to http is refused', !toHttp.ok && /not https/.test(toHttp.reason), toHttp)
+  const toPrivate = await dl({ 'https://www.islandhopper.example/a.jpg': redirect('https://169.254.169.254/latest/meta-data') })
+  check('download: a redirect to a private address is refused', !toPrivate.ok && /private/.test(toPrivate.reason), toPrivate)
+  const dnsPriv = await dl({ 'https://www.islandhopper.example/a.jpg': redirect('https://internal.islandhopper.example/x.jpg') }, async (h: string) => (h.startsWith('internal') ? ['10.1.2.3'] : ['93.184.216.34']))
+  check('download: a hop whose name resolves to a private address is refused', !dnsPriv.ok && /private/.test(dnsPriv.reason), dnsPriv)
+  const chain = (n: number) => { const m: Record<string, () => Response> = {}; for (let i = 0; i < n; i++) m[i === 0 ? 'https://www.islandhopper.example/a.jpg' : `https://www.islandhopper.example/h${i}.jpg`] = redirect(`https://www.islandhopper.example/h${i + 1}.jpg`); m[`https://www.islandhopper.example/h${n}.jpg`] = () => new Response(JPEG); return m }
+  check('download: 3 redirects are followed, a 4th is refused', (await dl(chain(3))).ok === true && (await dl(chain(4))).ok === false)
+  const html = await dl({ 'https://www.islandhopper.example/a.jpg': () => new Response('<html>not a picture</html>'.repeat(2000)) })
+  check('download: bytes that are not jpeg, png or webp are refused', !html.ok && /not a JPEG/.test(html.reason), html)
+  const huge = await dl({ 'https://www.islandhopper.example/a.jpg': () => new Response(new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(1024 * 1024).fill(1)) } })) })
+  check('download: a body past 8 MB is aborted while streaming', !huge.ok && /8 MB/.test(huge.reason), huge)
+  const declared = await dl({ 'https://www.islandhopper.example/a.jpg': () => new Response(JPEG, { headers: { 'content-length': String(9 * 1024 * 1024) } }) })
+  check('download: a declared size over 8 MB is refused before reading', !declared.ok && /8 MB/.test(declared.reason), declared)
+  const aborts = await fetchSupplierPhoto('https://www.islandhopper.example/a.jpg', pagesP, { lookup: pubLookup, fetch: (async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e }) as unknown as typeof fetch })
+  check('download: a timeout is a skip with a plain reason', !aborts.ok && /too long/.test(aborts.reason))
+  const manualOnly = await fetchSupplierPhoto('https://www.islandhopper.example/a.jpg', pagesP, { lookup: pubLookup, fetch: (async (_u: unknown, init?: RequestInit) => { if (init?.redirect !== 'manual') throw new Error('redirect must be manual'); return new Response(JPEG) }) as unknown as typeof fetch })
+  check('download: redirects are handled by hand (redirect: manual)', manualOnly.ok === true)
+
+  // 2. Real pixel width
+  const sharp = (await import('sharp')).default
+  const jpegOf = (w: number) => sharp({ create: { width: w, height: 100, channels: 3, background: '#88aacc' } }).jpeg().toBuffer()
+  const wide = await jpegOf(900)
+  const narrow = await jpegOf(700)
+  check('pixels: sharp reads the real width', (await imageWidth(wide)) === 900 && (await imageWidth(narrow)) === 700)
+  const served = (b: Buffer) => async () => ({ ok: true as const, buffer: b, mediaType: 'image/jpeg', finalUrl: 'u' })
+  const vWide = await vetPhoto('https://www.islandhopper.example/a.jpg', pagesP, { download: served(wide) })
+  const vNarrow = await vetPhoto('https://www.islandhopper.example/a.jpg', pagesP, { download: served(narrow) })
+  check('pixels: 900 wide passes, 700 wide is dropped as "narrower than 800px"', vWide.ok === true && !vNarrow.ok && vNarrow.reason === 'narrower than 800px', vNarrow)
+  check('pixels: exactly 800 passes, and an unreadable picture is refused', (await vetPhoto('u', pagesP, { download: served(await jpegOf(800)) })).ok === true && !(await vetPhoto('u', pagesP, { download: served(Buffer.from([0xff, 0xd8, 0xff, 0, 0, 0])) })).ok)
+
+  // 8. Shared hosting
+  check('shared hosting: each tenant is its own registrable domain', ['wixsite.com', 'myshopify.com', 'github.io', 'vercel.app', 'cloudfront.net', 'squarespace.com', 'godaddysites.com'].every((s) => registrableDomain(`cdn.tenant.${s}`) === `tenant.${s}` && !sameRegistrableDomain(`https://tenant.${s}/trip`, `https://other.${s}/a.jpg`) && sameRegistrableDomain(`https://tenant.${s}/trip`, `https://static.tenant.${s}/a.jpg`) && registrableDomain(s) === s))
+  check('shared hosting: ordinary domains are unchanged', registrableDomain('www.x.example') === 'x.example' && registrableDomain('shop.x.co.uk') === 'x.co.uk')
+
+  // 3. FAQ grounding
+  check('faq (a): a capitalised name not in the row is flagged, a sentence-initial word and row names are not', capitalisedStrangers('Dinner is at Santorini Palace on the first night.', ctxText).length === 2 && capitalisedStrangers('Yes, the trip starts in Athens and follows the Greek coast.', ctxText).length === 0 && capitalisedStrangers('Breakfast is included. Transfers start in Athens.', ctxText).length === 0)
+  const vague = 'Expect romantic sunsets over volcanic cliffs while sampling local wines at family vineyards.'
+  check(`faq (b): under ${GROUNDED_SHARE_MIN * 100}% of the words in the row is dropped, grounded wording passes`, groundedShare(vague, ctxText) < GROUNDED_SHARE_MIN && faqBlockers({ question: 'What will the evenings be like?', answer: vague }, ctxText).some((b) => /of the answer's words/.test(b)) && groundedShare(good[0].answer, ctxText) >= GROUNDED_SHARE_MIN)
+  const lists = { includes: 'Daily breakfast\nAirport transfers', excludes: 'Flights\nTravel insurance' }
+  check('faq (c): an "included" thing the included list does not name is flagged', includedClaimStrangers('A welcome drink is included on the first night.', lists).length > 0 && includedClaimStrangers('Gratuities are covered for the whole trip.', lists).includes('gratuities') && includedClaimStrangers('Airport transfers are free of charge.', lists).length === 0)
+  check('faq (c): free, complimentary and tips also trigger it', includedClaimStrangers('Wine is complimentary at dinner.', lists).includes('wine') && includedClaimStrangers('Tips for the crew are free.', lists).length > 0 && includedClaimStrangers('Tipping is included.', lists).length > 0)
+  check('faq (c): a negated sentence is checked against the not-included list', includedClaimStrangers('Flights are not included in the trip.', lists).length === 0 && includedClaimStrangers('Spa visits are not included.', lists).length > 0 && includedClaimStrangers('Breakfast is not included.', lists).length > 0)
+  check('faq (c): the gate uses it end to end', faqBlockers({ question: 'Is a drink included?', answer: 'A welcome drink is included on the first night.' }, ctxText, lists).some((b) => /included, covered or free/.test(b)))
+  check('faq (d): the agency verbs are refused, "we can help" and "our team can help" are allowed', ['We provide all meals on board.', 'We arrange your transfers.', 'Our team organises the whole tour.', 'We handle every booking detail.', 'We guarantee a window seat.', 'We include breakfast each day.', 'Our hosts cover the tips.'].every((s) => agencyDoes(s).length === 1) && agencyDoes('We can help you plan this trip.').length === 0 && agencyDoes('Our team can help with any questions.').length === 0)
+  check('faq (d): the gate reports it on an answer', faqBlockers({ question: 'Who arranges the transfers?', answer: 'We arrange your airport transfers each morning.' }, ctxText, lists).some((b) => /agency/.test(b)))
+  check('faq (e): policy words match on word boundaries, in the question too', faqBlockers({ question: 'Is there a refund if I cancel?', answer: 'Please check the booking page before you book the trip.' }, ctxText).some((b) => /refund/.test(b)) && faqBlockers({ question: 'Can I cancel the trip?', answer: 'Please check the booking page before you book the trip.' }, ctxText).some((b) => /cancel/.test(b)) && faqBlockers({ question: 'What is the pace of the trip?', answer: 'The trip follows a relaxed pace between the islands with free time to swim.' }, ctxText, lists).filter((b) => /policy/.test(b)).length === 0)
+  check('faq (e): a topic the row itself mentions is allowed (insurance is in Not included)', faqBlockers({ question: 'Is travel insurance included in the trip?', answer: 'Flights and travel insurance are not included in the trip.' }, ctxText, lists).length === 0)
+  check('faq (e): refundable and visas are caught, "advisable" is not a visa', faqBlockers({ question: 'Is it refundable?', answer: 'The trip runs seven nights from Athens along the Greek coast.' }, ctxText).some((b) => /refund/.test(b)) && faqBlockers({ question: 'Do I need visas for the trip?', answer: 'The trip runs from Athens along the Greek coast with a local guide.' }, ctxText).some((b) => /visa/.test(b)) && !faqBlockers({ question: 'What pace is advisable on the trip?', answer: 'The trip follows a relaxed pace between the islands with free time to swim.' }, ctxText, lists).some((b) => /visa/.test(b)))
+  check('faq: still nothing at all when fewer than 4 survive the new rules', gateFaqs([...good.slice(0, 3), { question: 'What will the evenings be like?', answer: vague }, { question: 'Is a drink included?', answer: 'A welcome drink is included on the first night.' }], ctxText, lists).faqs.length === 0)
+  check('faq: the original good set still passes with the real lists', gateFaqs(good, ctxText, lists).faqs.length === 5)
+
+  // 7. Counts of people
+  check('counts: people as words or tens are flagged unless the row says them', peopleCountClaims('Around twenty guests join each departure.', ctxText).length > 0 && peopleCountClaims('Over fifty travellers come along.', ctxText).length > 0 && peopleCountClaims('Hundreds of passengers sail together.', ctxText).length > 0 && peopleCountClaims('About a dozen people go.', ctxText).length > 0)
+  check('counts: a group size the row states is fine', peopleCountClaims('The group is limited to 24 travellers.', ctxText).length === 0)
+  check('counts: the gate uses them', faqBlockers({ question: 'How many guests join?', answer: 'About thirty guests join each departure of the trip.' }, ctxText, lists).some((b) => /count of people/.test(b)))
+
+  // 6. Gallery revert, one photo at a time
+  const A = 'https://store.example/a.jpg'
+  const B = 'https://store.example/b.jpg'
+  const M = 'https://store.example/manual.jpg'
+  const addA = revertGalleryItem({ op: 'add', stored: A }, [M, A, B])
+  check('gallery revert: an add takes out only that photo, a manual photo and another source photo stay', addA.ok && addA.next.join() === [M, B].join())
+  const addGone = revertGalleryItem({ op: 'add', stored: A }, [M])
+  check('gallery revert: an add whose photo is already gone is a clean no-op', addGone.ok && addGone.next.join() === M)
+  const remBack = revertGalleryItem({ op: 'remove', stored: A }, [M, B])
+  check('gallery revert: a remove puts the photo back at the end', remBack.ok && remBack.next.join() === [M, B, A].join())
+  const fullGallery = Array.from({ length: 12 }, (_, i) => `https://store.example/f${i}.jpg`)
+  const remFull = revertGalleryItem({ op: 'remove', stored: A }, fullGallery)
+  check('gallery revert: a remove is not put back when the gallery is full, with a reason', !remFull.ok && /full/.test(remFull.reason))
+  check('gallery revert: a remove whose photo is already back changes nothing', (() => { const r = revertGalleryItem({ op: 'remove', stored: A }, [A, M]); return r.ok && r.next.join() === [A, M].join() })())
+
+  // 5. Durable FAQs-off memory
+  const fakeAdmin = (result: { data?: { value: string } | null; error?: { message: string } | null }) => ({ from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => result }) }) }) }) as any
+  check('faqs off: the key is per trip in app_settings', tripFaqOffKey('abc') === 'trip_faq_off:abc')
+  check('faqs off: present means off, absent means on, an unreadable setting means off', (await tripFaqsOff(fakeAdmin({ data: { value: 'x' } }), 'abc')) === true && (await tripFaqsOff(fakeAdmin({ data: null }), 'abc')) === false && (await tripFaqsOff(fakeAdmin({ data: null, error: { message: 'boom' } }), 'abc')) === true)
+
+  // 4. Heal no-generation marker
+  const nowMs = Date.parse('2026-10-20T12:00:00Z')
+  check('heal marker: 7 days of quiet after an answered-but-empty call', nogenActive('2026-10-18T12:00:00Z', nowMs) && nogenActive('2026-10-13T12:01:00Z', nowMs) && !nogenActive('2026-10-13T11:59:00Z', nowMs) && !nogenActive(null, nowMs) && !nogenActive('junk', nowMs))
 
   // Heal: which trips are eligible
   const tripsDue = tripsNeedingFaqs([
