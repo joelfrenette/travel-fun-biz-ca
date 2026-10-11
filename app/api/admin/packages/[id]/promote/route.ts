@@ -1,21 +1,22 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { readPromotionState, startPromotion, updatePromotion, type PromotionAction } from '@/lib/promotion'
+import { isUuid, readPromotionState, startPromotion, updatePromotion, type PromotionAction } from '@/lib/promotion'
 
 // The Promote this package panel's API (WP15). Every call is admin only.
 //   GET                          the trip's promotion state: whether it can be promoted, the plan, and its progress
 //   POST {action:'start'}        builds the plan: tracks the trip's phrases, saves blog ideas (ONE bounded AI call),
 //                                puts its guides first in line, queues ONE social post. Nothing posts or renders here.
-//   POST {action:'pause'|'resume'|'done'|'retry-social'}
+//   POST {action:'pause'|'resume'|'done'|'retry-social'|'retry-ideas'}
 // A trip that already happened is refused, and a trip can be promoted once every 30 days.
 
 export const maxDuration = 120
 
-const ACTIONS: PromotionAction[] = ['pause', 'resume', 'done', 'retry-social']
+const ACTIONS: PromotionAction[] = ['pause', 'resume', 'done', 'retry-social', 'retry-ideas']
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isUuid(params.id)) return NextResponse.json({ error: 'Package not found' }, { status: 404 })
   try {
     const state = await readPromotionState(getSupabaseAdmin(), params.id)
     if (!state) return NextResponse.json({ error: 'Package not found' }, { status: 404 })
@@ -27,6 +28,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isUuid(params.id)) return NextResponse.json({ error: 'Package not found' }, { status: 404 })
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   if (!body || typeof body.action !== 'string') return NextResponse.json({ error: 'Send {action}.' }, { status: 400 })
   const admin = getSupabaseAdmin()

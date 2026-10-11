@@ -124,6 +124,9 @@ export function PromotePanel({ packageId }: { packageId: string }) {
             {promo && promo.status === "active" && <Button type="button" variant="outline" disabled={!!busy} onClick={() => act("pause", "Pause")}>Pause</Button>}
             {promo && promo.status === "paused" && <Button type="button" variant="outline" disabled={!!busy} onClick={() => act("resume", "Resume")}>Resume</Button>}
             {promo && promo.status !== "done" && <Button type="button" variant="ghost" disabled={!!busy} onClick={() => act("done", "Mark as finished")}>Mark as finished</Button>}
+            {promo && promo.status === "active" && plan && plan.ideas.length === 0 && (
+              <Button type="button" variant="outline" disabled={!!busy} onClick={() => act("retry-ideas", "Retry the blog ideas")}>{busy === "retry-ideas" ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" />Writing ideas</> : "Retry the blog ideas"}</Button>
+            )}
             {promo && promo.status === "active" && plan?.social && (plan.social.state === "waiting" || plan.social.state === "skipped") && (
               <Button type="button" variant="outline" disabled={!!busy} onClick={() => act("retry-social", "Queue the social post")}>Queue the social post</Button>
             )}
@@ -146,13 +149,13 @@ export function PromotePanel({ packageId }: { packageId: string }) {
 
             <section className="space-y-1.5">
               <h3 className="text-sm font-semibold">2. Blog ideas ({plan.ideas.length})</h3>
-              <p className="text-xs text-muted-foreground">Approved already. The next Monday, Wednesday and Friday posts use them, oldest first.</p>
+              <p className="text-xs text-muted-foreground">Approved already. The Monday, Wednesday and Friday posts use approved ideas oldest first, together with any other approved ideas. A trip gets at most one post a week; an idea that has to wait is moved a week on, not thrown away.</p>
               {plan.ideas.length === 0 && <p className="text-sm text-amber-700">No ideas were saved. The reason is in Needs attention on the Autopilot page.</p>}
               <ul className="space-y-1 text-sm">
                 {(progress?.ideas.length ? progress.ideas : plan.ideas.map((i) => ({ ...i, status: "approved", postSlug: null }))).map((i) => (
                   <li key={i.id}>
                     <span className="font-medium">{i.title}</span> <span className="text-xs text-muted-foreground">({i.keyword})</span>
-                    <span className="ml-2 text-xs">{IDEA_STATUS[i.status] ?? i.status}</span>
+                    <span className="ml-2 text-xs">{i.status === "used" && !i.postSlug ? "Skipped, not written" : (IDEA_STATUS[i.status] ?? i.status)}</span>
                     {i.postSlug && <> <a className="text-xs underline" href={`/blog/${i.postSlug}`} target="_blank" rel="noreferrer">Open the post</a></>}
                   </li>
                 ))}
@@ -189,7 +192,7 @@ export function PromotePanel({ packageId }: { packageId: string }) {
                 <p className="text-sm">Trip page, last 28 days to {progress.performance.day}: {progress.performance.clicks ?? "?"} Google clicks, {progress.performance.visits ?? "?"} visits, {progress.performance.leads ?? "?"} leads (leads count the last 90 days).</p>
               ) : <p className="text-sm text-muted-foreground">No numbers for the trip page yet. They appear after the next daily snapshot.</p>}
               {plan.notes.length > 0 && (
-                <ul className="list-disc pl-5 text-xs text-muted-foreground">{plan.notes.map((n) => <li key={n}>{n}</li>)}</ul>
+                <ul className="list-disc pl-5 text-xs text-muted-foreground">{plan.notes.map((n, idx) => <li key={`${idx}:${n.slice(0, 40)}`}>{n}</li>)}</ul>
               )}
             </section>
           </div>

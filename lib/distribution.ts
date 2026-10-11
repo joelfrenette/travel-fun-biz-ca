@@ -284,7 +284,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       if (isGuideRow && !guideSource) {
         await admin
           .from('post_distribution')
-          .update({ stage: 'done', last_error: 'Skipped: this guide is no longer published, so nothing was posted.', updated_at: new Date().toISOString() })
+          .update({ stage: 'done', last_error: (row.path as string).startsWith('/packages/') ? 'Skipped: this trip is no longer live (unpublished or already happened), so nothing was posted.' : 'Skipped: this guide is no longer published, so nothing was posted.', updated_at: new Date().toISOString() })
           .eq('content_type', 'post')
           .eq('slug', row.slug)
         continue

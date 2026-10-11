@@ -219,6 +219,11 @@ export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source:
 // Writing one guide
 // ---------------------------------------------------------------------------------------------------
 
+/** True for a property name that "Promote this package" took from a trip title: such a guide is always a draft. */
+export function isGuessedProperty(cand: Pick<GuideCandidate, 'origin' | 'priority'>): boolean {
+  return cand.origin === 'package' && !!cand.priority
+}
+
 export interface WriteGuideResult {
   ok: boolean
   /** True only for a real failure (the AI or the save failed). A busy lock, a duplicate or a dropped run is not a failure. */
@@ -277,7 +282,11 @@ export async function writeGuide(
       blockers = fixed.blockers
       repairLogIds = fixed.logIds
     }
-    const decision = publishDecision(cand.kind, await getGuidePublishMode(admin), opts.source, blockers)
+    const decided = publishDecision(cand.kind, await getGuidePublishMode(admin), opts.source, blockers)
+    // A property name that "Promote this package" took from a trip title (origin 'package') may not be a real hotel, resort
+    // or ship, so it is ALWAYS saved as a draft for a person to check, whatever guides_publish_mode says. A draft is never
+    // enrolled for social posting.
+    const decision = isGuessedProperty(cand) ? { publish: false, note: [decided.note, 'held for review: this name was taken from a trip title, so check it is a real property before you publish'].filter(Boolean).join('; ') } : decided
     publishing = decision.publish
 
     const stop = opts.beforeSave ? await opts.beforeSave() : null
@@ -360,8 +369,9 @@ export async function pickNextCandidate(admin: SupabaseClient, candidates: Guide
   const eligible = candidates.filter((c) => (c.origin !== 'package' || c.priority) && (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
   if (eligible.length === 0) return null
 
-  // A guide that "Promote this package" put at the front of the line (WP15) is written before the normal rotation.
-  // It still goes through the same quality gate, caps and publish mode as any other guide.
+  // A guide that "Promote this package" put at the front of the line (WP15) is written before the normal rotation, under
+  // the same quality gate and caps. A destination follows the publish mode. A property name taken from a trip title
+  // (origin 'package') is always saved as a draft (see writeGuide), so a guessed name is never published or posted.
   const promoted = eligible.filter((c) => c.priority)
   if (promoted.length > 0) return promoted.sort((a, b) => ORIGIN_ORDER[a.origin] - ORIGIN_ORDER[b.origin] || (a.kind === 'destinations' ? -1 : 0) - (b.kind === 'destinations' ? -1 : 0))[0]
 

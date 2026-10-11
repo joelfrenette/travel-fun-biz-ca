@@ -227,6 +227,12 @@ export interface PackageGrounding {
   available_to: string | null
 }
 
+/** The "one post per package" wall of the autoblog run: 30 days for ordinary topics, 7 days for an idea made by Promote
+ * this package, which is never thrown away by the wall but moved `rescheduleTo` (a week on) and left approved. Pure. */
+export function packageWall(promoted: boolean, now: Date = new Date()): { days: number; reschedule: boolean; rescheduleTo: string } {
+  return { days: promoted ? 7 : 30, reschedule: promoted, rescheduleTo: new Date(now.getTime() + 7 * 86_400_000).toISOString().slice(0, 10) }
+}
+
 /** Find the published package a topic is actually about, by checking whether the topic's angle
  * or keyword mentions the package's destination or name. Returns null when nothing matches -
  * never guesses a "closest" package, since grounding a post in the wrong product would be worse

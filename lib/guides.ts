@@ -454,7 +454,7 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
       if (written.has(key)) continue
       const found = out.find((c) => c.kind === p.kind && c.slug === p.slug)
       if (found) found.priority = true
-      else out.push({ kind: p.kind, name: p.name, slug: p.slug, parent_slug: p.parent_slug, origin: 'package', priority: true })
+      else out.push({ kind: p.kind, name: p.name, slug: p.slug, parent_slug: p.parent_slug, origin: p.kind === 'destinations' ? 'destination' : 'package', priority: true })
     }
   } catch {
     // the priority list is optional

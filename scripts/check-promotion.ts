@@ -5,8 +5,11 @@
 // Run: pnpm dlx tsx scripts/check-promotion.ts
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
+  actionBlockedReason,
   buildIdeasPrompt,
   buildPhrases,
+  isAbandonedClaim,
+  isUuid,
   canPromote,
   dedupeIdeas,
   enrolPackagePost,
@@ -28,7 +31,8 @@ import {
 } from '../lib/promotion'
 import { packageDistributionPath, packageDistributionSlug, packageSlugFromPath } from '../lib/guide-post-source'
 import { parseGuidePriority, type GuideCandidate } from '../lib/guides'
-import { pickNextCandidate } from '../lib/guide-run'
+import { isGuessedProperty, pickNextCandidate } from '../lib/guide-run'
+import { packageWall } from '../lib/blog-topics'
 
 let failed = 0
 function check(label: string, ok: boolean) {
@@ -252,8 +256,9 @@ async function main() {
   db = base()
   check('a draft trip is never enrolled', (await enrolPackagePost(fakeAdmin(db), trip({ status: 'draft' }), NOW)).state === 'skipped' && db.tables.post_distribution.length === 0)
   db = base()
-  db.tables.post_distribution.push({ content_type: 'post', slug: 'package-greek-isles-singles-cruise', path: '/packages/greek-isles-singles-cruise', stage: 'done', sent_platforms: ['facebook'], created_at: daysAgo(40) })
+  db.tables.post_distribution.push({ content_type: 'post', slug: 'package-greek-isles-singles-cruise', path: '/packages/greek-isles-singles-cruise', stage: 'done', sent_platforms: ['facebook'], provider_request_id: 'req-1', provider_job_id: 'job-1', created_at: daysAgo(40) })
   check('a finished post over 30 days old is started again', (await enrolPackagePost(fakeAdmin(db), trip(), NOW)).state === 'queued' && db.tables.post_distribution[0].stage === 'queued' && (db.tables.post_distribution[0].sent_platforms as string[]).length === 0)
+  check('starting it again clears the old provider ids', db.tables.post_distribution[0].provider_request_id === null && db.tables.post_distribution[0].provider_job_id === null)
   db = base()
   db.tables.post_distribution.push({ content_type: 'post', slug: 'package-greek-isles-singles-cruise', path: '/packages/greek-isles-singles-cruise', stage: 'done', sent_platforms: ['facebook'], created_at: daysAgo(10) })
   check('a post under 30 days old is left alone', (await enrolPackagePost(fakeAdmin(db), trip(), NOW)).state === 'skipped' && db.tables.post_distribution[0].stage === 'done')
@@ -299,6 +304,46 @@ async function main() {
   failedDb.tables.app_settings.push(setting('guides_compose_failures', JSON.stringify({ 'resorts:sandals-royal': { n: 2, name: 'x', kind: 'resorts', last: 'x', at: NOW.toISOString() } })))
   const skippedFailed = await pickNextCandidate(fakeAdmin(failedDb), [cand('resorts', 'sandals-royal', 'package', true), cand('destinations', 'italy', 'destination')])
   check('rotation: a promoted guide that failed twice is skipped like any other', skippedFailed?.slug === 'italy')
+
+  // ---- QA round: wall, retry, guessed names, number words, months, proper nouns, states, claims, ids, dedupe ----
+  const w = packageWall(true, NOW)
+  check('wall: a promoted idea gets a 7 day window and is rescheduled, not used', w.days === 7 && w.reschedule === true && w.rescheduleTo === '2026-10-18')
+  const w2 = packageWall(false, NOW)
+  check('wall: every other topic keeps 30 days and no reschedule', w2.days === 30 && w2.reschedule === false)
+
+  check('guessed names: a promoted property name is held as a draft', isGuessedProperty({ origin: 'package', priority: true }) === true)
+  check('guessed names: a promoted destination is not held', isGuessedProperty({ origin: 'destination', priority: true }) === false)
+  check('guessed names: an ordinary package-origin name is not touched here', isGuessedProperty({ origin: 'package' }) === false)
+
+  for (const word of ['thirteen', 'nineteen', 'twenty', 'ninety', 'dozen', 'hundreds', 'thousands', 'million']) {
+    check(`number word "${word}" is refused`, !validatePromotionIdea({ ...good, angle: `Helps a reader decide whether a group trip to Greece with ${word} others suits them.` }, ctx).ok)
+  }
+  check('month: a month not in the trip text is refused', !validatePromotionIdea({ ...good, angle: 'Helps a reader decide whether a hosted group trip to Greece in June suits them.' }, ctx).ok)
+  check('month: the trip\'s own travel month is allowed', validatePromotionIdea({ ...good, angle: 'Helps a reader decide whether a hosted group trip to Greece in May suits them.' }, ctx).ok === true)
+  check('month: "may" as a plain word is not a month', validatePromotionIdea({ ...good, angle: 'Helps a reader who may want a hosted group trip to Greece decide if it suits them.' }, ctx).ok === true)
+  check('proper noun: a place not in the trip text is refused', !validatePromotionIdea({ ...good, angle: 'Helps a reader decide whether a hosted group trip to Greece and Crete suits them.' }, ctx).ok)
+  check('proper noun: a place on the itinerary is allowed', validatePromotionIdea({ ...good, angle: 'Helps a reader decide whether a hosted group trip to Greece with Santorini suits them.' }, ctx).ok === true)
+  check('proper noun: a sentence start is not a place name', validatePromotionIdea({ ...good, angle: 'Helps a reader decide if a hosted group trip to Greece suits them. Nothing else is assumed.' }, ctx).ok === true)
+
+  check('state: pause is refused on a finished promotion', actionBlockedReason('pause', 'done') !== null)
+  check('state: resume is refused on a finished promotion', actionBlockedReason('resume', 'done') !== null)
+  check('state: retry-ideas and retry-social are refused on a finished promotion', actionBlockedReason('retry-ideas', 'done') !== null && actionBlockedReason('retry-social', 'done') !== null)
+  check('state: pause works on an active promotion, resume only on a paused one', actionBlockedReason('pause', 'active') === null && actionBlockedReason('resume', 'active') !== null && actionBlockedReason('resume', 'paused') === null)
+  check('state: retry-ideas needs an active promotion', actionBlockedReason('retry-ideas', 'active') === null && actionBlockedReason('retry-ideas', 'paused') !== null)
+  check('state: finishing is allowed from active or paused, once', actionBlockedReason('done', 'active') === null && actionBlockedReason('done', 'paused') === null && actionBlockedReason('done', 'done') !== null)
+
+  check('claim: an empty plan older than 10 minutes is abandoned', isAbandonedClaim({ plan: {} as never, started_at: new Date(NOW.getTime() - 11 * 60_000).toISOString() }, NOW) === true)
+  check('claim: a fresh empty plan is still in progress', isAbandonedClaim({ plan: {} as never, started_at: new Date(NOW.getTime() - 2 * 60_000).toISOString() }, NOW) === false)
+  check('claim: a filled plan is never abandoned', isAbandonedClaim({ plan: { version: 1 } as never, started_at: daysAgo(3) }, NOW) === false)
+  check('ids: a real uuid passes, junk does not', isUuid('0b6f2c1e-8a41-4f3a-9d57-1c2e3f4a5b6c') && !isUuid('abc') && !isUuid("1'; drop table x;--"))
+
+  const used = { keyword: 'greece group trip', keywords: ['greece group trip'], title_idea: 'Old title about something else', angle: 'old', status: 'used', package_slug: 'greek-isles-singles-cruise' }
+  const dd1 = dedupeIdeas(ideas, { posts: [], queue: [used], packageSlug: 'greek-isles-singles-cruise' })
+  check('dedupe: a used idea of the SAME trip does not block a new idea', dd1.kept.some((i) => i.keyword === 'greece group trip'))
+  const dd2 = dedupeIdeas(ideas, { posts: [], queue: [{ ...used, package_slug: 'another-trip' }], packageSlug: 'greek-isles-singles-cruise' })
+  check('dedupe: a used idea of ANOTHER trip still blocks', !dd2.kept.some((i) => i.keyword === 'greece group trip'))
+  const dd3 = dedupeIdeas(ideas, { posts: [], queue: [{ ...used, status: 'approved' }], packageSlug: 'greek-isles-singles-cruise' })
+  check('dedupe: an open idea of the same trip still blocks', !dd3.kept.some((i) => i.keyword === 'greece group trip'))
 
   console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`)
   process.exit(failed === 0 ? 0 : 1)

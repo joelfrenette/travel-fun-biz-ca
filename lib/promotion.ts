@@ -90,6 +90,8 @@ export interface PromotionPlan {
   notes: string[]
   /** When the guides stop being at the front of the line. */
   priority_until: string
+  /** The idea ids that Pause itself moved from approved to suggested, so Resume re-approves only those. */
+  moved_ids?: string[]
 }
 
 export interface PromotionRow {
@@ -290,7 +292,27 @@ export interface IdeaDraft {
 
 const SUPERLATIVE = /\b(?:best|top|ultimate|number one|must-see|world-class|perfect|greatest|finest|unbeatable)\b/i
 const FIRST_PERSON = /\b(?:we|i)\s+(?:went|visited|stayed|sailed|loved|tried|toured|explored)\b|\bour\s+(?:stay|visit|trip last|last trip)\b/i
-const NUMBER_WORDS = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|hundred|thousand)\b/g
+const NUMBER_WORDS = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|dozen|dozens|hundred|hundreds|thousand|thousands|million|millions)\b/g
+const MONTH_RE = /\b(January|February|March|April|June|July|August|September|October|November|December)\b|\b(?:in|during|every|each|late|early|mid|of)\s+(May)\b/g
+/** Capitalised words that are fine in an angle without being in the trip text. */
+const COMMON_PROPER = new Set(['canada', 'canadian', 'canadians'])
+
+/** Month names in `text` (a bare "May" only counts after in, during, every and so on, since "may" is also a word). */
+function monthsIn(text: string): string[] {
+  return [...text.matchAll(MONTH_RE)].map((m) => m[1] ?? m[2])
+}
+
+/** Capitalised words in the middle of a sentence, which would be place or business names. Sentence starts and months are skipped. */
+function properNounsIn(text: string): string[] {
+  const out: string[] = []
+  const re = /(^|[.!?]\s+)?\b([A-Z][a-z]{2,})\b/g
+  for (const m of text.matchAll(re)) {
+    if (m[1] !== undefined || m.index === 0) continue
+    if (MONTHS.includes(m[2])) continue
+    out.push(m[2])
+  }
+  return out
+}
 const numbersIn = (s: string) => s.match(/\d+/g) ?? []
 
 export type IdeaCheck = { ok: true; idea: IdeaDraft; fixes: string[] } | { ok: false; problems: string[] }
@@ -328,6 +350,13 @@ export function validatePromotionIdea(raw: unknown, ctx: { phrases: string[]; fa
   stray.push(...(text.toLowerCase().match(NUMBER_WORDS) ?? []).filter((w) => !haystack.includes(` ${w} `)))
   if (stray.length) problems.push(`uses a number that is not in the trip text or the phrases (${[...new Set(stray)].join(', ')})`)
 
+  // A month must be the trip's own travel month (or written in the trip text); no other month is invented.
+  const strayMonths = monthsIn(text).filter((mo) => !haystack.includes(` ${mo.toLowerCase()} `))
+  if (strayMonths.length) problems.push(`names a month that is not in the trip text (${[...new Set(strayMonths)].join(', ')})`)
+  // A place or business name in the angle must be in the trip text or the phrases (no invented Cities, hotels or lines).
+  const strayNames = properNounsIn(angle).filter((w) => !haystack.includes(` ${w.toLowerCase()} `) && !COMMON_PROPER.has(w.toLowerCase()))
+  if (strayNames.length) problems.push(`names a place or business that is not in the trip text (${[...new Set(strayNames)].join(', ')})`)
+
   const named = ctx.names.map((n) => norm(n)).filter(Boolean)
   const lower = norm(`${text} ${primary ?? ''}`)
   if (named.length && !named.some((n) => lower.includes(n))) problems.push('does not name the trip or its destination')
@@ -347,14 +376,18 @@ export interface DedupeContext {
   /** Existing post titles. */
   posts: string[]
   /** Queue rows in ANY status. */
-  queue: { keyword: string; keywords?: string[] | null; title_idea?: string | null; angle?: string | null }[]
+  queue: { keyword: string; keywords?: string[] | null; title_idea?: string | null; angle?: string | null; status?: string | null; package_slug?: string | null }[]
+  /** The trip being promoted. An idea that was already WRITTEN (status used) for this same trip does not block a new idea
+   * on the same phrase when the trip is promoted again; a used idea of any other trip still does. */
+  packageSlug?: string
 }
 
 /** Drops ideas whose keyword is already queued or used, or whose title is too close to a post, a queued idea or an
  * earlier idea of this same batch. Keeps the order. */
 export function dedupeIdeas(ideas: IdeaDraft[], ctx: DedupeContext): { kept: IdeaDraft[]; dropped: { idea: IdeaDraft; reason: string }[] } {
-  const taken = new Set(ctx.queue.flatMap((q) => [q.keyword, ...(q.keywords ?? [])]).map(norm))
-  const titles: { title: string }[] = [...ctx.posts.map((title) => ({ title })), ...ctx.queue.flatMap((q) => [q.title_idea, q.angle]).filter((t): t is string => !!t).map((title) => ({ title }))]
+  const queue = ctx.queue.filter((q) => !(ctx.packageSlug && q.status === 'used' && q.package_slug === ctx.packageSlug))
+  const taken = new Set(queue.flatMap((q) => [q.keyword, ...(q.keywords ?? [])]).map(norm))
+  const titles: { title: string }[] = [...ctx.posts.map((title) => ({ title })), ...queue.flatMap((q) => [q.title_idea, q.angle]).filter((t): t is string => !!t).map((title) => ({ title }))]
   const kept: IdeaDraft[] = []
   const dropped: { idea: IdeaDraft; reason: string }[] = []
   for (const idea of ideas) {
@@ -431,6 +464,13 @@ async function recordPromotionFailure(admin: SupabaseClient, packageId: string, 
   await setSetting(admin, PROMOTION_FAILURES_KEY, JSON.stringify(all))
 }
 
+/** Replaces (or, with null, removes) the failure line of one step ("ideas", "keywords" ...) for one trip, keeping its other lines. */
+async function setFailureStep(admin: SupabaseClient, packageId: string, name: string, step: string, line: string | null): Promise<void> {
+  const all = await readPromotionFailures(admin)
+  const kept = (all[packageId]?.steps ?? []).filter((s) => !s.startsWith(`${step}:`))
+  await recordPromotionFailure(admin, packageId, name, line ? [...kept, line] : kept)
+}
+
 /** The Dismiss button on the Needs attention item. */
 export async function clearAllPromotionFailures(admin: SupabaseClient): Promise<{ error?: string }> {
   return setSetting(admin, PROMOTION_FAILURES_KEY, '')
@@ -448,6 +488,18 @@ async function loadPackage(admin: SupabaseClient, id: string): Promise<Promotion
   if (res.error) throw new Error(res.error.message)
   return (res.data as PromotionPackage | null) ?? null
 }
+
+/** A claim row that was inserted but never filled in (the request died half way): empty plan, older than 10 minutes.
+ * It is ignored by the 30-day check and removed when the trip is promoted again. */
+export function isAbandonedClaim(row: Pick<PromotionRow, 'plan' | 'started_at'> | null, now: Date = new Date()): boolean {
+  if (!row) return false
+  const empty = !row.plan || Object.keys(row.plan).length === 0
+  const at = Date.parse(row.started_at)
+  return empty && Number.isFinite(at) && now.getTime() - at > 10 * 60_000
+}
+
+/** Ids from outside are checked before they reach the database. */
+export const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 
 const isMissingTable = (message: string) => /package_promotions|relation|schema cache|does not exist/i.test(message)
 
@@ -477,14 +529,16 @@ export interface PromotionState {
 
 /** Everything the panel shows. Never throws on a missing migration: it says so instead. */
 export async function readPromotionState(admin: SupabaseClient, packageId: string, now: Date = new Date()): Promise<PromotionState | null> {
+  if (!isUuid(packageId)) return null
   const pkg = await loadPackage(admin, packageId)
   if (!pkg) return null
   const latest = await latestPromotion(admin, packageId)
   if (latest.error && !latest.needsMigration) throw new Error(latest.error)
-  const gate = canPromote(pkg, latest.row?.started_at ?? null, now)
+  // A claim that never got filled in is not a promotion (startPromotion removes it on the next click).
+  const row = isAbandonedClaim(latest.row, now) ? null : latest.row
+  const gate = canPromote(pkg, row?.started_at ?? null, now)
   const base = { slug: pkg.slug, name: pkg.name, gate, migrated: !latest.needsMigration }
-  if (!latest.row) return { ...base, promotion: null, progress: null }
-  const row = latest.row
+  if (!row) return { ...base, promotion: null, progress: null }
   const plan = { ...emptyPlan(), ...(row.plan ?? {}) } as PromotionPlan
   return { ...base, promotion: { ...row, plan }, progress: await readProgress(admin, pkg, plan) }
 }
@@ -575,11 +629,11 @@ async function stepIdeas(admin: SupabaseClient, pkg: PromotionPackage, phrases: 
 
   const [{ data: posts }, queueRes] = await Promise.all([
     admin.from('posts').select('title').order('created_at', { ascending: false }).limit(200),
-    admin.from('blog_topic_queue').select('keyword, keywords, title_idea, angle').limit(500),
+    admin.from('blog_topic_queue').select('keyword, keywords, title_idea, angle, status, package_slug').limit(500),
   ])
   let queue = (queueRes.data ?? []) as DedupeContext['queue']
   if (queueRes.error) queue = ((await admin.from('blog_topic_queue').select('keyword').limit(500)).data ?? []) as DedupeContext['queue']
-  const { kept, dropped } = dedupeIdeas(valid, { posts: ((posts ?? []) as { title: string }[]).map((p) => p.title), queue })
+  const { kept, dropped } = dedupeIdeas(valid, { posts: ((posts ?? []) as { title: string }[]).map((p) => p.title), queue, packageSlug: pkg.slug })
   for (const d of dropped) notes.push(`An idea was left out: ${d.reason}.`)
 
   const ideas: PlanIdea[] = []
@@ -648,7 +702,7 @@ export async function enrolPackagePost(admin: SupabaseClient, pkg: Pick<Promotio
     if (!row) return result('skipped', 'Social posting is off, so no post was queued.')
     if (old) {
       // The earlier post is over 30 days old and finished: start its ledger row again so the trip is posted afresh.
-      const { error } = await admin.from('post_distribution').update({ stage: row.stage, sent_platforms: [], attempts: 0, last_error: null, title: row.title, path: row.path, created_at: now.toISOString(), updated_at: now.toISOString() }).eq('content_type', 'post').eq('slug', slug)
+      const { error } = await admin.from('post_distribution').update({ stage: row.stage, sent_platforms: [], attempts: 0, last_error: null, provider_request_id: null, provider_job_id: null, title: row.title, path: row.path, created_at: now.toISOString(), updated_at: now.toISOString() }).eq('content_type', 'post').eq('slug', slug)
       if (error) return result('skipped', `Could not queue the post (${error.message}).`)
     } else {
       const { error } = await admin.from('post_distribution').insert(row)
@@ -684,10 +738,16 @@ async function stepPages(pkg: PromotionPackage, admin: SupabaseClient): Promise<
  * that fails does not stop the others, and is listed in Needs attention with plain steps. When NO step did anything the
  * promotion row is removed again, so a total failure does not use up the 30 days. */
 export async function startPromotion(admin: SupabaseClient, packageId: string, now: Date = new Date()): Promise<StartResult> {
+  if (!isUuid(packageId)) return { ok: false, status: 404, code: 'missing', error: 'That trip was not found.' }
   const pkg = await loadPackage(admin, packageId)
   if (!pkg) return { ok: false, status: 404, code: 'missing', error: 'That trip was not found.' }
 
-  const latest = await latestPromotion(admin, packageId)
+  let latest = await latestPromotion(admin, packageId)
+  // A claim row from a request that died half way (empty plan, over 10 minutes old) is removed so it cannot lock the trip for 30 days.
+  if (latest.row && isAbandonedClaim(latest.row, now)) {
+    await admin.from('package_promotions').delete().eq('id', latest.row.id)
+    latest = await latestPromotion(admin, packageId)
+  }
   if (latest.needsMigration) return { ok: false, status: 503, code: 'needs-migration', error: MIGRATION_NOTE }
   // Fail closed: if the last promotion cannot be read, nothing is queued.
   if (latest.error) return { ok: false, status: 500, code: 'read-failed', error: `Could not check when this trip was last promoted, so nothing was done (${latest.error}).` }
@@ -768,9 +828,19 @@ export async function startPromotion(admin: SupabaseClient, packageId: string, n
 // After the click: pause, resume, finish, queue the social post again
 // ---------------------------------------------------------------------------------------------------
 
-export type PromotionAction = 'pause' | 'resume' | 'done' | 'retry-social'
+export type PromotionAction = 'pause' | 'resume' | 'done' | 'retry-social' | 'retry-ideas'
+
+/** Why an action cannot run on a promotion in this state, or null when it can. Pure. */
+export function actionBlockedReason(action: PromotionAction, status: PromotionRow['status']): string | null {
+  if (action === 'done') return status === 'done' ? 'This promotion is already finished.' : null
+  if (status === 'done') return 'This promotion is finished, so it cannot be changed. Mark-as-finished is final.'
+  if (action === 'pause') return status === 'paused' ? 'This promotion is already paused.' : null
+  if (action === 'resume') return status !== 'paused' ? 'This promotion is not paused.' : null
+  return status !== 'active' ? 'Resume this promotion first.' : null
+}
 
 export async function updatePromotion(admin: SupabaseClient, packageId: string, action: PromotionAction, now: Date = new Date()): Promise<{ ok: true; note: string } | { ok: false; status: number; error: string }> {
+  if (!isUuid(packageId)) return { ok: false, status: 404, error: 'That trip was not found.' }
   const pkg = await loadPackage(admin, packageId)
   if (!pkg) return { ok: false, status: 404, error: 'That trip was not found.' }
   const latest = await latestPromotion(admin, packageId)
@@ -785,6 +855,9 @@ export async function updatePromotion(admin: SupabaseClient, packageId: string, 
     return error ? error.message : null
   }
 
+  const blocked = actionBlockedReason(action, row.status)
+  if (blocked) return { ok: false, status: 409, error: blocked }
+
   if (action === 'done') {
     const err = await setStatus('done')
     return err ? { ok: false, status: 500, error: err } : { ok: true, note: 'Marked as finished. What was queued keeps running; nothing was taken back.' }
@@ -792,10 +865,18 @@ export async function updatePromotion(admin: SupabaseClient, packageId: string, 
 
   if (action === 'pause') {
     // Ideas that were not written yet go back to "suggested" (so the writer stops picking them), and the guides leave the front of the line.
+    // Remember exactly which ideas Pause moved, so Resume puts back only those (never an idea the admin put on hold).
+    let moved: string[] = []
     if (ids.length) {
-      const { error } = await admin.from('blog_topic_queue').update({ status: 'suggested' }).in('id', ids).eq('status', 'approved')
-      if (error) return { ok: false, status: 500, error: error.message }
+      const { data: approved, error: readIdeas } = await admin.from('blog_topic_queue').select('id').in('id', ids).eq('status', 'approved')
+      if (readIdeas) return { ok: false, status: 500, error: readIdeas.message }
+      moved = ((approved ?? []) as { id: string }[]).map((r) => r.id)
+      if (moved.length) {
+        const { error } = await admin.from('blog_topic_queue').update({ status: 'suggested' }).in('id', moved).eq('status', 'approved')
+        if (error) return { ok: false, status: 500, error: error.message }
+      }
     }
+    plan.moved_ids = moved
     const { value, error: readError } = await getSettingStrict(admin, GUIDE_PRIORITY_KEY)
     if (readError) return { ok: false, status: 500, error: readError }
     const mine = new Set(plan.guides.map((g) => `${g.kind}:${g.slug}`))
@@ -807,24 +888,46 @@ export async function updatePromotion(admin: SupabaseClient, packageId: string, 
   }
 
   if (action === 'resume') {
-    if (row.status !== 'paused') return { ok: false, status: 409, error: 'This promotion is not paused.' }
     const gate = canPromote(pkg, null, now)
     if (!gate.ok) return { ok: false, status: 409, error: gate.reason }
-    if (ids.length) {
-      const { error } = await admin.from('blog_topic_queue').update({ status: 'approved' }).in('id', ids).eq('status', 'suggested')
+    const moved = plan.moved_ids ?? []
+    if (moved.length) {
+      const { error } = await admin.from('blog_topic_queue').update({ status: 'approved' }).in('id', moved).eq('status', 'suggested')
       if (error) return { ok: false, status: 500, error: error.message }
     }
     const until = new Date(now.getTime() + GUIDE_PRIORITY_DAYS * 86_400_000).toISOString()
     const g = await stepGuides(admin, pkg, plan.guides, until)
     if (g.error) return { ok: false, status: 500, error: g.error }
-    const err = await setStatus('active', { ...plan, priority_until: until })
+    const err = await setStatus('active', { ...plan, priority_until: until, moved_ids: [] })
     return err ? { ok: false, status: 500, error: err } : { ok: true, note: 'Resumed. Ideas are approved again and the guides are back at the front of the line for 30 days.' }
+  }
+
+  if (action === 'retry-ideas') {
+    const g0 = canPromote(pkg, null, now)
+    if (!g0.ok) return { ok: false, status: 409, error: g0.reason }
+    // Only when the click saved no ideas, so a retry can never pile up more AI calls on a trip that already has them.
+    if (plan.ideas.length > 0) return { ok: false, status: 409, error: 'This promotion already has blog ideas.' }
+    const phrases = plan.keywords.length ? plan.keywords : buildPhrases(pkg)
+    let result: Awaited<ReturnType<typeof stepIdeas>>
+    try {
+      result = await stepIdeas(admin, pkg, phrases)
+    } catch (e) {
+      result = { ideas: [], notes: [], error: e instanceof Error ? e.message : 'unknown error' }
+    }
+    if (result.error) {
+      await setFailureStep(admin, packageId, pkg.name, 'ideas', `ideas: ${result.error}`)
+      return { ok: false, status: 502, error: `No blog ideas were saved: ${result.error}.` }
+    }
+    const notes = [...new Set([...plan.notes, ...result.notes])]
+    const err = await setStatus('active', { ...plan, ideas: result.ideas, notes })
+    if (err) return { ok: false, status: 500, error: err }
+    await setFailureStep(admin, packageId, pkg.name, 'ideas', null)
+    return { ok: true, note: `${result.ideas.length} blog idea${result.ideas.length === 1 ? '' : 's'} saved and approved.` }
   }
 
   // retry-social
   const gate = canPromote(pkg, null, now)
   if (!gate.ok) return { ok: false, status: 409, error: gate.reason }
-  if (row.status !== 'active') return { ok: false, status: 409, error: 'Resume this promotion first.' }
   if (plan.social && (plan.social.state === 'queued' || plan.social.state === 'held')) return { ok: false, status: 409, error: 'The social post is already queued.' }
   const social = await enrolPackagePost(admin, pkg, now)
   const err = await setStatus('active', { ...plan, social })

@@ -165,7 +165,7 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
         area: 'system',
         title: `${promo.length} trip promotion${promo.length === 1 ? '' : 's'} had a problem`,
         detail: promo.map((f) => `${f.name}: ${f.steps.join('; ')}`).join(' | '),
-        fix: 'If it says the AI key is missing or wrong, check ANTHROPIC_API_KEY in Vercel and redeploy. If it says a database update is missing, run migration 0039. Then click Dismiss and press Promote this package on the trip again.',
+        fix: 'If it says the AI key is missing or wrong, check ANTHROPIC_API_KEY in Vercel and redeploy. If it says a database update is missing, run migration 0039. Then open the trip in Packages. If only the blog ideas failed, press "Retry the blog ideas" on the Promote card. If nothing worked, press "Promote this package" again. Then click Dismiss here.',
         actions: [{ label: 'Dismiss', kind: 'dismiss-promotion' }],
       })
     }
