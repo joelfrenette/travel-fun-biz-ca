@@ -18,7 +18,7 @@ export interface MissingFact {
 }
 
 export const FACT_CHECKLIST: MissingFact[] = [
-  { key: 'price', label: 'Price', fields: ['price_display', 'price_value'], nudge: 'Drop the price list', accepts: 'any', hint: 'Drop the price list, a screenshot with the price, or paste the price.' },
+  { key: 'price', label: 'Price', fields: ['price_display', 'price_value', 'price_on_request'], nudge: 'Drop the price list', accepts: 'any', hint: 'Drop the price list, a screenshot with the price, or paste the price.' },
   { key: 'dates', label: 'Dates', fields: ['available_from', 'available_to', 'departure_dates'], nudge: 'Drop the dates', accepts: 'any', hint: 'Drop the schedule or a screenshot that shows the dates, or paste them.' },
   { key: 'duration', label: 'How long the trip is', fields: ['duration', 'duration_days'], nudge: 'Say how long it is', accepts: 'text', hint: 'Paste a line that says how many days or nights the trip is.' },
   { key: 'group', label: 'Group size', fields: ['max_people'], nudge: 'Add the group size', accepts: 'text', hint: 'Paste a line that says how big the group is.' },
@@ -33,6 +33,7 @@ function filled(v: unknown): boolean {
   if (typeof v === 'string') return v.trim().length > 0
   if (Array.isArray(v)) return v.length > 0
   if (typeof v === 'number') return Number.isFinite(v)
+  if (typeof v === 'boolean') return v // a flag like price_on_request counts only when it is on
   return true
 }
 

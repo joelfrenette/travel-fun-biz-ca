@@ -1,6 +1,7 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, type AnthropicContent } from '@/lib/ai-verify'
 import { collectPhotoCandidates, hopRejection } from '@/lib/supplier-photos'
 import type { PhotoCandidate } from '@/lib/package-sources'
+import { computeTripDuration, detectPriceOnRequest, extractHostContacts } from '@/lib/trip-duration'
 
 // AI package-draft builder (roadmap use case 09dd2acd, Joel's idea 2026-09-26): an agent pastes
 // whatever source material they have (a supplier email, a flyer's text, a page's copy, a link)
@@ -87,6 +88,12 @@ export interface ExtractedDraft {
    * sees exactly what was thrown away rather than wondering why a field is blank. */
   dropped: DroppedValue[]
   model: string
+  /** Values worked out in code from the source text (trip length from dates, price on request), with how. */
+  derived?: { field: string; value: unknown; note: string }[]
+  /** Things a person must look at (an ambiguous length, a length that disagrees with the AI's). Shown in the review table. */
+  flags?: string[]
+  /** Phone numbers found in the source (a host's own numbers). Review table only; never printed on a public page. */
+  hostContacts?: string[]
 }
 
 export type ExtractError = { status: number; message: string }
@@ -113,7 +120,7 @@ function promptCore(suppliedAs: string): string {
 
 ${NO_INVENTION}
 
-Field notes: "itinerary" is only the day-by-day or stop-by-stop outline the source actually gives (one item per day or stop, wording kept close to the source), otherwise null. "duration" is the human phrasing as the source gives it (e.g. "7 nights"); "duration_days" only if the source states or directly implies a day count. "price_display" is the price exactly as the source shows it (keep its currency symbol and wording, e.g. "From $2,499 CAD per person"); "price_value" is that same number as a plain number. "currency" only when the source says CAD or USD (or an unambiguous symbol with a country). "category" must be one of the listed values or null. "keywords" are 5-10 SEO phrases built only from places, trip types and features named in the source. "meta_title" under 60 characters, "meta_description" under 155.
+Field notes: "itinerary" is only the day-by-day or stop-by-stop outline the source actually gives (one item per day or stop, wording kept close to the source), otherwise null. "duration" is the human phrasing as the source gives it (e.g. "7 nights"); "duration_days" only if the source states or directly implies a day count (do not count days between dates yourself: copy the dates into available_from and available_to and our code does the arithmetic). "price_display" is the price exactly as the source shows it (keep its currency symbol and wording, e.g. "From $2,499 CAD per person"); "price_value" is that same number as a plain number. "currency" only when the source says CAD or USD (or an unambiguous symbol with a country). "category" must be one of the listed values or null. "keywords" are 5-10 SEO phrases built only from places, trip types and features named in the source. "meta_title" under 60 characters, "meta_description" under 155.
 
 Output shape: ${OUTPUT_SHAPE}`
 }
@@ -368,9 +375,58 @@ export function groundDraft(
     fields[field] = v.trim()
   }
 
+  // Trip length, price on request and host numbers are worked out in code from the source text (lib/trip-duration.ts).
+  // The model only reads; it never does this arithmetic. Gaps are filled, never overwritten: a grounded value the
+  // model already gave stays, and a disagreement is flagged for a person.
+  const derived: NonNullable<ExtractedDraft['derived']> = []
+  const flags: string[] = []
+  const unmiss = (f: FactField) => { const i = missing.indexOf(f); if (i >= 0) missing.splice(i, 1) }
+  const len = computeTripDuration(source, {
+    isoFrom: typeof fields.available_from === 'string' ? fields.available_from : null,
+    isoTo: typeof fields.available_to === 'string' ? fields.available_to : null,
+  })
+  if (len.duration && len.duration_days != null) {
+    if (fields.duration_days != null && fields.duration_days !== len.duration_days) {
+      flags.push(`Trip length: the AI read ${String(fields.duration_days)} days but the source works out to ${len.duration} (${len.note}). Check it.`)
+    } else {
+      if (fields.duration == null) {
+        fields.duration = len.duration
+        derived.push({ field: 'duration', value: len.duration, note: len.note })
+      }
+      if (fields.duration_days == null) {
+        fields.duration_days = len.duration_days
+        derived.push({ field: 'duration_days', value: len.duration_days, note: len.note })
+      }
+      if (len.quote && normSource.includes(norm(len.quote))) {
+        if (!evidence.duration) evidence.duration = len.quote
+        if (!evidence.duration_days) evidence.duration_days = len.quote
+      }
+      unmiss('duration')
+      unmiss('duration_days')
+      // Dates that carry the year in the source fill an empty first/last date too (still checked by dateGrounded).
+      if (len.basis === 'dates' && len.startIso && len.endIso && dateGrounded(len.startIso, source) && dateGrounded(len.endIso, source)) {
+        if (fields.available_from == null) { fields.available_from = len.startIso; derived.push({ field: 'available_from', value: len.startIso, note: len.note }); unmiss('available_from') }
+        if (fields.available_to == null) { fields.available_to = len.endIso; derived.push({ field: 'available_to', value: len.endIso, note: len.note }); unmiss('available_to') }
+      }
+    }
+  } else if (len.ambiguous || (fields.duration == null && fields.duration_days == null && /\b(weekend|getaway)\b/i.test(source))) {
+    flags.push(`Trip length left empty: ${len.note || 'the source hints at a short trip but gives no dates or day count.'}`)
+  }
+
+  const por = detectPriceOnRequest(source)
+  if (por.onRequest && fields.price_display == null && fields.price_value == null) {
+    fields.price_on_request = true
+    ;(evidence as Record<string, string>).price_on_request = por.quote
+    derived.push({ field: 'price_on_request', value: true, note: `The source says to ask for pricing ("${por.quote}"). Shown on the trip page as a call or text line, with no number invented.` })
+  } else if (por.note) {
+    flags.push(por.note)
+  }
+
+  const hostContacts = extractHostContacts(source).map((c) => c.text)
+
   // The form's mandatory fields (lib/import-package.ts REQUIRED_FIELDS) can stay empty here: the
   // draft is reviewed in the form, which is where a missing price gets typed in by a human.
-  return { fields, evidence, missing, dropped, model }
+  return { fields, evidence, missing, dropped, model, derived, flags, hostContacts }
 }
 
 /** Run the extraction against the model and ground the answer. Never writes to the database. */
@@ -623,6 +679,9 @@ async function fetchHtmlWithUrl(url: string, timeoutMs = 15_000): Promise<{ html
 export function draftToFormData(draft: ExtractedDraft): Record<string, unknown> {
   const f = draft.fields
   const out: Record<string, unknown> = { ...f, status: 'draft' }
+  // price_on_request is a new column (migration 0040) that the old paste-a-draft form does not know about; it is set
+  // from the package review table instead, so it must not ride along into that form's save.
+  delete out.price_on_request
   if (Array.isArray(f.price_includes)) out.price_includes = (f.price_includes as string[]).join('\n')
   if (Array.isArray(f.not_included)) out.not_included = (f.not_included as string[]).join('\n')
   if (Array.isArray(f.keywords)) out.keywords = (f.keywords as string[]).join(', ')

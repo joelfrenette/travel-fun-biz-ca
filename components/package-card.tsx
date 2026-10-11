@@ -10,6 +10,7 @@ import type { Language } from "@/lib/preferences"
 import type { Currency } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
 import { formatPrice, parseUsdPrice } from "@/lib/currency"
+import { priceOnRequestLine } from "@/lib/site"
 
 interface PackageCardProps {
   package: TravelPackage
@@ -21,6 +22,9 @@ interface PackageCardProps {
 export function PackageCard({ package: pkg, language, currency, usdToTargetRate }: PackageCardProps) {
   const priceValue = pkg.priceValue ?? parseUsdPrice(pkg.price)
   const priceDisplay = priceValue ? formatPrice(priceValue, currency, usdToTargetRate) : pkg.price
+  // Price on request: only when the trip has no price of its own. The number is the site's, never a host's.
+  const onRequest = !!pkg.priceOnRequest && !priceValue && !pkg.price?.trim()
+  const request = priceOnRequestLine()
 
   return (
     <Card className="group overflow-hidden border-border bg-card transition-all hover:border-primary hover:shadow-xl hover:shadow-primary/20">
@@ -67,6 +71,17 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
             <span className="text-sm text-muted-foreground">/5</span>
           </div>
         )}
+        {onRequest ? (
+          <p className="text-base font-semibold text-foreground">
+            {request.phone ? (
+              <>
+                Call or text <a href={request.telHref} className="underline hover:text-primary">{request.phone}</a> for pricing
+              </>
+            ) : (
+              request.text
+            )}
+          </p>
+        ) : (
         <div className="flex items-baseline gap-2">
           <span className={priceValue ? "text-2xl font-bold text-foreground" : "text-base font-semibold text-foreground"}>{priceDisplay}</span>
           {!!priceValue && (
@@ -76,6 +91,7 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
             </>
           )}
         </div>
+        )}
       </CardContent>
       <CardFooter className="p-6 pt-0">
         <Button asChild className="w-full bg-primary text-primary-foreground font-bold uppercase hover:bg-primary/90">

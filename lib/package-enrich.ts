@@ -107,6 +107,7 @@ export function itemSupported(item: string, sourceNorm: string): boolean {
 const FACT_TARGETS = [
   'destination', 'country', 'region', 'supplier', 'duration', 'duration_days', 'price_display', 'price_value', 'currency',
   'available_from', 'available_to', 'departure_dates', 'price_includes', 'not_included', 'max_people', 'booking_url', 'more_info_url', 'category', 'itinerary',
+  'price_on_request',
 ] as const
 
 function asList(v: unknown): string[] {
@@ -143,6 +144,8 @@ export interface SourceContext {
 /** Why a field may not be filled in automatically even if empty and grounded (null = no extra restriction). */
 function clickOnlyReason(field: string, row: Record<string, unknown>, draft: ExtractedDraft, ctx: SourceContext, transcript?: string): string | null {
   const fields = draft.fields as Record<string, unknown>
+  // Price on request is a public change (the card stops showing a price line), so a person ticks it.
+  if (field === 'price_on_request') return 'The source says to call, text or contact for pricing. Click Use this to show "Call or text for pricing" on the trip page (our number, never the hosts\' numbers).'
   if ((ctx.kind === 'screenshot' || ctx.kind === 'pdf') && FILE_CLICK_ONLY_FIELDS.has(field)) {
     return `This was read from a ${ctx.kind === 'pdf' ? 'PDF' : 'screenshot'}. Look at the file (View, next to the source) and click Use this if it is right.`
   }
@@ -180,7 +183,9 @@ function proposeFacts(pkg: Partial<DbPackage>, draft: ExtractedDraft, transcript
   for (const field of FACT_TARGETS) {
     const raw = (draft.fields as Record<string, unknown>)[field]
     if (raw == null || raw === '' || (Array.isArray(raw) && raw.length === 0)) continue
-    const current = row[field] ?? null
+    // A trip that already shows a price is not "price on request"; false counts as empty for that flag.
+    if (field === 'price_on_request' && (!isEmptyValue(row.price_display) || row.price_value != null)) continue
+    const current = field === 'price_on_request' && row[field] === false ? null : (row[field] ?? null)
     const evidence = (draft.evidence as Record<string, string | undefined>)[field] ?? null
 
     let proposed: unknown = raw

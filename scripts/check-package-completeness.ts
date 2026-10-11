@@ -181,7 +181,9 @@ const goodWriter: CopyWriter = async () => {
   check('numberNextToUnit: 24 travellers, 7 nights, 7-night', numberNextToUnit(24, 'Group size up to 24 travellers', 'people|travell?ers?') && numberNextToUnit(7, '7 nights from Athens', 'nights?|days?') && numberNextToUnit(7, 'a 7-night cruise', 'nights?'))
   check('numberNextToUnit: a number far from any unit does not count', !numberNextToUnit(24, 'Call 24 hours. Cabins sleep many guests comfortably on board today', 'guests?|people') && !numberNextToUnit(14, 'Booking opens 14 March for everyone this year. Eight nights at sea', 'nights?|days?'))
   const cnt = groundDraft({ fields: { max_people: 2027, duration_days: 12 } }, transcript, undefined, 'm')
-  check('max_people and duration_days from unrelated numbers are dropped', cnt.fields.max_people === undefined && cnt.fields.duration_days === undefined)
+  check('max_people and duration_days from unrelated numbers are dropped', cnt.fields.max_people === undefined && cnt.fields.duration_days !== 12)
+  // The transcript states "7 nights", so the length is now worked out in code (8 days) instead of staying empty.
+  check('the model\'s ungrounded 12 days is replaced by the 8 days the "7 nights" text gives', cnt.fields.duration_days === 8 && cnt.fields.duration === '8 days / 7 nights')
 
   // Rule 4: file sources never auto-apply prices, dates, links, duration, group size
   const blankPkg = { ...emptyPkg, destination: null, booking_url: null }
