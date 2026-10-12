@@ -10,6 +10,8 @@ import { composeGuide, guideBlockers, groundingText, type GuideBrief, type Brief
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedGuide } from '@/lib/content-repair-adapters'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
+import { inferScope } from '@/lib/guide-scope'
+import { BACKFILL_KIND_ORDER, backfillProgress, effectiveGuideCaps, planBackfill, readBackfillState, type BackfillPlan, type BackfillProgress, type BackfillState } from '@/lib/guide-backfill'
 import { clearGuideFailure, readGuideFailures, recordGuideFailure, recentGuideFailureCount, MAX_GUIDE_ATTEMPTS, BREAKER_FAILURES, BREAKER_HOURS } from '@/lib/guide-failures'
 import {
   GUIDE_KINDS,
@@ -305,6 +307,7 @@ export async function writeGuide(
       slug: cand.slug,
       name: cand.name,
       parent_slug: cand.parent_slug,
+      scope: cand.scope ?? inferScope(cand.kind, cand.name),
       summary: guide.summary,
       body: guide.body,
       sections: guide.sections,
@@ -366,7 +369,7 @@ const ORIGIN_ORDER: Record<GuideCandidate['origin'], number> = { destination: 0,
  * MAX_GUIDE_ATTEMPTS times is skipped. */
 export async function pickNextCandidate(admin: SupabaseClient, candidates: GuideCandidate[]): Promise<GuideCandidate | null> {
   const failures = await readGuideFailures(admin)
-  const eligible = candidates.filter((c) => (c.origin !== 'package' || c.priority) && (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
+  const eligible = candidates.filter((c) => (c.origin !== 'package' || c.priority || c.backfill) && (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
   if (eligible.length === 0) return null
 
   // A guide that "Promote this package" put at the front of the line (WP15) is written before the normal rotation, under
@@ -374,6 +377,12 @@ export async function pickNextCandidate(admin: SupabaseClient, candidates: Guide
   // (origin 'package') is always saved as a draft (see writeGuide), so a guessed name is never published or posted.
   const promoted = eligible.filter((c) => c.priority)
   if (promoted.length > 0) return promoted.sort((a, b) => ORIGIN_ORDER[a.origin] - ORIGIN_ORDER[b.origin] || (a.kind === 'destinations' ? -1 : 0) - (b.kind === 'destinations' ? -1 : 0))[0]
+
+  // Pages on the one-time backfill list (WP16) come next: destinations first, then cruise lines, ships, resorts, hotels,
+  // river cruises, yachts. They obey the same gate and publish decision; only the number written per day differs while
+  // the batch runs (see effectiveGuideCaps). With the batch used up they continue here at the normal daily cap.
+  const backfilled = eligible.filter((c) => c.backfill)
+  if (backfilled.length > 0) return backfilled.sort((a, b) => BACKFILL_KIND_ORDER.indexOf(a.kind) - BACKFILL_KIND_ORDER.indexOf(b.kind) || a.name.localeCompare(b.name))[0]
 
   const { data } = await admin.from('guides').select('kind, created_at').order('created_at', { ascending: false })
   const newest = new Map<string, string>()
@@ -389,12 +398,31 @@ export async function pickNextCandidate(admin: SupabaseClient, candidates: Guide
   return eligible.filter((c) => c.kind === kind).sort((a, b) => ORIGIN_ORDER[a.origin] - ORIGIN_ORDER[b.origin])[0] ?? null
 }
 
+/** The pages a one-time backfill would queue right now, from the published trips. Reads only: no AI call, no write. */
+export async function buildBackfillPlan(admin: SupabaseClient): Promise<BackfillPlan> {
+  const [candidates, failures] = await Promise.all([listGuideCandidates(admin), readGuideFailures(admin)])
+  return planBackfill(candidates, failures, MAX_GUIDE_ATTEMPTS)
+}
+
+/** The backfill state and how far it has got, or null when there is none or it cannot be read (no extra allowance
+ * is then given: fail closed). */
+export async function loadBackfillProgress(admin: SupabaseClient): Promise<{ state: BackfillState; progress: BackfillProgress } | null> {
+  const state = await readBackfillState(admin)
+  if (!state || state.cancelled_at) return null
+  const { data, error } = await admin.from('guides').select('kind, slug, created_at')
+  if (error) return null
+  return { state, progress: backfillProgress(state, (data ?? []) as { kind: string; slug: string; created_at: string }[]) }
+}
+
 /** The pipeline's guides step: at most `guides_per_day` and `guides_per_week` (counted from the guides table,
  * failing closed), one guide per call, and none at all while the failure breaker is tripped. The caller has
  * already checked that Autopilot is on and not paused. */
 export async function runGuidesStep(admin: SupabaseClient, opts: { deadlineMs?: number } = {}): Promise<{ ok: boolean; note: string }> {
-  const { perDay, perWeek } = await getGuideCaps(admin)
-  if (perDay === 0 || perWeek === 0) return { ok: true, note: 'guides are switched off (a cap is 0)' }
+  const base = await getGuideCaps(admin)
+  if (base.perDay === 0 || base.perWeek === 0) return { ok: true, note: 'guides are switched off (a cap is 0)' }
+  // The one-time backfill (WP16) lifts the caps by a bounded amount until its batch is written; then the normal caps resume.
+  const backfill = await loadBackfillProgress(admin)
+  const { perDay, perWeek } = backfill ? effectiveGuideCaps(base, backfill.progress, backfill.state.batch_cap) : base
   if (!isAiConfigured()) return { ok: true, note: 'AI writing is not configured, so no guides' }
 
   // The breaker comes before any AI call. If the log cannot be read, stay closed.

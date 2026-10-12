@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '@/integrations/supabase/client'
 import { generateSlug } from '@/lib/utils'
 import { GUIDE_SEEDS } from '@/lib/guide-seeds'
+import { GUIDE_BACKFILL_KEY, parseBackfillState } from '@/lib/guide-backfill'
+import { inferScope, parseScope, type GuideScope } from '@/lib/guide-scope'
 import { dbPackageToTravelPackage, type DbPackage } from '@/lib/packages'
 import type { TravelPackage } from '@/types/travel'
 
@@ -63,6 +65,10 @@ export interface Guide {
   slug: string
   name: string
   parent_slug: string | null
+  /** How wide the page is (migration 0041). Null = not set; the site then infers one from the name (lib/guide-scope.ts). */
+  scope: GuideScope | null
+  /** 'rejected' = a person turned this draft down in the review queue (migration 0041). */
+  review_state: 'rejected' | null
   summary: string
   body: string
   sections: GuideSection[]
@@ -85,39 +91,65 @@ export interface Guide {
 }
 
 /** What a visitor gets: no admin notes, no source. */
-export type PublicGuide = Omit<Guide, 'quality_notes' | 'source'>
+export type PublicGuide = Omit<Guide, 'quality_notes' | 'source' | 'review_state'>
 
-const PUBLIC_COLUMNS =
+// Migration 0041 adds `scope` and `review_state`. Until it is applied, a select that names them fails with a
+// "column does not exist" error, which would 404 every guide page. So every read tries the new columns first and,
+// only on that one error, retries with the old list. The page then falls back to inferring the scope from the name.
+const PUBLIC_COLUMNS_OLD =
   'id, kind, slug, name, parent_slug, summary, body, sections, faq, key_takeaways, hero_image_url, hero_alt, meta_title, meta_description, og_title, og_description, primary_keyword, secondary_keywords, related_package_ids, status, created_at, updated_at'
+const PUBLIC_COLUMNS = `${PUBLIC_COLUMNS_OLD}, scope`
 
 /** What an index page or an admin list needs, without the long body. */
-export type GuideSummary = Pick<Guide, 'id' | 'kind' | 'slug' | 'name' | 'parent_slug' | 'summary' | 'hero_image_url' | 'hero_alt' | 'status' | 'source' | 'quality_notes' | 'created_at' | 'updated_at'>
+export type GuideSummary = Pick<Guide, 'id' | 'kind' | 'slug' | 'name' | 'parent_slug' | 'summary' | 'hero_image_url' | 'hero_alt' | 'status' | 'source' | 'quality_notes' | 'created_at' | 'updated_at'> & {
+  scope?: GuideScope | null
+  review_state?: 'rejected' | null
+}
 
-const SUMMARY_COLUMNS = 'id, kind, slug, name, parent_slug, summary, hero_image_url, hero_alt, status, source, quality_notes, created_at, updated_at'
+const SUMMARY_COLUMNS_OLD = 'id, kind, slug, name, parent_slug, summary, hero_image_url, hero_alt, status, source, quality_notes, created_at, updated_at'
+const SUMMARY_COLUMNS = `${SUMMARY_COLUMNS_OLD}, scope, review_state`
+
+/** True when a database error is only "the 0041 columns are not there yet". */
+export function isMissingScopeColumn(message: string | null | undefined): boolean {
+  return !!message && /\b(scope|review_state)\b/i.test(message) && /column|schema cache/i.test(message)
+}
+
+type PgReply = { data: unknown; error: { message: string } | null }
+
+/** Runs a read with the new column list, and again with the old one when the new columns are missing. */
+async function withScopeFallback(run: (columns: 'new' | 'old') => PromiseLike<PgReply>): Promise<PgReply> {
+  const first = await run('new')
+  return first.error && isMissingScopeColumn(first.error.message) ? run('old') : first
+}
 
 // ---------------------------------------------------------------------------------------------------
 // Public reads (anon client: RLS returns published rows only, a draft can never leak through here)
 // ---------------------------------------------------------------------------------------------------
 
 export async function getPublishedGuide(kind: GuideKind, slug: string): Promise<PublicGuide | null> {
-  const { data, error } = await supabase.from('guides').select(PUBLIC_COLUMNS).eq('kind', kind).eq('slug', slug).eq('status', 'published').maybeSingle()
+  const { data, error } = await withScopeFallback((v) =>
+    supabase.from('guides').select(v === 'new' ? PUBLIC_COLUMNS : PUBLIC_COLUMNS_OLD).eq('kind', kind).eq('slug', slug).eq('status', 'published').maybeSingle(),
+  )
   if (error) {
     console.error('[guides] fetch failed:', error.message)
     return null
   }
-  return (data as unknown as PublicGuide | null) ?? null
+  const row = data as unknown as PublicGuide | null
+  return row ? { ...row, scope: parseScope(row.scope) } : null
 }
 
 /** Published guides, newest first, optionally for one kind. Never throws: a read error is an empty list. */
 export async function listPublishedGuides(kind?: GuideKind): Promise<GuideSummary[]> {
-  let query = supabase.from('guides').select(SUMMARY_COLUMNS).eq('status', 'published').order('created_at', { ascending: false })
-  if (kind) query = query.eq('kind', kind)
-  const { data, error } = await query
+  const { data, error } = await withScopeFallback((v) => {
+    let query = supabase.from('guides').select(v === 'new' ? 'id, kind, slug, name, parent_slug, summary, hero_image_url, hero_alt, status, source, quality_notes, created_at, updated_at, scope' : SUMMARY_COLUMNS_OLD).eq('status', 'published').order('created_at', { ascending: false })
+    if (kind) query = query.eq('kind', kind)
+    return query
+  })
   if (error) {
     console.error('[guides] list failed:', error.message)
     return []
   }
-  return (data ?? []) as GuideSummary[]
+  return (data ?? []) as unknown as GuideSummary[]
 }
 
 /** Every published guide's address and last update, for the sitemap. */
@@ -148,18 +180,19 @@ export async function getPublishedPackagesByIds(ids: string[]): Promise<TravelPa
 // ---------------------------------------------------------------------------------------------------
 
 /** The few columns a link needs. */
-export type GuideLink = Pick<Guide, 'id' | 'kind' | 'slug' | 'name' | 'parent_slug' | 'summary' | 'related_package_ids'>
+export type GuideLink = Pick<Guide, 'id' | 'kind' | 'slug' | 'name' | 'parent_slug' | 'summary' | 'related_package_ids'> & { scope?: GuideScope | null }
 
-const LINK_COLUMNS = 'id, kind, slug, name, parent_slug, summary, related_package_ids'
+const LINK_COLUMNS_OLD = 'id, kind, slug, name, parent_slug, summary, related_package_ids'
+const LINK_COLUMNS = `${LINK_COLUMNS_OLD}, scope`
 
 /** Every published guide as a link row, newest first. Never throws: a read error is an empty list. */
 export async function listPublishedGuideLinks(): Promise<GuideLink[]> {
-  const { data, error } = await supabase.from('guides').select(LINK_COLUMNS).eq('status', 'published').order('created_at', { ascending: false })
+  const { data, error } = await withScopeFallback((v) => supabase.from('guides').select(v === 'new' ? LINK_COLUMNS : LINK_COLUMNS_OLD).eq('status', 'published').order('created_at', { ascending: false }))
   if (error) {
     console.error('[guides] link list failed:', error.message)
     return []
   }
-  return ((data ?? []) as GuideLink[]).filter((g) => isGuideKind(g.kind))
+  return ((data ?? []) as unknown as GuideLink[]).filter((g) => isGuideKind(g.kind))
 }
 
 /** One line for a card: the first sentence of the summary, cut at 160 characters. */
@@ -242,18 +275,20 @@ export async function listGuidesForPost(post: { title: string; tags: string[]; r
 
 /** Published hotel and resort guides whose parent is this destination, for the destination page. Never throws. */
 export async function listPropertyGuidesForDestination(destinationSlug: string): Promise<GuideLink[]> {
-  const { data, error } = await supabase
-    .from('guides')
-    .select(LINK_COLUMNS)
-    .eq('status', 'published')
-    .eq('parent_slug', destinationSlug)
-    .in('kind', ['hotels', 'resorts'])
-    .order('name', { ascending: true })
+  const { data, error } = await withScopeFallback((v) =>
+    supabase
+      .from('guides')
+      .select(v === 'new' ? LINK_COLUMNS : LINK_COLUMNS_OLD)
+      .eq('status', 'published')
+      .eq('parent_slug', destinationSlug)
+      .in('kind', ['hotels', 'resorts'])
+      .order('name', { ascending: true }),
+  )
   if (error) {
     console.error('[guides] destination property list failed:', error.message)
     return []
   }
-  return (data ?? []) as GuideLink[]
+  return (data ?? []) as unknown as GuideLink[]
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -261,9 +296,9 @@ export async function listPropertyGuidesForDestination(destinationSlug: string):
 // ---------------------------------------------------------------------------------------------------
 
 export async function listGuidesAdmin(admin: SupabaseClient): Promise<GuideSummary[]> {
-  const { data, error } = await admin.from('guides').select(SUMMARY_COLUMNS).order('created_at', { ascending: false })
+  const { data, error } = await withScopeFallback((v) => admin.from('guides').select(v === 'new' ? SUMMARY_COLUMNS : SUMMARY_COLUMNS_OLD).order('created_at', { ascending: false }))
   if (error) throw new Error(`Could not read guides: ${error.message}`)
-  return (data ?? []) as GuideSummary[]
+  return (data ?? []) as unknown as GuideSummary[]
 }
 
 export async function getGuideAdmin(admin: SupabaseClient, kind: GuideKind, slug: string): Promise<Guide | null> {
@@ -276,24 +311,31 @@ export async function getGuideById(admin: SupabaseClient, id: string): Promise<G
   return (data as Guide | null) ?? null
 }
 
-export type GuideWrite = Omit<Guide, 'id' | 'created_at' | 'updated_at'>
+export type GuideWrite = Omit<Guide, 'id' | 'created_at' | 'updated_at' | 'scope' | 'review_state'> & { scope?: GuideScope | null; review_state?: 'rejected' | null }
 
-/** Insert or replace one guide (kind + slug is unique). Returns the saved row. */
+/** Insert or replace one guide (kind + slug is unique). Returns the saved row. Before migration 0041 is applied the
+ * two new columns are left out of the write, so saving a guide keeps working. */
 export async function saveGuide(admin: SupabaseClient, row: GuideWrite): Promise<Guide> {
-  const { data, error } = await admin
-    .from('guides')
-    .upsert({ ...row, updated_at: new Date().toISOString() }, { onConflict: 'kind,slug' })
-    .select('*')
-    .single()
+  const write = async (payload: Record<string, unknown>) =>
+    admin.from('guides').upsert({ ...payload, updated_at: new Date().toISOString() }, { onConflict: 'kind,slug' }).select('*').single()
+  let { data, error } = await write(row)
+  if (error && isMissingScopeColumn(error.message)) {
+    const legacy: Record<string, unknown> = { ...row }
+    delete legacy.scope
+    delete legacy.review_state
+    ;({ data, error } = await write(legacy))
+  }
   if (error || !data) throw new Error(`Could not save the guide: ${error?.message ?? 'no row returned'}`)
   return data as Guide
 }
 
 export async function setGuideStatus(admin: SupabaseClient, id: string, status: 'draft' | 'published'): Promise<{ guide?: GuideSummary; error?: string }> {
-  const { data, error } = await admin.from('guides').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select(SUMMARY_COLUMNS).maybeSingle()
+  const { data, error } = await withScopeFallback((v) =>
+    admin.from('guides').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select(v === 'new' ? SUMMARY_COLUMNS : SUMMARY_COLUMNS_OLD).maybeSingle(),
+  )
   if (error) return { error: error.message }
   if (!data) return { error: 'That guide no longer exists.' }
-  return { guide: data as GuideSummary }
+  return { guide: data as unknown as GuideSummary }
 }
 
 export async function deleteGuide(admin: SupabaseClient, id: string): Promise<{ error?: string }> {
@@ -320,6 +362,12 @@ export interface GuideCandidate {
   parent_slug: string | null
   /** destination = a published package goes there; package = a package name looks like this property; seed = curated name. */
   origin: 'destination' | 'package' | 'seed'
+  /** How wide the page is. Set from the seed list or inferred from the name; null when it cannot be told. */
+  scope?: GuideScope | null
+  /** True while a one-time backfill (lib/guide-backfill.ts) has this page on its list. Such a page is written before the
+   * normal rotation even when its origin is 'package', but it is NOT a priority page: a guessed name is not forced to
+   * a draft here, it follows the same gate and publish decision as every other page. */
+  backfill?: boolean
   /** True while "Promote this package" has put this guide at the front of the line (30 days). A priority guide is
    * picked before the normal rotation, even when its origin is 'package'. It still goes through the quality gate. */
   priority?: boolean
@@ -421,7 +469,7 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
   const rows = (pkgs ?? []) as { name: string | null; destination: string | null; category: string | null }[]
   for (const p of rows) {
     const destination = p.destination?.trim()
-    if (destination) add({ kind: 'destinations', name: destination, slug: generateSlug(destination), parent_slug: null, origin: 'destination' })
+    if (destination) add({ kind: 'destinations', name: destination, slug: generateSlug(destination), parent_slug: null, origin: 'destination', scope: inferScope('destinations', destination) })
   }
   for (const p of rows) {
     if (!p.name) continue
@@ -430,7 +478,7 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
     const name = cleanPropertyName(p.name)
     if (!name) continue
     const parent = (kind === 'hotels' || kind === 'resorts') && p.destination ? generateSlug(p.destination) : null
-    add({ kind, name, slug: generateSlug(name), parent_slug: parent || null, origin: 'package' })
+    add({ kind, name, slug: generateSlug(name), parent_slug: parent || null, origin: 'package', scope: inferScope(kind, name) })
   }
   // A curated destination is skipped when a real destination already covers it ("cancun" vs "cancun-mexico").
   const realDestinations = [
@@ -441,7 +489,26 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
     const seedSlug = generateSlug(seed.name)
     const seedWords = seedSlug.split('-').join(' ')
     if (seed.kind === 'destinations' && realDestinations.some((r) => r === seedSlug || ` ${r.split('-').join(' ')} `.includes(` ${seedWords} `))) continue
-    add({ kind: seed.kind, name: seed.name, slug: seedSlug, parent_slug: null, origin: 'seed' })
+    add({ kind: seed.kind, name: seed.name, slug: seedSlug, parent_slug: seed.parent_slug ?? null, origin: 'seed', scope: seed.scope ?? inferScope(seed.kind, seed.name) })
+  }
+
+  // A one-time backfill (WP16): its listed pages are marked so the guides step writes them before the normal rotation.
+  // A listed page that is already written is skipped (it is in `existing`); one that is not in the list yet is added.
+  // Never throws: a bad or missing value is no backfill.
+  try {
+    const { data } = await admin.from('app_settings').select('value').eq('key', GUIDE_BACKFILL_KEY).maybeSingle()
+    const state = parseBackfillState((data as { value: string | null } | null)?.value)
+    if (state && !state.cancelled_at) {
+      for (const e of state.entries) {
+        const key = `${e.kind}:${e.slug}`
+        if (taken.has(key) && !out.some((c) => c.kind === e.kind && c.slug === e.slug)) continue
+        const found = out.find((c) => c.kind === e.kind && c.slug === e.slug)
+        if (found) found.backfill = true
+        else out.push({ kind: e.kind, name: e.name, slug: e.slug, parent_slug: e.parent_slug, origin: e.origin, scope: e.scope, backfill: true })
+      }
+    }
+  } catch {
+    // the backfill list is optional
   }
 
   // Promoted packages (WP15): their guides go to the front. A guide that is already written is not a candidate
