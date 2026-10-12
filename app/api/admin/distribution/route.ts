@@ -16,23 +16,26 @@ import {
   type DistributionMode,
 } from '@/lib/distribution'
 import { uploadPostConfigured } from '@/lib/upload-post'
+import { getActivePlatforms } from '@/lib/social-provider'
 import { isAiConfigured } from '@/lib/ai-verify'
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [mode, accounts, platforms, queue, tailoredCaptions] = await Promise.all([
+    const [mode, accounts, active, queue, tailoredCaptions] = await Promise.all([
       getDistributionMode(admin),
       getDistributionAccounts(admin),
-      getDistributionPlatforms(admin),
+      getActivePlatforms(admin),
       listDistributionQueue(admin),
       getTailoredCaptionsEnabled(admin),
     ])
     return NextResponse.json({
       mode,
       accounts,
-      platforms,
+      // The live provider's ticked networks (GoHighLevel accounts or the Upload-Post list), not a stale setting.
+      platforms: active.platforms,
+      provider: active.provider,
       queue,
       providerConfigured: uploadPostConfigured(),
       tailoredCaptions,

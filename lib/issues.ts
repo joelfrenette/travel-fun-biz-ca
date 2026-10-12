@@ -42,7 +42,7 @@ export interface Issue {
 
 /** Turns a raw provider error into advice. Falls back to no advice rather than guessing. */
 function adviceFor(error: string): string | undefined {
-  if (/None of your selected networks/i.test(error)) return 'Tick a network that takes this kind of post (Facebook, LinkedIn or Bluesky for text and photo posts) in "Where it posts".'
+  if (/None of your selected networks/i.test(error)) return 'Tick a network that takes this kind of post in "Where it posts" (the error message lists which ones do).'
   if (/invalid platforms/i.test(error)) return 'One selected network cannot take this kind of post. Retry now skips it automatically and only sends to networks that have not received the post yet.'
   if (/\b(401|403)\b|rejected the (api )?key|unauthor/i.test(error)) return 'The provider rejected the key. Check the key in Vercel (and that it matches the environment), then press resume or retry.'
   if (/expired|reconnect|reauth/i.test(error)) return 'An account needs to be reconnected on the provider, then retry.'

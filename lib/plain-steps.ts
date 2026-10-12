@@ -212,7 +212,7 @@ export function plainAction(i: Issue): PlainAction {
       id: i.id,
       title: i.title,
       why: 'A job that runs by itself did not run right.',
-      steps: ['Open the System Health page with the link below.', 'Look for the amber (orange) light.', 'If it is still orange after 30 minutes, copy the message below and paste it to Claude.'],
+      steps: ['Open the System Health page with the link below.', 'Look for the amber (orange) light.', 'If it is still orange after 15 minutes (the job runs every 15 minutes), copy the message below and paste it to Claude.'],
       url: adminLink('/admin/system-health'),
       urlLabel: 'Open System Health',
       paste,

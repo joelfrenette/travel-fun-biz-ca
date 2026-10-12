@@ -355,7 +355,7 @@ export default function KeywordsPage() {
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <h3 className="min-w-[200px] flex-1 font-medium">{idea.title_idea || idea.angle}</h3>
                         <div className="flex items-center gap-1">
-                          {idea.score != null && <Badge variant="outline">{idea.score}/100</Badge>}
+                          {idea.score != null && <Badge variant="outline" title="Opportunity estimate from our own formula, not a Google number">opportunity estimate {idea.score}/100</Badge>}
                           <Badge variant={idea.status === "approved" ? "default" : "secondary"}>{idea.status}{idea.scheduled_for ? ` · ${idea.scheduled_for}` : ""}</Badge>
                         </div>
                       </div>
@@ -474,7 +474,7 @@ export default function KeywordsPage() {
                     <th className="p-2 text-right">Google volume / mo</th>
                     <th className="p-2 text-right">Competition</th>
                     <th className="p-2 text-left">Intent</th>
-                    <th className="p-2 text-right">Score</th>
+                    <th className="p-2 text-right" title="Our own estimate, not a Google number">Opportunity estimate</th>
                     <th className="p-2 text-left">Why</th>
                   </tr>
                 </thead>
@@ -528,7 +528,7 @@ export default function KeywordsPage() {
                   <th className="p-2 text-right"><button onClick={() => toggleSort("impressions")}>Impressions<SortIcon field="impressions" /></button></th>
                   <th className="p-2 text-right"><button onClick={() => toggleSort("clicks")}>Clicks<SortIcon field="clicks" /></button></th>
                   <th className="p-2 text-left" title="The page Google really shows for this phrase, or its target page">Page</th>
-                  <th className="p-2 text-left"><button onClick={() => toggleSort("score")}>Opportunity<SortIcon field="score" /></button></th>
+                  <th className="p-2 text-left"><button onClick={() => toggleSort("score")}>Opportunity (estimate)<SortIcon field="score" /></button></th>
                   <th className="p-2 text-left">Topic</th>
                   <th className="p-2 text-left">Target page</th>
                   <th className="p-2 text-left">Note</th>
@@ -570,7 +570,7 @@ export default function KeywordsPage() {
                       </td>
                       <td className="p-2" title={[k.reason, ...k.reasons].filter(Boolean).join(". ")}>
                         <OppBadge opp={k.opportunity} reason={k.reason} />
-                        {k.score != null && <div className="mt-0.5 text-[10px] text-muted-foreground">score {k.score}</div>}
+                        {k.score != null && <div className="mt-0.5 text-[10px] text-muted-foreground" title="Our own estimate, not a Google number">opportunity estimate {k.score}</div>}
                       </td>
                       <td className="p-2 text-xs text-muted-foreground">
                         {k.clusterPrimary ? (k.clusterPrimary === row.keyword ? (k.clusterSize > 1 ? `main of ${k.clusterSize}` : "alone") : <span title={k.clusterPrimary}>{`part of "${k.clusterPrimary}"`}</span>) : "-"}

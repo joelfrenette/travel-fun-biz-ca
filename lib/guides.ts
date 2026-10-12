@@ -290,7 +290,9 @@ export async function saveGuide(admin: SupabaseClient, row: GuideWrite): Promise
 }
 
 export async function setGuideStatus(admin: SupabaseClient, id: string, status: 'draft' | 'published'): Promise<{ guide?: GuideSummary; error?: string }> {
-  const { data, error } = await admin.from('guides').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select(SUMMARY_COLUMNS).maybeSingle()
+  // Publishing clears the stale "held back" reasons (same as page copy), so the page no longer says it is held.
+  const patch = status === 'published' ? { status, quality_notes: null, updated_at: new Date().toISOString() } : { status, updated_at: new Date().toISOString() }
+  const { data, error } = await admin.from('guides').update(patch).eq('id', id).select(SUMMARY_COLUMNS).maybeSingle()
   if (error) return { error: error.message }
   if (!data) return { error: 'That guide no longer exists.' }
   return { guide: data as GuideSummary }

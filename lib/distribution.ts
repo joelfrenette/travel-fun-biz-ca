@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { uploadPostGetStatus } from '@/lib/upload-post'
-import { resolvePostingTarget, platformsFor, type PostingTarget } from '@/lib/social-provider'
+import { resolvePostingTarget, platformsFor, PLATFORM_ACCEPTS, type PostingTarget } from '@/lib/social-provider'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource } from '@/lib/guide-post-source'
@@ -303,7 +303,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           .from('post_distribution')
           .update({
             stage: anySent ? 'done' : 'failed',
-            last_error: anySent ? null : `None of your selected networks takes a ${kind} post (selected: ${target.platforms.join(', ') || 'none'}). Tick a network that does, such as Facebook, LinkedIn or Bluesky.`,
+            last_error: anySent ? null : `None of your selected networks takes a ${kind} post (selected: ${target.platforms.join(', ') || 'none'}). Tick a network that does in "Where it posts" (${platformsFor(kind, PLATFORM_ACCEPTS[kind], target.provider).slice(0, 4).join(', ')}).`,
             updated_at: new Date().toISOString(),
           })
           .eq('content_type', 'post')

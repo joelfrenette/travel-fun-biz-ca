@@ -11,25 +11,6 @@ import { adminTools } from "@/lib/admin-nav"
 import type { Ga4Report } from "@/lib/ga4"
 import { FunnelPanel } from "@/components/admin/funnel-panel"
 
-// ─── Sample analytics data, shown until GA4 is connected ────────────
-const sampleChannels = ["google", "direct", "email", "facebook", "instagram", "tiktok", "twitter", "pinterest", "other"]
-const sampleData = [
-  { date: "Mar 1", google: 42, direct: 18, email: 8, facebook: 12, instagram: 6, tiktok: 3, twitter: 2, pinterest: 4, other: 5 },
-  { date: "Mar 2", google: 55, direct: 22, email: 12, facebook: 15, instagram: 8, tiktok: 5, twitter: 3, pinterest: 6, other: 7 },
-  { date: "Mar 3", google: 48, direct: 20, email: 6, facebook: 18, instagram: 10, tiktok: 7, twitter: 4, pinterest: 5, other: 4 },
-  { date: "Mar 4", google: 62, direct: 25, email: 15, facebook: 22, instagram: 12, tiktok: 8, twitter: 5, pinterest: 7, other: 9 },
-  { date: "Mar 5", google: 71, direct: 28, email: 10, facebook: 19, instagram: 14, tiktok: 11, twitter: 6, pinterest: 8, other: 6 },
-  { date: "Mar 6", google: 58, direct: 24, email: 18, facebook: 25, instagram: 16, tiktok: 9, twitter: 4, pinterest: 10, other: 8 },
-  { date: "Mar 7", google: 85, direct: 32, email: 22, facebook: 28, instagram: 18, tiktok: 14, twitter: 7, pinterest: 12, other: 11 },
-  { date: "Mar 8", google: 78, direct: 30, email: 14, facebook: 20, instagram: 15, tiktok: 10, twitter: 5, pinterest: 9, other: 7 },
-  { date: "Mar 9", google: 92, direct: 35, email: 25, facebook: 32, instagram: 20, tiktok: 16, twitter: 8, pinterest: 14, other: 13 },
-  { date: "Mar 10", google: 68, direct: 27, email: 11, facebook: 17, instagram: 13, tiktok: 7, twitter: 3, pinterest: 6, other: 5 },
-  { date: "Mar 11", google: 74, direct: 29, email: 19, facebook: 24, instagram: 17, tiktok: 12, twitter: 6, pinterest: 11, other: 10 },
-  { date: "Mar 12", google: 88, direct: 33, email: 20, facebook: 30, instagram: 22, tiktok: 15, twitter: 9, pinterest: 13, other: 12 },
-  { date: "Mar 13", google: 95, direct: 38, email: 28, facebook: 35, instagram: 25, tiktok: 18, twitter: 10, pinterest: 15, other: 14 },
-  { date: "Mar 14", google: 82, direct: 31, email: 16, facebook: 21, instagram: 19, tiktok: 13, twitter: 7, pinterest: 10, other: 9 },
-]
-
 const channelColors: Record<string, string> = {
   google: "#4285F4", direct: "#34A853", email: "#FBBC05", facebook: "#1877F2", instagram: "#E4405F",
   tiktok: "#000000", twitter: "#1DA1F2", pinterest: "#E60023", other: "#9CA3AF",
@@ -37,11 +18,38 @@ const channelColors: Record<string, string> = {
   "Paid Search": "#0F9D58", "Email": "#FBBC05", "Referral": "#7C3AED", "Organic Video": "#FF0000", "Other": "#9CA3AF",
 }
 
+// Setup checklist Joel follows (grade-5 steps for every account and key).
+const SETUP_STEPS_URL = "https://claude.ai/artifact/PN6caspQe9V6RUUsJ2vNcw"
+
+// "not_connected" = GA4 keys are not set. "error" = keys are set but Google said no. Neither shows numbers.
 type AnalyticsState =
   | { kind: "loading" }
-  | { kind: "sample" }
+  | { kind: "not_connected" }
   | { kind: "error"; message: string }
   | { kind: "live"; report: Ga4Report }
+
+function Ga4NotConnected({ state }: { state: AnalyticsState }) {
+  const isError = state.kind === "error"
+  return (
+    <Card className="col-span-full">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg">{isError ? "Google Analytics could not be read" : "Google Analytics is not connected"}</CardTitle>
+        <CardDescription>No website traffic numbers are shown here until it is connected. Nothing on this card is made up.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {isError ? (
+          <p>Google said no when we asked for the numbers ({state.message}). Check that the Google Analytics property number is right and that the service account email has been added as a viewer in Google Analytics.</p>
+        ) : (
+          <p>Google Analytics is the free tool that counts the people who visit your website. Once you connect it, this page will show real visits for the last 14 days, split by where they came from.</p>
+        )}
+        <p>
+          <a className="font-medium text-primary underline" href={SETUP_STEPS_URL} target="_blank" rel="noopener noreferrer">Open the Setup steps</a>
+          {" "}and follow the Google Analytics step. It tells you which two settings to add in Vercel (GA4_PROPERTY_ID and GOOGLE_SERVICE_ACCOUNT_KEY).
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
 
 function formatDay(yyyymmdd: string): string {
   const d = new Date(`${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}T00:00:00`)
@@ -50,9 +58,17 @@ function formatDay(yyyymmdd: string): string {
 
 // ─── Traffic Analytics Chart ────────────────────────────────────────
 function TrafficChart({ state }: { state: AnalyticsState }) {
-  const live = state.kind === "live" ? state.report : null
-  const channels = live ? Object.keys(live.days[0]?.channels || {}).filter((c) => live.days.some((d) => d.channels[c as keyof typeof d.channels] > 0)) : sampleChannels
-  const data: Record<string, string | number>[] = live ? live.days.map((d) => ({ date: formatDay(d.date), ...d.channels })) : sampleData
+  if (state.kind === "not_connected" || state.kind === "error") return <Ga4NotConnected state={state} />
+  if (state.kind === "loading") {
+    return (
+      <Card className="col-span-full">
+        <CardContent className="p-6 text-sm text-muted-foreground">Loading Google Analytics…</CardContent>
+      </Card>
+    )
+  }
+  const live = state.report
+  const channels = Object.keys(live.days[0]?.channels || {}).filter((c) => live.days.some((d) => d.channels[c as keyof typeof d.channels] > 0))
+  const data: Record<string, string | number>[] = live.days.map((d) => ({ date: formatDay(d.date), ...d.channels }))
   const total = data.reduce((sum, day) => sum + channels.reduce((s, ch) => s + (Number(day[ch]) || 0), 0), 0)
 
   return (
@@ -61,12 +77,9 @@ function TrafficChart({ state }: { state: AnalyticsState }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <CardTitle className="text-lg">Website Traffic — All Sources</CardTitle>
-            <CardDescription>{live ? "Sessions" : "Clicks"} by channel (last 14 days) · {total.toLocaleString()} total</CardDescription>
+            <CardDescription>Sessions by channel (last 14 days) · {total.toLocaleString()} total</CardDescription>
           </div>
-          {state.kind === "live" && <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Live from GA4 · refreshed {new Date(live!.fetchedAt).toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit" })}</span>}
-          {state.kind === "sample" && <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">Sample Data — set GA4_PROPERTY_ID and GOOGLE_SERVICE_ACCOUNT_KEY to see real data</span>}
-          {state.kind === "error" && <span className="rounded-full bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive">GA4 error: {state.message}</span>}
-          {state.kind === "loading" && <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">Loading…</span>}
+          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Live from GA4 · refreshed {new Date(live.fetchedAt).toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit" })}</span>
         </div>
       </CardHeader>
       <CardContent>
@@ -83,7 +96,7 @@ function TrafficChart({ state }: { state: AnalyticsState }) {
                   key={channel}
                   type="monotone"
                   dataKey={channel}
-                  name={live ? channel : channel.charAt(0).toUpperCase() + channel.slice(1)}
+                  name={channel}
                   stroke={channelColors[channel] || "#9CA3AF"}
                   fill={channelColors[channel] || "#9CA3AF"}
                   fillOpacity={0.1}
@@ -108,7 +121,7 @@ export default function AdminPage() {
     fetch("/api/admin/analytics", { headers: { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` } })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}))
-        if (data.configured === false) return setAnalytics({ kind: "sample" })
+        if (data.configured === false) return setAnalytics({ kind: "not_connected" })
         if (!res.ok || data.error) return setAnalytics({ kind: "error", message: data.error || `HTTP ${res.status}` })
         setAnalytics({ kind: "live", report: data })
       })
@@ -123,11 +136,7 @@ export default function AdminPage() {
         { label: "Organic search sessions", value: live.organicSearch.toLocaleString(), icon: Search },
         { label: "Social sessions", value: live.social.toLocaleString(), icon: Globe },
       ]
-    : [
-        { label: "Total Visitors (14d)", value: "1,247", icon: Users, change: "+12%" },
-        { label: "Google Clicks", value: "902", icon: Search, change: "+8%" },
-        { label: "Social Referrals", value: "289", icon: Globe, change: "+23%" },
-      ]
+    : []
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -136,7 +145,7 @@ export default function AdminPage() {
         <p className="mt-1 text-muted-foreground">Your AI-powered travel business command center.</p>
       </div>
 
-      <div className="mb-6 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      {quickStats.length > 0 && <div className="mb-6 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {quickStats.map((stat) => (
           <Card key={stat.label}>
             <CardContent className="flex items-center gap-3 p-4">
@@ -147,13 +156,10 @@ export default function AdminPage() {
                 <p className="text-2xl font-bold leading-none">{stat.value}</p>
                 <p className="mt-1 truncate text-xs text-muted-foreground">{stat.label}</p>
               </div>
-              {"change" in stat && stat.change && (
-                <span className="ml-auto whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground" title="Sample data">{stat.change}</span>
-              )}
             </CardContent>
           </Card>
         ))}
-      </div>
+      </div>}
 
       <div className="mb-8">
         <TrafficChart state={analytics} />
