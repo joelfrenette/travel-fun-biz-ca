@@ -421,7 +421,7 @@ function PasteSourceForm({ onDraft, onCancel }: { onDraft: (formData: Record<str
   }
 
   const fieldEntries = result ? Object.entries(result.draft.fields).filter(([, v]) => v != null && v !== "") : []
-  const missingRequired = result ? REQUIRED_FOR_SAVE.filter((f) => result.draft.fields[f] == null || result.draft.fields[f] === "") : []
+  const missingRequired = result ? REQUIRED_FOR_SAVE.filter((f) => !(f === "price_display" && result.draft.fields.price_on_request === true) && (result.draft.fields[f] == null || result.draft.fields[f] === "")) : []
   const fmt = (v: unknown) => (Array.isArray(v) ? v.join(" · ") : String(v))
 
   return (
@@ -779,6 +779,8 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
         .sort((a: JournalEntryForm, b: JournalEntryForm) => a.date.localeCompare(b.date))
     }
 
+    // Only send the flag when it is on, so saving a trip never touches the column before migration 0040 is applied.
+    if (data.price_on_request !== true) delete data.price_on_request
     const priceMatch = data.price_display?.match(/[\d,]+/)
     if (priceMatch) data.price_value = parseFloat(priceMatch[0].replace(/,/g, ""))
     const durationMatch = data.duration?.match(/(\d+)\s*day/i)
@@ -900,8 +902,12 @@ function ManualForm({ onComplete, onCancel, initialData }: { onComplete: (data: 
               <Input value={formData.duration || ""} onChange={(e) => handleChange("duration", e.target.value)} placeholder="e.g., 7 Days / 6 Nights" required />
             </div>
             <div className="space-y-2">
-              <Label>Price Display *</Label>
-              <Input value={formData.price_display || ""} onChange={(e) => handleChange("price_display", e.target.value)} placeholder="e.g., From $2,499" required />
+              <Label>Price Display {formData.price_on_request ? "" : "*"}</Label>
+              <Input value={formData.price_display || ""} onChange={(e) => handleChange("price_display", e.target.value)} placeholder="e.g., From $2,499" required={!formData.price_on_request} />
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" checked={formData.price_on_request === true} onChange={(e) => handleChange("price_on_request", e.target.checked)} />
+                Price on request: show &quot;Call or text for pricing&quot; (the site number) instead of a price
+              </label>
             </div>
             <div className="space-y-2">
               <Label>Image URL</Label>

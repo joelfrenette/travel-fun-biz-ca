@@ -1,7 +1,7 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, type AnthropicContent } from '@/lib/ai-verify'
 import { collectPhotoCandidates, hopRejection } from '@/lib/supplier-photos'
 import type { PhotoCandidate } from '@/lib/package-sources'
-import { computeTripDuration, detectPriceOnRequest, extractHostContacts, hasContactDetails } from '@/lib/trip-duration'
+import { computeTripDuration, detectPriceOnRequest, extractHostContacts, hasContactDetails, urlHoldsContact } from '@/lib/trip-duration'
 
 // AI package-draft builder (roadmap use case 09dd2acd, Joel's idea 2026-09-26): an agent pastes
 // whatever source material they have (a supplier email, a flyer's text, a page's copy, a link)
@@ -293,6 +293,8 @@ export function groundDraft(
       case 'booking_url':
       case 'more_info_url': {
         if (typeof v !== 'string' || !/^https?:\/\//i.test(v)) { drop(field, v, 'not a web address'); missing.push(field); break }
+        // A WhatsApp, SMS, tel: or phone-number link reaches a person (the host), not a page about the trip.
+        if (urlHoldsContact(v)) { drop(field, v, 'this link is a phone, text or messaging link, which never goes on a trip page'); missing.push(field); break }
         const inSource = normSource.includes(norm(v)) || (sourceUrl && norm(v) === norm(sourceUrl))
         if (!inSource) { drop(field, v, 'this link is not in the source'); missing.push(field); break }
         fields[field] = v.trim()
@@ -418,9 +420,15 @@ export function groundDraft(
     if (fields.duration_days != null && fields.duration_days !== len.duration_days) {
       flags.push(`Trip length: the AI read ${String(fields.duration_days)} days but the source works out to ${len.duration} (${len.note}). Check it.`)
     } else {
+      // Only the values THIS code filled in become click-only; a grounded value the AI already gave is left as it was,
+      // and a clash flag alone never makes it click-only.
       if (len.confidence !== 'sure') {
-        clickOnly.push('duration', 'duration_days')
-        if (len.basis === 'dates') clickOnly.push('available_from', 'available_to')
+        if (fields.duration == null) clickOnly.push('duration')
+        if (fields.duration_days == null) clickOnly.push('duration_days')
+        if (len.basis === 'dates') {
+          if (fields.available_from == null) clickOnly.push('available_from')
+          if (fields.available_to == null) clickOnly.push('available_to')
+        }
         flags.push(len.conflict || `Trip length ${len.duration} is only a suggestion: ${len.note}`)
       }
       if (fields.duration == null) {
@@ -713,9 +721,7 @@ async function fetchHtmlWithUrl(url: string, timeoutMs = 15_000): Promise<{ html
 export function draftToFormData(draft: ExtractedDraft): Record<string, unknown> {
   const f = draft.fields
   const out: Record<string, unknown> = { ...f, status: 'draft' }
-  // price_on_request is a new column (migration 0040) that the old paste-a-draft form does not know about; it is set
-  // from the package review table instead, so it must not ride along into that form's save.
-  delete out.price_on_request
+  // price_on_request rides along: the form has a "Price on request" tick box and only sends it when it is on.
   if (Array.isArray(f.price_includes)) out.price_includes = (f.price_includes as string[]).join('\n')
   if (Array.isArray(f.not_included)) out.not_included = (f.not_included as string[]).join('\n')
   if (Array.isArray(f.keywords)) out.keywords = (f.keywords as string[]).join(', ')

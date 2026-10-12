@@ -1,6 +1,6 @@
 // Offline checks for trip length, price on request and host contacts worked out in code (WP13 UAT fix).
 // No network, no database, no model call. Run: pnpm dlx tsx scripts/check-trip-duration.ts   (exit 1 on a failure)
-import { computeTripDuration, detectPriceOnRequest, extractHostContacts } from '../lib/trip-duration'
+import { computeTripDuration, detectPriceOnRequest, extractHostContacts, hasContactDetails, urlHoldsContact } from '../lib/trip-duration'
 import { groundDraft } from '../lib/package-extract'
 import { priceOnRequestLine, site } from '../lib/site'
 import { publishBlockers } from '../lib/trip-wizard'
@@ -157,8 +157,8 @@ expect('length range "3-4 days" is ambiguous and flagged', days('A 3-4 days trip
 expect('"Mon to Fri 9-5" office hours are not a trip', none('Our office is open Mon to Fri 9-5.'))
 expect('"Thursday to Sunday" with no trip word is ignored', none('Open Thursday to Sunday for lunch.'))
 expect('"Thursday to Sunday" with a trip word counts', days('Join us for a retreat Thursday to Sunday').duration === '4 days / 3 nights')
-expect('bare count with no trip word is click-only', days('Only 5 days left to enter the draw, 3 nights prize').confidence !== 'sure')
-expect('bare count with a trip word near it is automatic', days('A 3-night cruise for singles').confidence === 'sure')
+expect('bare count with no trip word is click-only', days('Take 5 days to explore the island at your pace').confidence !== 'sure')
+expect('bare count in the form N-night <trip noun> with a strong trip word is automatic', days('A 3-night getaway for singles').confidence === 'sure')
 expect('two different bare counts are ambiguous', days('7 nights on the ship and 3 nights in Rome').ambiguous)
 expect('number word "Two nights"', label('Two nights in a cozy lodge on this getaway') === '3 days / 2 nights')
 expect('number word "Three-night cruise"', label('A Three-night cruise') === '4 days / 3 nights')
@@ -169,9 +169,9 @@ expect('"1/2/2027 to 1/4/2027" is skipped as ambiguous order', days('1/2/2027 to
 expect('ISO range', days('2027-01-22 to 2027-01-24').duration === '3 days / 2 nights')
 expect('a phone number is not a date range', none('Call 603-315-2970 - 603-801-8476 now'))
 
-const gClash = groundDraft({ fields: {}, evidence: {} }, 'Weekend retreat January 22-24, 2027. Total 5 nights of fun.', undefined, 'check-model')
+const gClash = groundDraft({ fields: {}, evidence: {} }, 'Weekend retreat January 22-24, 2027. Total 5 nights.', undefined, 'check-model')
 expect('clash is flagged and the range is click-only', (gClash.flags ?? []).some((f) => /5 nights/.test(f)) && (gClash.clickOnly ?? []).includes('duration') && gClash.fields.duration === '3 days / 2 nights')
-const gBare = groundDraft({ fields: {}, evidence: {} }, 'Only 5 days left to enter the draw for our members, so hurry before the deadline.', undefined, 'check-model')
+const gBare = groundDraft({ fields: {}, evidence: {} }, 'Take 5 days to explore the island at your own pace, with a local guide.', undefined, 'check-model')
 expect('bare count with no trip word fills but is click-only', (gBare.clickOnly ?? []).includes('duration_days'))
 
 // ─── QA round: price on request wording ───
@@ -211,6 +211,62 @@ expect('phone fields are dropped with a reason, not blanked silently', gp.droppe
 expect('the numbers still reach the review table as host contacts', (gp.hostContacts ?? []).length >= 2)
 expect('copyBlockers refuses text with a phone number', copyBlockers('Call Amy at 603-315-2970 for pricing', { grounding: '603-315-2970', field: 'short_description' }).some((b) => /phone/.test(b)))
 expect('copyBlockers passes clean text', !copyBlockers('A relaxed weekend in the mountains.', { grounding: 'weekend mountains', field: 'short_description' }).some((b) => /phone/.test(b)))
+
+// ─── QA round 2: weekday ranges need a STRONG trip word and no schedule words ───
+const notSure = (t: string) => days(t).confidence !== 'sure'
+for (const t of [
+  'Hotel check-in Mon to Fri front desk. Join us on this cruise',
+  'Our concierge is available Mon - Fri during your stay at the resort',
+  'Join us on tour. Office open Mon to Fri 9 to 5',
+  'Resort. Open Mon to Fri. Spa weekend.',
+]) expect(`not a sure length: ${t}`, notSure(t) && days(t).duration_days !== 5 || days(t).duration === null, JSON.stringify(days(t)))
+expect('loose word only (resort) makes a weekday range click-only', days('Spa resort Mon to Fri with massage').confidence === 'suggest' || days('Spa resort Mon to Fri with massage').duration === null)
+expect('strong word makes a weekday range automatic', days('Friends weekend getaway Fri to Sun').confidence === 'sure')
+
+// ─── QA round 2: bare counts ───
+for (const t of [
+  'This trip includes a 7 day money-back guarantee',
+  'Cruise price valid for 30 days',
+  'Resort credit valid 14 days',
+  'Tour includes 3 days of free parking',
+  'Tour 1.5 days',
+  'Cabin 2.5 nights',
+]) expect(`bare count is not a sure length: ${t}`, notSure(t), JSON.stringify(days(t)))
+expect('decimal "1.5 days" never becomes 5 days', days('Tour 1.5 days').duration_days !== 5 && days('Cabin 2.5 nights').duration_days !== 4)
+expect('a loose trip word with a bare count is click-only', days('A 3-night cruise for singles').confidence === 'suggest')
+expect('the pair form with a strong word is automatic', days('Weekend getaway, 4D/3N').confidence === 'sure')
+const gAI = groundDraft({ fields: { duration: '5 nights', duration_days: 6 }, evidence: {} }, 'Weekend getaway January 22-24, 2027. Total 5 nights.', undefined, 'check-model')
+expect('a grounded AI duration is not click-only because of a clash flag alone', !(gAI.clickOnly ?? []).includes('duration') && !(gAI.clickOnly ?? []).includes('duration_days'), JSON.stringify(gAI.clickOnly))
+
+// ─── QA round 2: phone numbers in every shape ───
+const phoneForms = [
+  '+16033152970', `603${EN}315${EN}2970`, `603${String.fromCharCode(0x2011)}315${String.fromCharCode(0x2011)}2970`, '603-315-2970x12', 'Amy603-315-2970',
+  '12345678901', '1 (603) 315-2970', '603.315.2970', '(603) 315 2970', `603 315 2970`, 'tel:+16033152970', '+44 20 7946 0958', '+1 603 315 2970 ext 4',
+]
+for (const p of phoneForms) expect(`phone form detected: ${p}`, hasContactDetails(`Call ${p} now`) || hasContactDetails(p))
+expect('host contacts read +1 and unicode dashes', extractHostContacts('Amy +16033152970 and Liz 603–801–8476').map((c) => c.phone).join() === '603-315-2970,603-801-8476', JSON.stringify(extractHostContacts('Amy +16033152970 and Liz 603–801–8476')))
+expect('host contacts read Amy603-315-2970 and extensions', extractHostContacts('Amy603-315-2970x12')[0]?.text === 'Amy 603-315-2970')
+expect('international number is a host contact', extractHostContacts('Ring +44 20 7946 0958').length === 1)
+for (const keep of ['From $2,499 CAD per person', 'January 22-24, 2027', '2027-01-22 to 2027-01-24', 'Florida Seller of Travel # ST42324', 'California Seller of Travel # 2154919-50', 'Toronto, ON M5G 2J5', 'Check in 3:00-5:00 pm', 'Booking ref ABC-12345', 'Price 1,299,000', 'Rooms 2027 2028 2029', 'Order 20270122', '7 nights from Athens']) {
+  expect(`not a contact: ${keep}`, !hasContactDetails(keep), keep)
+}
+const gu = groundDraft(
+  { fields: { name: 'Lake Weekend', destination: 'Lake George', short_description: 'Ring Liz on +16033152970 today', full_description: 'Follow @lakeweekendfun or instagram.com/lakeweekend for photos. Call +44 20 7946 0958.', booking_url: 'https://wa.me/16033152970', more_info_url: 'https://example.com/trip' }, evidence: {} },
+  'Lake Weekend. Ring Liz on +16033152970 today. Follow @lakeweekendfun or instagram.com/lakeweekend for photos. Call +44 20 7946 0958. Book: https://wa.me/16033152970 More: https://example.com/trip',
+  undefined,
+  'check-model',
+)
+expect('no phone, handle or social link in any proposed field', !hasContactDetails(JSON.stringify(gu.fields).replace(/https:\/\/example\.com\/trip/g, '')), JSON.stringify(gu.fields))
+expect('wa.me booking link is dropped', gu.fields.booking_url === undefined && gu.dropped.some((d) => d.field === 'booking_url'))
+expect('an ordinary more-info link is kept', gu.fields.more_info_url === 'https://example.com/trip')
+for (const bad of ['https://wa.me/16033152970', 'https://api.whatsapp.com/send?phone=16033152970', 'sms:+16033152970', 'tel:+16033152970', 'https://example.com/call/603-315-2970', 'https://example.com/book?phone=6033152970', 'https://t.me/amy']) {
+  expect(`contact link: ${bad}`, urlHoldsContact(bad), bad)
+}
+for (const good of ['https://example.com/trip', 'https://www.facebook.com/events/1234567890', 'https://example.com/book?id=1234567890', 'https://example.com/tours/white-mountains-2027']) {
+  expect(`ordinary link kept: ${good}`, !urlHoldsContact(good), good)
+}
+expect('copyBlockers checks URL fields too', copyBlockers('https://wa.me/16033152970', { grounding: '', field: 'booking_url' }).some((b) => /messaging link/.test(b)))
+expect('copyBlockers refuses a social handle in copy', copyBlockers('Follow @lakeweekendfun for photos', { grounding: '', field: 'short_description' }).some((b) => /handle/.test(b)))
 
 console.log(failures ? `\n${failures} FAILED` : '\nAll trip duration checks passed')
 process.exit(failures ? 1 : 0)

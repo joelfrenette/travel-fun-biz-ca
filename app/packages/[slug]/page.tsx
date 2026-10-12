@@ -207,14 +207,18 @@ export default async function PackagePage({ params }: Props) {
                   <p className={pkg.price_value ? "text-3xl font-bold text-foreground" : "text-xl font-semibold text-foreground"}>
                     {onRequest ? (
                       request.phone ? (
-                        <>Call or text <a href={request.telHref} className="underline hover:text-primary">{request.phone}</a> for pricing</>
+                        <>
+                          {translate(language, "Call or text {phone} for pricing").split("{phone}")[0]}
+                          <a href={request.telHref} className="underline hover:text-primary">{request.phone}</a>
+                          {translate(language, "Call or text {phone} for pricing").split("{phone}")[1]}
+                        </>
                       ) : (
-                        request.text
+                        translate(language, "Contact us for pricing")
                       )
                     ) : (
                       priceDisplay
                     )}
-                    {pkg.price_value && <span className="ml-2 text-sm font-normal text-muted-foreground">{currency.toUpperCase()} {translate(language, "per person")}</span>}
+                    {pkg.price_value != null && <span className="ml-2 text-sm font-normal text-muted-foreground">{currency.toUpperCase()} {translate(language, "per person")}</span>}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">

@@ -50,10 +50,27 @@ const RANGE_WEEKDAYS = new RegExp(`\\b${WD_NAME}\\b\\.?\\s*${SEP}\\s*${WD_NAME}\
 
 /** Words that say the text is describing a trip (so a weekday range or a bare count is about the trip). */
 const TRIP_CONTEXT = /\b(trip|getaway|weekend|retreat|tour|cruise|stay|join us|depart\w*|itinerary|vacation|escape|excursion|sailing|adventure|resort|hotel)\b/i
+/** Words that only a trip description uses. Loose words (hotel, resort, stay, tour, cruise) also appear on opening-hours
+ * lines and policy text, so they are not enough to trust a weekday range or a bare count on their own. */
+const STRONG_TRIP_CONTEXT = /\b(getaway|weekend|retreat|itinerary|departs?|departing|departure|join us for|trip)\b/i
+/** Opening-hours and front-desk words: a weekday range next to one of these is a schedule, never a trip length. */
+const HOURS_CONTEXT = /\b(open|opens|hours|office|front desk|desk|concierge|check-?in|check-?out|available|reception|closed|business hours)\b/i
+const HOURS_WINDOW = 40
 const CONTEXT_WINDOW = 80
 
 function tripWordNear(text: string, index: number, length: number): boolean {
   return TRIP_CONTEXT.test(text.slice(Math.max(0, index - CONTEXT_WINDOW), index + length + CONTEXT_WINDOW))
+}
+
+function strongTripWordNear(text: string, index: number, length: number): boolean {
+  return STRONG_TRIP_CONTEXT.test(text.slice(Math.max(0, index - CONTEXT_WINDOW), index + length + CONTEXT_WINDOW))
+}
+
+/** A weekday range that sits in a schedule: an opening-hours word right next to it, or a clock time after it ("Mon to Fri 9-5"). */
+function looksLikeHours(text: string, index: number, length: number): boolean {
+  const near = text.slice(Math.max(0, index - HOURS_WINDOW), index + length + HOURS_WINDOW)
+  if (HOURS_CONTEXT.test(near)) return true
+  return /^\s*,?\s*(?:from\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?\s*(?:[-–—]|to|until)\s*\d{1,2}/i.test(text.slice(index + length, index + length + 24))
 }
 
 function monthIndex(name: string): number {
@@ -91,16 +108,22 @@ function ambiguous(note: string): TripDuration {
 // ─── Stated counts ──────────────────────────────────────────────────────────────────
 
 const NUM_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 }
-const NUM = '(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+// Never starts inside a longer or decimal number ("1.5 days", "2.5 nights", "1,5 days" are not 5 days / 5 nights).
+const NUM_CORE = '(\\d{1,2}(?![.,]\\d)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+const NUM = `(?<![\\d.,/])${NUM_CORE}`
 
 function toNum(s: string): number {
   return /^\d/.test(s) ? parseInt(s, 10) : NUM_WORDS[s.toLowerCase()]
 }
 
 /** What follows a count when it is NOT the trip length: "30 days before departure", "7-day cancellation", "2 night minimum". */
-const NOT_LENGTH_AFTER = /^[\s,)]*(?:of\s+(?:booking|departure|travel|sailing|the\s+(?:trip|departure))|before|prior|in advance|ahead|ago|from now|notice|cancell?ation|cancel\w*|refund\w*|deposit|minimum|min\b|payment|due\b|late\b|after\b|per\s+week|a\s+week)/i
-/** What comes just before a count when it is NOT the trip length: "within 14 days", "cancel up to 7 days", "at least 2 nights". */
-const NOT_LENGTH_BEFORE = /(?:within|after|before|prior to|up to|cancel\w*|refund\w*|deposit|due|at least|minimum(?: of)?|min\.?|notice of|final payment|under|over|every)\s+(?:the\s+)?(?:last\s+)?$/i
+const NOT_LENGTH_AFTER = /^[\s,)]*(?:of\s+\w+|before|prior|in advance|ahead|ago|from now|notice|cancell?ation|cancel\w*|refund\w*|deposit|minimum|min\b|payment|due\b|late\b|after\b|per\s+week|a\s+week)/i
+/** Within the next two words: "7 day money-back guarantee", "30 days validity", "14 day free cancellation", "3 days free parking". */
+const NOT_LENGTH_SOON_AFTER = /^[\s,)-]*(?:[\w']+[\s-]+){0,2}?(?:guarantee\w*|warranty|valid\w*|expir\w*|free|credit\w*|voucher\w*|coupon\w*|discount\w*|trial|grace|window|hold|policy)\b/i
+/** What comes just before a count when it is NOT the trip length: "within 14 days", "cancel up to 7 days", "at least 2 nights", "valid for 30 days". */
+const NOT_LENGTH_BEFORE = /(?:within|after|before|prior to|up to|cancel\w*|refund\w*|deposit|due|at least|minimum(?: of)?|min\.?|notice of|final payment|under|over|every|valid(?: for| up to)?|expires? in|good for|lasts?|credit|guarantee|only|just)\s+(?:the\s+)?(?:last\s+)?$/i
+/** A trip noun straight after the count: "3-night getaway", "4 day retreat". */
+const TRIP_NOUN_AFTER = /^[\s-]*(?:trip|getaway|cruise|retreat|tour|vacation|escape|adventure|stay|holiday|sailing|excursion|package|itinerary|weekend)\b/i
 
 interface Stated { days: number; quote: string; near: boolean }
 
@@ -115,21 +138,24 @@ function statedCounts(text: string): { list: Stated[]; lengthRange: string | nul
   const ok = (index: number, matched: string): boolean => {
     const after = work.slice(index + matched.length, index + matched.length + 40)
     const before = work.slice(Math.max(0, index - 30), index)
-    return !NOT_LENGTH_AFTER.test(after) && !NOT_LENGTH_BEFORE.test(before)
+    return !NOT_LENGTH_AFTER.test(after) && !NOT_LENGTH_SOON_AFTER.test(after) && !NOT_LENGTH_BEFORE.test(before)
   }
-  const pair = new RegExp(`\\b${NUM}\\s*d(?:ays?)?\\s*(?:[/&,]|and)\\s*${NUM}\\s*n(?:ights?)?\\b`, 'gi')
+  // "Near" (automatic) needs a STRONG trip word within reach AND either the "N days / N nights" pair or a trip noun right after the count.
+  const strongForm = (index: number, matched: string, isPair: boolean): boolean =>
+    strongTripWordNear(text, index, matched.length) && (isPair || TRIP_NOUN_AFTER.test(work.slice(index + matched.length, index + matched.length + 20)))
+  const pair = new RegExp(`\\b${NUM}\\s*d(?:ays?)?\\s*(?:[/&,]|and)\\s*${NUM_CORE}\\s*n(?:ights?)?\\b`, 'gi')
   for (const m of work.matchAll(pair)) {
     const d = toNum(m[1])
     const n = toNum(m[2])
     const days = d === n + 1 || d === n ? Math.max(d, n + 1) : -1 // contradictory pair forces ambiguity
-    if (m.index != null && ok(m.index, m[0])) list.push({ days, quote: m[0], near: tripWordNear(text, m.index, m[0].length) })
+    if (m.index != null && ok(m.index, m[0])) list.push({ days, quote: m[0], near: strongForm(m.index, m[0], true) })
   }
   work = work.replace(pair, (s) => ' '.repeat(s.length))
-  for (const m of work.matchAll(new RegExp(`\\b${NUM}[\\s-]*nights?\\b`, 'gi'))) {
-    if (m.index != null && ok(m.index, m[0])) list.push({ days: toNum(m[1]) + 1, quote: m[0], near: tripWordNear(text, m.index, m[0].length) })
+  for (const m of work.matchAll(new RegExp(`${NUM}[\\s-]*nights?\\b`, 'gi'))) {
+    if (m.index != null && ok(m.index, m[0])) list.push({ days: toNum(m[1]) + 1, quote: m[0], near: strongForm(m.index, m[0], false) })
   }
-  for (const m of work.matchAll(new RegExp(`\\b${NUM}[\\s-]*days?\\b`, 'gi'))) {
-    if (m.index != null && ok(m.index, m[0])) list.push({ days: toNum(m[1]), quote: m[0], near: tripWordNear(text, m.index, m[0].length) })
+  for (const m of work.matchAll(new RegExp(`${NUM}[\\s-]*days?\\b`, 'gi'))) {
+    if (m.index != null && ok(m.index, m[0])) list.push({ days: toNum(m[1]), quote: m[0], near: strongForm(m.index, m[0], false) })
   }
   return { list: list.filter((f) => f.days === -1 || (f.days >= 1 && f.days <= 60)), lengthRange }
 }
@@ -248,17 +274,21 @@ export function computeTripDuration(text: string, opts: { isoFrom?: string | nul
   // Weekday ranges only count with a trip word nearby ("Mon to Fri 9-5" on an office-hours line is not a trip).
   const wd = [...src.matchAll(RANGE_WEEKDAYS)]
     .map((m) => ({ quote: m[0], index: m.index ?? 0, from: WEEKDAYS.indexOf(m[1].slice(0, 3).toLowerCase()), to: WEEKDAYS.indexOf(m[2].slice(0, 3).toLowerCase()) }))
-    .filter((w) => w.from >= 0 && w.to >= 0 && tripWordNear(src, w.index, w.quote.length))
+    // A schedule (opening hours, front desk, check-in, a clock time after it) is never a trip length.
+    .filter((w) => w.from >= 0 && w.to >= 0 && tripWordNear(src, w.index, w.quote.length) && !looksLikeHours(src, w.index, w.quote.length))
   const wdDays = [...new Set(wd.map((w) => ((w.to - w.from + 7) % 7) + 1))]
   if (wd.length) {
     if (wdDays.length > 1 || wd[0].from === wd[0].to) return ambiguous(`The weekdays "${wd[0].quote}" do not give one clear length. Type the length yourself.`)
     const note = `Worked out from "${wd[0].quote}": ${wdDays[0]} days counting the first and last day.`
     const clashing = stated.find((s) => s.days !== wdDays[0])
+    // Only a STRONG trip word (getaway, weekend, retreat, itinerary, departs, join us for, trip) makes it automatic;
+    // a loose word (hotel, resort, stay, tour, cruise) leaves it as a click-only suggestion.
+    const strong = strongTripWordNear(src, wd[0].index, wd[0].quote.length)
     if (clashing) {
       const conflict = `"${wd[0].quote}" makes ${wdDays[0]} days but the source also says "${clashing.quote}". The weekdays are suggested; check which is right.`
       return result(wdDays[0], 'weekdays', wd[0].quote, `${note} ${conflict}`, 'suggest', null, null, conflict)
     }
-    return result(wdDays[0], 'weekdays', wd[0].quote, note, 'sure')
+    return result(wdDays[0], 'weekdays', wd[0].quote, strong ? note : `${note} No strong trip word is near it, so it is only a suggestion.`, strong ? 'sure' : 'suggest')
   }
 
   if (statedDays.length > 1) return ambiguous(`The source mentions different lengths (${stated.map((s) => `"${s.quote}"`).join(', ')}). Check which one is the whole trip.`)
@@ -321,26 +351,85 @@ export interface HostContact {
   phone: string
 }
 
-const PHONE_CORE = '(?:\\+?1[\\s.-]?)?\\(?\\b\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}\\b'
-const EMAIL_CORE = '[\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+'
-
-/** True when the text holds a phone number or an email address. Public copy must contain neither. */
-export function hasContactDetails(text: string): boolean {
-  return new RegExp(PHONE_CORE).test(text) || new RegExp(EMAIL_CORE).test(text)
+/** Unicode dashes and spaces turned into plain ones, so "603–315‑2970" and non-breaking spaces read like "603-315-2970". */
+export function normaliseContactText(text: string): string {
+  return text
+    .replace(/[‐‑‒–—―−﹘﹣－]/g, '-')
+    .replace(/[   -​  　﻿]/g, ' ')
 }
 
-/** North American phone numbers in the text. These belong to whoever wrote the post (a host), so they are shown to
- * the admin in the review table and are never printed on a public page. */
+// North American: optional +1 / 1 with or without separators, area code with or without brackets, optional extension.
+// No \b on either side (that missed "Amy603-315-2970" and "603-315-2970x12"); only "not inside a longer run of digits".
+const NANP = '(?<!\\d)(?:\\+?1[\\s.-]?)?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}(?!\\d)'
+// International: only with a leading + (conservative, so years, prices and references are never caught).
+const INTL = '(?<![\\w+])\\+\\d{1,3}[\\s.-]?\\(?\\d{1,4}\\)?(?:[\\s.-]?\\d{2,4}){2,4}(?!\\d)'
+const EMAIL = '[\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+'
+// Social handles: "@name", and profile links on the big networks.
+const HANDLE = '(?<![\\w@.])@[A-Za-z0-9_][A-Za-z0-9_.]{1,29}'
+const SOCIAL_URL = '(?<![\\w.-])(?:instagram|facebook|fb|tiktok|twitter|x|linkedin|youtube|snapchat|threads)\\.com\\/[\\w.\\-/?=&%]*|linktr\\.ee\\/[\\w.-]+|(?:wa\\.me|t\\.me|m\\.me|api\\.whatsapp\\.com)\\/?[\\w.\\-/?=&%+]*'
+const MESSAGE_SCHEME = '\\b(?:tel|sms|mailto|whatsapp):'
+
+/** True when the text holds a phone number, email address, social handle or messaging link. Public copy must contain none. */
+export function hasContactDetails(text: string): boolean {
+  const t = normaliseContactText(text)
+  return [NANP, INTL, EMAIL, HANDLE, SOCIAL_URL, MESSAGE_SCHEME].some((p) => new RegExp(p, 'i').test(t))
+}
+
+const MESSAGING_HOSTS = /(^|\.)(wa\.me|wa\.link|api\.whatsapp\.com|web\.whatsapp\.com|whatsapp\.com|t\.me|m\.me|signal\.me|sms\.me)$/i
+const PHONE_PARAM = /^(?:phone|tel|telephone|mobile|cell|sms|whatsapp|wa|text|number|contact|call)$/i
+
+/**
+ * True when a link is really a way to reach a person rather than a page about the trip: a tel:, sms:, mailto: or
+ * WhatsApp-style link, a messaging host (wa.me, api.whatsapp.com, t.me), a phone-named query parameter, or a path or
+ * query that holds a formatted phone number. Event ids and long booking numbers on ordinary hosts are left alone.
+ */
+export function urlHoldsContact(url: string): boolean {
+  const raw = normaliseContactText(url.trim())
+  if (/^(?:tel|sms|mailto|whatsapp|callto|facetime):/i.test(raw)) return true
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return hasContactDetails(raw)
+  }
+  if (MESSAGING_HOSTS.test(u.hostname)) return true
+  for (const [k, v] of u.searchParams) {
+    if (PHONE_PARAM.test(k) && /\d{7,}/.test(v.replace(/\D/g, ''))) return true
+  }
+  let rest = u.pathname + u.search
+  try {
+    rest = decodeURIComponent(rest)
+  } catch {
+    // keep the raw text
+  }
+  // Formatted numbers only (+1…, 603-315-2970, (603) 315 2970). A bare 10-digit id is common in event and booking links.
+  if (/\+\d[\d\s().-]{8,}\d/.test(rest) || /(?<!\d)\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\d)/.test(rest)) return true
+  // A bare 10 or 11 digit run counts only when the link also says it is a phone, text or call link.
+  return /(?<!\d)1?\d{10}(?!\d)/.test(rest) && /(?:tel|call|phone|text|wa|whatsapp|sms)/i.test(rest)
+}
+
+/** Phone numbers in the text. These belong to whoever wrote the post (a host), so they are shown to the admin in the
+ * review table and are never printed on a public page. */
 export function extractHostContacts(text: string): HostContact[] {
   const out: HostContact[] = []
   const seen = new Set<string>()
-  const re = /(?:\b([A-Z][a-z]{1,20})\s*[:\-,(]*\s*)?(?:\+?1[\s.-]?)?\(?\b(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})\b/g
-  for (const m of text.matchAll(re)) {
-    const digits = `${m[2]}${m[3]}${m[4]}`
-    if (seen.has(digits) || /^[01]/.test(digits)) continue
+  const t = normaliseContactText(text)
+  const re = /(?:\b([A-Z][a-z]{1,20})\s*[:\-,(]*\s*)?(?<!\d)((?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})(?!\d))/g
+  for (const m of t.matchAll(re)) {
+    const digits = `${m[3]}${m[4]}${m[5]}`
+    if (seen.has(digits)) continue
     seen.add(digits)
-    const phone = `${m[2]}-${m[3]}-${m[4]}`
-    out.push({ text: m[1] && !/^(?:Call|Text|Phone|Tel|Cell|Email|Contact|Fax|Or|And)$/i.test(m[1]) ? `${m[1]} ${phone}` : phone, phone })
+    const phone = `${m[3]}-${m[4]}-${m[5]}`
+    out.push({ text: m[1] && !/^(?:Call|Text|Phone|Tel|Cell|Email|Contact|Fax|Or|And|At|On|The)$/i.test(m[1]) ? `${m[1]} ${phone}` : phone, phone })
+  }
+  for (const m of t.matchAll(new RegExp(INTL, 'g'))) {
+    const phone = m[0].trim()
+    const key = phone.replace(/\D/g, '')
+    // "+1 603 315 2970" was already read as a North American number above.
+    if (!/^1\d{10}$/.test(key) && !seen.has(key)) {
+      seen.add(key)
+      out.push({ text: phone, phone })
+    }
   }
   return out
 }

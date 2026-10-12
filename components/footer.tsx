@@ -67,7 +67,7 @@ export function Footer({ language }: FooterProps) {
 
             {officeInfo.disclaimers.map((item) => (
               <p key={item} className="text-xs text-gray-400">
-                {translate(language, item)}
+                {translate(language, item).replace("{phone}", officeInfo.phone)}
               </p>
             ))}
 

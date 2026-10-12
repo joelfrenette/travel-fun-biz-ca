@@ -75,10 +75,12 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
           <p className="text-base font-semibold text-foreground">
             {request.phone ? (
               <>
-                Call or text <a href={request.telHref} className="underline hover:text-primary">{request.phone}</a> for pricing
+                {translate(language, "Call or text {phone} for pricing").split("{phone}")[0]}
+                <a href={request.telHref} className="underline hover:text-primary">{request.phone}</a>
+                {translate(language, "Call or text {phone} for pricing").split("{phone}")[1]}
               </>
             ) : (
-              request.text
+              translate(language, "Contact us for pricing")
             )}
           </p>
         ) : (

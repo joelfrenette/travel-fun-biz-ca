@@ -7,7 +7,7 @@ import { getSettingStrict, setSetting } from '@/lib/app-settings'
 import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
 import { dateGrounded, type ExtractedDraft, type ModelUsage } from '@/lib/package-extract'
 import type { PackageEdit, PackageSourceRow } from '@/lib/package-sources'
-import { hasContactDetails } from '@/lib/trip-duration'
+import { hasContactDetails, urlHoldsContact } from '@/lib/trip-duration'
 import {
   removeDashes,
   agencyClaims,
@@ -357,7 +357,8 @@ export function copyBlockers(text: string, ctx: { grounding: string; field: stri
   const strangers = [...new Set(numbersIn(prose).map(normNumber).filter((n) => !allowed.has(n)))]
   if (strangers.length) blockers.push(`number not in the source: ${strangers.slice(0, 5).join(', ')}`)
 
-  if (hasContactDetails(t)) blockers.push('phone number or email address (those never go on a trip page)')
+  const isUrlField = ctx.field === 'booking_url' || ctx.field === 'more_info_url'
+  if (isUrlField ? urlHoldsContact(t) : hasContactDetails(t)) blockers.push('phone number, email address, social handle or messaging link (those never go on a trip page)')
   if (/[\u2013\u2014]/.test(t) || /\s--\s/.test(t)) blockers.push('dash present')
   if (PLACEHOLDER_PATTERNS.some((p) => p.test(t))) blockers.push('placeholder text')
   if (REFUSAL_PATTERNS.some((p) => p.test(t))) blockers.push('model refusal in text')
