@@ -36,6 +36,7 @@ const FIELD_LABEL: Record<string, string> = {
   key_takeaways: "Key takeaways",
   ai_faqs: "Trip FAQ",
   keywords: "Keywords",
+  status: "Published by the re-check",
 }
 const METHOD_LABEL: Record<Edit["method"], string> = {
   ai: "Reworded by AI",
