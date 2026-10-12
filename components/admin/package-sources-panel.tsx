@@ -41,7 +41,7 @@ interface SourceItem {
   text_chars: number
   applied_fields: string[]
   package_edits: PackageEdit[]
-  extracted_fields: { draft?: { dropped?: { field: string; value: string; reason: string }[]; missing?: string[] }; proposal?: { facts?: FieldChange[]; copy?: FieldChange[]; copyNote?: string | null } } | null
+  extracted_fields: { draft?: { dropped?: { field: string; value: string; reason: string }[]; missing?: string[]; flags?: string[]; hostContacts?: string[] }; proposal?: { facts?: FieldChange[]; copy?: FieldChange[]; copyNote?: string | null } } | null
   input_tokens: number | null
   output_tokens: number | null
   model_calls: number
@@ -54,7 +54,7 @@ interface Completeness { score: number; reasons: string[]; thin: boolean }
 
 const FIELD_LABEL: Record<string, string> = {
   destination: "Destination", country: "Country", region: "Region", supplier: "Supplier", duration: "Duration", duration_days: "Length in days",
-  price_display: "Price shown", price_value: "Price number", currency: "Currency", available_from: "First date", available_to: "Last date",
+  price_on_request: "Price on request (call or text)", price_display: "Price shown", price_value: "Price number", currency: "Currency", available_from: "First date", available_to: "Last date",
   departure_dates: "Departure dates", price_includes: "What is included", not_included: "What is not included", max_people: "Largest group",
   booking_url: "Booking link", more_info_url: "More info link", category: "Category", itinerary: "Itinerary", full_description: "Full description",
   ai_faqs: "FAQs", gallery_urls: "Gallery photos", highlights: "Highlights", meta_title: "Search title", meta_description: "Search description", keywords: "Keywords",
@@ -424,6 +424,15 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
                       </table>
                     </div>
                     {proposal?.copyNote && <p className="text-xs text-muted-foreground">{proposal.copyNote}</p>}
+                                    {(s.extracted_fields?.draft?.flags?.length ?? 0) > 0 && (
+                      <div className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                        <p className="font-medium">Check these by hand</p>
+                        <ul className="ml-4 list-disc">{s.extracted_fields!.draft!.flags!.map((f, i) => <li key={i}>{f}</li>)}</ul>
+                      </div>
+                    )}
+                    {(s.extracted_fields?.draft?.hostContacts?.length ?? 0) > 0 && (
+                      <p className="text-xs text-muted-foreground">Host contact in the source (for you only, never shown on the trip page): {s.extracted_fields!.draft!.hostContacts!.join(", ")}</p>
+                    )}
                     {(s.extracted_fields?.draft?.dropped?.length ?? 0) > 0 && (
                       <details className="text-xs text-muted-foreground">
                         <summary className="cursor-pointer">Left out because it was not in the source ({s.extracted_fields!.draft!.dropped!.length})</summary>

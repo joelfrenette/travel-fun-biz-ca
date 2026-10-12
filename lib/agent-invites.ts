@@ -227,7 +227,7 @@ export function cleanDraftEdits(input: Record<string, unknown>): { ok: true; val
 // ─── What the agent sees of the draft ───────────────────────────────────────────
 
 /** Fields whose VALUES the agent never sees back (the agent can see that a price was found, not what it is). */
-export const HIDDEN_VALUE_FIELDS = new Set(['price_display', 'price_value', 'currency'])
+export const HIDDEN_VALUE_FIELDS = new Set(['price_display', 'price_value', 'currency', 'price_on_request'])
 
 /** Plain names for the parts of a trip page the agent's view lists. A field not listed here is never shown to an agent. */
 export const AGENT_FIELD_LABELS: Record<string, string> = {
@@ -239,6 +239,7 @@ export const AGENT_FIELD_LABELS: Record<string, string> = {
   duration_days: 'Length of the trip',
   price_display: 'Price',
   price_value: 'Price',
+  price_on_request: 'Price',
   currency: 'Price',
   available_from: 'First date',
   available_to: 'Last date',
@@ -306,7 +307,8 @@ function asText(v: unknown): string | null {
 /** Builds the agent's view of its draft from the trip row. Other trips and admin-only columns can never appear: only these keys are read. */
 export function agentFieldViews(row: Record<string, unknown>): AgentFieldView[] {
   return AGENT_VIEW_FIELDS.map((key) => {
-    const text = asText(row[key])
+    // "Price on request" counts as the price being found (the agent still never sees a value).
+    const text = asText(row[key]) ?? (key === 'price_display' && row.price_on_request === true ? 'on request' : null)
     const hidden = HIDDEN_VALUE_FIELDS.has(key)
     // Photos are shown as "found", not as addresses.
     const isMedia = key === 'image_url' || key === 'gallery_urls'

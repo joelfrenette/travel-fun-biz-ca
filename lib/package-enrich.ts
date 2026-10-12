@@ -7,6 +7,7 @@ import { getSettingStrict, setSetting } from '@/lib/app-settings'
 import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
 import { dateGrounded, type ExtractedDraft, type ModelUsage } from '@/lib/package-extract'
 import type { PackageEdit, PackageSourceRow } from '@/lib/package-sources'
+import { hasContactDetails, urlHoldsContact } from '@/lib/trip-duration'
 import {
   removeDashes,
   agencyClaims,
@@ -107,6 +108,7 @@ export function itemSupported(item: string, sourceNorm: string): boolean {
 const FACT_TARGETS = [
   'destination', 'country', 'region', 'supplier', 'duration', 'duration_days', 'price_display', 'price_value', 'currency',
   'available_from', 'available_to', 'departure_dates', 'price_includes', 'not_included', 'max_people', 'booking_url', 'more_info_url', 'category', 'itinerary',
+  'price_on_request',
 ] as const
 
 function asList(v: unknown): string[] {
@@ -143,6 +145,9 @@ export interface SourceContext {
 /** Why a field may not be filled in automatically even if empty and grounded (null = no extra restriction). */
 function clickOnlyReason(field: string, row: Record<string, unknown>, draft: ExtractedDraft, ctx: SourceContext, transcript?: string): string | null {
   const fields = draft.fields as Record<string, unknown>
+  // Price on request is a public change (the card stops showing a price line), so a person ticks it.
+  if (field === 'price_on_request') return 'The source says to call, text or contact for pricing. Click Use this to show "Call or text for pricing" on the trip page (our number, never the hosts\' numbers).'
+  if (draft.clickOnly?.includes(field)) return 'Worked out from the source text but not certain (a bare count, or it clashes with another length in the source). Check it, then click Use this.'
   if ((ctx.kind === 'screenshot' || ctx.kind === 'pdf') && FILE_CLICK_ONLY_FIELDS.has(field)) {
     return `This was read from a ${ctx.kind === 'pdf' ? 'PDF' : 'screenshot'}. Look at the file (View, next to the source) and click Use this if it is right.`
   }
@@ -180,7 +185,9 @@ function proposeFacts(pkg: Partial<DbPackage>, draft: ExtractedDraft, transcript
   for (const field of FACT_TARGETS) {
     const raw = (draft.fields as Record<string, unknown>)[field]
     if (raw == null || raw === '' || (Array.isArray(raw) && raw.length === 0)) continue
-    const current = row[field] ?? null
+    // A trip that already shows a price is not "price on request"; false counts as empty for that flag.
+    if (field === 'price_on_request' && (!isEmptyValue(row.price_display) || row.price_value != null)) continue
+    const current = field === 'price_on_request' && row[field] === false ? null : (row[field] ?? null)
     const evidence = (draft.evidence as Record<string, string | undefined>)[field] ?? null
 
     let proposed: unknown = raw
@@ -254,7 +261,8 @@ const WRITER_RULES = `HARD RULES:
 4. Never claim personal experience or a past trip, never say what the agency or its hosts "have done", "often do" or "always do". You may say "we can help you plan" and speak to the reader as "you".
 5. Name no hotel, ship, restaurant, person or place that is not in the SOURCE or PAGE FACTS.
 6. No dashes of any kind (use commas or full stops), no web addresses, no placeholders, no markdown symbols in the description (plain paragraphs separated by a blank line).
-7. Canadian spelling, warm, plain English.`
+7. Canadian spelling, warm, plain English.
+8. Never write a phone number, email address or social media handle, even if the SOURCE has one (those belong to the person who wrote it).`
 
 function describePkg(pkg: Partial<DbPackage>): string {
   const lines: string[] = []
@@ -349,6 +357,8 @@ export function copyBlockers(text: string, ctx: { grounding: string; field: stri
   const strangers = [...new Set(numbersIn(prose).map(normNumber).filter((n) => !allowed.has(n)))]
   if (strangers.length) blockers.push(`number not in the source: ${strangers.slice(0, 5).join(', ')}`)
 
+  const isUrlField = ctx.field === 'booking_url' || ctx.field === 'more_info_url'
+  if (isUrlField ? urlHoldsContact(t) : hasContactDetails(t)) blockers.push('phone number, email address, social handle or messaging link (those never go on a trip page)')
   if (/[\u2013\u2014]/.test(t) || /\s--\s/.test(t)) blockers.push('dash present')
   if (PLACEHOLDER_PATTERNS.some((p) => p.test(t))) blockers.push('placeholder text')
   if (REFUSAL_PATTERNS.some((p) => p.test(t))) blockers.push('model refusal in text')

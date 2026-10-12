@@ -1,6 +1,7 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, type AnthropicContent } from '@/lib/ai-verify'
 import { collectPhotoCandidates, hopRejection } from '@/lib/supplier-photos'
 import type { PhotoCandidate } from '@/lib/package-sources'
+import { computeTripDuration, detectPriceOnRequest, extractHostContacts, hasContactDetails, urlHoldsContact } from '@/lib/trip-duration'
 
 // AI package-draft builder (roadmap use case 09dd2acd, Joel's idea 2026-09-26): an agent pastes
 // whatever source material they have (a supplier email, a flyer's text, a page's copy, a link)
@@ -87,6 +88,14 @@ export interface ExtractedDraft {
    * sees exactly what was thrown away rather than wondering why a field is blank. */
   dropped: DroppedValue[]
   model: string
+  /** Values worked out in code from the source text (trip length from dates, price on request), with how. */
+  derived?: { field: string; value: unknown; note: string }[]
+  /** Things a person must look at (an ambiguous length, a length that disagrees with the AI's). Shown in the review table. */
+  flags?: string[]
+  /** Phone numbers found in the source (a host's own numbers). Review table only; never printed on a public page. */
+  hostContacts?: string[]
+  /** Fields worked out in code that a person must click before they are written (a bare count, or a clash). */
+  clickOnly?: string[]
 }
 
 export type ExtractError = { status: number; message: string }
@@ -104,7 +113,8 @@ const NO_INVENTION = `HARD RULES:
 2. For every non-null FACT field, put a short verbatim quote (under 120 characters, copied exactly from the source) in "evidence" under the same key, showing where it came from.
 3. COPY fields (${COPY_FIELDS.join(', ')}) you may write in a warm, plain marketing voice for a Canadian travel agency, but they may only mention facts the source contains. No numbers, dates, prices, names, or inclusions that are not in the source. If the source is too thin to write honest copy, return null for that field.
 4. Never claim personal experience or a past trip. Never write placeholder text like [TBD].
-5. Return ONLY minified JSON, no commentary.`
+5. Never put a phone number, email address or social media handle in any field, not even in marketing copy. Those belong to the person who wrote the source; the site shows its own contact details.
+6. Return ONLY minified JSON, no commentary.`
 
 const OUTPUT_SHAPE = `{"fields":{"name":string|null,"destination":string|null,"country":string|null,"region":string|null,"supplier":string|null,"duration":string|null,"duration_days":number|null,"price_display":string|null,"price_value":number|null,"currency":"CAD"|"USD"|null,"available_from":"YYYY-MM-DD"|null,"available_to":"YYYY-MM-DD"|null,"departure_dates":["YYYY-MM-DD",...]|null,"highlights":[string,...]|null,"price_includes":[string,...]|null,"not_included":[string,...]|null,"max_people":number|null,"booking_url":string|null,"more_info_url":string|null,"category":${PACKAGE_CATEGORIES.map((c) => JSON.stringify(c)).join('|')}|null,"short_description":string|null,"full_description":string|null,"meta_title":string|null,"meta_description":string|null,"keywords":[string,...]|null,"itinerary":[{"day":number|null,"title":string,"description":string},...]|null},"evidence":{"<fact field>":"<verbatim quote>",...}}`
 
@@ -113,7 +123,7 @@ function promptCore(suppliedAs: string): string {
 
 ${NO_INVENTION}
 
-Field notes: "itinerary" is only the day-by-day or stop-by-stop outline the source actually gives (one item per day or stop, wording kept close to the source), otherwise null. "duration" is the human phrasing as the source gives it (e.g. "7 nights"); "duration_days" only if the source states or directly implies a day count. "price_display" is the price exactly as the source shows it (keep its currency symbol and wording, e.g. "From $2,499 CAD per person"); "price_value" is that same number as a plain number. "currency" only when the source says CAD or USD (or an unambiguous symbol with a country). "category" must be one of the listed values or null. "keywords" are 5-10 SEO phrases built only from places, trip types and features named in the source. "meta_title" under 60 characters, "meta_description" under 155.
+Field notes: "itinerary" is only the day-by-day or stop-by-stop outline the source actually gives (one item per day or stop, wording kept close to the source), otherwise null. "duration" is the human phrasing as the source gives it (e.g. "7 nights"); "duration_days" only if the source states or directly implies a day count (do not count days between dates yourself: copy the dates into available_from and available_to and our code does the arithmetic). "price_display" is the price exactly as the source shows it (keep its currency symbol and wording, e.g. "From $2,499 CAD per person"); "price_value" is that same number as a plain number. "currency" only when the source says CAD or USD (or an unambiguous symbol with a country). "category" must be one of the listed values or null. "keywords" are 5-10 SEO phrases built only from places, trip types and features named in the source. "meta_title" under 60 characters, "meta_description" under 155.
 
 Output shape: ${OUTPUT_SHAPE}`
 }
@@ -283,6 +293,8 @@ export function groundDraft(
       case 'booking_url':
       case 'more_info_url': {
         if (typeof v !== 'string' || !/^https?:\/\//i.test(v)) { drop(field, v, 'not a web address'); missing.push(field); break }
+        // A WhatsApp, SMS, tel: or phone-number link reaches a person (the host), not a page about the trip.
+        if (urlHoldsContact(v)) { drop(field, v, 'this link is a phone, text or messaging link, which never goes on a trip page'); missing.push(field); break }
         const inSource = normSource.includes(norm(v)) || (sourceUrl && norm(v) === norm(sourceUrl))
         if (!inSource) { drop(field, v, 'this link is not in the source'); missing.push(field); break }
         fields[field] = v.trim()
@@ -368,9 +380,95 @@ export function groundDraft(
     fields[field] = v.trim()
   }
 
+  // Trip length, price on request and host numbers are worked out in code from the source text (lib/trip-duration.ts).
+  // The model only reads; it never does this arithmetic. Gaps are filled, never overwritten: a grounded value the
+  // model already gave stays, and a disagreement is flagged for a person.
+  const derived: NonNullable<ExtractedDraft['derived']> = []
+  const flags: string[] = []
+  const clickOnly: string[] = []
+
+  // Phone numbers and emails in the source belong to whoever wrote it (a host). They never go into a trip field:
+  // a value that holds one is dropped, a list loses the items that hold one. They are shown in the review table only.
+  const withContact = (s: unknown) => typeof s === 'string' && hasContactDetails(s)
+  for (const key of Object.keys(fields)) {
+    if (key === 'booking_url' || key === 'more_info_url' || key === 'available_from' || key === 'available_to' || key === 'departure_dates') continue
+    const v = fields[key]
+    if (withContact(v)) {
+      drop(key as DraftField, v, 'it holds a phone number or email address, which never goes on a trip page')
+      delete fields[key]
+      if ((FACT_FIELDS as readonly string[]).includes(key)) missing.push(key as FactField)
+    } else if (Array.isArray(v)) {
+      if (key === 'itinerary') {
+        const keep = (v as ItineraryItem[]).filter((i) => !withContact(i.title) && !withContact(i.description))
+        if (keep.length !== v.length) drop('itinerary', `${v.length - keep.length} stop(s)`, 'it held a phone number or email address')
+        if (keep.length) fields[key] = keep
+        else delete fields[key]
+      } else {
+        const keep = v.filter((x) => !withContact(x))
+        if (keep.length !== v.length) drop(key as DraftField, v.filter((x) => withContact(x)).join(' | '), 'it holds a phone number or email address, which never goes on a trip page')
+        if (keep.length) fields[key] = keep
+        else delete fields[key]
+      }
+    }
+  }
+  const unmiss = (f: FactField) => { const i = missing.indexOf(f); if (i >= 0) missing.splice(i, 1) }
+  const len = computeTripDuration(source, {
+    isoFrom: typeof fields.available_from === 'string' ? fields.available_from : null,
+    isoTo: typeof fields.available_to === 'string' ? fields.available_to : null,
+  })
+  if (len.duration && len.duration_days != null) {
+    if (fields.duration_days != null && fields.duration_days !== len.duration_days) {
+      flags.push(`Trip length: the AI read ${String(fields.duration_days)} days but the source works out to ${len.duration} (${len.note}). Check it.`)
+    } else {
+      // Only the values THIS code filled in become click-only; a grounded value the AI already gave is left as it was,
+      // and a clash flag alone never makes it click-only.
+      if (len.confidence !== 'sure') {
+        if (fields.duration == null) clickOnly.push('duration')
+        if (fields.duration_days == null) clickOnly.push('duration_days')
+        if (len.basis === 'dates') {
+          if (fields.available_from == null) clickOnly.push('available_from')
+          if (fields.available_to == null) clickOnly.push('available_to')
+        }
+        flags.push(len.conflict || `Trip length ${len.duration} is only a suggestion: ${len.note}`)
+      }
+      if (fields.duration == null) {
+        fields.duration = len.duration
+        derived.push({ field: 'duration', value: len.duration, note: len.note })
+      }
+      if (fields.duration_days == null) {
+        fields.duration_days = len.duration_days
+        derived.push({ field: 'duration_days', value: len.duration_days, note: len.note })
+      }
+      if (len.quote && normSource.includes(norm(len.quote))) {
+        if (!evidence.duration) evidence.duration = len.quote
+        if (!evidence.duration_days) evidence.duration_days = len.quote
+      }
+      unmiss('duration')
+      unmiss('duration_days')
+      // Dates that carry the year in the source fill an empty first/last date too (still checked by dateGrounded).
+      if (len.basis === 'dates' && len.startIso && len.endIso && dateGrounded(len.startIso, source) && dateGrounded(len.endIso, source)) {
+        if (fields.available_from == null) { fields.available_from = len.startIso; derived.push({ field: 'available_from', value: len.startIso, note: len.note }); unmiss('available_from') }
+        if (fields.available_to == null) { fields.available_to = len.endIso; derived.push({ field: 'available_to', value: len.endIso, note: len.note }); unmiss('available_to') }
+      }
+    }
+  } else if (len.ambiguous || (fields.duration == null && fields.duration_days == null && /\b(weekend|getaway)\b/i.test(source))) {
+    flags.push(`Trip length left empty: ${len.note || 'the source hints at a short trip but gives no dates or day count.'}`)
+  }
+
+  const por = detectPriceOnRequest(source)
+  if (por.onRequest && fields.price_display == null && fields.price_value == null) {
+    fields.price_on_request = true
+    ;(evidence as Record<string, string>).price_on_request = por.quote
+    derived.push({ field: 'price_on_request', value: true, note: `The source says to ask for pricing ("${por.quote}"). Shown on the trip page as a call or text line, with no number invented.` })
+  } else if (por.note) {
+    flags.push(por.note)
+  }
+
+  const hostContacts = extractHostContacts(source).map((c) => c.text)
+
   // The form's mandatory fields (lib/import-package.ts REQUIRED_FIELDS) can stay empty here: the
   // draft is reviewed in the form, which is where a missing price gets typed in by a human.
-  return { fields, evidence, missing, dropped, model }
+  return { fields, evidence, missing, dropped, model, derived, flags, hostContacts, clickOnly }
 }
 
 /** Run the extraction against the model and ground the answer. Never writes to the database. */
@@ -623,6 +721,7 @@ async function fetchHtmlWithUrl(url: string, timeoutMs = 15_000): Promise<{ html
 export function draftToFormData(draft: ExtractedDraft): Record<string, unknown> {
   const f = draft.fields
   const out: Record<string, unknown> = { ...f, status: 'draft' }
+  // price_on_request rides along: the form has a "Price on request" tick box and only sends it when it is on.
   if (Array.isArray(f.price_includes)) out.price_includes = (f.price_includes as string[]).join('\n')
   if (Array.isArray(f.not_included)) out.not_included = (f.not_included as string[]).join('\n')
   if (Array.isArray(f.keywords)) out.keywords = (f.keywords as string[]).join(', ')

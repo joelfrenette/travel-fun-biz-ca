@@ -389,6 +389,8 @@ export function publishBlockers(row: Record<string, unknown>): string[] {
   const out: string[] = []
   for (const r of PUBLISH_REQUIRED) {
     const v = row[r.field as string]
+    // "Call or text for pricing" (price_on_request) counts as having a price.
+    if (r.field === 'price_display' && row.price_on_request === true) continue
     if (typeof v !== 'string' || !v.trim() || (r.field === 'name' && isPlaceholderName(v))) out.push(r.label)
   }
   return out

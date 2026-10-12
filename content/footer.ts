@@ -1,11 +1,16 @@
 import { site } from '@/lib/site'
 
+/** The SMS consent sentence as a stable translation key. The phone number is NOT in the key: it is the {phone}
+ * placeholder, substituted at render (components/footer.tsx), so the en/fr/es strings in lib/i18n.ts never drift when
+ * the number changes. */
+export const SMS_CONSENT_KEY = 'By calling or texting {phone}, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP".'
+
 // Office identity lives in lib/site.ts (one profile per deployment); this only shapes it for the footer.
 export const officeInfo = {
   addressLines: site.addressLines,
   phone: site.phone,
   disclaimers: site.phone
-    ? [`By calling or texting ${site.phone}, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP".`]
+    ? [SMS_CONSENT_KEY]
     : [],
   registrations: site.registrations,
 }

@@ -18,7 +18,7 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
-import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates } from "@/lib/site"
+import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates, priceOnRequestLine } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
@@ -79,6 +79,9 @@ export default async function PackagePage({ params }: Props) {
 
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
   const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate)
+  // Price on request: only when the trip has no price of its own; the number is the site's, never a host's.
+  const onRequest = pkg.price_on_request === true && pkg.price_value == null && !(pkg.price_display ?? "").trim()
+  const request = priceOnRequestLine()
   const highlights = pkg.highlights?.length ? pkg.highlights : []
   // Itinerary stops stored by the Add details intake: [{day, title, description}]. Anything else is ignored.
   const itinerary: { day: number | null; title: string; description: string }[] = Array.isArray(pkg.itinerary)
@@ -202,8 +205,20 @@ export default async function PackagePage({ params }: Props) {
                 <div>
                   <p className="text-xs uppercase tracking-wider text-muted-foreground">{pkg.price_value ? translate(language, "From") : translate(language, "Price")}</p>
                   <p className={pkg.price_value ? "text-3xl font-bold text-foreground" : "text-xl font-semibold text-foreground"}>
-                    {priceDisplay}
-                    {pkg.price_value && <span className="ml-2 text-sm font-normal text-muted-foreground">{currency.toUpperCase()} {translate(language, "per person")}</span>}
+                    {onRequest ? (
+                      request.phone ? (
+                        <>
+                          {translate(language, "Call or text {phone} for pricing").split("{phone}")[0]}
+                          <a href={request.telHref} className="underline hover:text-primary">{request.phone}</a>
+                          {translate(language, "Call or text {phone} for pricing").split("{phone}")[1]}
+                        </>
+                      ) : (
+                        translate(language, "Contact us for pricing")
+                      )
+                    ) : (
+                      priceDisplay
+                    )}
+                    {pkg.price_value != null && <span className="ml-2 text-sm font-normal text-muted-foreground">{currency.toUpperCase()} {translate(language, "per person")}</span>}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">

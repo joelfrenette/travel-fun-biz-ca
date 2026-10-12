@@ -15,8 +15,8 @@ const translations: Record<Language, Record<string, string>> = {
     'Terms & Conditions': 'Modalités et conditions',
     'Earnings Disclaimer': 'Avertissement sur les gains',
     'Affiliate Agreement': 'Accord d\'affiliation',
-    'By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
-      'En appelant ou en envoyant un texto au (365) 800-6363, vous acceptez de recevoir des messages texte. Pour vous désabonner, répondez « STOP » en tout temps.',
+    'By calling or texting {phone}, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP".':
+      'En appelant ou en envoyant un texto au {phone}, vous acceptez de recevoir des messages texte. Pour vous désabonner, répondez « STOP » en tout temps.',
     'Get Started': 'Commencer',
     'All': 'Tous',
     Luxury: 'Luxe',
@@ -47,6 +47,8 @@ const translations: Record<Language, Record<string, string>> = {
     'Why Choose': 'Pourquoi choisir',
     'Your request': 'Votre demande',
     'Prefer to talk? Call or text': 'Vous préférez parler? Appelez ou textez le',
+    'Call or text {phone} for pricing': 'Appelez ou textez le {phone} pour connaître le prix',
+    'Contact us for pricing': 'Contactez-nous pour connaître le prix',
     'Browse more trips': 'Voir d\'autres voyages',
     'Get Your Free Travel Concierge': 'Obtenez votre concierge voyage gratuit',
     'Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.':
@@ -161,8 +163,8 @@ const translations: Record<Language, Record<string, string>> = {
     'Terms & Conditions': 'Términos y condiciones',
     'Earnings Disclaimer': 'Descargo de responsabilidad sobre ganancias',
     'Affiliate Agreement': 'Acuerdo de afiliado',
-    'By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
-      'Al llamar o enviar un mensaje de texto al (365) 800-6363, acepta recibir mensajes de texto. Si ya no desea recibir mensajes, puede darse de baja en cualquier momento respondiendo "STOP".',
+    'By calling or texting {phone}, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP".':
+      'Al llamar o enviar un mensaje de texto al {phone}, acepta recibir mensajes de texto. Si ya no desea recibir mensajes, puede darse de baja en cualquier momento respondiendo "STOP".',
     'Get Started': 'Comenzar',
     'All': 'Todos',
     Luxury: 'Lujo',
@@ -193,6 +195,8 @@ const translations: Record<Language, Record<string, string>> = {
     'Why Choose': 'Por qué elegir',
     'Your request': 'Tu solicitud',
     'Prefer to talk? Call or text': '¿Prefieres hablar? Llama o envía un mensaje al',
+    'Call or text {phone} for pricing': 'Llama o envía un mensaje al {phone} para conocer el precio',
+    'Contact us for pricing': 'Contáctanos para conocer el precio',
     'Browse more trips': 'Ver más viajes',
     'Get Your Free Travel Concierge': 'Obtén tu conserje de viajes gratis',
     'Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.':

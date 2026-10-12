@@ -24,6 +24,8 @@ export interface DbPackage {
   tags: string[]
   price_display: string
   price_value: number | null
+  /** Migration 0040. Optional: absent until the migration is applied. */
+  price_on_request?: boolean
   currency: string
   price_includes: string | null
   duration: string
@@ -85,6 +87,7 @@ export function dbPackageToTravelPackage(pkg: DbPackage): TravelPackage {
     duration: pkg.duration,
     price: pkg.price_display,
     priceValue: pkg.price_value ?? undefined,
+    priceOnRequest: pkg.price_on_request === true && pkg.price_value == null && !(pkg.price_display ?? '').trim() ? true : undefined,
     description: pkg.short_description || pkg.full_description || '',
     image: pkg.image_url || `/placeholder.svg?height=400&width=600&query=${encodeURIComponent(pkg.name)}`,
     category: pkg.category,
