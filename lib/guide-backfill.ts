@@ -192,9 +192,16 @@ export interface BackfillProgress {
 }
 
 /** How far the backfill has got. `existing` is every guide row (kind, slug, created_at). Pure. */
-export function backfillProgress(state: BackfillState | null, existing: { kind: string; slug: string; created_at: string }[]): BackfillProgress {
+export function backfillProgress(
+  state: BackfillState | null,
+  existing: { kind: string; slug: string; created_at: string }[],
+  failures: Record<string, { n: number }> = {},
+  maxAttempts = 2,
+): BackfillProgress {
   if (!state) return { written: 0, waiting: 0, remainingBatch: 0, bursting: false }
-  const listed = new Set(state.entries.map((e) => `${e.kind}:${e.slug}`))
+  // `waiting` counts only pages that can still be written: a listed page that already failed `maxAttempts` times is
+  // skipped by the pipeline, so it must not keep the allowance alive.
+  const listed = new Set(state.entries.filter((e) => (failures[`${e.kind}:${e.slug}`]?.n ?? 0) < maxAttempts).map((e) => `${e.kind}:${e.slug}`))
   const have = new Set(existing.map((g) => `${g.kind}:${g.slug}`))
   const started = Date.parse(state.started_at)
   const written = existing.filter((g) => listed.has(`${g.kind}:${g.slug}`) && Date.parse(g.created_at) >= started).length

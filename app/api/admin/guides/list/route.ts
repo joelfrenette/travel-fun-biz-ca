@@ -30,6 +30,18 @@ type DbRow = {
   related_package_ids: string[] | null
 }
 
+// Only what the list needs (not the FAQ, sections or hero fields). If a column is missing (migration 0041 or 0033 not
+// applied) the read is repeated with every column, so the list still loads and can tell the page what is missing.
+const LIST_COLUMNS = 'id, kind, slug, name, parent_slug, scope, status, source, review_state, quality_notes, updated_at, summary, body, seo_score, primary_keyword, related_package_ids'
+
+async function readGuideRows(admin: ReturnType<typeof getSupabaseAdmin>, ids?: string[]): Promise<{ rows: DbRow[]; error?: string }> {
+  const run = (columns: string) => (ids ? admin.from('guides').select(columns).in('id', ids) : admin.from('guides').select(columns))
+  let res = await run(LIST_COLUMNS)
+  if (res.error) res = await run('*')
+  if (res.error) return { rows: [], error: res.error.message }
+  return { rows: (res.data ?? []) as unknown as DbRow[] }
+}
+
 /** Search Console clicks (trailing 28 days) per page path from the newest performance snapshot. Empty when none exists. */
 async function latestClicks(admin: ReturnType<typeof getSupabaseAdmin>, paths: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>()
@@ -56,9 +68,9 @@ export async function GET(request: Request) {
   try {
     const admin = getSupabaseAdmin()
     const query = parseListQuery(new URL(request.url).searchParams, GUIDE_KINDS)
-    const [{ data, error }, extras] = await Promise.all([admin.from('guides').select('*'), loadPostsAndTrips(admin)])
-    if (error) return NextResponse.json({ error: `Could not read guides: ${error.message}` }, { status: 500 })
-    const rows = (data ?? []) as DbRow[]
+    const [read, extras] = await Promise.all([readGuideRows(admin), loadPostsAndTrips(admin)])
+    if (read.error) return NextResponse.json({ error: `Could not read guides: ${read.error}` }, { status: 500 })
+    const rows = read.rows
     const published = toAuditGuides(rows.filter((r) => r.status === 'published') as unknown as AuditGuide[])
     // Inbound links need the posts and trips too. If they cannot be read the column shows a dash, never a made-up zero.
     const inbound = extras ? inboundCounts(published, extras.posts, extras.trips) : null
@@ -119,12 +131,12 @@ export async function POST(request: Request) {
     if (body.action !== 'publish' && body.action !== 'reject' && body.action !== 'restore') return NextResponse.json({ error: 'action must be "publish", "reject" or "restore".' }, { status: 400 })
 
     const admin = getSupabaseAdmin()
-    const { data, error } = await admin.from('guides').select('*').in('id', ids)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    const rows = (data ?? []) as DbRow[]
+    const read = await readGuideRows(admin, ids)
+    if (read.error) return NextResponse.json({ error: read.error }, { status: 500 })
+    const rows = read.rows
 
     if (body.action === 'publish') {
-      const { ok, skipped } = bulkPublishable(rows.map((r) => ({ id: r.id, name: r.name, status: r.status, quality_notes: r.quality_notes, review_state: r.review_state === 'rejected' ? 'rejected' : null })))
+      const { ok, skipped } = bulkPublishable(rows.map((r) => ({ id: r.id, kind: r.kind, name: r.name, status: r.status, quality_notes: r.quality_notes, review_state: r.review_state === 'rejected' ? 'rejected' : null })))
       const published: string[] = []
       const failed: { id: string; error: string }[] = []
       const paths: string[] = []

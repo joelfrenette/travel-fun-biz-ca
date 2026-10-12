@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import { GuidesBackfillCard } from "@/components/admin/guides-backfill"
-import { EmptyBlurbsCard } from "@/components/admin/empty-blurbs"
+import { GuidesPanel } from "@/components/admin/guides-panel"
 import { Loader2, Eye, Pencil, ExternalLink, ArrowDown, ArrowUp, Check, X, RotateCcw } from "lucide-react"
 
 // The Pages list (growth loop WP16): every guide page in one searchable, sortable, filterable table, with a review
@@ -162,13 +162,16 @@ export default function GuidesListPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-bold">Pages</h1>
+        <h1 className="text-2xl font-bold">Guide Pages</h1>
         <p className="text-sm text-muted-foreground">
-          Every destination, hotel, resort, cruise line, ship, river cruise and yacht page in one list. Search it, sort it, and open a page to edit it. Pages the site wrote but would not publish by itself wait in the Review queue.
+          The site creates, improves and publishes destination, hotel, resort, cruise line, ship, river cruise and yacht pages, written to rank on Google and to be quoted by AI answers (SEO, AEO and GEO), each with a call to action that turns visitors into enquiries.
+          Below: the one-time backfill, writing and ideas, then the searchable list of every page. Pages the site wrote but would not publish by itself wait in the Review queue.
         </p>
       </div>
 
       <GuidesBackfillCard onChanged={load} />
+
+      <GuidesPanel variant="full" />
 
       {data?.needsMigration && (
         <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
@@ -298,7 +301,6 @@ export default function GuidesListPage() {
         </div>
       )}
 
-      <EmptyBlurbsCard />
     </div>
   )
 }

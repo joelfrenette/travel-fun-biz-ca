@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     const posted = await guideSocialNetworks(admin)
     const backfillState = await readBackfillState(admin)
     const backfill = backfillState
-      ? { started_at: backfillState.started_at, batch_cap: backfillState.batch_cap, cancelled_at: backfillState.cancelled_at, listed: backfillState.entries.length, ...backfillProgress(backfillState, guides) }
+      ? { started_at: backfillState.started_at, batch_cap: backfillState.batch_cap, cancelled_at: backfillState.cancelled_at, listed: backfillState.entries.length, ...backfillProgress(backfillState, guides, failures) }
       : null
     return NextResponse.json({ guides, candidates, caps, usage, counts, failures, publishMode, posted, backfill })
   } catch (error) {
@@ -86,13 +86,20 @@ export async function POST(request: Request) {
       if (earlier && earlier.progress.waiting > 0) return NextResponse.json({ error: 'A backfill is already running. It keeps going on its own at the daily cap; cancel it first if you want to start over.' }, { status: 409 })
       const plan = await buildBackfillPlan(admin)
       if (plan.entries.length === 0) return NextResponse.json({ error: 'There is nothing to backfill: every page the trips name already exists, or was skipped.' }, { status: 409 })
-      if (Number.isInteger(Number(body.expectedCount)) && Number(body.expectedCount) !== plan.entries.length) {
-        return NextResponse.json({ error: `The list changed since you looked (${body.expectedCount} pages then, ${plan.entries.length} now). Run the preview again.` }, { status: 409 })
+      // expectedCount is required: it proves the list Joel looked at is the list being started.
+      const expected = Number(body.expectedCount)
+      if (!Number.isInteger(expected) || expected < 1) return NextResponse.json({ error: 'Run the preview first; the start needs the number of pages you looked at.' }, { status: 400 })
+      if (expected !== plan.entries.length) {
+        return NextResponse.json({ error: `The list changed since you looked (${expected} pages then, ${plan.entries.length} now). Run the preview again.` }, { status: 409 })
       }
-      const batchCap = clampBatchCap(requested, plan.entries.length)
-      const saved = await saveBackfillState(admin, { started_at: new Date().toISOString(), batch_cap: batchCap, entries: plan.entries, cancelled_at: null })
+      // Names Joel unticked in the preview are left out of the stored list (kind:slug).
+      const exclude = new Set(Array.isArray(body.exclude) ? (body.exclude as unknown[]).filter((x): x is string => typeof x === 'string') : [])
+      const entries = plan.entries.filter((e) => !exclude.has(`${e.kind}:${e.slug}`))
+      if (entries.length === 0) return NextResponse.json({ error: 'Every page was unticked, so there is nothing to start.' }, { status: 409 })
+      const batchCap = clampBatchCap(requested, entries.length)
+      const saved = await saveBackfillState(admin, { started_at: new Date().toISOString(), batch_cap: batchCap, entries, cancelled_at: null })
       if (saved.error) return NextResponse.json({ error: saved.error }, { status: 500 })
-      return NextResponse.json({ ok: true, listed: plan.entries.length, batchCap, estimate: estimateBackfill(batchCap), note: `Backfill started: ${plan.entries.length} pages listed, the first ${batchCap} will be written above the daily cap by the next pipeline passes, the rest at the daily cap.` })
+      return NextResponse.json({ ok: true, listed: entries.length, excluded: plan.entries.length - entries.length, batchCap, estimate: estimateBackfill(batchCap), note: `Backfill started: ${entries.length} pages listed, the first ${batchCap} will be written above the daily cap by the next pipeline passes, the rest at the daily cap. Pages that name a business are saved as drafts for you to check.` })
     }
 
     if (body.action === 'backfill-cancel') {

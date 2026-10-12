@@ -35,7 +35,7 @@ import {
   type GuideCandidate,
   type GuideLink,
 } from '../lib/guides'
-import { buildBackfillPlan, isGuessedProperty, pickNextCandidate, publishDecision, runGuidesStep } from '../lib/guide-run'
+import { buildBackfillPlan, capsForCandidate, isGuessedProperty, pickNextCandidate, publishDecision, runGuidesStep } from '../lib/guide-run'
 import { cruiseAndResortLinks, primaryNavLinks } from '../content/navigation'
 
 let failed = 0
@@ -237,14 +237,29 @@ for (const kind of ['hotels', 'resorts', 'ships', 'cruise-lines'] as const) {
 }
 check('WP15 rule stays: package origin + priority is a guessed property', isGuessedProperty({ origin: 'package', priority: true }))
 check('WP15 rule stays: a priority destination is not', !isGuessedProperty({ origin: 'destination', priority: true }))
-check('backfill alone does not trigger the WP15 rule', !isGuessedProperty({ origin: 'package', priority: false }))
+check('M1: a backfilled package-named page is a guessed property (always a draft)', isGuessedProperty({ origin: 'package', priority: false, backfill: true }))
+check('M1: a plain package-named page and a backfilled destination are not flagged here', !isGuessedProperty({ origin: 'package', priority: false }) && !isGuessedProperty({ origin: 'destination', backfill: true }))
+check('M2: the allowance applies only to a backfill page', capsForCandidate({ perDay: 1, perWeek: 5 }, { backfill: true }, { state: { batch_cap: 5 }, progress: { remainingBatch: 5 } }).perDay === 5
+  && capsForCandidate({ perDay: 1, perWeek: 5 }, { backfill: false }, { state: { batch_cap: 5 }, progress: { remainingBatch: 5 } }).perDay === 1
+  && capsForCandidate({ perDay: 1, perWeek: 5 }, { backfill: undefined }, { state: { batch_cap: 5 }, progress: { remainingBatch: 5 } }).perWeek === 5
+  && capsForCandidate({ perDay: 1, perWeek: 5 }, null, { state: { batch_cap: 5 }, progress: { remainingBatch: 5 } }).perDay === 1
+  && capsForCandidate({ perDay: 1, perWeek: 5 }, { backfill: true }, null).perDay === 1)
+{
+  const st: BackfillState = { started_at: '2026-10-12T00:00:00.000Z', batch_cap: 5, cancelled_at: null, entries: plan.entries.slice(0, 3) }
+  const failedKey = `${st.entries[0].kind}:${st.entries[0].slug}`
+  check('M2: waiting counts only pages that can still be written (a twice-failed page does not keep the allowance alive)',
+    backfillProgress(st, [], {}).waiting === 3 && backfillProgress(st, [], { [failedKey]: { n: 2 } }).waiting === 2 && backfillProgress({ ...st, entries: [st.entries[0]] }, [], { [failedKey]: { n: 2 } }).remainingBatch === 0)
+}
 
 const lr = (id: string, extra: Partial<GuideListRow> = {}): GuideListRow => ({ id, kind: 'hotels', slug: id, name: id, parent_slug: null, scope: null, status: 'draft', source: 'ai', review_state: null, quality_notes: null, updated_at: '2026-10-10T00:00:00Z', words: 1200, score: 80, inbound: 1, clicks: null, path: `/hotels/${id}`, primary_keyword: null, ...extra })
 check('review queue: an AI draft nobody rejected', inReviewQueue(lr('a')))
 check('review queue: rejected drafts, live pages and manual drafts are not in it', !inReviewQueue(lr('a', { review_state: 'rejected' })) && !inReviewQueue(lr('a', { status: 'published' })) && !inReviewQueue(lr('a', { source: 'manual' })))
-const bp = bulkPublishable([lr('clean', { quality_notes: null }), lr('modehold', { quality_notes: MODE_HOLD_NOTE }), lr('held', { quality_notes: 'number not in the grounding: 7' }), lr('guess', { quality_notes: `${MODE_HOLD_NOTE}; held for review: this name was taken from a trip title` }), lr('rej', { review_state: 'rejected' }), lr('live', { status: 'published' })])
-check('bulk publish takes clean drafts and mode-held drafts', bp.ok.join() === 'clean,modehold')
+const dd = { kind: 'destinations' }
+const bp = bulkPublishable([lr('clean', { ...dd, quality_notes: null }), lr('modehold', { ...dd, quality_notes: MODE_HOLD_NOTE }), lr('held', { ...dd, quality_notes: 'number not in the grounding: 7' }), lr('guess', { ...dd, quality_notes: `${MODE_HOLD_NOTE}; held for review: this name was taken from a trip title` }), lr('rej', { ...dd, review_state: 'rejected' }), lr('live', { ...dd, status: 'published' })])
+check('bulk publish takes clean destination drafts and mode-held ones', bp.ok.join() === 'clean,modehold')
 check('bulk publish skips held-back, guessed, rejected and live pages with a reason', bp.skipped.length === 4 && bp.skipped.every((s) => s.reason.length > 0))
+const named = bulkPublishable(['hotels', 'resorts', 'ships', 'cruise-lines', 'river-cruises', 'yachts'].map((k) => lr(`n-${k}`, { kind: k, quality_notes: MODE_HOLD_NOTE })).concat([lr('n-clean', { kind: 'hotels', quality_notes: null })]))
+check('M1: bulk publish never publishes a page that names a business, even with only the mode note or no note', named.ok.length === 0 && named.skipped.length === 7 && named.skipped.every((s) => /names a business/.test(s.reason)))
 
 // ---------------------------------------------------------------------------------------------------
 // 4. Orphan audit
@@ -395,12 +410,20 @@ console.log('--- house rules')
 const mine = [
   'lib/guide-scope.ts', 'lib/guide-backfill.ts', 'lib/guide-list.ts', 'lib/guide-orphans.ts', 'lib/guide-edit.ts', 'lib/guide-facts.ts', 'lib/guide-images.ts', 'lib/guides.ts', 'lib/guide-run.ts',
   'lib/guide-seeds.ts', 'components/guide-cta.tsx', 'components/guide-facts.tsx', 'components/guide-page.tsx', 'components/top-destinations.tsx', 'components/header.tsx', 'components/footer.tsx',
-  'components/admin/guides-backfill.tsx', 'components/admin/empty-blurbs.tsx', 'app/admin/guides/page.tsx', 'app/api/admin/guides/list/route.ts', 'content/navigation.ts', 'supabase/migrations/0041_guide_scope.sql',
+  'components/admin/guides-backfill.tsx', 'app/admin/guides/page.tsx', 'app/api/admin/guides/list/route.ts', 'content/navigation.ts', 'supabase/migrations/0041_guide_scope.sql',
 ]
 const dash = new RegExp(`[${String.fromCharCode(0x2013)}${String.fromCharCode(0x2014)}]`)
 check('no em or en dashes in any file this package wrote', mine.every((f) => !dash.test(readFileSync(join(process.cwd(), f), 'utf8'))))
 check('the phone number is read from site.phone, never typed into the CTA', (() => { const s = readFileSync(join(process.cwd(), 'components/guide-cta.tsx'), 'utf8'); return /site\.phone/.test(s) && !/833|878/.test(s) })())
 check('the migration is additive, idempotent and leaves RLS alone', (() => { const s = readFileSync(join(process.cwd(), 'supabase/migrations/0041_guide_scope.sql'), 'utf8'); return /add column if not exists scope/.test(s) && /add column if not exists review_state/.test(s) && !/drop table|drop column|disable row level|create policy|alter policy/i.test(s) })())
+const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf8')
+check('minor: backfill-start requires expectedCount and takes an exclude list', (() => { const s = read('app/api/admin/guides/route.ts'); return /expectedCount is required|Number\(body\.expectedCount\)/.test(s) && /expected < 1/.test(s) && /body\.exclude/.test(s) })())
+check('minor: the orphan link in Needs attention is honoured by the Guide Pages screen', /filter=orphans/.test(read('lib/issues.ts')) && /filter=orphans/.test(read('lib/plain-steps.ts')) && /get\("filter"\) === "orphans"/.test(read('app/admin/guides/page.tsx')) && /set\("orphans", "1"\)/.test(read('app/admin/guides/page.tsx')) && q({ orphans: '1' }).orphans === true)
+check('M3: the CTA label is only "Call or text our AI agent"', (() => { const s = read('components/guide-cta.tsx'); return /Call or text our AI agent/.test(s) && !/Talk to our AI|AI agent line|AI travel agent/.test(s) })())
+check('WP17: the admin nav says Guide Pages and points at /admin/guides; no separate Pages entry', (() => { const s = read('lib/admin-nav.ts'); return /title: "Guide Pages"/.test(s) && !/title: "Pages"/.test(s) && !/title: "Destinations"/.test(s) && !/href: "\/admin\/destinations"/.test(s) })())
+check('WP17: /admin/destinations redirects to /admin/guides and the blurb editor is gone', (() => { const s = read('app/admin/destinations/page.tsx'); return /redirect\("\/admin\/guides"\)/.test(s) && !/Generate with AI|Textarea/.test(s) })())
+check('WP17: the Guide Pages screen is one screen (backfill, panel, list) with no blurb editor card', (() => { const s = read('app/admin/guides/page.tsx'); return /GuidesBackfillCard/.test(s) && /GuidesPanel variant="full"/.test(s) && !/EmptyBlurbs|Generate with AI/.test(s) })())
+check('WP17: the public destination page still shows the stored blurb, or the guide summary', (() => { const s = read('app/destinations/[slug]/page.tsx'); return /getPublicBlurb/.test(s) && /guide\.summary/.test(s) && /blurb\.blurb/.test(s) })())
 check('files owned by another branch are untouched (git diff against main)', (() => {
   try {
     const base = execSync('git merge-base HEAD main', { encoding: 'utf8' }).trim()

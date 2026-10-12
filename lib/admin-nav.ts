@@ -31,15 +31,8 @@ const unsortedTools: AdminNavItem[] = [
     href: "/admin/packages",
   },
   {
-    title: "Destinations",
-    description: "A short editorial blurb for each destination, shown on its /destinations page above the trip listings. AI-assisted, admin-reviewed.",
-    icon: Globe,
-    status: "Active",
-    href: "/admin/destinations",
-  },
-  {
-    title: "Pages",
-    description: "Every destination, hotel, resort, cruise line, ship and yacht page in one searchable list, with a review queue for pages the site would not publish by itself and the one-time backfill from your trips.",
+    title: "Guide Pages",
+    description: "Destination, hotel, resort, cruise line, ship, river cruise and yacht pages: the site writes, improves and publishes them for Google, AI answers and enquiries. One screen for the backfill, the review queue and the searchable list.",
     icon: Layers,
     status: "Active",
     href: "/admin/guides",

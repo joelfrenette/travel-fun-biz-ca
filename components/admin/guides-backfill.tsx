@@ -51,6 +51,7 @@ export function GuidesBackfillCard({ onChanged }: { onChanged?: () => void }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
   const [batch, setBatch] = useState("")
+  const [unticked, setUnticked] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState("")
   const [error, setError] = useState("")
 
@@ -85,6 +86,7 @@ export function GuidesBackfillCard({ onChanged }: { onChanged?: () => void }) {
     const body = await post("plan", { action: "backfill-plan" })
     if (body) {
       setPlan(body)
+      setUnticked(new Set())
       setBatch(String(body.suggestedBatch))
     }
   }
@@ -96,9 +98,14 @@ export function GuidesBackfillCard({ onChanged }: { onChanged?: () => void }) {
       toast({ title: "Choose a batch size", description: `Enter a whole number from 1 to ${Math.min(plan.hardMax, plan.pages.length)}.`, variant: "destructive" })
       return
     }
-    const est = estimate(plan, n)
-    if (!confirm(`Write the first ${Math.min(n, plan.pages.length)} pages now (estimated ${money(est.usdMin)} to ${money(est.usdMax)}), then the remaining ${Math.max(0, plan.pages.length - n)} one a day?`)) return
-    const body = await post("start", { action: "backfill-start", confirm: true, batchCap: n, expectedCount: plan.pages.length })
+    const ticked = plan.pages.length - unticked.size
+    if (ticked < 1) {
+      toast({ title: "Nothing ticked", description: "Tick at least one page.", variant: "destructive" })
+      return
+    }
+    const est = estimate(plan, Math.min(n, ticked))
+    if (!confirm(`Write the first ${Math.min(n, ticked)} pages now (estimated ${money(est.usdMin)} to ${money(est.usdMax)}), then the remaining ${Math.max(0, ticked - n)} one a day?`)) return
+    const body = await post("start", { action: "backfill-start", confirm: true, batchCap: n, expectedCount: plan.pages.length, exclude: [...unticked] })
     if (body) {
       toast({ title: "Backfill started", description: body.note })
       setPlan(null)
@@ -177,12 +184,31 @@ export function GuidesBackfillCard({ onChanged }: { onChanged?: () => void }) {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">The first batch is written by the next pipeline passes, up to five a day. After that the remaining pages follow at the normal daily cap. It never goes past the number you choose.</p>
-                <details className="text-xs">
-                  <summary className="cursor-pointer font-medium">See the {plan.pages.length} pages</summary>
-                  <ul className="mt-2 grid gap-x-6 sm:grid-cols-2">
-                    {plan.pages.map((p) => <li key={`${p.kind}:${p.slug}`}>{p.name} <span className="text-muted-foreground">({KIND_LABEL[p.kind]?.toLowerCase() ?? p.kind}{p.scope ? `, ${p.scope}` : ""})</span></li>)}
-                  </ul>
-                </details>
+                <div className="text-xs">
+                  <p className="mb-1 font-medium">The pages ({plan.pages.length - unticked.size} ticked). Untick any name that is not a real place, hotel, ship or line. Names that come from a trip title are always saved as drafts for you to check.</p>
+                  <div className="max-h-72 overflow-auto rounded-md border bg-card">
+                    <table className="w-full">
+                      <thead className="sticky top-0 bg-muted text-left uppercase text-muted-foreground">
+                        <tr><th className="w-8 p-2" /><th className="p-2">Proposed page</th><th className="p-2">Kind</th><th className="p-2">Scope</th><th className="p-2">When written</th></tr>
+                      </thead>
+                      <tbody>
+                        {plan.pages.map((p) => {
+                          const key = `${p.kind}:${p.slug}`
+                          const named = p.kind !== "destinations"
+                          return (
+                            <tr key={key} className="border-t">
+                              <td className="p-2"><input type="checkbox" aria-label={`Include ${p.name}`} checked={!unticked.has(key)} onChange={(e) => setUnticked((s) => { const n = new Set(s); if (e.target.checked) n.delete(key); else n.add(key); return n })} /></td>
+                              <td className="p-2 font-medium">{p.name}</td>
+                              <td className="p-2">{KIND_LABEL[p.kind] ?? p.kind}</td>
+                              <td className="p-2">{p.scope ?? "Not set"}</td>
+                              <td className="p-2">{named && p.origin === "package" ? "Draft, you check it" : named ? "Live only if checks are clean" : "Live if checks are clean"}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </>
             )}
             {plan.skipped.length > 0 && (

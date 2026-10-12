@@ -223,8 +223,10 @@ export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source:
 // ---------------------------------------------------------------------------------------------------
 
 /** True for a property name that "Promote this package" took from a trip title: such a guide is always a draft. */
-export function isGuessedProperty(cand: Pick<GuideCandidate, 'origin' | 'priority'>): boolean {
-  return cand.origin === 'package' && !!cand.priority
+export function isGuessedProperty(cand: Pick<GuideCandidate, 'origin' | 'priority' | 'backfill'>): boolean {
+  // A name taken from a trip title may not be a real hotel, resort, ship or line. That holds for a promoted package
+  // (WP15) and for the one-time backfill (WP16): both are always saved as drafts for a person to check.
+  return cand.origin === 'package' && (!!cand.priority || !!cand.backfill)
 }
 
 export interface WriteGuideResult {
@@ -412,7 +414,17 @@ export async function loadBackfillProgress(admin: SupabaseClient): Promise<{ sta
   if (!state || state.cancelled_at) return null
   const { data, error } = await admin.from('guides').select('kind, slug, created_at')
   if (error) return null
-  return { state, progress: backfillProgress(state, (data ?? []) as { kind: string; slug: string; created_at: string }[]) }
+  return { state, progress: backfillProgress(state, (data ?? []) as { kind: string; slug: string; created_at: string }[], await readGuideFailures(admin), MAX_GUIDE_ATTEMPTS) }
+}
+
+/** The caps to use for the picked page: the backfill allowance only when the page is on the backfill list, else the base caps. Pure. */
+export function capsForCandidate(
+  base: { perDay: number; perWeek: number },
+  cand: Pick<GuideCandidate, 'backfill'> | null,
+  backfill: { state: Pick<BackfillState, 'batch_cap'>; progress: Pick<BackfillProgress, 'remainingBatch'> } | null,
+): { perDay: number; perWeek: number } {
+  if (!cand || cand.backfill !== true || !backfill) return base
+  return effectiveGuideCaps(base, backfill.progress, backfill.state.batch_cap)
 }
 
 /** The pipeline's guides step: at most `guides_per_day` and `guides_per_week` (counted from the guides table,
@@ -421,9 +433,6 @@ export async function loadBackfillProgress(admin: SupabaseClient): Promise<{ sta
 export async function runGuidesStep(admin: SupabaseClient, opts: { deadlineMs?: number } = {}): Promise<{ ok: boolean; note: string }> {
   const base = await getGuideCaps(admin)
   if (base.perDay === 0 || base.perWeek === 0) return { ok: true, note: 'guides are switched off (a cap is 0)' }
-  // The one-time backfill (WP16) lifts the caps by a bounded amount until its batch is written; then the normal caps resume.
-  const backfill = await loadBackfillProgress(admin)
-  const { perDay, perWeek } = backfill ? effectiveGuideCaps(base, backfill.progress, backfill.state.batch_cap) : base
   if (!isAiConfigured()) return { ok: true, note: 'AI writing is not configured, so no guides' }
 
   // The breaker comes before any AI call. If the log cannot be read, stay closed.
@@ -435,10 +444,13 @@ export async function runGuidesStep(admin: SupabaseClient, opts: { deadlineMs?: 
   // Fail closed AND visible: if the count cannot be read (for example the guides table does not exist yet),
   // nothing is written and the step shows as failed so it appears under Needs attention.
   if (usage.today === null || usage.week === null) return { ok: false, note: 'could not check how many guides were written (is the guides table set up?), so nothing was written' }
-  if (usage.today >= perDay) return { ok: true, note: `daily cap reached (${usage.today} of ${perDay} today)` }
-  if (usage.week >= perWeek) return { ok: true, note: `weekly cap reached (${usage.week} of ${perWeek} this week)` }
 
   const cand = await pickNextCandidate(admin, await listGuideCandidates(admin))
+  // The one-time backfill (WP16) lifts the caps by a bounded amount, and ONLY for a page that is on its list, until its
+  // batch is written. Any other page (and every page once the batch is used up) runs under the normal caps.
+  const { perDay, perWeek } = capsForCandidate(base, cand, await loadBackfillProgress(admin))
+  if (usage.today >= perDay) return { ok: true, note: `daily cap reached (${usage.today} of ${perDay} today)` }
+  if (usage.week >= perWeek) return { ok: true, note: `weekly cap reached (${usage.week} of ${perWeek} this week)` }
   if (!cand) return { ok: true, note: 'no guide candidates left (all written, or skipped after repeated failures)' }
 
   const result = await writeGuide(admin, cand, {

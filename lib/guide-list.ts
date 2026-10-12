@@ -1,3 +1,4 @@
+import { REVIEW_KINDS } from '@/lib/guide-backfill'
 import { SCOPE_LABEL, parseScope, scopeOf, GUIDE_SCOPES, type GuideScope } from '@/lib/guide-scope'
 
 // The admin "Pages" list at /admin/guides (growth loop WP16, part 3): one table of every guide, with search, sort,
@@ -156,12 +157,15 @@ export function queryGuideRows(rows: GuideListRow[], query: ListQuery, kindLabel
 /** Which of the chosen ids a bulk "Publish" may touch: drafts that the checks did not hold back (no quality notes) and
  * nobody rejected. Everything else is returned under `skipped` with the reason, so a held-back page is never published
  * in bulk. Pure. */
-export function bulkPublishable(rows: Pick<GuideListRow, 'id' | 'name' | 'status' | 'quality_notes' | 'review_state'>[]): { ok: string[]; skipped: { id: string; name: string; reason: string }[] } {
+export function bulkPublishable(rows: Pick<GuideListRow, 'id' | 'kind' | 'name' | 'status' | 'quality_notes' | 'review_state'>[]): { ok: string[]; skipped: { id: string; name: string; reason: string }[] } {
   const ok: string[] = []
   const skipped: { id: string; name: string; reason: string }[] = []
   for (const r of rows) {
     if (r.status !== 'draft') skipped.push({ id: r.id, name: r.name, reason: 'already live' })
     else if (r.review_state === 'rejected') skipped.push({ id: r.id, name: r.name, reason: 'was rejected' })
+    // A page that names a business (hotel, resort, ship, cruise line, river cruise, yacht) is never published in bulk,
+    // even when the checks were clean: a person opens it and publishes it, so a guessed name cannot go live unseen.
+    else if ((REVIEW_KINDS as readonly string[]).includes(r.kind)) skipped.push({ id: r.id, name: r.name, reason: 'names a business: open it and publish it yourself' })
     // The one note that means "the checks were clean, the site was only in review mode" does not hold a page back.
     else if (r.quality_notes && r.quality_notes.trim() && r.quality_notes.trim() !== MODE_HOLD_NOTE) skipped.push({ id: r.id, name: r.name, reason: `held back: ${r.quality_notes.slice(0, 80)}` })
     else ok.push(r.id)
