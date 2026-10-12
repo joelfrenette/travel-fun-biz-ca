@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { generateSlug } from '@/lib/utils'
 import { GUIDE_SEEDS } from '@/lib/guide-seeds'
 import { GUIDE_BACKFILL_KEY, parseBackfillState } from '@/lib/guide-backfill'
+import type { TripFact } from '@/lib/guide-facts'
 import { groupChildren, inferScope, parentChain, parseScope, type GuideScope } from '@/lib/guide-scope'
 import { dbPackageToTravelPackage, type DbPackage } from '@/lib/packages'
 import type { TravelPackage } from '@/types/travel'
@@ -171,6 +172,22 @@ export async function getPublishedPackagesByIds(ids: string[]): Promise<TravelPa
     return []
   }
   return ((data ?? []) as DbPackage[]).map(dbPackageToTravelPackage)
+}
+
+/** The stored facts of the published trips a guide lists (for the key-facts table, the route and the length chart).
+ * Anon client, so RLS lets only published trips through. Never throws: a read error is an empty list. */
+export async function getTripFactsByIds(ids: string[]): Promise<TripFact[]> {
+  if (ids.length === 0) return []
+  const { data, error } = await supabase
+    .from('travel_packages')
+    .select('id, slug, name, category, destination, duration_days, available_from, available_to, itinerary')
+    .in('id', ids)
+    .eq('status', 'published')
+  if (error) {
+    console.error('[guides] trip facts failed:', error.message)
+    return []
+  }
+  return (data ?? []) as TripFact[]
 }
 
 // ---------------------------------------------------------------------------------------------------

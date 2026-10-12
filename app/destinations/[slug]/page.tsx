@@ -9,7 +9,12 @@ import { GuideTakeaways, GuideArticle, GuideFaqList, guideJsonLd, guideMetadata 
 import { getDestinationPage } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getPublicBlurb } from "@/lib/destination-blurbs"
-import { getPublishedGuide, listPropertyGuidesForDestination, listPublishedGuideLinks, guideTrail, childGroups, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
+import { getPublishedGuide, listPropertyGuidesForDestination, listPublishedGuideLinks, guideTrail, childGroups, getTripFactsByIds, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
+import { scopeOf } from "@/lib/guide-scope"
+import { GuideCta } from "@/components/guide-cta"
+import { GuideFacts } from "@/components/guide-facts"
+import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
+import type { FactsInput } from "@/lib/guide-facts"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
@@ -63,6 +68,16 @@ export default async function DestinationPage({ params }: Props) {
   // resorts are already listed in their own section, so they are left out of the groups.
   const allGuides = guide ? await listPublishedGuideLinks() : []
   const trail = guide ? guideTrail(guide, allGuides) : []
+  const tripFacts = guide ? await getTripFactsByIds(guide.related_package_ids) : []
+  const parentStep = trail.length > 1 ? trail[trail.length - 2] : null
+  const factsInput: FactsInput = {
+    kindLabel: guideKinds.destinations.label,
+    scope: guide ? scopeOf(guide) : null,
+    parent: guide && guide.parent_slug && parentStep && parentStep.path !== guideKinds.destinations.urlPrefix ? { name: parentStep.name, path: parentStep.path } : null,
+    trips: tripFacts,
+    bestTime: bestTimeToVisit ? { destination: bestTimeToVisit.destination, path: `/best-time-to-visit/${params.slug}` } : null,
+    childCount: guide ? childGroups(guide, allGuides).reduce((n, g) => n + g.items.length, 0) : 0,
+  }
   const childBlocks = guide ? childGroups(guide, allGuides).map((g) => ({ ...g, items: g.items.filter((x) => x.kind !== "hotels" && x.kind !== "resorts") })).filter((g) => g.items.length > 0) : []
 
   // A CollectionPage listing the real upcoming trips and past-trip recaps for this destination -
@@ -129,18 +144,21 @@ export default async function DestinationPage({ params }: Props) {
               {guide.hero_image_url && (
                 <figure>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={guide.hero_image_url} alt={guide.hero_alt || guide.name} className="aspect-[16/9] w-full rounded-xl object-cover" />
+                  <img
+                    src={guide.hero_image_url}
+                    srcSet={heroSrcSet(guide.hero_image_url) ?? undefined}
+                    sizes={heroSrcSet(guide.hero_image_url) ? HERO_SIZES.page : undefined}
+                    alt={guide.hero_alt || guide.name}
+                    className="aspect-[16/9] w-full rounded-xl object-cover"
+                  />
                   <figcaption className="mt-1.5 text-xs text-muted-foreground">Illustrative stock photo.</figcaption>
                 </figure>
               )}
               <GuideTakeaways guide={guide} />
+              <GuideFacts input={factsInput} />
               <GuideArticle guide={guide} />
               <GuideFaqList guide={guide} />
-              <div className="rounded-xl border bg-muted/30 p-6 text-center">
-                <p className="text-lg font-semibold text-foreground">Thinking about {destination}?</p>
-                <p className="mt-1 text-sm text-muted-foreground">Tell us who is travelling and roughly when, and our team will help you work out the right trip.</p>
-                <Link href="/#contact" className="mt-4 inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
-              </div>
+              <GuideCta name={destination} />
             </div>
           )}
 

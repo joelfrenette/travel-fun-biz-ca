@@ -4,8 +4,12 @@ import { notFound } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
-import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, oneLineSummary, getPublishedPackagesByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
+import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, oneLineSummary, getPublishedPackagesByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
+import { GuideCta } from "@/components/guide-cta"
+import { GuideFacts } from "@/components/guide-facts"
+import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
+import type { FactsInput } from "@/lib/guide-facts"
 import { getDestinationSlugs } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
@@ -104,7 +108,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const info = guideKinds[kind]
   const { language, currency } = getVisitorPreferences()
   const bestTimeSlug = kind === "destinations" ? slug : guide.parent_slug
-  const [usdToTargetRate, packages, allGuides, destinations, bestTime, stories] = await Promise.all([
+  const [usdToTargetRate, packages, allGuides, destinations, bestTime, stories, tripFacts] = await Promise.all([
     getUsdToRate(currency),
     getPublishedPackagesByIds(guide.related_package_ids),
     // Every published guide as a link row: related guides, the parent chain and the pages under this one all come from it.
@@ -114,6 +118,8 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
     bestTimeSlug ? getBestTimeToVisitPage(bestTimeSlug) : Promise.resolve(null),
     // Blog posts written for one of this page's trips, or whose title or tags name this page. Empty when none match.
     listPostsForGuide(guide, 3),
+    // The stored facts of this page's published trips (dates, length, itinerary stops) for the facts block.
+    getTripFactsByIds(guide.related_package_ids),
   ])
   const parentGuide = guide.parent_slug ? await getPublishedGuide("destinations", guide.parent_slug) : null
   const parentDestination = guide.parent_slug ? destinations.find((d) => d.slug === guide.parent_slug) : undefined
@@ -124,6 +130,16 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const trail = guideTrail(guide, allGuides, guide.parent_slug && parentName ? { slug: guide.parent_slug, name: parentName } : null)
   const children = childGroups(guide, allGuides)
   const scope = scopeOf(guide)
+  const parentStep = trail.length > 1 ? trail[trail.length - 2] : null
+  const factsInput: FactsInput = {
+    kindLabel: info.label,
+    scope,
+    // The step above this page in the trail, unless that step is only the kind's index page (no parent was found).
+    parent: parentStep && guide.parent_slug && parentStep.path !== info.urlPrefix ? { name: parentStep.name, path: parentStep.path } : null,
+    trips: tripFacts,
+    bestTime: bestTime && bestTimeSlug ? { destination: bestTime.destination, path: `/best-time-to-visit/${bestTimeSlug}` } : null,
+    childCount: children.reduce((n, g) => n + g.items.length, 0),
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -147,6 +163,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
             <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{scope ? `${SCOPE_LABEL[scope]} guide` : `${info.label} guide`}</p>
             <h1 className="mt-1 text-balance text-3xl font-bold text-foreground sm:text-4xl">{guide.name}: {info.guideLabel}</h1>
             <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground">{guide.summary}</p>
+            <GuideCta name={guide.name} compact />
           </div>
         </div>
 
@@ -154,12 +171,19 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
           {guide.hero_image_url && (
             <figure>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={guide.hero_image_url} alt={guide.hero_alt || guide.name} className="aspect-[16/9] w-full rounded-xl object-cover" />
+              <img
+                src={guide.hero_image_url}
+                srcSet={heroSrcSet(guide.hero_image_url) ?? undefined}
+                sizes={heroSrcSet(guide.hero_image_url) ? HERO_SIZES.page : undefined}
+                alt={guide.hero_alt || guide.name}
+                className="aspect-[16/9] w-full rounded-xl object-cover"
+              />
               <figcaption className="mt-1.5 text-xs text-muted-foreground">Illustrative stock photo.</figcaption>
             </figure>
           )}
 
           <GuideTakeaways guide={guide} />
+          <GuideFacts input={factsInput} />
           <GuideArticle guide={guide} />
           <GuideFaqList guide={guide} />
 
@@ -192,14 +216,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
             </section>
           )}
 
-          <section className="rounded-xl border bg-muted/30 p-6 text-center">
-            <p className="text-lg font-semibold text-foreground">Thinking about {guide.name}?</p>
-            <p className="mt-1 text-sm text-muted-foreground">Tell us who is travelling and roughly when, and our team will help you work out the right trip.</p>
-            <div className="mt-4 flex flex-wrap justify-center gap-3">
-              <Link href="/#contact" className="inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
-              <Link href="/packages" className="inline-block rounded-md border px-6 py-3 text-sm font-bold uppercase text-foreground hover:bg-muted">See all trips</Link>
-            </div>
-          </section>
+          <GuideCta name={guide.name} />
 
           {relatedGuides.length > 0 && (
             <section aria-labelledby="related-guides-heading">
