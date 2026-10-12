@@ -44,6 +44,7 @@ import {
   type PackageItem,
 } from '@/lib/content-repair-adapters'
 import { pingIndexNow } from '@/lib/indexnow'
+import { rehealStuckDrafts, rejectedPostSlugs } from '@/lib/blog-reheal'
 import type { DbPackage } from '@/lib/packages'
 import { completenessScore } from '@/lib/package-completeness'
 import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
@@ -124,7 +125,9 @@ export async function countHardWaiting(admin: SupabaseClient): Promise<number> {
       n += ((data ?? []) as { quality_notes: string | null }[]).filter((r) => hardIn(r.quality_notes)).length
     }
     const { data: drafts } = await admin.from('posts').select('slug').eq('status', 'draft').limit(300)
-    const slugs = ((drafts ?? []) as { slug: string }[]).map((r) => r.slug)
+    // A draft the re-check retired (rejected) is no longer waiting on anyone.
+    const retired = await rejectedPostSlugs(admin)
+    const slugs = ((drafts ?? []) as { slug: string }[]).map((r) => r.slug).filter((s) => !retired.has(s))
     if (slugs.length) {
       const { data: tags } = await admin.from('content_variants').select('variant_tags').in('slug', slugs)
       n += ((tags ?? []) as { variant_tags: { held_reasons?: string } | null }[]).filter((r) => hardIn(r.variant_tags?.held_reasons)).length
@@ -726,6 +729,11 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
   editCount += trips.edits
   calls += trips.calls
   problems.push(...trips.problems)
+  // 2c. Stuck blog drafts (WP18): up to 2 a day get one fresh repair; published only if the full gate is clean.
+  const reheal = await rehealStuckDrafts(admin, { existing: idx.existing })
+  calls += reheal.calls
+  problems.push(...reheal.problems)
+  if (reheal.published) healedPages += reheal.published
   if (changedPaths.length) await pingIndexNow(changedPaths).catch(() => undefined)
 
   // 3. The numbers for the card, the brief and Needs attention (pages and trips together).
@@ -738,7 +746,7 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
   const lowest = [...everyone].sort((a, b) => a.score - b.score).slice(0, 5).map((s) => ({ type: s.type, path: s.path, score: s.score, reasons: s.reasons.slice(0, 3) }))
   const belowAll = queue.length + trips.scored.filter((t) => t.result.score < HEAL_BELOW).length
   const hardWaiting = await countHardWaiting(admin)
-  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${problems.length ? `; ${problems.join('; ')}` : ''}`
+  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
   const summary: HealSummary = { at: new Date().toISOString(), scored: everyone.length, avg, below: belowAll, lowest, healedPages, edits: editCount, hardWaiting, calls, trips: trips.scored.length, tripsFixed: trips.fixed, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }

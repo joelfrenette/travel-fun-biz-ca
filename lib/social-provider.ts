@@ -89,6 +89,21 @@ export interface PostingTarget {
 
 const csv = (raw: string | null) => (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 
+/** Pure: the networks the LIVE provider posts to. With GoHighLevel that is the platforms of the ticked
+ * accounts (ghl_accounts), never the old Upload-Post `distribution_platforms` list, which can hold a
+ * stale value (such as bluesky) that nothing sends to any more. */
+export function activePlatformsOf(provider: Provider, ghlAccounts: GhlAccountRef[], uploadPostPlatforms: string[]): string[] {
+  const list = provider === 'ghl' ? ghlAccounts.map((a) => a.platform) : uploadPostPlatforms
+  return [...new Set(list.map((p) => p.trim().toLowerCase()).filter(Boolean))]
+}
+
+/** Networks the live provider will really post to, for UI and readiness text. */
+export async function getActivePlatforms(admin: SupabaseClient): Promise<{ provider: Provider; platforms: string[] }> {
+  const provider = await getProvider(admin)
+  const [ghl, upload] = await Promise.all([getGhlAccounts(admin), getSetting(admin, 'distribution_platforms')])
+  return { provider, platforms: activePlatformsOf(provider, ghl, csv(upload)) }
+}
+
 /** The active provider's posting target, or why there isn't one yet. */
 export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ target?: PostingTarget; reason?: string }> {
   const { provider, error: providerErr } = await getProviderStrict(admin)

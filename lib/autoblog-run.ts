@@ -4,6 +4,7 @@ import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
 import { deleteEdits } from '@/lib/content-edits'
+import { rejectedPostSlugs } from '@/lib/blog-reheal'
 import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters'
 import { pickStyle, pickCtaStyle, CTA_STYLES, CONTENT_STYLES, styleById, appendStyledCta, type ContentStyle } from '@/lib/content-styles'
 import { scoresFor, chooseWeighted } from '@/lib/content-performance'
@@ -174,8 +175,11 @@ async function clearComposeFailure(admin: ReturnType<typeof getSupabaseAdmin>, r
 /** How many posts were created since 00:00 UTC today, or null when the count could not be read. */
 async function postsWrittenToday(admin: ReturnType<typeof getSupabaseAdmin>): Promise<number | null> {
   const start = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`
-  const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', start)
-  return error ? null : (count ?? 0)
+  const { data, error } = await admin.from('posts').select('slug').gte('created_at', start).limit(100)
+  if (error) return null
+  // A draft the daily re-check retired (rejected) no longer uses up the day's post.
+  const retired = await rejectedPostSlugs(admin)
+  return (data ?? []).filter((p: { slug: string }) => !retired.has(p.slug)).length
 }
 
 /** One post per call, at most. `scheduled: true` (the cron) also caps at one post per calendar
@@ -251,8 +255,11 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     const promoted = !!topic.package_slug && !!queueRowId
     const wall = packageWall(promoted)
     const since = new Date(Date.now() - wall.days * 86_400_000).toISOString()
-    const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${groundingPackage.slug}%`)
+    const { data: coverRows, error } = await admin.from('posts').select('slug').gte('created_at', since).ilike('body', `%/packages/${groundingPackage.slug}%`).limit(100)
     if (error) return { ran: false, mode, note: 'could not check whether this package was already covered, so nothing was written' }
+    // A draft the daily re-check retired (rejected) does not count as coverage, so the trip can have a new post.
+    const retired = await rejectedPostSlugs(admin)
+    const count = (coverRows ?? []).filter((p: { slug: string }) => !retired.has(p.slug)).length
     if (count && count > 0 && wall.reschedule && queueRowId) {
       // A promoted idea is never thrown away by the wall: it is moved a week on and stays approved. It does not count
       // towards the day's repeat limit either.

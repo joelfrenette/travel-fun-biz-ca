@@ -5,6 +5,7 @@ import { nextUp, rankKeywords, type ScoreKeyword, type ScorePackage } from '@/li
 import { readTrendPeaks } from '@/lib/keyword-ideas'
 import { getNearMissKeywords } from '@/lib/search-console'
 import { SITE_ID } from '@/lib/site'
+import { getSetting, setSetting } from '@/lib/app-settings'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-topics.ts (Factory Phase 2:
 // blog/autoblog), trimmed to what this site's own blog needs: no visa/passport material (100%
@@ -175,6 +176,73 @@ export async function queueIdeas(admin: SupabaseClient, ideas: TopicIdea[], stat
   const { error } = await admin.from('blog_topic_queue').insert(rows)
   if (error) throw new Error(error.message)
   return { queued: rows.length }
+}
+
+// ---- auto-approval of engine ideas (WP18-B) -------------------------------------------------------------
+// The approval queue was never the bottleneck: ideas sat as "suggested" because nobody had time to click. A good
+// idea (score 70+, about a trip we really sell, nothing wrong with it) is now approved by the engine itself while
+// the approved-and-unused backlog is small. Everything else stays "suggested". Reject in the admin is still a veto
+// (a rejected keyword is never queued again), and every auto-approval is logged so the Autopilot page can say so.
+export const AUTO_APPROVE_MIN_SCORE = 70
+export const AUTO_APPROVE_MAX_BACKLOG = 10
+export const AUTO_APPROVE_LOG_KEY = 'blog_topics_auto_approved'
+const AUTO_APPROVE_LOG_KEEP = 200
+
+export interface AutoApproveInput {
+  score: number | null | undefined
+  /** The real published package the idea is about, or null/empty when it has none. */
+  packageSlug: string | null | undefined
+  /** Problems found by the plan checks on the final idea text. Any problem keeps the idea as "suggested". */
+  blockers: string[]
+}
+
+/** Pure: may the engine approve this idea itself? `approvedUnused` is null when the backlog could not be counted
+ * (fail closed: nothing is auto-approved then). */
+export function autoApproveDecision(idea: AutoApproveInput, approvedUnused: number | null): { approve: boolean; reason: string } {
+  if (approvedUnused === null) return { approve: false, reason: 'could not count the approved backlog' }
+  if (approvedUnused >= AUTO_APPROVE_MAX_BACKLOG) return { approve: false, reason: `${approvedUnused} approved ideas are already waiting (limit ${AUTO_APPROVE_MAX_BACKLOG})` }
+  if (typeof idea.score !== 'number' || !Number.isFinite(idea.score) || idea.score < AUTO_APPROVE_MIN_SCORE) return { approve: false, reason: `score is under ${AUTO_APPROVE_MIN_SCORE}` }
+  if (!idea.packageSlug) return { approve: false, reason: 'no real trip to ground it in' }
+  if (idea.blockers.length > 0) return { approve: false, reason: `needs a look: ${idea.blockers.join('; ')}` }
+  return { approve: true, reason: `score ${idea.score}, about a real trip, no problems found` }
+}
+
+/** How many approved ideas have not been written yet, or null when it could not be counted. */
+export async function countApprovedUnused(admin: SupabaseClient): Promise<number | null> {
+  const { count, error } = await admin.from('blog_topic_queue').select('id', { count: 'exact', head: true }).eq('status', 'approved')
+  return error ? null : (count ?? 0)
+}
+
+export interface AutoApprovalEntry {
+  at: string
+  keyword: string
+  score: number
+  reason: string
+}
+
+/** The log of ideas the engine approved by itself (newest last, capped). Empty when unreadable. */
+export async function readAutoApprovals(admin: SupabaseClient): Promise<AutoApprovalEntry[]> {
+  try {
+    const parsed = JSON.parse((await getSetting(admin, AUTO_APPROVE_LOG_KEY)) ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter((e): e is AutoApprovalEntry => !!e && typeof e.at === 'string' && typeof e.keyword === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export async function recordAutoApprovals(admin: SupabaseClient, entries: AutoApprovalEntry[]): Promise<void> {
+  if (!entries.length) return
+  try {
+    const all = [...(await readAutoApprovals(admin)), ...entries].slice(-AUTO_APPROVE_LOG_KEEP)
+    await setSetting(admin, AUTO_APPROVE_LOG_KEY, JSON.stringify(all))
+  } catch {
+    // the idea is approved either way; only the counter on the page would miss it
+  }
+}
+
+/** Counts for the Autopilot page. */
+export function summariseAutoApprovals(entries: AutoApprovalEntry[], now: number = Date.now()): { total: number; last7: number } {
+  return { total: entries.length, last7: entries.filter((e) => now - Date.parse(e.at) < 7 * 86_400_000).length }
 }
 
 export async function listTopicQueue(admin: SupabaseClient): Promise<BlogTopicQueueRow[]> {

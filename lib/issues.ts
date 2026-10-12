@@ -18,6 +18,7 @@ import { completenessScore } from '@/lib/package-completeness'
 import { openFindings, dismissFindings } from '@/lib/source-watch'
 import { checkPastTripsForRecap } from '@/lib/content-drift'
 import { pastTripSlugs } from '@/lib/past-trip'
+import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -43,7 +44,7 @@ export interface Issue {
 
 /** Turns a raw provider error into advice. Falls back to no advice rather than guessing. */
 function adviceFor(error: string): string | undefined {
-  if (/None of your selected networks/i.test(error)) return 'Tick a network that takes this kind of post (Facebook, LinkedIn or Bluesky for text and photo posts) in "Where it posts".'
+  if (/None of your selected networks/i.test(error)) return 'Tick a network that takes this kind of post in "Where it posts" (the error message lists which ones do).'
   if (/invalid platforms/i.test(error)) return 'One selected network cannot take this kind of post. Retry now skips it automatically and only sends to networks that have not received the post yet.'
   if (/\b(401|403)\b|rejected the (api )?key|unauthor/i.test(error)) return 'The provider rejected the key. Check the key in Vercel (and that it matches the environment), then press resume or retry.'
   if (/expired|reconnect|reauth/i.test(error)) return 'An account needs to be reconnected on the provider, then retry.'
@@ -68,6 +69,29 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
       fix: adviceFor(err),
       actions: [{ label: 'Retry', kind: 'retry-post', slug: r.slug }],
     })
+  }
+
+  // Guide posts about a named place that wait for a person because their caption did not pass the checks (WP18-E).
+  // They are still held, not failed; fixing the guide text releases them by itself, or Approve sends them anyway.
+  try {
+    const { data: heldCaptions } = await admin
+      .from('post_distribution')
+      .select('slug, title, last_error')
+      .eq('content_type', 'post')
+      .eq('stage', 'held')
+      .like('last_error', `${CAPTION_FAILED_PREFIX}%`)
+    for (const r of (heldCaptions ?? []) as { slug: string; title: string; last_error: string | null }[]) {
+      issues.push({
+        id: `guide-caption:${r.slug}`,
+        area: 'post',
+        title: `A guide post is held back: ${r.title}`,
+        detail: r.last_error ?? 'The caption did not pass the checks.',
+        fix: 'Fix the wording on the guide page and it posts by itself, or press Approve on the Distribution page to post it as it is.',
+        link: { label: 'Open Distribution', href: '/admin/distribution' },
+      })
+    }
+  } catch {
+    // an unreadable ledger is just not listed here
   }
 
   // Carousels and videos that failed, or are failing and being retried.

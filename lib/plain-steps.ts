@@ -216,6 +216,17 @@ export function plainAction(i: Issue): PlainAction {
       paste,
     }
   }
+  if (i.id.startsWith('guide-caption:')) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'This guide is about a named hotel, resort or ship. The site waits 24 hours before posting it, then checks the words it would post. The check found something it does not allow (a "best" style word, a number the guide does not back up, or a long dash), so the post is still waiting.',
+      steps: ['Open the Distribution page with the link below.', 'Read the red words next to the guide. They say what the check did not like.', 'Open that guide in the admin, change the sentence named, and save. The site checks again by itself and posts it.', 'Or, if you are happy with the words as they are, click Approve on the Distribution page to post it now.'],
+      url: adminLink('/admin/distribution'),
+      urlLabel: 'Open Distribution',
+      paste,
+    }
+  }
   if (/^(post|carousel|video):/.test(i.id)) {
     return {
       id: i.id,
@@ -232,7 +243,7 @@ export function plainAction(i: Issue): PlainAction {
       id: i.id,
       title: i.title,
       why: 'A job that runs by itself did not run right.',
-      steps: ['Open the System Health page with the link below.', 'Look for the amber (orange) light.', 'If it is still orange after 30 minutes, copy the message below and paste it to Claude.'],
+      steps: ['Open the System Health page with the link below.', 'Look for the amber (orange) light.', 'If it is still orange after 15 minutes (the job runs every 15 minutes), copy the message below and paste it to Claude.'],
       url: adminLink('/admin/system-health'),
       urlLabel: 'Open System Health',
       paste,

@@ -143,11 +143,23 @@ export async function buildCopyBrief(admin: SupabaseClient, cand: Pick<PageCopyC
 
 export const PAGE_COPY_PUBLISH_MODE_KEY = 'page_copy_publish_mode'
 
-/** `app_settings.page_copy_publish_mode`: 'draft' (the default, also when unset or unreadable) saves every page as
- * a draft for review; 'publish' lets copy that passed the gate go live. Strict equality, same as guides. */
+/** The mode used when `app_settings.page_copy_publish_mode` has never been set (WP18: copy that passes every check
+ * goes live by itself; copy that fails a check is still saved as a draft). */
+export const PAGE_COPY_DEFAULT_MODE: PageCopyPublishMode = 'publish'
+
+/** Pure: the mode for a stored value. Unset (null or empty) means the default; 'draft' and 'publish' mean themselves;
+ * anything else, or a failed read, is 'draft' (fail closed: nothing goes live on a setting that cannot be understood). */
+export function pageCopyModeOf(value: string | null | undefined, readFailed = false): PageCopyPublishMode {
+  if (readFailed) return 'draft'
+  if (value === null || value === undefined || value === '') return PAGE_COPY_DEFAULT_MODE
+  return value === 'publish' ? 'publish' : 'draft'
+}
+
+/** `app_settings.page_copy_publish_mode`: 'publish' (the default when unset) lets copy that passed the gate go live;
+ * 'draft' saves every page as a draft for review. An unreadable setting is 'draft'. */
 export async function getPageCopyPublishMode(admin: SupabaseClient): Promise<PageCopyPublishMode> {
   const { value, error } = await getSettingStrict(admin, PAGE_COPY_PUBLISH_MODE_KEY)
-  return !error && value === 'publish' ? 'publish' : 'draft'
+  return pageCopyModeOf(value, !!error)
 }
 
 export async function setPageCopyPublishMode(admin: SupabaseClient, mode: string): Promise<{ error?: string }> {
