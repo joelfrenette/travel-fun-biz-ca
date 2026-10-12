@@ -227,6 +227,7 @@ const MD_LINK_ANY = /!?\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)(?:\s+"[^"]*")?\
 const EXPERIENCE = [...EXPERIENCE_CLAIM_PATTERNS, ...POST_EXPERIENCE_CLAIM_PATTERNS]
 const PLACEHOLDER_TEXT = [/lorem ipsum/i, /\btodo\b/i, /\btbd\b/i, /insert .* here/i, /\{\{|\}\}/, /\[[^\]]*\](?!\()/]
 const REFUSAL_TEXT = [/i (cannot|can't|won'?t) (write|generate|help|comply)/i, /as an ai( language model)?/i, /i don'?t have (enough )?information/i]
+const LONG_DASH = new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']')
 const WEB_ADDRESS = /https?:\/\/|\bwww\./i
 
 /** A sentence with link syntax reduced to its anchor words and the markdown marks taken off (what a reader sees). */
@@ -441,7 +442,7 @@ function sectionPrompt(brief: string, unit: Unit, reasons: string[]): string {
 export function validateRegeneratedUnit(unit: Pick<Unit, 'text' | 'heading'>, text: string, ctx: DetectCtx, allowedPaths: Set<string>, maxLinks?: number): string | null {
   const t = text.trim().replace(/^```(?:markdown|md)?\s*\n/i, '').replace(/\n```\s*$/, '').trim()
   if (!t) return 'empty'
-  if (/[–—]/.test(t)) return 'contains a long dash'
+  if (LONG_DASH.test(t)) return 'contains a long dash'
   const startsHeading = /^##\s/.test(t)
   if (unit.heading !== null && !startsHeading) return 'lost its heading'
   if (unit.heading === null && /^#{1,6}\s/.test(t)) return 'added a heading to a section that has none'
@@ -454,6 +455,11 @@ export function validateRegeneratedUnit(unit: Pick<Unit, 'text' | 'heading'>, te
   if (links.some((l) => !allowedPaths.has(l) && l !== '/')) return 'links to a page that is not allowed'
   if (/\]\((?!\/)[^)]*\)/.test(t)) return 'contains a link that is not to this site'
   if (typeof maxLinks === 'number' && links.length > maxLinks) return 'has too many links'
+  // The whole section as well as each sentence: a name such as "Dr. Silva" is cut in two by the sentence splitter.
+  const wholePlain = plainSentence(t.replace(/^##\s+/gm, '')).replace(/\s+/g, ' ')
+  if (isPriceOrDate(wholePlain)) return 'contains a price or a date'
+  if (isNamedPersonLike(wholePlain)) return 'names a person'
+  if (EXPERIENCE.some((re) => re.test(wholePlain))) return 'contains an experience claim'
   for (const s of bodySentences(t)) {
     const plain = plainSentence(s.text)
     if (!plain) continue

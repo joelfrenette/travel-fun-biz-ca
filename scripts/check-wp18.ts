@@ -19,6 +19,9 @@ import { classifyBlockers, fixOnOfferPhrases, repairContent, ruleFor, type Repai
 import { COPY_LIMITS } from '../lib/content-repair-adapters'
 import { agencyClaims } from '../lib/guide-composer'
 
+// Nothing here may reach a paid API (the blog re-check can write a whole post again, which would call the AI if a key were set).
+process.env.ANTHROPIC_API_KEY = ''
+process.env.INDEXNOW_KEY = ''
 let failed = 0
 function check(name: string, ok: boolean, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  ${detail}`}`)

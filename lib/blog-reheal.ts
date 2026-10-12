@@ -142,6 +142,8 @@ export interface RehealResult {
   tried: number
   published: number
   rejected: number
+  /** Drafts the heal could not reach today (out of budget or time, the AI down): not a failure, they wait. */
+  deferred: number
   repaired: number
   calls: number
   problems: string[]
@@ -164,7 +166,7 @@ async function groundingFor(admin: SupabaseClient, post: ComposedPost): Promise<
 /** Gives stuck autoblog drafts their daily try. `existing` is the set of paths that exist on the site (for the gate's
  * link check). Never throws. */
 export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number }): Promise<RehealResult> {
-  const out: RehealResult = { tried: 0, published: 0, rejected: 0, repaired: 0, calls: 0, problems: [], note: '' }
+  const out: RehealResult = { tried: 0, published: 0, rejected: 0, deferred: 0, repaired: 0, calls: 0, problems: [], note: '' }
   const now = opts.now ?? new Date()
   try {
     if ((await getSetting(admin, 'autoblog_mode')) !== 'publish') return { ...out, note: 'blog drafts not re-checked (the blog is not in publish mode)' }
@@ -234,7 +236,7 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
           editIds = [...editIds, ...healed.logIds]
         } else if (healed.outcome.status === 'deferred') {
           // Nothing could be done today (budget, time, the AI): keep any cheap repair, spend no try, look again tomorrow.
-          out.problems.push(`${path}: heal waiting (${healReason})`)
+          out.deferred++
         }
       }
 
@@ -300,7 +302,7 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
       })
       if (next.state === 'rejected') out.rejected++
     }
-    out.note = `blog drafts: ${out.tried} re-checked, ${out.published} published, ${out.rejected} retired after ${REHEAL_MAX_TRIES} tries`
+    out.note = `blog drafts: ${out.tried} re-checked, ${out.published} published, ${out.rejected} retired by the heal${out.deferred ? `, ${out.deferred} waiting for tomorrow` : ''}`
     return out
   } catch (e) {
     return { ...out, problems: [...out.problems, `blog drafts re-check failed: ${e instanceof Error ? e.message : 'unknown error'}`], note: out.note || 'blog drafts re-check failed' }

@@ -282,8 +282,8 @@ async function applyHealedRow(
   const id = str(row.id)
   const stamp = { updated_at: now.toISOString() }
   if (outcome.status === 'deferred') {
+    // Not a failure: the heal could not reach it today (out of budget or time, the AI down). It is tried again.
     out.deferred++
-    out.problems.push(`${path}: heal waiting (${outcome.reasons[0] ?? outcome.note})`)
     return
   }
   if (outcome.status === 'rejected_by_heal') {
@@ -328,14 +328,4 @@ async function applyHealedRow(
     return
   }
   out.published++
-}
-
-/** Reads whether the heal is the thing keeping a row as a draft, for the Autopilot page. Pure. */
-export function describeHeldNote(note: string | null | undefined): string {
-  const n = (note ?? '').trim()
-  if (!n) return ''
-  if (n.startsWith(REJECTED_PREFIX)) return 'rejected by the heal'
-  if (/heal waiting/.test(n)) return 'the heal will try again'
-  if (isGuessedPropertyNote(n)) return 'name taken from a trip title: check it is real before publishing'
-  return 'the heal will try it on the next daily run'
 }
