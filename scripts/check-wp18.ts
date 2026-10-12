@@ -9,6 +9,10 @@ import { autoPublishBlockers } from '../lib/blog-composer'
 import { composedFromRow, firstPackageSlug, nextRehealState, rehealStuckDrafts, rejectedPostSlugs, selectRehealCandidates, triesLeftToday, type RehealTags } from '../lib/blog-reheal'
 import { revertEdit } from '../lib/content-edits'
 import { fakeAdmin, type Db } from './fake-admin'
+import { PAGE_COPY_DEFAULT_MODE, pageCopyModeOf } from '../lib/page-copy-run'
+import { classifyBlockers, fixOnOfferPhrases, repairContent, ruleFor, type RepairFields } from '../lib/content-repair'
+import { COPY_LIMITS } from '../lib/content-repair-adapters'
+import { agencyClaims } from '../lib/guide-composer'
 
 let failed = 0
 function check(name: string, ok: boolean, detail = '') {
@@ -159,6 +163,36 @@ async function main() {
   }
   check('C: the heal step calls the re-check', /rehealStuckDrafts\(admin/.test(src('lib/content-heal-run.ts')))
   check('C: migration 0043 is written and adds status', /'status'\)\)/.test(src('supabase/migrations/0043_content_edits_status.sql')))
+
+  // ---- D: page copy default and the "on offer" agency phrases ----
+  check('D: an unset page copy mode now means publish', pageCopyModeOf(null) === 'publish' && pageCopyModeOf('') === 'publish' && PAGE_COPY_DEFAULT_MODE === 'publish')
+  check('D: an explicit draft stays draft, an unreadable setting fails closed to draft', pageCopyModeOf('draft') === 'draft' && pageCopyModeOf(null, true) === 'draft' && pageCopyModeOf('nonsense') === 'draft')
+  check('D: publish still means publish', pageCopyModeOf('publish') === 'publish')
+  check('D: reading the mode never writes the setting', !/setSetting/.test(/export async function getPageCopyPublishMode[\s\S]*?\n}/.exec(src('lib/page-copy-run.ts'))?.[0] ?? 'setSetting'))
+  const claimBlocker = (s: string) => `claim about what the agency has done or does: "${s.slice(0, 80)}"`
+  for (const s of ['Here is what we have on offer.', 'The trips we have on offer are listed below.', 'We have three river cruises on offer.', 'Our team has a few sailings on offer.']) {
+    check(`D: "${s}" is classified REPAIRABLE by the agency-offer rule`, ruleFor(claimBlocker(s))?.id === 'agency-offer' && classifyBlockers([claimBlocker(s)]).repairable.length === 1)
+  }
+  check('D: a general agency claim is still the general rule', ruleFor(claimBlocker('We host groups here every spring.'))?.id === 'agency')
+  const fixed = [
+    ['Here is what we have on offer.', 'Here is what is on offer.'],
+    ['See all the trips we have on offer.', 'See all the trips on offer.'],
+    ['We have three river cruises on offer.', 'Three river cruises are on offer.'],
+    ['The itinerary we have on offer is gentle.', 'The itinerary on offer is gentle.'],
+  ] as const
+  for (const [from, to] of fixed) check(`D: fixer turns "${from}" into "${to}"`, fixOnOfferPhrases(from) === to, fixOnOfferPhrases(from))
+  check('D: the fixer leaves ordinary text alone', fixOnOfferPhrases('Santorini has a relaxed pace. Ask us about group trips.') === 'Santorini has a relaxed pace. Ask us about group trips.')
+  check('D: after the fixer no agency claim is left in those sentences', fixed.every(([from]) => agencyClaims(fixOnOfferPhrases(from)).length === 0))
+  {
+    // end to end: the shared repair mends a page copy whose intro says "we have ... on offer", with no model call
+    const goodIntro = 'Santorini and Mykonos suit different kinds of trip. ' + 'Both islands are popular with groups who like an easy pace. '.repeat(6) + 'See [our Greek trip](/packages/greek-isles).'
+    const fields: RepairFields = { body: `${goodIntro} Here is what we have on offer.`, meta_title: 'Santorini or Mykonos', meta_description: 'A plain comparison.', og_title: 'Which island?', og_description: 'A plain comparison.', faq: [], key_takeaways: [] }
+    const gate = (f: RepairFields) => agencyClaims(f.body).map((c) => claimBlocker(c))
+    const item = { type: 'page_copy' as const, id: null, path: '/compare/x', fields, grounding: '', allowedPaths: new Set<string>(), keyword: null, limits: COPY_LIMITS, gate }
+    const res = await repairContent(item, { model: async () => null, maxCalls: 0 })
+    check('D: repairContent clears the phrase with plain code and zero model calls', res.blockers.length === 0 && res.calls === 0 && /Here is what is on offer\./.test(res.fields.body), JSON.stringify(res.blockers))
+    check('D: that edit is logged as a plain fix', res.edits.length === 1 && res.edits[0].method === 'fixer' && /on offer/.test(res.edits[0].reason), JSON.stringify(res.edits.map((e) => e.reason)))
+  }
 
   // ---- MAIN-END ----
 }
