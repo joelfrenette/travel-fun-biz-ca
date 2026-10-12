@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -36,6 +36,13 @@ const unsortedTools: AdminNavItem[] = [
     icon: Globe,
     status: "Active",
     href: "/admin/destinations",
+  },
+  {
+    title: "Pages",
+    description: "Every destination, hotel, resort, cruise line, ship and yacht page in one searchable list, with a review queue for pages the site would not publish by itself and the one-time backfill from your trips.",
+    icon: Layers,
+    status: "Active",
+    href: "/admin/guides",
   },
   {
     title: "Keyword Research",

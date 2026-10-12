@@ -252,6 +252,28 @@ export function pickGuidesForPost(post: { title: string; tags: string[]; destina
   return out
 }
 
+/** The destination pages to show on the home page: published destination guides, the ones that have trips first (the
+ * most trips first), then the rest newest first (the order given). At most `limit`. A page with no trips is still
+ * listed when there are not enough with trips, because the guide itself is real content. Pure. */
+export function pickTopDestinationGuides(candidates: GuideLink[], limit = 6): GuideLink[] {
+  const destinations = candidates.filter((g) => g.kind === 'destinations')
+  const withTrips = destinations.filter((g) => (g.related_package_ids ?? []).length > 0).sort((a, b) => (b.related_package_ids ?? []).length - (a.related_package_ids ?? []).length)
+  const rest = destinations.filter((g) => (g.related_package_ids ?? []).length === 0)
+  return [...withTrips, ...rest].slice(0, Math.max(0, limit))
+}
+
+/** Home-page destinations. Never throws. */
+export async function listTopDestinationGuides(limit = 6): Promise<GuideSummary[]> {
+  try {
+    const all = await listPublishedGuides('destinations')
+    const links = await listPublishedGuideLinks()
+    const order = pickTopDestinationGuides(links, limit).map((g) => g.id)
+    return order.map((id) => all.find((g) => g.id === id)).filter((g): g is GuideSummary => !!g)
+  } catch {
+    return []
+  }
+}
+
 export interface TrailStep {
   name: string
   /** Site path. */

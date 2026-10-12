@@ -11,6 +11,7 @@ import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedGuide } from '@/lib/content-repair-adapters'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
 import { inferScope } from '@/lib/guide-scope'
+import { MODE_HOLD_NOTE } from '@/lib/guide-list'
 import { BACKFILL_KIND_ORDER, backfillProgress, effectiveGuideCaps, planBackfill, readBackfillState, type BackfillPlan, type BackfillProgress, type BackfillState } from '@/lib/guide-backfill'
 import { clearGuideFailure, readGuideFailures, recordGuideFailure, recentGuideFailureCount, MAX_GUIDE_ATTEMPTS, BREAKER_FAILURES, BREAKER_HOURS } from '@/lib/guide-failures'
 import {
@@ -213,7 +214,7 @@ export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source:
   void kind
   void source
   if (blockers.length) return { publish: false, note: blockers.join('; ') }
-  if (mode !== 'publish') return { publish: false, note: 'held for review (guides_publish_mode=draft)' }
+  if (mode !== 'publish') return { publish: false, note: MODE_HOLD_NOTE }
   return { publish: true, note: null }
 }
 

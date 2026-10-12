@@ -178,7 +178,7 @@ export function GuidesPanel({ variant }: { variant: "card" | "full" }) {
               {next.map((c) => `${c.name} (${labelOf(c.kind).toLowerCase()})`).join(", ")}
             </div>
           )}
-          <Link href="/admin/destinations" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">Manage every guide <ExternalLink className="h-3 w-3" /></Link>
+          <Link href="/admin/guides" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">Manage every page <ExternalLink className="h-3 w-3" /></Link>
         </CardContent>
       </Card>
     )
