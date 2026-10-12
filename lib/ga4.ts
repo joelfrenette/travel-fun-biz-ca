@@ -39,6 +39,56 @@ function channelOf(group: string): Ga4Channel {
   return (GA4_CHANNELS as readonly string[]).includes(group) ? (group as Ga4Channel) : 'Other'
 }
 
+/** Pure: GA4 landing page rows to sessions per site path. The query string and trailing slash are dropped, a page
+ * seen under two spellings counts once, and the admin and API areas are left out. GA4's "(not set)" is ignored. */
+export function sessionsByPath(rows: { landingPage: string; sessions: number }[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const r of rows) {
+    let p = (r.landingPage || '').trim()
+    if (!p || p === '(not set)') continue
+    try {
+      if (/^https?:\/\//i.test(p)) p = new URL(p).pathname
+    } catch {
+      continue
+    }
+    p = p.split(/[?#]/)[0].replace(/\/+$/, '')
+    p = p === '' ? '/' : p.startsWith('/') ? p : `/${p}`
+    if (p.startsWith('/admin') || p.startsWith('/api')) continue
+    if (!Number.isFinite(r.sessions) || r.sessions < 0) continue
+    out.set(p, (out.get(p) ?? 0) + Math.round(r.sessions))
+  }
+  return out
+}
+
+/** Sessions per landing page over the last `days` days (default 28), from ONE read-only GA4 Data API request. Used by
+ * the daily performance snapshot to fill content_performance.visits. Throws on an error so the caller can say so and
+ * leave visits null (never invented). Not cached: it runs once a day. */
+export async function getGa4LandingPageSessions(days = 28): Promise<Map<string, number>> {
+  const propertyId = process.env.GA4_PROPERTY_ID
+  if (!propertyId) throw new Error('GA4_PROPERTY_ID is not set')
+  const token = await getGoogleAccessToken(SCOPE)
+  const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runReport`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dateRanges: [{ startDate: `${days - 1}daysAgo`, endDate: 'today' }],
+      dimensions: [{ name: 'landingPage' }],
+      metrics: [{ name: 'sessions' }],
+      orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+      limit: 10000,
+    }),
+    cache: 'no-store',
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(`GA4 landing page report failed: ${body.error?.message || res.status}`)
+  return sessionsByPath(
+    ((body.rows || []) as { dimensionValues?: { value?: string }[]; metricValues?: { value?: string }[] }[]).map((row) => ({
+      landingPage: String(row.dimensionValues?.[0]?.value || ''),
+      sessions: Number(row.metricValues?.[0]?.value) || 0,
+    })),
+  )
+}
+
 export async function getGa4Report(days = 14): Promise<Ga4Report> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.report
 

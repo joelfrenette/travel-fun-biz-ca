@@ -267,7 +267,7 @@ export function normalizePost(post: ComposedPost): ComposedPost {
 
 const PLACEHOLDER_PATTERNS = [/\[.*?\]/, /lorem ipsum/i, /todo/i, /insert .* here/i]
 const REFUSAL_PATTERNS = [/i (cannot|can't|won'?t) (write|generate|help|comply)/i, /as an ai( language model)?/i]
-const EXPERIENCE_CLAIM_PATTERNS = [
+export const POST_EXPERIENCE_CLAIM_PATTERNS = [
   /\bwhen i (visited|went|traveled|stayed)\b/i,
   /\bmy (trip|visit|stay|experience) to\b/i,
   /\bi (recently|personally) (visited|went)\b/i,
@@ -433,7 +433,7 @@ function analyse(post: ComposedPost, now: Date, ctx: PublishGateContext): Analys
   if (!/^##\s/m.test(post.body)) blockers.push('no section headings')
   if (PLACEHOLDER_PATTERNS.some((p) => p.test(post.body.replace(MARKDOWN_LINK, '$1')) || p.test(post.title))) blockers.push('placeholder text')
   if (REFUSAL_PATTERNS.some((p) => p.test(post.body))) blockers.push('model refusal in body')
-  if (EXPERIENCE_CLAIM_PATTERNS.some((p) => p.test(post.body))) blockers.push('fabricated personal experience claim')
+  if (POST_EXPERIENCE_CLAIM_PATTERNS.some((p) => p.test(post.body))) blockers.push('fabricated personal experience claim')
   const staleYear = post.title.match(/\b(20\d{2})\b/)
   if (staleYear && staleYear[1] !== todayEt(now).slice(0, 4)) blockers.push(`stale year in title (${staleYear[1]})`)
 

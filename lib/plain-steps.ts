@@ -22,6 +22,10 @@ export interface PlainAction {
  * lib/issues.ts, because the Autopilot page (a client component) imports this file and must not pull in the server code. */
 export const HARD_WAITING_ISSUE_ID = 'system:content-hard-waiting'
 
+/** The Needs attention item for the self-heal loop when it cannot read its daily AI-call counter (WP19). It fails closed:
+ * no automatic rewriting runs until the counter can be read. Lives here for the same reason as the ids above. */
+export const HEAL_LOOP_ISSUE_ID = 'system:heal-loop-unreadable'
+
 /** The Needs attention item for parts of a "Promote this package" click that did not work (WP15). Same reason as above. */
 export const PROMOTION_ISSUE_ID = 'system:promotion-failing'
 
@@ -167,6 +171,24 @@ export function plainAction(i: Issue): PlainAction {
       paste,
     }
   }
+  if (i.id === HEAL_LOOP_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'The site fixes held drafts by itself, but it only does that when it can count how many AI calls it has used today. It could not read that count, so it stopped on purpose to be safe. Nothing bad happened, and nothing was published by mistake.',
+      steps: [
+        'Open Supabase and sign in, then open your project.',
+        'Click "Table Editor" on the left, then the table called app_settings.',
+        'Look for a row whose key is heal_loop_calls_per_day. If its value is not a whole number from 0 to 60, change it to 20 and click Save.',
+        'Look for rows whose key starts with heal_loop_calls_used. Their value must be a whole number. If one is not, delete that row.',
+        'If the table cannot be opened at all, the database is down or paused. Wait a few minutes and try again.',
+        'Open the Content Autopilot page and click "Heal now" on the Self-healing card. The warning goes away when it can read the numbers.',
+      ],
+      url: autopilot(i.id),
+      urlLabel: 'Open the Autopilot page',
+      paste,
+    }
+  }
   if (i.id === HARD_WAITING_ISSUE_ID) {
     return {
       id: i.id,
@@ -216,6 +238,17 @@ export function plainAction(i: Issue): PlainAction {
       paste,
     }
   }
+  if (i.id.startsWith('guide-caption:')) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'This guide is about a named hotel, resort or ship. The site waits 24 hours before posting it, then checks the words it would post. The check found something it does not allow (a "best" style word, a number the guide does not back up, or a long dash), so the post is still waiting.',
+      steps: ['Open the Distribution page with the link below.', 'Read the red words next to the guide. They say what the check did not like.', 'Open that guide in the admin, change the sentence named, and save. The site checks again by itself and posts it.', 'Or, if you are happy with the words as they are, click Approve on the Distribution page to post it now.'],
+      url: adminLink('/admin/distribution'),
+      urlLabel: 'Open Distribution',
+      paste,
+    }
+  }
   if (/^(post|carousel|video):/.test(i.id)) {
     return {
       id: i.id,
@@ -232,7 +265,7 @@ export function plainAction(i: Issue): PlainAction {
       id: i.id,
       title: i.title,
       why: 'A job that runs by itself did not run right.',
-      steps: ['Open the System Health page with the link below.', 'Look for the amber (orange) light.', 'If it is still orange after 30 minutes, copy the message below and paste it to Claude.'],
+      steps: ['Open the System Health page with the link below.', 'Look for the amber (orange) light.', 'If it is still orange after 15 minutes (the job runs every 15 minutes), copy the message below and paste it to Claude.'],
       url: adminLink('/admin/system-health'),
       urlLabel: 'Open System Health',
       paste,

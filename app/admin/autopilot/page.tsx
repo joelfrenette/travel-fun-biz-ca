@@ -36,7 +36,7 @@ interface State {
   distributionMode: "off" | "prepare" | "auto"
   cron: { light: "green" | "amber" | "gray"; label: string }
   lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "guides" | "copy" | "post" | "repurpose" | "heal-content" | "heal" | "debrief" | "performance" | "source-watch"; ok: boolean; note: string }[] } | null
-  keyword: { budget: number; configured: boolean; lastRunAt: string | null; log: { at: string; spentUsd: number; added: number; seeds: string[] }[] }
+  keyword: { budget: number; configured: boolean; lastRunAt: string | null; log: { at: string; spentUsd: number; added: number; seeds: string[] }[]; autoApproved?: { total: number; last7: number } }
   issues: { id: string; area: "post" | "carousel" | "video" | "system" | "setup"; title: string; detail: string; fix?: string; actions?: { label: string; kind: string; slug?: string }[]; link?: { label: string; href: string } }[]
   rows: Row[]
 }
@@ -250,6 +250,11 @@ export default function AutopilotPage() {
                     })()}`
                   : "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD are not set, so there is no keyword research."}
               </p>
+              {state.keyword.autoApproved && (
+                <p className="text-xs text-muted-foreground">
+                  Blog ideas: auto-approved {state.keyword.autoApproved.last7} in the last 7 days ({state.keyword.autoApproved.total} in all). The engine approves an idea by itself only when it scores 70 or more, is about a trip we really sell, passes the checks, and fewer than 10 approved ideas are waiting. Reject any idea to veto it.
+                </p>
+              )}
             </div>
             <select
               className="h-9 rounded-md border bg-card px-3 text-sm"

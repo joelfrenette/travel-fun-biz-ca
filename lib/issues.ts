@@ -10,14 +10,15 @@ import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
 import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
-import { readHealSummary } from '@/lib/content-heal-run'
-import { GUIDE_ORPHANS_ISSUE_ID, HARD_WAITING_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { healLoopCard } from '@/lib/heal-loop'
+import { GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
 import { readOrphanAudit } from '@/lib/guide-orphans'
 import { clearAllPromotionFailures, readPromotionFailures } from '@/lib/promotion'
 import { completenessScore } from '@/lib/package-completeness'
 import { openFindings, dismissFindings } from '@/lib/source-watch'
 import { checkPastTripsForRecap } from '@/lib/content-drift'
 import { pastTripSlugs } from '@/lib/past-trip'
+import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -43,7 +44,7 @@ export interface Issue {
 
 /** Turns a raw provider error into advice. Falls back to no advice rather than guessing. */
 function adviceFor(error: string): string | undefined {
-  if (/None of your selected networks/i.test(error)) return 'Tick a network that takes this kind of post (Facebook, LinkedIn or Bluesky for text and photo posts) in "Where it posts".'
+  if (/None of your selected networks/i.test(error)) return 'Tick a network that takes this kind of post in "Where it posts" (the error message lists which ones do).'
   if (/invalid platforms/i.test(error)) return 'One selected network cannot take this kind of post. Retry now skips it automatically and only sends to networks that have not received the post yet.'
   if (/\b(401|403)\b|rejected the (api )?key|unauthor/i.test(error)) return 'The provider rejected the key. Check the key in Vercel (and that it matches the environment), then press resume or retry.'
   if (/expired|reconnect|reauth/i.test(error)) return 'An account needs to be reconnected on the provider, then retry.'
@@ -68,6 +69,29 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
       fix: adviceFor(err),
       actions: [{ label: 'Retry', kind: 'retry-post', slug: r.slug }],
     })
+  }
+
+  // Guide posts about a named place that wait for a person because their caption did not pass the checks (WP18-E).
+  // They are still held, not failed; fixing the guide text releases them by itself, or Approve sends them anyway.
+  try {
+    const { data: heldCaptions } = await admin
+      .from('post_distribution')
+      .select('slug, title, last_error')
+      .eq('content_type', 'post')
+      .eq('stage', 'held')
+      .like('last_error', `${CAPTION_FAILED_PREFIX}%`)
+    for (const r of (heldCaptions ?? []) as { slug: string; title: string; last_error: string | null }[]) {
+      issues.push({
+        id: `guide-caption:${r.slug}`,
+        area: 'post',
+        title: `A guide post is held back: ${r.title}`,
+        detail: r.last_error ?? 'The caption did not pass the checks.',
+        fix: 'Fix the wording on the guide page and it posts by itself, or press Approve on the Distribution page to post it as it is.',
+        link: { label: 'Open Distribution', href: '/admin/distribution' },
+      })
+    }
+  } catch {
+    // an unreadable ledger is just not listed here
   }
 
   // Carousels and videos that failed, or are failing and being retried.
@@ -194,21 +218,25 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     // a promotion note is never worth failing the list
   }
 
-  // Drafts the safety checks held back for a reason only a person should judge (WP10). The count comes from the last
-  // daily heal; the item clears itself when the drafts are published or deleted and the next heal recounts.
+  // WP19: there is no longer a "held back for a person to check" item. A held draft goes through the heal loop (suggester,
+  // independent QA judge, escalation ladder) and ends up published or rejected_by_heal with its reasons; what the heal did
+  // is an informational line in the daily brief and a card on this page, never a task. (HARD_WAITING_ISSUE_ID stays exported
+  // from lib/plain-steps.ts for the alert filter in lib/pipeline.ts.)
+  // The one thing the heal loop needs a person for: it cannot read its own daily counter, so it stopped (fail closed).
+  // Reaching the daily limit is NOT an issue: held drafts simply wait for tomorrow, and the card says so plainly.
   try {
-    const heal = await readHealSummary(admin)
-    if (heal && heal.hardWaiting > 0) {
+    const loop = await healLoopCard(admin)
+    if (!loop.readable) {
       issues.push({
-        id: HARD_WAITING_ISSUE_ID,
+        id: HEAL_LOOP_ISSUE_ID,
         area: 'system',
-        title: `${heal.hardWaiting} draft${heal.hardWaiting === 1 ? '' : 's'} held back for a person to check`,
-        detail: `The safety checks held ${heal.hardWaiting === 1 ? 'a page' : 'these pages'} back for something only a person should judge (a first-person claim, a price or date, a link to another website, placeholder text, a named person). Nothing on them was changed automatically. Counted ${new Date(heal.at).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}.`,
-        fix: 'Read the red reason on each draft (guide pages and page copy cards on this page, blog drafts on the Blog page), fix or remove that part, then Publish or Delete.',
+        title: 'The self-heal could not read its daily limit',
+        detail: loop.waiting,
+        fix: 'Open Supabase, then the app_settings table. The row heal_loop_calls_per_day must be a whole number from 0 to 60, and any row starting with heal_loop_calls_used must be a whole number. Then press "Heal now" on the Self-healing card.',
       })
     }
   } catch {
-    // an unreadable note is not worth an alert
+    // an unreadable card is not worth failing the list
   }
 
   // Compare and best-time page copy that could not be written. One item lists them all.

@@ -93,10 +93,10 @@ export function briefHtml(b: Brief): string {
   const editsBullets = [
     ...(b.edits.total > 0 ? b.edits.lines : ['No automatic edits in the last 24 hours.']),
     ...(b.edits.total > b.edits.lines.length ? [`and ${b.edits.total - b.edits.lines.length} more`] : []),
-    ...(b.edits.hardWaiting ? [`${b.edits.hardWaiting} draft${b.edits.hardWaiting === 1 ? ' is' : 's are'} waiting on you: held back for a price, a date, a claim or a link that a person should judge.`] : []),
+    ...b.edits.healLines,
   ]
   const edits =
-    b.edits.total > 0 || b.edits.hardWaiting
+    b.edits.total > 0 || b.edits.healLines.length
       ? section('Edits made', panel('#eaf0fb', bullets(editsBullets, '#3763c9') + `<div style="font-size:14px;padding-top:2px"><a href="${SITE_URL}/admin/content-edits" style="color:${RED};font-weight:700">Review or undo them &rarr;</a></div>`), '#3763c9')
       : ''
   const tripPages = b.tripPages.length

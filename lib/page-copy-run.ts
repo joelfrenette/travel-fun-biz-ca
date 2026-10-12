@@ -7,6 +7,8 @@ import { getBestTimeToVisitPage } from '@/lib/best-time-to-visit'
 import { getPublishedGuide } from '@/lib/guides'
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedCopy } from '@/lib/content-repair-adapters'
+import { healComposedCopy, healNoteOf } from '@/lib/heal-targets'
+import { freedBySince, rejectLimitReached, type HealOutcome } from '@/lib/heal-loop'
 import type { DbPackage } from '@/lib/packages'
 import { composePageCopy, copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, pageCopyBlockers, MAX_BRIEF_PACKAGES_PER_DESTINATION, type CopyBriefDestination, type PageCopyBrief, type PageCopyPublishMode } from '@/lib/page-copy-composer'
 import { STALE_COPY_KEY, clearCopyFailure, readCopyFailures, readCopyFailuresChecked, recentCopyFailureCount, recordCopyFailure, MAX_COPY_ATTEMPTS, COPY_BREAKER_FAILURES, COPY_BREAKER_HOURS } from '@/lib/page-copy-failures'
@@ -79,7 +81,11 @@ export async function readCopyCapUsage(admin: SupabaseClient): Promise<CopyCapUs
   const startOfDay = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
   const [today, week] = await Promise.all([pageCopyCreatedSince(admin, startOfDay), pageCopyCreatedSince(admin, weekAgo)])
-  return { today, week }
+  // WP19: page copy the heal rejected (rejected_by_heal) does not use up the day's or the week's slot. A count that could
+  // not be read stays null (nothing is written); a rejected list that could not be read frees nothing.
+  const free = (since: string) => freedBySince(admin, { table: 'page_copy', type: 'page_copy', columns: 'path', keyOf: (r) => `page_copy:${String(r.path)}` }, since)
+  const [freedToday, freedWeek] = today === null || week === null ? [0, 0] : await Promise.all([free(startOfDay), free(weekAgo)])
+  return { today: today === null ? null : Math.max(0, today - freedToday), week: week === null ? null : Math.max(0, week - freedWeek) }
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -143,11 +149,23 @@ export async function buildCopyBrief(admin: SupabaseClient, cand: Pick<PageCopyC
 
 export const PAGE_COPY_PUBLISH_MODE_KEY = 'page_copy_publish_mode'
 
-/** `app_settings.page_copy_publish_mode`: 'draft' (the default, also when unset or unreadable) saves every page as
- * a draft for review; 'publish' lets copy that passed the gate go live. Strict equality, same as guides. */
+/** The mode used when `app_settings.page_copy_publish_mode` has never been set (WP18: copy that passes every check
+ * goes live by itself; copy that fails a check is still saved as a draft). */
+export const PAGE_COPY_DEFAULT_MODE: PageCopyPublishMode = 'publish'
+
+/** Pure: the mode for a stored value. Unset (null or empty) means the default; 'draft' and 'publish' mean themselves;
+ * anything else, or a failed read, is 'draft' (fail closed: nothing goes live on a setting that cannot be understood). */
+export function pageCopyModeOf(value: string | null | undefined, readFailed = false): PageCopyPublishMode {
+  if (readFailed) return 'draft'
+  if (value === null || value === undefined || value === '') return PAGE_COPY_DEFAULT_MODE
+  return value === 'publish' ? 'publish' : 'draft'
+}
+
+/** `app_settings.page_copy_publish_mode`: 'publish' (the default when unset) lets copy that passed the gate go live;
+ * 'draft' saves every page as a draft for review. An unreadable setting is 'draft'. */
 export async function getPageCopyPublishMode(admin: SupabaseClient): Promise<PageCopyPublishMode> {
   const { value, error } = await getSettingStrict(admin, PAGE_COPY_PUBLISH_MODE_KEY)
-  return !error && value === 'publish' ? 'publish' : 'draft'
+  return pageCopyModeOf(value, !!error)
 }
 
 export async function setPageCopyPublishMode(admin: SupabaseClient, mode: string): Promise<{ error?: string }> {
@@ -296,7 +314,28 @@ export async function writePageCopy(
       blockers = fixed.blockers
       repairLogIds = fixed.logIds
     }
-    const decision = copyPublishDecision(blockers, await getPageCopyPublishMode(admin))
+    const publishMode = await getPageCopyPublishMode(admin)
+    // Growth loop WP19: copy that is still blocked goes through the heal loop (suggester, independent QA judge, up to three
+    // rounds, then the escalation ladder) instead of waiting for a person. Only in publish mode (an explicit 'draft' mode, or
+    // a setting that could not be read, keeps every page for review anyway).
+    let heal: HealOutcome | null = null
+    if (blockers.length && publishMode === 'publish') {
+      const healed = await healComposedCopy(admin, copy, gateCtx, { path: cand.path, links: brief.links, deadlineMs })
+      heal = healed.outcome
+      if (healed.outcome.status === 'healed') {
+        copy = healed.value
+        blockers = []
+        repairLogIds = [...repairLogIds, ...healed.logIds]
+      }
+    }
+    const base = copyPublishDecision(blockers, publishMode)
+    // rejected_by_heal: a draft with the reasons, its slot free (see readCopyCapUsage). A deferral keeps the blockers and says the heal will try again.
+    const decision =
+      heal?.status === 'rejected_by_heal'
+        ? { publish: false, note: healNoteOf(heal) }
+        : heal?.status === 'deferred'
+          ? { publish: false, note: [base.note, healNoteOf(heal)].filter(Boolean).join('; ') }
+          : base
     publishing = decision.publish
 
     const stop = opts.beforeSave ? await opts.beforeSave() : null
@@ -378,6 +417,12 @@ export async function runPageCopyStep(admin: SupabaseClient, opts: { deadlineMs?
   // Not while switched off. It makes no AI call, so it runs even when AI is not configured.
   await refreshStaleCopyIfDue(admin)
   if (!isAiConfigured()) return { ok: true, note: 'AI writing is not configured, so no page copy' }
+
+  // WP19: after MAX_REJECTS_PER_DAY items rejected by the heal, new writing waits for tomorrow (bounded AI spend).
+  if ((await getPageCopyPublishMode(admin)) === 'publish') {
+    const limit = await rejectLimitReached(admin)
+    if (limit.reached) return { ok: !limit.unreadable, note: limit.note }
+  }
 
   // The breaker comes before any AI call. If the log cannot be read, stay closed.
   const recentFailures = await recentCopyFailureCount(admin)

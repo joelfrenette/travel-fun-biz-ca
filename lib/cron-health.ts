@@ -20,7 +20,7 @@ export interface CronStatus {
  * here runs at most daily today (autoblog, gsc-snapshot); a generous 26h margin (a day plus
  * slack) catches "stopped running" without false-alarming on ordinary scheduler jitter. */
 const STALE_MS = 26 * 60 * 60 * 1000
-/** The autopilot cron runs every 30 minutes, so three silent hours is already a problem. */
+/** The autopilot cron runs every 15 minutes, so three silent hours is already a problem. */
 const STALE_MS_BY_CRON: Partial<Record<CronName, number>> = { autopilot: 3 * 60 * 60 * 1000 }
 
 function siteTime(iso: string): string {

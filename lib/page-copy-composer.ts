@@ -389,8 +389,8 @@ export function pageCopyBlockers(copy: ComposedPageCopy, ctx: CopyGateContext): 
 
 export type PageCopyPublishMode = 'draft' | 'publish'
 
-/** Whether gate-clean copy goes live, and if not, why it is held. Blockers always hold it. In 'draft' mode (the
- * default) even clean copy is held for review; only 'publish' lets a clean result go live. These pages name no
+/** Whether gate-clean copy goes live, and if not, why it is held. Blockers always hold it. In 'draft' mode (an
+ * explicit choice) even clean copy is held for review; 'publish' (the default when unset) lets a clean result go live. These pages name no
  * hotels, so there is no per-kind rule on top of the mode. Pure, so it can be tested. */
 export function copyPublishDecision(blockers: string[], mode: PageCopyPublishMode): { publish: boolean; note: string | null } {
   if (blockers.length) return { publish: false, note: blockers.join('; ') }

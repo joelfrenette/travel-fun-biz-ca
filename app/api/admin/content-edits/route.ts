@@ -3,6 +3,7 @@ import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { listEdits } from '@/lib/content-edits'
 import { healCard, runHealContentIfDue } from '@/lib/content-heal-run'
+import { setHealCap } from '@/lib/heal-loop'
 import type { ContentType } from '@/lib/content-repair'
 
 // The heal step makes at most a handful of model calls (one per page, a few pages), plus the scoring pass.
@@ -38,8 +39,15 @@ export async function POST(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const body = await request.json().catch(() => ({}))
+    // POST { action: 'set-heal-cap', value: 0..60 }   the most AI calls the heal loop may make in a day (default 20, hard max 60, 0 = off)
+    if (body.action === 'set-heal-cap') {
+      // A blank or missing value must not become 0 (Number('') and Number(null) are 0, which would switch the loop off).
+      if ((typeof body.value !== 'number' && typeof body.value !== 'string') || String(body.value).trim() === '') return NextResponse.json({ error: 'Enter a whole number from 0 to 60.' }, { status: 400 })
+      const saved = await setHealCap(getSupabaseAdmin(), Number(body.value))
+      return saved.error ? NextResponse.json({ error: saved.error }, { status: 400 }) : NextResponse.json({ ok: true })
+    }
     if (body.action !== 'heal-now') return NextResponse.json({ error: 'Nothing to do. Pass {action: "heal-now"}.' }, { status: 400 })
-    const result = await runHealContentIfDue(getSupabaseAdmin(), { force: true })
+    const result = await runHealContentIfDue(getSupabaseAdmin(), { force: true, deadlineMs: Date.now() + 280_000 })
     if (!result) return NextResponse.json({ error: 'Nothing was due.' }, { status: 409 })
     if (!result.ok) return NextResponse.json({ error: result.note }, { status: 502 })
     return NextResponse.json({ note: result.note })

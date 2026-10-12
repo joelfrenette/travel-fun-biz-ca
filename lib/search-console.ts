@@ -176,7 +176,16 @@ export async function getPageMetrics(days = 28): Promise<PageMetrics[]> {
 export interface RankingSnapshotData {
   queries: DimensionRow[]
   pages: DimensionRow[]
+  /** Page-level totals: every click and impression is counted against exactly one page, so this is
+   * the complete site total. (The query list leaves out anonymised queries, so summing it undercounts.) */
   totals: { clicks: number; impressions: number }
+  /** Sum over the named queries only. Smaller than `totals`; label it "named queries only" if shown. */
+  namedQueryTotals: { clicks: number; impressions: number }
+}
+
+/** Pure helper (offline-testable): add up clicks and impressions of a dimension report. */
+export function sumDimensionRows(rows: { clicks: number; impressions: number }[]): { clicks: number; impressions: number } {
+  return rows.reduce((acc, r) => ({ clicks: acc.clicks + r.clicks, impressions: acc.impressions + r.impressions }), { clicks: 0, impressions: 0 })
 }
 
 /** Every query and page Google reports for the last 28 days ending 2 days ago - deeper than
@@ -186,6 +195,9 @@ export interface RankingSnapshotData {
 export async function getSearchConsoleRankingSnapshot(days = 28): Promise<RankingSnapshotData | null> {
   if (!isSearchConsoleConfigured()) return null
   const [queries, pages] = await Promise.all([dimensionReport('query', days), dimensionReport('page', days)])
-  const totals = queries.reduce((acc, r) => ({ clicks: acc.clicks + r.clicks, impressions: acc.impressions + r.impressions }), { clicks: 0, impressions: 0 })
-  return { queries, pages, totals }
+  const namedQueryTotals = sumDimensionRows(queries)
+  const pageTotals = sumDimensionRows(pages)
+  // Page-level total is the honest site total; fall back to the named-query sum only if no pages came back.
+  const totals = pages.length ? pageTotals : namedQueryTotals
+  return { queries, pages, totals, namedQueryTotals }
 }

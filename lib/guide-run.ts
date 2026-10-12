@@ -9,6 +9,8 @@ import { generateSlug } from '@/lib/utils'
 import { composeGuide, guideBlockers, groundingText, type GuideBrief, type BriefPackage } from '@/lib/guide-composer'
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedGuide } from '@/lib/content-repair-adapters'
+import { healComposedGuide, healNoteOf } from '@/lib/heal-targets'
+import { freedBySince, rejectLimitReached, type HealOutcome } from '@/lib/heal-loop'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
 import { inferScope } from '@/lib/guide-scope'
 import { MODE_HOLD_NOTE } from '@/lib/guide-list'
@@ -85,7 +87,12 @@ export async function readCapUsage(admin: SupabaseClient): Promise<CapUsage> {
   const startOfDay = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
   const [today, week] = await Promise.all([guidesCreatedSince(admin, startOfDay), guidesCreatedSince(admin, weekAgo)])
-  return { today, week }
+  // WP19: a guide the heal rejected (rejected_by_heal) does not use up the day's or the week's slot, so the pipeline moves on
+  // to the next guide by itself. A count that could not be read stays null (nothing is written); a list that could not be
+  // read frees nothing.
+  const free = (since: string) => freedBySince(admin, { table: 'guides', type: 'guide', columns: 'kind, slug', keyOf: (r) => `guide:${String(r.kind)}:${String(r.slug)}` }, since)
+  const [freedToday, freedWeek] = today === null || week === null ? [0, 0] : await Promise.all([free(startOfDay), free(weekAgo)])
+  return { today: today === null ? null : Math.max(0, today - freedToday), week: week === null ? null : Math.max(0, week - freedWeek) }
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -223,6 +230,26 @@ export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source:
 // ---------------------------------------------------------------------------------------------------
 
 /** True for a property name that "Promote this package" took from a trip title: such a guide is always a draft. */
+/** What happens to a guide after the gate, the repair and the heal loop. Pure, so the offline check can prove it.
+ *  - A guessed property name (a business named from a package title) is ALWAYS a draft with the "check it is real" note,
+ *    whatever the heal did to its text: the heal may improve the words, never publish it.
+ *  - rejected_by_heal: a draft the review queue no longer shows, with the reasons; its slot is free (see readCapUsage).
+ *  - A deferral (out of budget or time, the AI down) keeps the blockers in the note and says the heal will try again.
+ *  - Anything else follows publishDecision. */
+export function decideGuideSave(guessed: boolean, decided: { publish: boolean; note: string | null }, heal: HealOutcome | null): { publish: boolean; note: string | null; rejectedByHeal: boolean } {
+  const base = guessed ? { publish: false, note: [decided.note, GUESSED_PROPERTY_NOTE].filter(Boolean).join('; ') } : decided
+  if (heal?.status === 'rejected_by_heal') return { publish: false, note: [healNoteOf(heal), guessed ? GUESSED_PROPERTY_NOTE : ''].filter(Boolean).join('; '), rejectedByHeal: true }
+  if (heal?.status === 'deferred') return { publish: false, note: [base.note, healNoteOf(heal)].filter(Boolean).join('; '), rejectedByHeal: false }
+  return { publish: base.publish, note: base.note, rejectedByHeal: false }
+}
+
+export const GUESSED_PROPERTY_NOTE = 'held for review: this name was taken from a trip title, so check it is a real property before you publish'
+
+/** Does a saved guide's note say its name was guessed from a trip title? Such a guide is never published by the heal. Pure. */
+export function isGuessedPropertyNote(note: string | null | undefined): boolean {
+  return !!note && /taken from a trip title/.test(note)
+}
+
 export function isGuessedProperty(cand: Pick<GuideCandidate, 'origin' | 'priority' | 'backfill'>): boolean {
   // A name taken from a trip title may not be a real hotel, resort, ship or line. That holds for a promoted package
   // (WP15) and for the one-time backfill (WP16): both are always saved as drafts for a person to check.
@@ -266,6 +293,7 @@ export async function writeGuide(
   let saved!: Guide
   let publishing!: boolean
   let blockers!: string[]
+  let rejectedByHeal = false
   try {
     if (await getGuideAdmin(admin, cand.kind, cand.slug)) return { ok: false, note: `a ${guideKinds[cand.kind].label.toLowerCase()} guide for "${cand.name}" already exists` }
 
@@ -287,11 +315,27 @@ export async function writeGuide(
       blockers = fixed.blockers
       repairLogIds = fixed.logIds
     }
-    const decided = publishDecision(cand.kind, await getGuidePublishMode(admin), opts.source, blockers)
+    const publishMode = await getGuidePublishMode(admin)
+    // Growth loop WP19: a guide that is still blocked goes through the heal loop (suggester, independent QA judge, up to
+    // three rounds, then the escalation ladder) instead of waiting for a person. Only in publish mode: in draft mode every
+    // guide waits for review anyway. It improves the text of a guessed property name too, but publishing that is decided
+    // below, never here.
+    let heal: HealOutcome | null = null
+    if (blockers.length && publishMode === 'publish') {
+      const healed = await healComposedGuide(admin, guide, gateCtx, { kind: cand.kind, slug: cand.slug, path: guidePath(cand.kind, cand.slug), links: brief.links, deadlineMs })
+      heal = healed.outcome
+      if (healed.outcome.status === 'healed') {
+        guide = healed.value
+        blockers = []
+        repairLogIds = [...repairLogIds, ...healed.logIds]
+      }
+    }
+    const decided = publishDecision(cand.kind, publishMode, opts.source, blockers)
     // A property name that "Promote this package" took from a trip title (origin 'package') may not be a real hotel, resort
-    // or ship, so it is ALWAYS saved as a draft for a person to check, whatever guides_publish_mode says. A draft is never
-    // enrolled for social posting.
-    const decision = isGuessedProperty(cand) ? { publish: false, note: [decided.note, 'held for review: this name was taken from a trip title, so check it is a real property before you publish'].filter(Boolean).join('; ') } : decided
+    // or ship, so it is ALWAYS saved as a draft for a person to check, whatever guides_publish_mode says (and whatever the
+    // heal did to its text). A draft is never enrolled for social posting.
+    const decision = decideGuideSave(isGuessedProperty(cand), decided, heal)
+    rejectedByHeal = decision.rejectedByHeal
     publishing = decision.publish
 
     const stop = opts.beforeSave ? await opts.beforeSave() : null
@@ -328,6 +372,7 @@ export async function writeGuide(
       status: publishing ? 'published' : 'draft',
       source: 'ai',
       quality_notes: decision.note,
+      ...(rejectedByHeal ? { review_state: 'rejected' as const } : {}),
     })
   } catch (e) {
     const reason = e instanceof Error ? e.message : 'unknown error'
@@ -439,6 +484,12 @@ export async function runGuidesStep(admin: SupabaseClient, opts: { deadlineMs?: 
   const recentFailures = await recentGuideFailureCount(admin)
   if (recentFailures === null) return { ok: false, note: 'could not check recent guide failures, so nothing was written' }
   if (recentFailures >= BREAKER_FAILURES) return { ok: false, note: `paused after ${recentFailures} failures in ${BREAKER_HOURS}h (click Dismiss on the Needs attention item to resume)` }
+
+  // WP19: after MAX_REJECTS_PER_DAY items rejected by the heal, new writing waits for tomorrow (bounded AI spend).
+  if ((await getGuidePublishMode(admin)) === 'publish') {
+    const limit = await rejectLimitReached(admin)
+    if (limit.reached) return { ok: !limit.unreadable, note: limit.note }
+  }
 
   const usage = await readCapUsage(admin)
   // Fail closed AND visible: if the count cannot be read (for example the guides table does not exist yet),

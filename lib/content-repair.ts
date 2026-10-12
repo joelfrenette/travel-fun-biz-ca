@@ -29,10 +29,10 @@ import { hasDash } from '@/lib/seo-score'
 export type ContentType = 'post' | 'guide' | 'page_copy' | 'package'
 /** `ai_faqs` and `keywords` are trip page (package) fields, written only by the trip pass of the heal
  * (lib/content-heal-run.ts); the text repair never touches them. */
-export type EditField = 'body' | 'title' | 'meta_title' | 'meta_description' | 'og_title' | 'og_description' | 'faq' | 'key_takeaways' | 'links' | 'ai_faqs' | 'keywords'
+export type EditField = 'body' | 'title' | 'meta_title' | 'meta_description' | 'og_title' | 'og_description' | 'faq' | 'key_takeaways' | 'links' | 'ai_faqs' | 'keywords' | 'status'
 export type EditMethod = 'ai' | 'delete' | 'fixer' | 'links' | 'generate'
 /** The fields a repair can touch. `links` is not one of them: it is how a body edit made only of links is labelled. */
-type LogicalField = Exclude<EditField, 'links' | 'ai_faqs' | 'keywords'>
+export type LogicalField = Exclude<EditField, 'links' | 'ai_faqs' | 'keywords' | 'status'>
 
 export interface FaqPair {
   q: string
@@ -127,6 +127,9 @@ export const BLOCKER_RULES: BlockerRule[] = [
   { id: 'recency', pattern: /^unverifiable recency claim/, klass: 'repairable', how: 'rewrite', note: 'a recency claim' },
   { id: 'amenity-count', pattern: /^amenity or capacity count/, klass: 'repairable', how: 'rewrite', note: 'an amenity or capacity count' },
   { id: 'schedule', pattern: /^itinerary or schedule stated as fact/, klass: 'repairable', how: 'rewrite', note: 'a schedule stated as fact' },
+  // WP18: the repeating "we have ... on offer" wording of the compare and best-time pages. Mended by plain code
+  // (fixOnOfferPhrases) before any model call; whatever it leaves falls through to the general agency rule below.
+  { id: 'agency-offer', pattern: /^claim about what the agency has done or does: "[^"]*\b(?:we|our (?:team|advisors|agents|hosts)) (?:currently |also |now )?(?:have|has)\b/i, klass: 'repairable', how: 'fixer', note: 'an agency "we have ... on offer" phrase' },
   { id: 'agency', pattern: /^claim about what the agency/, klass: 'repairable', how: 'rewrite', note: 'an agency claim' },
   { id: 'venue', pattern: /^named venue or person not in brief/, klass: 'repairable', how: 'rewrite', note: 'a named venue not in the brief (a sentence that looks like a named person is HARD, see isNamedPersonLike)' },
   { id: 'weather', pattern: /^weather, crowd or season word/, klass: 'repairable', how: 'rewrite', note: 'a weather, crowd or season word (page copy)' },
@@ -212,6 +215,28 @@ export function stripLinks(text: string, shouldStrip: (href: string) => boolean)
 /** Links to another website or an email address lose the link and keep their words. */
 export function stripExternalLinks(text: string): string {
   return stripLinks(text, (href) => /^(?:https?:\/\/|mailto:|www\.)/i.test(href) && internalPath(href) === null)
+}
+
+const WORD = "[\\p{L}'’-]+"
+const WE_HAVE = "(?:we|our team|our advisors)\\s+(?:currently\\s+|also\\s+|now\\s+)?(?:have|has)"
+const ON_OFFER_A = new RegExp(`\\b(what|everything|all)\\s+(?:that\\s+)?${WE_HAVE}\\s+on offer\\b`, 'giu')
+const ON_OFFER_B = new RegExp(`\\b((?:the|these|those|all the|all of the)\\s+(?:${WORD}\\s+){0,3}?${WORD})\\s+(?:that\\s+|which\\s+)?${WE_HAVE}\\s+on offer\\b`, 'giu')
+const ON_OFFER_C = new RegExp(`(^|[.!?]\\s+|\\n)(?:We|Our team|Our advisors)\\s+(?:currently\\s+|also\\s+|now\\s+)?(?:have|has)\\s+([^.!?\\n]{3,100}?)\\s+on offer(?=[.!?:,]|\\s*$|\\n)`, 'gu')
+
+/** The repeating "we have ... on offer" wording (an agency claim to the gate) said without the claim:
+ * "what we have on offer" becomes "what is on offer", "the trips we have on offer" becomes "the trips on offer", and a
+ * sentence "We have three cruises on offer." becomes "Three cruises are on offer.". Pure, adds no fact: it only removes
+ * the "we have" and moves the words that were already there. */
+export function fixOnOfferPhrases(text: string): string {
+  const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
+  return text
+    .replace(ON_OFFER_A, (_all, w: string) => (w.toLowerCase() === 'what' ? 'what is on offer' : `${w} on offer`))
+    .replace(ON_OFFER_B, (_all, head: string) => `${head} on offer`)
+    .replace(ON_OFFER_C, (_all, lead: string, what: string) => {
+      const last = (what.trim().split(/\s+/).pop() ?? '').replace(/[^\p{L}]/gu, '')
+      const plural = /\sand\s/i.test(what) || (/s$/i.test(last) && !/(ss|us|is)$/i.test(last))
+      return `${lead}${cap(what.trim())} ${plural ? 'are' : 'is'} on offer`
+    })
 }
 
 export function stripAllLinks(text: string): string {
@@ -458,6 +483,8 @@ export function contentStems(text: string): string[] {
   return words.filter((w) => !STOP_WORDS.has(w)).map(stem).filter((s) => !NEUTRAL_STEMS.has(s))
 }
 
+const NEGATION = /\b(?:not|no|never|without|none|nor|cannot|\w+n't)\b/g
+
 /** Why a model rewrite must be thrown away, or null when it is acceptable. A rewrite may only shorten: it must not
  * be longer than the original, add a number, a name, a link, a price or a date, or keep the problem. */
 export function validateRewrite(original: string, rewrite: string, ctx: DetectCtx): string | null {
@@ -467,6 +494,9 @@ export function validateRewrite(original: string, rewrite: string, ctx: DetectCt
   if (wordsOf(text) > wordsOf(cleanOriginal) + 2) return 'longer than the original'
   const origNums = new Set(numbersIn(proseOf(original)))
   if (numbersIn(proseOf(text)).some((n) => !origNums.has(n) && !ctx.groundNums.has(n))) return 'adds a number'
+  // Negations must survive: dropping "not", "no", "never", "no longer" or "without" turns a warning into the opposite claim.
+  const negations = (s: string) => (s.replace(/[’]/g, "'").toLowerCase().match(NEGATION) ?? []).length
+  if (negations(text) < negations(original)) return 'drops a negation (not, no, never, without)'
   if (/https?:\/\/|\bwww\./i.test(text)) return 'adds a web address'
   const origLinks = new Set(internalLinksOfText(original))
   if (internalLinksOfText(text).some((l) => !origLinks.has(l))) return 'adds a link'
@@ -764,7 +794,7 @@ export interface RepairResult {
   note: string
 }
 
-function logicalOf(field: OffenderField): LogicalField {
+export function logicalOf(field: OffenderField): LogicalField {
   if (field === 'summary' || field === 'body') return 'body'
   if (field === 'faq_q' || field === 'faq_a') return 'faq'
   if (field === 'takeaway') return 'key_takeaways'
@@ -834,7 +864,7 @@ export function buildEdits(item: Pick<RepairItem, 'type' | 'id' | 'path' | 'stor
 }
 
 /** Applies the plain-code fixers that match the blockers. Returns the new fields (the same object when nothing applied). */
-function applyFixers(f: RepairFields, blockers: string[], item: RepairItem, t: Tracker): RepairFields {
+export function applyFixers(f: RepairFields, blockers: string[], item: RepairItem, t: Tracker): RepairFields {
   const kinds = blockerKinds(blockers)
   let cur = f
   const set = (next: RepairFields, field: LogicalField | LogicalField[], method: EditMethod, reason: string) => {
@@ -857,6 +887,12 @@ function applyFixers(f: RepairFields, blockers: string[], item: RepairItem, t: T
   if (kinds.has('numbers') && item.type !== 'post') {
     const next = { ...cur, ...(cur.summary !== undefined ? { summary: bulletNumberedLists(cur.summary) } : {}), body: bulletNumberedLists(cur.body) }
     set(next, 'body', 'fixer', 'numbered list changed to bullets (list numbers count as numbers)')
+  }
+  // The "we have ... on offer" wording (WP18). Only text the agency-claim check reads is touched.
+  if (kinds.has('agency-offer') || kinds.has('agency')) {
+    const next = mapFields(cur, fixOnOfferPhrases)
+    const changed = LOGICAL.filter((fld) => serializeField(item.type, next, fld) !== serializeField(item.type, cur, fld))
+    set(next, changed, 'fixer', 'said "what we have on offer" without the claim')
   }
   if (kinds.has('dead-link')) {
     const next = mapFields(cur, (s) => stripDeadLinks(s, item.allowedPaths))

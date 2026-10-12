@@ -27,14 +27,19 @@ export interface StyleScore {
   leads: number
   /** 90-day leads per judged post. */
   leadsPerPost: number
+  /** Of `posts`, how many have measured GA4 visits (not null). 0 when GA4 is not connected. */
+  visitsMeasuredPosts?: number
+  /** GA4 sessions per post with measured visits (28 days). An extra signal only: it breaks ties, never leads. 0 when nothing is measured. */
+  visitsPerPost?: number
   /** 'thin' = fewer than MIN_POSTS_FOR_CONFIDENCE judged posts, so the numbers are not yet meaningful. */
   sample: 'thin' | 'ok'
 }
 
-type Rankable = { value: string; clicksPerPost: number; posts: number; leadsPerPost?: number }
+type Rankable = { value: string; clicksPerPost: number; posts: number; leadsPerPost?: number; visitsPerPost?: number }
 
 /** Ranks best first: by leads per post when any entry has leads, otherwise by clicks per post. Ties go to
- * clicks, then more posts, then the order of `catalogue` (when given). Returns a new array. */
+ * clicks, then GA4 visits per post (an extra signal, only when measured), then more posts, then the order of
+ * `catalogue` (when given). Returns a new array. */
 export function rankScores<T extends Rankable>(scores: readonly T[], catalogue: readonly string[] = []): T[] {
   const byLeads = scores.some((s) => (s.leadsPerPost ?? 0) > 0)
   const order = (v: string) => (catalogue.indexOf(v) < 0 ? 999 : catalogue.indexOf(v))
@@ -42,6 +47,7 @@ export function rankScores<T extends Rankable>(scores: readonly T[], catalogue: 
     (a, b) =>
       (byLeads ? (b.leadsPerPost ?? 0) - (a.leadsPerPost ?? 0) : 0) ||
       b.clicksPerPost - a.clicksPerPost ||
+      (b.visitsPerPost ?? 0) - (a.visitsPerPost ?? 0) ||
       b.posts - a.posts ||
       order(a.value) - order(b.value),
   )

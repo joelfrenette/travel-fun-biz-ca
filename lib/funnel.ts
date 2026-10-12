@@ -25,9 +25,16 @@ export interface FunnelResult {
   stages: FunnelStage[]
 }
 
+/** gsc_ranking_days rows are rolling 28-day totals, so the honest Awareness number is the LATEST
+ * row's value, never a sum of several days. Pure so check-wp18 can prove it. */
+export function latestRollingImpressions(rows: { day: string; impressions: number | null }[]): number {
+  if (!rows.length) return 0
+  const latest = rows.reduce((a, b) => (b.day > a.day ? b : a))
+  return latest.impressions ?? 0
+}
+
 export async function getFunnel(admin: SupabaseClient, days = 28): Promise<FunnelResult> {
   const sinceIso = new Date(Date.now() - days * 86400000).toISOString()
-  const sinceDay = sinceIso.slice(0, 10)
 
   // site_visits has no write path yet (blocked on cookie-consent wording) so this is empty today,
   // but once it's live this table only grows - the exact count comes from Postgres COUNT (cheap,
@@ -35,14 +42,15 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
   // capped at a bounded sample since it's a shape/ratio, not a number that needs to be exact.
   const VISIT_SAMPLE_LIMIT = 5000
   const [gscRes, visitsCountRes, visitsSampleRes, leadsRes, ordersRes] = await Promise.all([
-    admin.from('gsc_ranking_days').select('impressions').gte('day', sinceDay),
+    // Each row is already a rolling 28-day total (see lib/rankings-snapshot.ts), so read ONLY the latest.
+    admin.from('gsc_ranking_days').select('day, impressions').order('day', { ascending: false }).limit(1),
     admin.from('site_visits').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso),
     admin.from('site_visits').select('channel').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT),
     admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', sinceIso),
     admin.from('orders').select('amount_cents, status, is_test').gte('created_at', sinceIso),
   ])
 
-  const impressions = (gscRes.data ?? []).reduce((sum, r: { impressions: number | null }) => sum + (r.impressions ?? 0), 0)
+  const impressions = latestRollingImpressions((gscRes.data ?? []) as { day: string; impressions: number | null }[])
   const visitCount = visitsCountRes.count ?? 0
   const visitRows = visitsSampleRes.data ?? []
   const realOrders = (ordersRes.data ?? []).filter((o: { is_test: boolean }) => !o.is_test)
@@ -65,7 +73,7 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
         label: 'Awareness (Google Search impressions)',
         count: impressions,
         tracked: true,
-        note: 'From the daily Search Console snapshot cron - needs CRON_SECRET set and the site verified in Search Console before this fills in.',
+        note: 'Google impressions over the last 28 days, from the latest daily Search Console snapshot (one rolling total, never added up across days). Needs CRON_SECRET set and the site verified in Search Console before this fills in.',
       },
       {
         key: 'visits',

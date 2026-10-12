@@ -11,6 +11,8 @@ interface Score {
   measuredPosts: number
   clicksPerPost: number
   leadsPerPost: number
+  visitsMeasuredPosts?: number
+  visitsPerPost?: number
   sample: "thin" | "ok"
 }
 interface Result {
@@ -76,6 +78,7 @@ export function WhatIsWorkingCard() {
                           <th className="py-1 pr-3 text-right font-normal">Posts</th>
                           <th className="py-1 pr-3 text-right font-normal">Clicks per post</th>
                           <th className="py-1 pr-3 text-right font-normal">Leads per post</th>
+                          {t.scores.some((s) => (s.visitsMeasuredPosts ?? 0) > 0) && <th className="py-1 pr-3 text-right font-normal" title="Google Analytics visits, 28 days. Used only to break ties.">Visits per post</th>}
                           <th className="py-1 font-normal"></th>
                         </tr>
                       </thead>
@@ -86,6 +89,7 @@ export function WhatIsWorkingCard() {
                             <td className="py-1 pr-3 text-right">{s.posts}</td>
                             <td className="py-1 pr-3 text-right">{s.measuredPosts ? s.clicksPerPost : "-"}</td>
                             <td className="py-1 pr-3 text-right">{s.leadsPerPost}</td>
+                            {t.scores.some((x) => (x.visitsMeasuredPosts ?? 0) > 0) && <td className="py-1 pr-3 text-right">{s.visitsMeasuredPosts ? s.visitsPerPost : "-"}</td>}
                             <td className="py-1">{s.sample === "thin" && <Badge variant="outline">thin sample</Badge>}</td>
                           </tr>
                         ))}

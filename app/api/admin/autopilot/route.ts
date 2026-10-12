@@ -10,6 +10,7 @@ import { alertHtml } from '@/lib/brief-html'
 import { plainAction, HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
 import { getKeywordBudget, setKeywordBudget, readKeywordRefreshInfo } from '@/lib/keyword-refresh'
 import { isKeywordDataConfigured } from '@/lib/keywords'
+import { readAutoApprovals, summariseAutoApprovals } from '@/lib/blog-topics'
 import { shotstackEnv } from '@/lib/shotstack'
 import { getDistributionMode } from '@/lib/distribution'
 import { readCronRuns } from '@/lib/cron-heartbeat'
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
       distributionMode,
       lastRun,
       issues,
-      keyword: { budget: keywordBudget, configured: isKeywordDataConfigured(), lastRunAt: keywordInfo.lastRunAt, log: keywordInfo.log },
+      keyword: { budget: keywordBudget, configured: isKeywordDataConfigured(), lastRunAt: keywordInfo.lastRunAt, log: keywordInfo.log, autoApproved: summariseAutoApprovals(await readAutoApprovals(admin)) },
       cron: judgeCron('autopilot', runs.autopilot),
       rows: (pipeline.data ?? []).map((r: Record<string, unknown>) => ({
         ...r,

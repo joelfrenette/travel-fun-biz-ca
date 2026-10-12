@@ -4,7 +4,10 @@ import { listPostsAdmin, createPost } from '@/lib/posts'
 import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
 import { deleteEdits } from '@/lib/content-edits'
+import { rejectedPostSlugs } from '@/lib/blog-reheal'
 import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters'
+import { healComposedPost, healNoteOf } from '@/lib/heal-targets'
+import { rejectLimitReached, type HealOutcome } from '@/lib/heal-loop'
 import { pickStyle, pickCtaStyle, CTA_STYLES, CONTENT_STYLES, styleById, appendStyledCta, type ContentStyle } from '@/lib/content-styles'
 import { scoresFor, chooseWeighted } from '@/lib/content-performance'
 
@@ -111,6 +114,8 @@ export interface AutoblogResult {
   postId?: string
   postSlug?: string
   published?: boolean
+  /** True when the run could not do its job (not just "nothing to do today"): the pipeline step then shows as failed. */
+  failed?: boolean
 }
 
 const RUN_LOCK_KEY = 'autoblog_run_lock'
@@ -174,13 +179,16 @@ async function clearComposeFailure(admin: ReturnType<typeof getSupabaseAdmin>, r
 /** How many posts were created since 00:00 UTC today, or null when the count could not be read. */
 async function postsWrittenToday(admin: ReturnType<typeof getSupabaseAdmin>): Promise<number | null> {
   const start = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`
-  const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', start)
-  return error ? null : (count ?? 0)
+  const { data, error } = await admin.from('posts').select('slug').gte('created_at', start).limit(100)
+  if (error) return null
+  // A draft the daily re-check retired (rejected) no longer uses up the day's post.
+  const retired = await rejectedPostSlugs(admin)
+  return (data ?? []).filter((p: { slug: string }) => !retired.has(p.slug)).length
 }
 
 /** One post per call, at most. `scheduled: true` (the cron) also caps at one post per calendar
  * day; `scheduled: false` (the admin "run now" button) bypasses that daily cap. */
-export async function runAutoblog(opts: { scheduled: boolean }): Promise<AutoblogResult> {
+export async function runAutoblog(opts: { scheduled: boolean; deadlineMs?: number }): Promise<AutoblogResult> {
   const mode = await getAutoblogMode()
   if (mode === 'off') return { ran: false, mode, note: 'autoblog is off' }
 
@@ -199,7 +207,7 @@ export async function runAutoblog(opts: { scheduled: boolean }): Promise<Autoblo
   }
 }
 
-async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mode: AutoblogMode, opts: { scheduled: boolean }): Promise<AutoblogResult> {
+async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mode: AutoblogMode, opts: { scheduled: boolean; deadlineMs?: number }): Promise<AutoblogResult> {
   const existingPosts = await listPostsAdmin()
 
   if (opts.scheduled) {
@@ -216,6 +224,14 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
 
   if (opts.scheduled && (Number((await getSetting(admin, `autoblog_dupe_skips:${new Date().toISOString().slice(0, 10)}`)) ?? 0) || 0) >= 4) {
     return { ran: false, mode, note: 'every topic today was about a package already covered in the last 30 days; trying again tomorrow (add more trips or approve fresh topics to widen it)' }
+  }
+
+  // Growth loop WP19: when the self-heal rejected MAX_REJECTS_PER_DAY drafts today, new writing waits for tomorrow
+  // (it keeps the AI spend bounded). An unreadable list stops writing too (fail closed).
+  if (mode === 'publish') {
+    const limit = await rejectLimitReached(admin)
+    // A reached limit is a plain note; one that could not be read is also a failed step so it shows up in Needs attention.
+    if (limit.reached) return { ran: false, mode, note: limit.note, ...(limit.unreadable ? { failed: true } : {}) }
   }
 
   let topic: TopicIdea | null = null
@@ -251,8 +267,11 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     const promoted = !!topic.package_slug && !!queueRowId
     const wall = packageWall(promoted)
     const since = new Date(Date.now() - wall.days * 86_400_000).toISOString()
-    const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${groundingPackage.slug}%`)
+    const { data: coverRows, error } = await admin.from('posts').select('slug').gte('created_at', since).ilike('body', `%/packages/${groundingPackage.slug}%`).limit(100)
     if (error) return { ran: false, mode, note: 'could not check whether this package was already covered, so nothing was written' }
+    // A draft the daily re-check retired (rejected) does not count as coverage, so the trip can have a new post.
+    const retired = await rejectedPostSlugs(admin)
+    const count = (coverRows ?? []).filter((p: { slug: string }) => !retired.has(p.slug)).length
     if (count && count > 0 && wall.reschedule && queueRowId) {
       // A promoted idea is never thrown away by the wall: it is moved a week on and stays approved. It does not count
       // towards the day's repeat limit either.
@@ -277,7 +296,11 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
 
   // The routes that call this are killed at 300s. Compose and repair are told to wrap up by 240s from
   // now: the optional steps (FAQ/takeaways, the repair call) are skipped when too little time is left.
-  const deadlineMs = Date.now() + 240_000
+  const runStart = Date.now()
+  // The route is killed at 300s. The pipeline passes its own hard stop (its start plus 280s); everything below ends before it.
+  const hardStop = Math.min(runStart + 285_000, opts.deadlineMs ?? runStart + 280_000)
+  const deadlineMs = Math.min(runStart + 240_000, hardStop - 30_000)
+  const healDeadline = Math.min(runStart + 270_000, hardStop)
   // The post is written for the topic's whole keyword set (primary first), not just one phrase.
   const seedKeywords = topic.keywords?.length ? topic.keywords : [topic.keyword]
   const composed = await composeFullPost(groundedAngle, seedKeywords, { style, allowedLinks, deadlineMs })
@@ -317,6 +340,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   let final = composed
   let blockers: string[] = []
   let repairLogIds: string[] = []
+  let heal: HealOutcome | null = null
   if (mode === 'publish') {
     const gateCtx = { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs }
     const gated = await repairComposedPost(
@@ -338,17 +362,41 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
       final = legacy.post
       blockers = legacy.blockers
     }
+    // Growth loop WP19: a post that is still blocked is not left for a person. The heal loop (lib/heal-loop.ts) has a
+    // suggester and an independent QA judge try up to three rounds, then removes the offending sentences, rewrites the
+    // offending section, and as a last step writes the whole post again with the failures as constraints. It publishes
+    // ONLY text that passes the gate AND the judge. Otherwise the draft is marked rejected_by_heal, which frees the day's
+    // slot and the trip's 30-day wall, and the next run moves on to the next topic.
+    if (blockers.length) {
+      const healed = await healComposedPost(admin, final, new Date(), gateCtx, {
+        storedBody: (body) => appendStyledCta(body, ctaStyle.id, groundingPackage),
+        // The routes that run this are killed at 300s: stay clear of that.
+        deadlineMs: healDeadline,
+        regenerate: (reasons) =>
+          composeFullPost(`${groundedAngle}
+
+A first draft of this post was refused by the quality checks for these reasons, so avoid them: ${reasons.join('; ')}`, seedKeywords, { style, allowedLinks, deadlineMs: healDeadline }),
+      })
+      heal = healed.outcome
+      if (healed.outcome.status === 'healed') {
+        final = healed.value
+        blockers = []
+        repairLogIds = [...repairLogIds, ...healed.logIds]
+      }
+    }
   }
+  const rejectedByHeal = heal?.status === 'rejected_by_heal'
   const publishing = mode === 'publish' && blockers.length === 0
   // Use the composed post's own tags (derived from its actual keywords) rather than the
   // pre-composition topic.keyword - the composer's 'idea' step can land on an article that
   // diverges from the seed angle/keyword, so searching the cover image on the stale seed keyword
   // can return a photo (and Pexels alt text) unrelated to what was actually written.
   const imageSearchTerm = composed.tags[0] || composed.title
-  const image = await attachAutoblogCoverImage(admin, imageSearchTerm, composed.slug)
-
   let post: Awaited<ReturnType<typeof createPost>>
   try {
+    // A draft the heal rejected gets no photo: it is not going anywhere. The photo is filed under the FINAL slug (the heal can
+    // rewrite the title, and the slug follows it). It is inside this try so that any failure also takes back the audit rows.
+    const image = rejectedByHeal ? null : await attachAutoblogCoverImage(admin, imageSearchTerm, final.slug)
     post = await createPost({
       title: final.title,
       slug: final.slug,
@@ -376,14 +424,21 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   await finalizeEdits(admin, repairLogIds, { id: post.id, path: `/blog/${post.slug}`, published: publishing })
   // Record the choices so a later step can compare styles against real clicks, visits and leads. A held
   // draft also records why, which the morning brief reads.
-  await tagVariant(admin, post.slug, { content_style: style.id, cta_style: ctaStyle.id, ...(blockers.length ? { held_reasons: blockers.join('; ') } : {}) })
+  await tagVariant(admin, post.slug, {
+    content_style: style.id,
+    cta_style: ctaStyle.id,
+    ...(blockers.length ? { held_reasons: [...blockers, ...(heal && heal.status !== 'healed' ? [healNoteOf(heal)] : [])].join('; ') } : {}),
+    // rejected_by_heal: the same marker the blog re-check uses, so the draft no longer counts towards today's post or the trip's wall.
+    ...(rejectedByHeal ? { reheal_state: 'rejected', reheal_last: new Date().toISOString() } : {}),
+  })
 
   if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', { used_slug: post.slug })
   // Close the loop: the keyword this post was written for now points at it, so it is not picked again and
   // the Keyword Research and Search Rankings pages show which page serves which keyword.
   // The whole keyword set the post was written for points at it (an approved engine idea counts too), so
   // the Keyword Research page moves those phrases from "shoot for" to "has a page" and then to "ranking".
-  if (keywordLed || (queueRowId && seedKeywords.length > 1)) {
+  if (rejectedByHeal && keywordLed) await markKeywordSkipped(admin, topic.keyword, 'the draft written for it was rejected by the self-heal')
+  if (!rejectedByHeal && (keywordLed || (queueRowId && seedKeywords.length > 1))) {
     await admin.from('keyword_research').update({ target_path: `/blog/${post.slug}`, updated_at: new Date().toISOString() }).in('keyword', seedKeywords).eq('country', SITE_ID).is('target_path', null)
   }
   if (publishing) {
@@ -395,7 +450,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   return {
     ran: true,
     mode,
-    note: (blockers.length ? `wrote a draft - quality gate held it back: ${blockers.join('; ')}` : 'ok') + (post.seoColumnsMissing ? ' | saved without FAQ/takeaways: run migration 0027' : ''),
+    note: (rejectedByHeal && heal ? `wrote a draft, then ${healNoteOf(heal)} (the day's slot is free; the next run picks another topic)` : blockers.length ? `wrote a draft - quality gate held it back: ${blockers.join('; ')}${heal ? ` (${healNoteOf(heal)})` : ''}` : heal?.status === 'healed' ? `ok (healed in ${heal.rounds} round${heal.rounds === 1 ? '' : 's'})` : 'ok') + (post.seoColumnsMissing ? ' | saved without FAQ/takeaways: run migration 0027' : ''),
     postId: post.id,
     postSlug: post.slug,
     published: publishing,

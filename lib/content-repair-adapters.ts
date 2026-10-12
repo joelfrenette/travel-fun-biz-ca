@@ -99,7 +99,7 @@ async function runRepair(admin: SupabaseClient, item: RepairItem, opts: WrapOpts
 
 const POST_LIMITS: RepairLimits = { faqMin: 3, faqMax: 5, takeMin: 3, takeMax: 5, metaTitleMax: 60, metaDescMax: 155, ogTitleMax: 60, ogDescMax: 110 }
 
-function postFields(p: ComposedPost): RepairFields {
+export function postFields(p: ComposedPost): RepairFields {
   return {
     title: p.title,
     body: p.body,
@@ -112,7 +112,7 @@ function postFields(p: ComposedPost): RepairFields {
   }
 }
 
-function postFrom(base: ComposedPost, f: RepairFields): ComposedPost {
+export function postFrom(base: ComposedPost, f: RepairFields): ComposedPost {
   const next: ComposedPost = {
     ...base,
     title: f.title ?? base.title,

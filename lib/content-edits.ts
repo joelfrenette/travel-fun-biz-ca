@@ -258,6 +258,13 @@ export function columnsFor(type: ContentType, field: EditField, text: string): R
       }
     case 'title':
       return type === 'post' ? { title: text } : null
+    case 'status':
+      // The heal logs a status edit (draft to published) when it publishes a held draft; undoing it unpublishes the page.
+      // A post also has a publish date; guides and page copy only a status.
+      if (text !== 'draft' && text !== 'published') return null
+      if (type === 'guide' || type === 'page_copy') return { status: text }
+      if (type !== 'post') return null
+      return text === 'draft' ? { status: 'draft', publish_date: null } : { status: 'published', publish_date: new Date().toISOString().slice(0, 10) }
     default:
       return { [field]: text }
   }
@@ -322,6 +329,17 @@ export async function revertEdit(admin: SupabaseClient, id: string, opts: { forc
   }
   const columns = columnsFor(edit.content_type, edit.field, edit.before ?? '')
   if (!columns) return { ok: false, error: 'The original text could not be read back, so it was not restored.' }
+
+  // A text edit that went live together with a heal publish: putting the old text back on a live page would show text that
+  // failed the checks. So the publish is undone first, in the same action (the page goes back to a draft), and only then the text.
+  if (edit.field !== 'status' && edit.published_after && edit.content_id && row.status === 'published') {
+    const { data: siblings } = await admin.from('content_edits').select('*').eq('content_type', edit.content_type).eq('content_id', edit.content_id).eq('field', 'status').eq('after', 'published').is('reverted_at', null).limit(1)
+    const sibling = ((siblings ?? []) as EditRow[])[0]
+    if (sibling) {
+      const unpublished = await revertEdit(admin, sibling.id, { force: opts.force })
+      if (!unpublished.ok) return { ok: false, error: `This text change went live with an automatic publish. Undo the publish first (${unpublished.error ?? 'it could not be undone'}).` }
+    }
+  }
 
   const { error: updateError } = await admin.from(TABLE[edit.content_type]).update({ ...columns, updated_at: new Date().toISOString() }).eq('id', row.id as string)
   if (updateError) return { ok: false, error: updateError.message }

@@ -126,8 +126,9 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     run.steps.push({ step: 'write', ok: true, note: 'continues on the next pass (the weekly keyword engine ran long)' })
   } else {
     try {
-      const result = await runAutoblog({ scheduled: !opts.force })
-      run.steps.push({ step: 'write', ok: true, note: result.ran ? `wrote "${result.postSlug}"${result.published ? ' and published it' : ' as a draft'}` : result.note })
+      // The pipeline's own hard stop (the route is killed at 300s) is passed down so the heal loop ends before it.
+      const result = await runAutoblog({ scheduled: !opts.force, deadlineMs: startedAt + 280_000 })
+      run.steps.push({ step: 'write', ok: !result.failed, note: result.ran ? `wrote "${result.postSlug}"${result.published ? ' and published it' : ' as a draft'}` : result.note })
       await recordCronRun('autoblog', { ok: true, note: result.note })
     } catch (e) {
       const note = e instanceof Error ? e.message : 'write step failed'
@@ -203,7 +204,7 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
   // step note, which Needs attention shows.
   if (!overBudget() && Date.now() - startedAt <= HEAL_START_BY_MS) {
     try {
-      const healed = await runHealContentIfDue(admin)
+      const healed = await runHealContentIfDue(admin, { deadlineMs: startedAt + 280_000 })
       if (healed) run.steps.push({ step: 'heal-content', ok: healed.ok, note: healed.note })
     } catch (e) {
       run.steps.push({ step: 'heal-content', ok: false, note: e instanceof Error ? e.message : 'the content heal failed' })
