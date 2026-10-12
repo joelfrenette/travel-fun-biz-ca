@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { generateSlug } from '@/lib/utils'
 import { GUIDE_SEEDS } from '@/lib/guide-seeds'
 import { GUIDE_BACKFILL_KEY, parseBackfillState } from '@/lib/guide-backfill'
-import { inferScope, parseScope, type GuideScope } from '@/lib/guide-scope'
+import { groupChildren, inferScope, parentChain, parseScope, type GuideScope } from '@/lib/guide-scope'
 import { dbPackageToTravelPackage, type DbPackage } from '@/lib/packages'
 import type { TravelPackage } from '@/types/travel'
 
@@ -250,6 +250,94 @@ export function pickGuidesForPost(post: { title: string; tags: string[]; destina
     if (out.length >= limit) break
   }
   return out
+}
+
+export interface TrailStep {
+  name: string
+  /** Site path. */
+  path: string
+}
+
+/** The breadcrumb of a guide page after "Home": its parents outermost first (a country, then a city, then a port),
+ * then the page itself. With no published parent the trail is the kind's index page, then the page. A parent that
+ * has no guide of its own but is a destination with trips (`fallbackParent`) links to its /destinations page.
+ * Pure, loop-safe (see parentChain). */
+export function guideTrail(guide: Pick<GuideLink, 'kind' | 'slug' | 'name' | 'parent_slug'>, nodes: GuideLink[], fallbackParent: { slug: string; name: string } | null = null): TrailStep[] {
+  const chain = parentChain(guide, nodes)
+  const own: TrailStep = { name: guide.name, path: guidePath(guide.kind, guide.slug) }
+  if (chain.length > 0) return [...chain.map((n) => ({ name: n.name, path: guidePath(n.kind as GuideKind, n.slug) })), own]
+  if (fallbackParent && guide.parent_slug === fallbackParent.slug) return [{ name: fallbackParent.name, path: `/destinations/${fallbackParent.slug}` }, own]
+  return [{ name: guideKinds[guide.kind].plural, path: guideKinds[guide.kind].urlPrefix }, own]
+}
+
+/** The published pages that sit directly under this one, grouped by scope ("Cities", "Ports of call", "Hotels"...). */
+export function childGroups(guide: Pick<GuideLink, 'kind' | 'slug'>, nodes: GuideLink[]): { label: string; items: GuideLink[] }[] {
+  return groupChildren(guide, nodes, (kind) => (isGuideKind(kind) ? guideKinds[kind].plural : kind))
+}
+
+/** A blog post as a link: just what is needed to decide whether a guide is about it. */
+export interface PostLink {
+  id: string
+  slug: string
+  title: string
+  tags: string[]
+  related_package_id: string | null
+}
+
+/** Up to `limit` blog posts a guide is really about, newest first as given: a post written for one of the guide's own
+ * trips, or a post whose title or tags contain the guide's whole name as a phrase. Nothing fuzzy; no match is an empty list. */
+export function pickPostsForGuide(guide: Pick<GuideLink, 'name' | 'related_package_ids'>, posts: PostLink[], limit = 3): PostLink[] {
+  const mine = new Set(guide.related_package_ids ?? [])
+  const name = normPhrase(guide.name)
+  const long = name.trim().length >= 4
+  const byTrip = mine.size > 0 ? posts.filter((p) => p.related_package_id && mine.has(p.related_package_id)) : []
+  const byName = long ? posts.filter((p) => [p.title, ...(p.tags ?? [])].map(normPhrase).some((h) => h.includes(name))) : []
+  const seen = new Set<string>()
+  const out: PostLink[] = []
+  for (const p of [...byTrip, ...byName]) {
+    if (seen.has(p.id)) continue
+    seen.add(p.id)
+    out.push(p)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** Published blog posts a guide page can link back to. Never throws. */
+export async function listPostsForGuide(guide: Pick<GuideLink, 'name' | 'related_package_ids'>, limit = 3): Promise<PostLink[]> {
+  try {
+    const { data, error } = await supabase.from('posts').select('id, slug, title, tags, related_package_id').eq('status', 'published').order('publish_date', { ascending: false, nullsFirst: false })
+    if (error) return []
+    return pickPostsForGuide(guide, (data ?? []) as PostLink[], limit)
+  } catch {
+    return []
+  }
+}
+
+/** Up to `limit` guides a TRIP page can link to: pages that list this trip, then the page for the trip's destination,
+ * then pages under that destination. Pure. (The trip page itself belongs to another branch; it calls this.) */
+export function pickGuidesForPackage(pkg: { id: string; destinationSlug: string | null }, candidates: GuideLink[], limit = 4): GuideLink[] {
+  const byTrip = candidates.filter((g) => (g.related_package_ids ?? []).includes(pkg.id))
+  const dest = pkg.destinationSlug ? candidates.filter((g) => g.kind === 'destinations' && g.slug === pkg.destinationSlug) : []
+  const under = pkg.destinationSlug ? candidates.filter((g) => g.parent_slug === pkg.destinationSlug) : []
+  const seen = new Set<string>()
+  const out: GuideLink[] = []
+  for (const g of [...dest, ...byTrip, ...under]) {
+    if (seen.has(g.id)) continue
+    seen.add(g.id)
+    out.push(g)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** Published guides for a trip page. Never throws. */
+export async function listGuidesForPackage(pkg: { id: string; destination: string | null }, limit = 4): Promise<GuideLink[]> {
+  try {
+    return pickGuidesForPackage({ id: pkg.id, destinationSlug: pkg.destination ? generateSlug(pkg.destination) || null : null }, await listPublishedGuideLinks(), limit)
+  } catch {
+    return []
+  }
 }
 
 /** Related published guides for a guide page. Never throws. */

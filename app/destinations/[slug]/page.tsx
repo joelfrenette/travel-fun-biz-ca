@@ -9,7 +9,7 @@ import { GuideTakeaways, GuideArticle, GuideFaqList, guideJsonLd, guideMetadata 
 import { getDestinationPage } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getPublicBlurb } from "@/lib/destination-blurbs"
-import { getPublishedGuide, listPropertyGuidesForDestination, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
+import { getPublishedGuide, listPropertyGuidesForDestination, listPublishedGuideLinks, guideTrail, childGroups, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
@@ -59,6 +59,11 @@ export default async function DestinationPage({ params }: Props) {
   const bestTimeToVisit = await getBestTimeToVisitPage(params.slug)
   // Every published hotel and resort guide under this destination (published rows only; empty means no section).
   const propertyGuides = await listPropertyGuidesForDestination(params.slug)
+  // The cities, ports and other pages that sit under this one (WP16), and the trail of parents above it. Hotels and
+  // resorts are already listed in their own section, so they are left out of the groups.
+  const allGuides = guide ? await listPublishedGuideLinks() : []
+  const trail = guide ? guideTrail(guide, allGuides) : []
+  const childBlocks = guide ? childGroups(guide, allGuides).map((g) => ({ ...g, items: g.items.filter((x) => x.kind !== "hotels" && x.kind !== "resorts") })).filter((g) => g.items.length > 0) : []
 
   // A CollectionPage listing the real upcoming trips and past-trip recaps for this destination -
   // the audit script (scripts/audit-live-seo.mjs) flagged every destination page as having no
@@ -88,7 +93,7 @@ export default async function DestinationPage({ params }: Props) {
         : {}),
     })
   }
-  if (guide) jsonLd.push(...guideJsonLd(guide))
+  if (guide) jsonLd.push(...guideJsonLd(guide, trail))
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -137,6 +142,24 @@ export default async function DestinationPage({ params }: Props) {
                 <Link href="/#contact" className="mt-4 inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
               </div>
             </div>
+          )}
+
+          {childBlocks.length > 0 && (
+            <section aria-labelledby="inside-heading">
+              <h2 id="inside-heading" className="mb-4 text-xl font-bold uppercase text-foreground">More guides under {destination}</h2>
+              <div className="space-y-4">
+                {childBlocks.map((group) => (
+                  <div key={group.label}>
+                    <h3 className="mb-1.5 text-sm font-semibold uppercase text-muted-foreground">{group.label}</h3>
+                    <ul className="flex flex-wrap gap-2">
+                      {group.items.slice(0, 24).map((g) => (
+                        <li key={g.id}><Link href={guidePath(g.kind, g.slug)} className="inline-block rounded-full border bg-card px-3 py-1 text-sm font-medium text-foreground hover:bg-muted">{g.name}</Link></li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
 
           {propertyGuides.length > 0 && (
