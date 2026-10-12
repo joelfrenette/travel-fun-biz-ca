@@ -45,6 +45,8 @@ import {
 } from '@/lib/content-repair-adapters'
 import { pingIndexNow } from '@/lib/indexnow'
 import { rehealStuckDrafts, rejectedPostSlugs } from '@/lib/blog-reheal'
+import { healHeldCopy, healHeldGuides } from '@/lib/heal-drafts'
+import { healLoopCard, type HealLoopCard } from '@/lib/heal-loop'
 import type { DbPackage } from '@/lib/packages'
 import { completenessScore } from '@/lib/package-completeness'
 import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
@@ -571,14 +573,14 @@ interface Scored {
 /** Runs the daily heal. Without `force`, the day is claimed first (only the first pass after midnight does the work).
  * `force` (the Heal now button) skips that claim and nothing else: the repair slots and every cap still apply.
  * Returns null on a pass where nothing was due. Never throws. */
-export async function runHealContentIfDue(admin: SupabaseClient, opts: { force?: boolean } = {}): Promise<HealRunResult | null> {
+export async function runHealContentIfDue(admin: SupabaseClient, opts: { force?: boolean; deadlineMs?: number } = {}): Promise<HealRunResult | null> {
   const now = new Date()
   try {
     if (!opts.force) {
       const { error } = await admin.from('app_settings').insert({ key: `${HEAL_DAY_PREFIX}:${repairDay(now)}`, value: now.toISOString() })
       if (error) return (error as { code?: string }).code === '23505' ? null : { ok: false, note: `could not claim today's heal: ${error.message}` }
     }
-    const result = await runHealContent(admin)
+    const result = await runHealContent(admin, { deadlineMs: opts.deadlineMs })
     // Without migration 0033 nothing was done, so today's claim is given back: the next pass tries again and the
     // step keeps showing in Needs attention until the migration is applied.
     if (!opts.force && !result.ok && /migration 0033/.test(result.note)) await admin.from('app_settings').delete().eq('key', `${HEAL_DAY_PREFIX}:${repairDay(now)}`)
@@ -588,7 +590,7 @@ export async function runHealContentIfDue(admin: SupabaseClient, opts: { force?:
   }
 }
 
-export async function runHealContent(admin: SupabaseClient): Promise<HealRunResult> {
+export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?: number } = {}): Promise<HealRunResult> {
   const started = Date.now()
   if (!(await editsLoggable(admin))) return { ok: false, note: 'self-healing needs one database update: apply migration 0033 (supabase/migrations/0033_content_edits.sql)' }
 
@@ -730,10 +732,19 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
   calls += trips.calls
   problems.push(...trips.problems)
   // 2c. Stuck blog drafts (WP18): up to 2 a day get one fresh repair; published only if the full gate is clean.
-  const reheal = await rehealStuckDrafts(admin, { existing: idx.existing })
+  const reheal = await rehealStuckDrafts(admin, { existing: idx.existing, deadlineMs: opts.deadlineMs })
   calls += reheal.calls
   problems.push(...reheal.problems)
   if (reheal.published) healedPages += reheal.published
+  // 2d. Held guides and page copy (WP19): the heal loop (suggester, independent QA judge, escalation ladder) instead of waiting
+  // for a person. Published only when the gate and the judge both pass; otherwise rejected_by_heal with the reasons.
+  const heldGuides = await healHeldGuides(admin, { deadlineMs: opts.deadlineMs })
+  const heldCopy = await healHeldCopy(admin, { deadlineMs: opts.deadlineMs })
+  for (const r of [heldGuides, heldCopy]) {
+    calls += r.calls
+    problems.push(...r.problems)
+    healedPages += r.published + r.healedDraft
+  }
   if (changedPaths.length) await pingIndexNow(changedPaths).catch(() => undefined)
 
   // 3. The numbers for the card, the brief and Needs attention (pages and trips together).
@@ -746,7 +757,7 @@ export async function runHealContent(admin: SupabaseClient): Promise<HealRunResu
   const lowest = [...everyone].sort((a, b) => a.score - b.score).slice(0, 5).map((s) => ({ type: s.type, path: s.path, score: s.score, reasons: s.reasons.slice(0, 3) }))
   const belowAll = queue.length + trips.scored.filter((t) => t.result.score < HEAL_BELOW).length
   const hardWaiting = await countHardWaiting(admin)
-  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
+  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
   const summary: HealSummary = { at: new Date().toISOString(), scored: everyone.length, avg, below: belowAll, lowest, healedPages, edits: editCount, hardWaiting, calls, trips: trips.scored.length, tripsFixed: trips.fixed, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }
@@ -993,6 +1004,8 @@ export interface HealCard {
   slotCap: number
   spend: { calls: number; usd: number }
   needsMigration: boolean
+  /** WP19: the heal loop's budget, what it did today and the last few things it did. */
+  loop: HealLoopCard
 }
 
 /** Everything the Self-healing card shows. Never throws. */
@@ -1006,5 +1019,6 @@ export async function healCard(admin: SupabaseClient): Promise<HealCard> {
   } catch {
     slotsUsed = null
   }
-  return { summary, editsToday, slotsUsed, slotCap: REPAIR_ITEMS_PER_DAY, spend, needsMigration: !loggable }
+  const loop = await healLoopCard(admin)
+  return { summary, editsToday, slotsUsed, slotCap: REPAIR_ITEMS_PER_DAY, spend, needsMigration: !loggable, loop }
 }

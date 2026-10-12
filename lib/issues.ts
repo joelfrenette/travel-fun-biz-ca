@@ -10,8 +10,8 @@ import { ghlListFailedPosts, ghlListPublishedPosts } from '@/lib/ghl-social'
 import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
-import { readHealSummary } from '@/lib/content-heal-run'
-import { GUIDE_ORPHANS_ISSUE_ID, HARD_WAITING_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { healLoopCard } from '@/lib/heal-loop'
+import { GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
 import { readOrphanAudit } from '@/lib/guide-orphans'
 import { clearAllPromotionFailures, readPromotionFailures } from '@/lib/promotion'
 import { completenessScore } from '@/lib/package-completeness'
@@ -218,21 +218,25 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     // a promotion note is never worth failing the list
   }
 
-  // Drafts the safety checks held back for a reason only a person should judge (WP10). The count comes from the last
-  // daily heal; the item clears itself when the drafts are published or deleted and the next heal recounts.
+  // WP19: there is no longer a "held back for a person to check" item. A held draft goes through the heal loop (suggester,
+  // independent QA judge, escalation ladder) and ends up published or rejected_by_heal with its reasons; what the heal did
+  // is an informational line in the daily brief and a card on this page, never a task. (HARD_WAITING_ISSUE_ID stays exported
+  // from lib/plain-steps.ts for the alert filter in lib/pipeline.ts.)
+  // The one thing the heal loop needs a person for: it cannot read its own daily counter, so it stopped (fail closed).
+  // Reaching the daily limit is NOT an issue: held drafts simply wait for tomorrow, and the card says so plainly.
   try {
-    const heal = await readHealSummary(admin)
-    if (heal && heal.hardWaiting > 0) {
+    const loop = await healLoopCard(admin)
+    if (!loop.readable) {
       issues.push({
-        id: HARD_WAITING_ISSUE_ID,
+        id: HEAL_LOOP_ISSUE_ID,
         area: 'system',
-        title: `${heal.hardWaiting} draft${heal.hardWaiting === 1 ? '' : 's'} held back for a person to check`,
-        detail: `The safety checks held ${heal.hardWaiting === 1 ? 'a page' : 'these pages'} back for something only a person should judge (a first-person claim, a price or date, a link to another website, placeholder text, a named person). Nothing on them was changed automatically. Counted ${new Date(heal.at).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}.`,
-        fix: 'Read the red reason on each draft (guide pages and page copy cards on this page, blog drafts on the Blog page), fix or remove that part, then Publish or Delete.',
+        title: 'The self-heal could not read its daily limit',
+        detail: loop.waiting,
+        fix: 'Open Supabase, then the app_settings table. The row heal_loop_calls_per_day must be a whole number from 0 to 60, and any row starting with heal_loop_calls_used must be a whole number. Then press "Heal now" on the Self-healing card.',
       })
     }
   } catch {
-    // an unreadable note is not worth an alert
+    // an unreadable card is not worth failing the list
   }
 
   // Compare and best-time page copy that could not be written. One item lists them all.

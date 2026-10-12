@@ -350,11 +350,22 @@ export function deleteParagraph(f: RepairFields, o: Offender): RepairFields | nu
   if (at === -1) return null
   const kept = blocks.filter((_b, i) => i !== at)
   if (!kept.some((b) => b.trim() && !/^\s*#{1,6}\s/.test(b))) return null
+  // Never empty a section: if this paragraph is the only text under its heading, the section is left for the
+  // regenerate step (b) instead of being left as a bare heading or removed (which would change the section count).
+  const isHeading = (b: string) => /^\s*#{1,6}\s/.test(b)
+  let from = at
+  while (from > 0 && !isHeading(blocks[from])) from--
+  let to = at + 1
+  while (to < blocks.length && !isHeading(blocks[to])) to++
+  const underHeading = isHeading(blocks[from]) && from !== at
+  const others = blocks.slice(from, to).filter((b, i) => from + i !== at && b.trim() && !isHeading(b))
+  if (underHeading && others.length === 0) return null
   // A block that is a heading followed by its paragraph on the next line: only the paragraph line goes.
   const lines = blocks[at].split('\n')
   if (lines.length > 1 && /^\s*#{1,6}\s/.test(lines[0])) {
     const rest = lines.filter((l) => !l.includes(o.text))
     if (rest.length === lines.length) return null
+    if (!rest.some((l) => l.trim() && !isHeading(l))) return null
     const next = cloneFields(f)
     next.body = blocks.map((b, i) => (i === at ? rest.join('\n') : b)).join('\n\n')
     return next
@@ -855,11 +866,27 @@ export async function rejectedToday(admin: SupabaseClient, now: Date = new Date(
 }
 
 /** True when writing new items should wait because MAX_REJECTS_PER_DAY items were already rejected today. */
-export async function rejectLimitReached(admin: SupabaseClient, now: Date = new Date()): Promise<{ reached: boolean; note: string }> {
+export async function rejectLimitReached(admin: SupabaseClient, now: Date = new Date()): Promise<{ reached: boolean; unreadable: boolean; note: string }> {
   const n = await rejectedToday(admin, now)
-  if (n === null) return { reached: true, note: 'could not check how many drafts the heal rejected today, so nothing was written' }
-  if (n >= MAX_REJECTS_PER_DAY) return { reached: true, note: `${n} drafts were rejected by the heal today, so new writing waits until tomorrow (nothing is wrong; it keeps the AI spend bounded)` }
-  return { reached: false, note: '' }
+  if (n === null) return { reached: true, unreadable: true, note: 'could not check how many drafts the heal rejected today, so nothing was written' }
+  if (n >= MAX_REJECTS_PER_DAY) return { reached: true, unreadable: false, note: `${n} drafts were rejected by the heal today, so new writing waits until tomorrow (nothing is wrong; it keeps the AI spend bounded)` }
+  return { reached: false, unreadable: false, note: '' }
+}
+
+/** How many rows of `table` created since `sinceIso` were rejected_by_heal: those no longer count towards the daily and
+ * weekly caps (their slot is free). 0 when the list or the table cannot be read, so a failed read frees nothing. */
+export async function freedBySince(admin: SupabaseClient, spec: { table: 'guides' | 'page_copy'; type: ContentType; columns: string; keyOf: (row: Record<string, unknown>) => string }, sinceIso: string): Promise<number> {
+  try {
+    const map = await readRejected(admin)
+    if (!map) return 0
+    const keys = new Set(Object.entries(map).filter(([, e]) => e.type === spec.type).map(([k]) => k))
+    if (keys.size === 0) return 0
+    const { data, error } = await admin.from(spec.table).select(spec.columns).gte('created_at', sinceIso).limit(500)
+    if (error) return 0
+    return ((data ?? []) as unknown as Record<string, unknown>[]).filter((r) => keys.has(spec.keyOf(r))).length
+  } catch {
+    return 0
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------

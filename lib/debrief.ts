@@ -4,7 +4,7 @@ import { collectIssues } from '@/lib/issues'
 import { plainAction, CHECKLIST_URL, type PlainAction } from '@/lib/plain-steps'
 import { readHealLog } from '@/lib/heal'
 import { listEdits } from '@/lib/content-edits'
-import { readHealSummary } from '@/lib/content-heal-run'
+import { readHealLog as readHealLoopLog } from '@/lib/heal-loop'
 import { ghlListPublishedPosts } from '@/lib/ghl-social'
 import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 import { isAutopilotOn } from '@/lib/autopilot'
@@ -69,8 +69,24 @@ export interface EditsSection {
   lines: string[]
   /** How many edits there were in total (lines is capped). */
   total: number
-  /** Drafts held back for a person (from the last daily heal), or null when it has not run. */
-  hardWaiting: number | null
+  /** WP19 (informational only, nothing for a person to do): what the self-heal loop did in the last 24 hours, for example
+   * "2 pages healed and published by the heal" or "the heal rejected /blog/x: ...". Empty when it did nothing. */
+  healLines: string[]
+}
+
+/** Plain lines about the heal loop's last 24 hours, from its compact log. Pure. */
+export function healLinesOf(log: { at: string; type: string; path: string; status: string; reason: string }[], now: Date): string[] {
+  const since = now.getTime() - 86_400_000
+  const recent = log.filter((e) => Date.parse(e.at) >= since)
+  const healed = recent.filter((e) => e.status === 'healed').length
+  const rejected = recent.filter((e) => e.status === 'rejected_by_heal')
+  const waiting = recent.filter((e) => e.status === 'deferred').length
+  const out: string[] = []
+  if (healed) out.push(`The heal rewrote and published ${healed} held page${healed === 1 ? '' : 's'} by itself.`)
+  for (const r of rejected.slice(0, 5)) out.push(`The heal rejected ${r.path} (nothing for you to do; its slot is free and the next one was picked): ${r.reason}`)
+  if (rejected.length > 5) out.push(`and ${rejected.length - 5} more rejected by the heal.`)
+  if (waiting) out.push(`${waiting} held page${waiting === 1 ? ' is' : 's are'} waiting for the heal's daily limit to reset; they are tried again tomorrow.`)
+  return out
 }
 
 const EDITS_LINES_MAX = 15
@@ -102,13 +118,13 @@ async function buildEditsSection(admin: SupabaseClient, now: Date): Promise<Edit
   } catch {
     // the section just stays empty
   }
-  let hardWaiting: number | null = null
+  let healLines: string[] = []
   try {
-    hardWaiting = (await readHealSummary(admin))?.hardWaiting ?? null
+    healLines = healLinesOf(await readHealLoopLog(admin), now)
   } catch {
-    hardWaiting = null
+    healLines = []
   }
-  return { lines, total, hardWaiting }
+  return { lines, total, healLines }
 }
 
 async function countOf(q: PromiseLike<{ count: number | null; error: unknown }>): Promise<number | null> {
@@ -291,13 +307,13 @@ export function renderBrief(b: Brief): { subject: string; html: string; text: st
     'WHAT IS WORKING',
     ...b.working.map((t) => `- ${t}`),
     ...(b.healed.length ? ['', 'FIXED BY ITSELF', ...b.healed.map((t) => `- ${t}`)] : []),
-    ...(b.edits.total > 0 || b.edits.hardWaiting
+    ...(b.edits.total > 0 || b.edits.healLines.length
       ? [
           '',
           'EDITS MADE (last 24 hours)',
           ...(b.edits.total > 0 ? b.edits.lines.map((t) => `- ${t}`) : ['- No automatic edits.']),
           ...(b.edits.total > b.edits.lines.length ? [`- and ${b.edits.total - b.edits.lines.length} more`] : []),
-          ...(b.edits.hardWaiting ? [`- ${b.edits.hardWaiting} draft${b.edits.hardWaiting === 1 ? ' is' : 's are'} waiting on you (held back for a price, a date, a claim or a link a person should judge).`] : []),
+          ...b.edits.healLines.map((t) => `- ${t}`),
           `Review or undo them: ${SITE_URL}/admin/content-edits`,
         ]
       : []),

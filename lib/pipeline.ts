@@ -203,7 +203,7 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
   // step note, which Needs attention shows.
   if (!overBudget() && Date.now() - startedAt <= HEAL_START_BY_MS) {
     try {
-      const healed = await runHealContentIfDue(admin)
+      const healed = await runHealContentIfDue(admin, { deadlineMs: startedAt + 280_000 })
       if (healed) run.steps.push({ step: 'heal-content', ok: healed.ok, note: healed.note })
     } catch (e) {
       run.steps.push({ step: 'heal-content', ok: false, note: e instanceof Error ? e.message : 'the content heal failed' })
