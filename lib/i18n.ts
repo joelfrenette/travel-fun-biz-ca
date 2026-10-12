@@ -15,8 +15,8 @@ const translations: Record<Language, Record<string, string>> = {
     'Terms & Conditions': 'Modalités et conditions',
     'Earnings Disclaimer': 'Avertissement sur les gains',
     'Affiliate Agreement': 'Accord d\'affiliation',
-    'By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
-      'En appelant ou en envoyant un texto au (365) 800-6363, vous acceptez de recevoir des messages texte. Pour vous désabonner, répondez « STOP » en tout temps.',
+    'By calling or texting (833) 878-5386, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
+      'En appelant ou en envoyant un texto au (833) 878-5386, vous acceptez de recevoir des messages texte. Pour vous désabonner, répondez « STOP » en tout temps.',
     'Get Started': 'Commencer',
     'All': 'Tous',
     Luxury: 'Luxe',
@@ -161,8 +161,8 @@ const translations: Record<Language, Record<string, string>> = {
     'Terms & Conditions': 'Términos y condiciones',
     'Earnings Disclaimer': 'Descargo de responsabilidad sobre ganancias',
     'Affiliate Agreement': 'Acuerdo de afiliado',
-    'By calling or texting (365) 800-6363, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
-      'Al llamar o enviar un mensaje de texto al (365) 800-6363, acepta recibir mensajes de texto. Si ya no desea recibir mensajes, puede darse de baja en cualquier momento respondiendo "STOP".',
+    'By calling or texting (833) 878-5386, you agree to receive text messages. If you no longer wish to receive text messages, you may opt out at any time by replying "STOP"':
+      'Al llamar o enviar un mensaje de texto al (833) 878-5386, acepta recibir mensajes de texto. Si ya no desea recibir mensajes, puede darse de baja en cualquier momento respondiendo "STOP".',
     'Get Started': 'Comenzar',
     'All': 'Todos',
     Luxury: 'Lujo',

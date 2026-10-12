@@ -1,7 +1,7 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, type AnthropicContent } from '@/lib/ai-verify'
 import { collectPhotoCandidates, hopRejection } from '@/lib/supplier-photos'
 import type { PhotoCandidate } from '@/lib/package-sources'
-import { computeTripDuration, detectPriceOnRequest, extractHostContacts } from '@/lib/trip-duration'
+import { computeTripDuration, detectPriceOnRequest, extractHostContacts, hasContactDetails } from '@/lib/trip-duration'
 
 // AI package-draft builder (roadmap use case 09dd2acd, Joel's idea 2026-09-26): an agent pastes
 // whatever source material they have (a supplier email, a flyer's text, a page's copy, a link)
@@ -94,6 +94,8 @@ export interface ExtractedDraft {
   flags?: string[]
   /** Phone numbers found in the source (a host's own numbers). Review table only; never printed on a public page. */
   hostContacts?: string[]
+  /** Fields worked out in code that a person must click before they are written (a bare count, or a clash). */
+  clickOnly?: string[]
 }
 
 export type ExtractError = { status: number; message: string }
@@ -111,7 +113,8 @@ const NO_INVENTION = `HARD RULES:
 2. For every non-null FACT field, put a short verbatim quote (under 120 characters, copied exactly from the source) in "evidence" under the same key, showing where it came from.
 3. COPY fields (${COPY_FIELDS.join(', ')}) you may write in a warm, plain marketing voice for a Canadian travel agency, but they may only mention facts the source contains. No numbers, dates, prices, names, or inclusions that are not in the source. If the source is too thin to write honest copy, return null for that field.
 4. Never claim personal experience or a past trip. Never write placeholder text like [TBD].
-5. Return ONLY minified JSON, no commentary.`
+5. Never put a phone number, email address or social media handle in any field, not even in marketing copy. Those belong to the person who wrote the source; the site shows its own contact details.
+6. Return ONLY minified JSON, no commentary.`
 
 const OUTPUT_SHAPE = `{"fields":{"name":string|null,"destination":string|null,"country":string|null,"region":string|null,"supplier":string|null,"duration":string|null,"duration_days":number|null,"price_display":string|null,"price_value":number|null,"currency":"CAD"|"USD"|null,"available_from":"YYYY-MM-DD"|null,"available_to":"YYYY-MM-DD"|null,"departure_dates":["YYYY-MM-DD",...]|null,"highlights":[string,...]|null,"price_includes":[string,...]|null,"not_included":[string,...]|null,"max_people":number|null,"booking_url":string|null,"more_info_url":string|null,"category":${PACKAGE_CATEGORIES.map((c) => JSON.stringify(c)).join('|')}|null,"short_description":string|null,"full_description":string|null,"meta_title":string|null,"meta_description":string|null,"keywords":[string,...]|null,"itinerary":[{"day":number|null,"title":string,"description":string},...]|null},"evidence":{"<fact field>":"<verbatim quote>",...}}`
 
@@ -380,6 +383,32 @@ export function groundDraft(
   // model already gave stays, and a disagreement is flagged for a person.
   const derived: NonNullable<ExtractedDraft['derived']> = []
   const flags: string[] = []
+  const clickOnly: string[] = []
+
+  // Phone numbers and emails in the source belong to whoever wrote it (a host). They never go into a trip field:
+  // a value that holds one is dropped, a list loses the items that hold one. They are shown in the review table only.
+  const withContact = (s: unknown) => typeof s === 'string' && hasContactDetails(s)
+  for (const key of Object.keys(fields)) {
+    if (key === 'booking_url' || key === 'more_info_url' || key === 'available_from' || key === 'available_to' || key === 'departure_dates') continue
+    const v = fields[key]
+    if (withContact(v)) {
+      drop(key as DraftField, v, 'it holds a phone number or email address, which never goes on a trip page')
+      delete fields[key]
+      if ((FACT_FIELDS as readonly string[]).includes(key)) missing.push(key as FactField)
+    } else if (Array.isArray(v)) {
+      if (key === 'itinerary') {
+        const keep = (v as ItineraryItem[]).filter((i) => !withContact(i.title) && !withContact(i.description))
+        if (keep.length !== v.length) drop('itinerary', `${v.length - keep.length} stop(s)`, 'it held a phone number or email address')
+        if (keep.length) fields[key] = keep
+        else delete fields[key]
+      } else {
+        const keep = v.filter((x) => !withContact(x))
+        if (keep.length !== v.length) drop(key as DraftField, v.filter((x) => withContact(x)).join(' | '), 'it holds a phone number or email address, which never goes on a trip page')
+        if (keep.length) fields[key] = keep
+        else delete fields[key]
+      }
+    }
+  }
   const unmiss = (f: FactField) => { const i = missing.indexOf(f); if (i >= 0) missing.splice(i, 1) }
   const len = computeTripDuration(source, {
     isoFrom: typeof fields.available_from === 'string' ? fields.available_from : null,
@@ -389,6 +418,11 @@ export function groundDraft(
     if (fields.duration_days != null && fields.duration_days !== len.duration_days) {
       flags.push(`Trip length: the AI read ${String(fields.duration_days)} days but the source works out to ${len.duration} (${len.note}). Check it.`)
     } else {
+      if (len.confidence !== 'sure') {
+        clickOnly.push('duration', 'duration_days')
+        if (len.basis === 'dates') clickOnly.push('available_from', 'available_to')
+        flags.push(len.conflict || `Trip length ${len.duration} is only a suggestion: ${len.note}`)
+      }
       if (fields.duration == null) {
         fields.duration = len.duration
         derived.push({ field: 'duration', value: len.duration, note: len.note })
@@ -426,7 +460,7 @@ export function groundDraft(
 
   // The form's mandatory fields (lib/import-package.ts REQUIRED_FIELDS) can stay empty here: the
   // draft is reviewed in the form, which is where a missing price gets typed in by a human.
-  return { fields, evidence, missing, dropped, model, derived, flags, hostContacts }
+  return { fields, evidence, missing, dropped, model, derived, flags, hostContacts, clickOnly }
 }
 
 /** Run the extraction against the model and ground the answer. Never writes to the database. */

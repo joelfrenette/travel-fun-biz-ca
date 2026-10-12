@@ -114,10 +114,11 @@ export async function importPackage(input: Record<string, any>): Promise<ImportR
   // category is NOT NULL with a DB default; omit it so the default applies rather than sending null.
   if (body.category == null || body.category === '') delete body.category
 
-  const missing = REQUIRED_FIELDS.filter((key) => typeof body[key] !== 'string' || !body[key].trim())
+  const missing = REQUIRED_FIELDS.filter((key) => !(key === 'price_display' && body.price_on_request === true) && (typeof body[key] !== 'string' || !body[key].trim()))
   if (missing.length > 0) return { pkg: null, error: { status: 400, message: `Missing required field(s): ${missing.join(', ')}` } }
 
   if (!body.slug) body.slug = generateSlug(body.name)
+  if (typeof body.price_display !== 'string') body.price_display = ''
   if (body.price_value == null) {
     const m = String(body.price_display).match(/\d[\d,]*/)
     if (m) body.price_value = parseFloat(m[0].replace(/,/g, ''))

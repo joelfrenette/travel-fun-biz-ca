@@ -37,6 +37,7 @@ import {
   FileSpreadsheet, Link, Wand2, Image, FileText, Share2, X, Download, ExternalLink, RefreshCw, ClipboardPaste, AlertTriangle
 } from "lucide-react"
 import type { DbPackage } from "@/lib/packages"
+import { priceOnRequestLine } from "@/lib/site"
 import type { ScrapedPackage } from "@/types/scrape"
 import { generateSlug } from "@/lib/utils"
 import { scrapedToPackage as scrapedToPayload } from "@/lib/scraping/to-package"
@@ -1563,7 +1564,7 @@ function PackageTable({
               <td className="p-3 text-xs">{pkg.duration_days ? `${pkg.duration_days}d` : pkg.duration || "—"}</td>
               <td className="p-3 text-xs">{pkg.supplier || "—"}</td>
               <td className="p-3 text-xs">{pkg.destination}</td>
-              <td className="p-3 text-xs font-medium">{pkg.price_display}</td>
+              <td className="p-3 text-xs font-medium">{pkg.price_display || (pkg.price_on_request === true ? priceOnRequestLine().text : "")}</td>
               <td className="p-3"><Badge variant={pkg.status === "published" ? "default" : "secondary"} className="text-[10px]">{pkg.status}</Badge></td>
               <td className="p-3">
                 {(() => {

@@ -14,7 +14,7 @@
 ## Who we are
 
 TravelFunBiz.ca is operated by **[legal entity name]**, 375 University Avenue, Suite 1072, Toronto, ON
-M5G 2J5, telephone (365) 800-6363. We are a travel agency that sells hosted group trips, cruises and
+M5G 2J5, telephone (833) 878-5386. We are a travel agency that sells hosted group trips, cruises and
 singles getaways.
 
 **Our privacy contact** is **[name, title]**, at **[email address]**. Ask them about anything in this

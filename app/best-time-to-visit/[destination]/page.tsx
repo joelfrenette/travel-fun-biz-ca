@@ -8,7 +8,7 @@ import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
-import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
+import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, priceOnRequestLine } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import { bestTimePath } from "@/lib/page-copy"
@@ -101,7 +101,8 @@ export default async function BestTimeToVisitPage({ params }: Props) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {page.packages.map((pkg) => {
                 const dates = formatDateRange(pkg.available_from, pkg.available_to)
-                const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate)
+                // Inside a link, so plain text (no nested tel link): price on request shows our number, never a host's.
+                const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate) || (pkg.price_on_request === true ? priceOnRequestLine().text : "")
                 return (
                   <Link key={pkg.id} href={`/packages/${pkg.slug}`} className="group flex flex-col gap-3 rounded-xl border bg-card p-5 transition-shadow hover:shadow-lg">
                     {/* eslint-disable-next-line @next/next/no-img-element */}

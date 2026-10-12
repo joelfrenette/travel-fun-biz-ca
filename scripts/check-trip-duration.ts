@@ -2,7 +2,10 @@
 // No network, no database, no model call. Run: pnpm dlx tsx scripts/check-trip-duration.ts   (exit 1 on a failure)
 import { computeTripDuration, detectPriceOnRequest, extractHostContacts } from '../lib/trip-duration'
 import { groundDraft } from '../lib/package-extract'
-import { priceOnRequestLine } from '../lib/site'
+import { priceOnRequestLine, site } from '../lib/site'
+import { publishBlockers } from '../lib/trip-wizard'
+import { copyBlockers } from '../lib/package-enrich'
+import { agentFieldViews } from '../lib/agent-invites'
 
 let failures = 0
 function expect(name: string, ok: boolean, detail = '') {
@@ -19,11 +22,11 @@ const label = (t: string) => days(t).duration
 
 // ─── Weekdays ───
 expect('Fri to Sun = 3 days / 2 nights', label('Join us Fri to Sun for a weekend away') === '3 days / 2 nights', String(label('Join us Fri to Sun')))
-expect('Friday - Sunday with hyphen', label('Friday - Sunday at the lake') === '3 days / 2 nights')
-expect('Sat to Sun = 2 days / 1 night', label('Sat to Sun') === '2 days / 1 night')
-expect('Fri to Mon wraps the week', days('Fri to Mon').duration_days === 4)
-expect('Sunday to Sunday is ambiguous, not guessed', days('Sunday to Sunday').duration === null && days('Sunday to Sunday').ambiguous)
-expect('weekday basis recorded', days('Fri to Sun').basis === 'weekdays')
+expect('Friday - Sunday with hyphen', label('Friday - Sunday at the lake, a fun trip') === '3 days / 2 nights')
+expect('Sat to Sun = 2 days / 1 night', label('Weekend trip: Sat to Sun') === '2 days / 1 night')
+expect('Fri to Mon wraps the week', days('Getaway Fri to Mon').duration_days === 4)
+expect('Sunday to Sunday is ambiguous, not guessed', days('Week-long trip Sunday to Sunday').duration === null && days('Week-long trip Sunday to Sunday').ambiguous)
+expect('weekday basis recorded', days('Weekend getaway Fri to Sun').basis === 'weekdays')
 
 // ─── Date ranges ───
 const d1 = days('January 22-24, 2027')
@@ -43,7 +46,8 @@ expect('same-day trip', days('Saturday, June 5 - June 5, 2027').duration === '1 
 expect('day trip phrase', label('A fun day trip to Niagara') === '1 day')
 expect('end before start is not a range', days('March 20 - 5, 2027').duration === null || days('March 20 - 5, 2027').duration_days !== -1)
 expect('dates + matching nights stay', days('January 22-24, 2027, 2 nights').duration === '3 days / 2 nights')
-expect('dates + clashing nights are ambiguous', days('January 22-24, 2027, 5 nights').duration === null && days('January 22-24, 2027, 5 nights').ambiguous)
+const clash = days('January 22-24, 2027, 5 nights')
+expect('dates + clashing nights: range kept as a click-only suggestion with the conflict named', clash.duration === '3 days / 2 nights' && clash.confidence === 'suggest' && /5 nights/.test(clash.conflict), JSON.stringify(clash))
 expect('two ranges of different length are ambiguous', days('May 1-3, 2027 or May 8-12, 2027').duration === null)
 expect('two ranges of the same length are fine', days('May 1-3, 2027 or May 8-10, 2027').duration === '3 days / 2 nights')
 expect('grounded ISO dates used when text has no range', days('Details soon', { isoFrom: '2027-01-22', isoTo: '2027-01-24' }).duration === '3 days / 2 nights')
@@ -51,7 +55,7 @@ expect('lowercase "may 5 to 10" is a verb, not a month', days('you may 5 to 10 t
 
 // ─── Stated counts ───
 expect('3-night', label('A 3-night stay') === '4 days / 3 nights')
-expect('3 nights', label('Three days... 3 nights at sea') === '4 days / 3 nights')
+expect('3 nights', label('3 nights at sea on this cruise') === '4 days / 3 nights')
 expect('4D/3N', label('Package: 4D/3N all in') === '4 days / 3 nights')
 expect('4 days / 3 nights', label('4 days / 3 nights in Cancun') === '4 days / 3 nights')
 expect('5 days only', label('A 5 day getaway') === '5 days / 4 nights')
@@ -80,7 +84,7 @@ expect('a year or price is not a phone', extractHostContacts('January 22-24, 202
 
 // ─── The public line uses OUR number, never a host's ───
 const line = priceOnRequestLine()
-expect('pricing line is our configured number', line.text === 'Call or text 833-878-5386 for pricing' && line.telHref === 'tel:+18338785386' && line.smsHref === 'sms:+18338785386', JSON.stringify(line))
+expect('pricing line is the site-wide number (site.phone)', line.text === `Call or text ${site.phone} for pricing` && site.phone === '(833) 878-5386' && line.telHref === 'tel:+18338785386' && line.smsHref === 'sms:+18338785386', JSON.stringify(line))
 expect('pricing line never carries a host number', !/603/.test(JSON.stringify(line)))
 
 // ─── Joel's failing post (his own marketing copy), end to end through groundDraft, no model call ───
@@ -139,6 +143,74 @@ expect('Fri to Sun with no dates: 3 days / 2 nights, price on request', g4.field
 // A model value that disagrees is kept and flagged, never silently replaced.
 const g5 = groundDraft({ fields: { duration_days: 5 }, evidence: {} }, 'Join us January 22-24, 2027 for 5 days of fun and 4 nights', undefined, 'check-model')
 expect('model/code disagreement is flagged', (g5.flags ?? []).length > 0 || g5.fields.duration_days === 5)
+
+// ─── QA round: invented durations from bare counts ───
+const none = (t: string) => days(t).duration === null
+expect('"30 days before departure" is not a length', none('Final payment is due 30 days before departure.'))
+expect('"within 14 days" is not a length', none('Cancel within 14 days for a refund.'))
+expect('"7-day cancellation" is not a length', none('Our 7-day cancellation policy applies.'))
+expect('"2 night minimum" is not a length', none('Hotel has a 2 night minimum on holidays.'))
+expect('"60 days of booking" is not a length', none('Deposit due within 60 days of booking.'))
+expect('"14 days notice" is not a length', none('Please give 14 days notice.'))
+expect('length range "1-2 nights" is ambiguous and flagged', days('Stay 1-2 nights at the lodge').duration === null && days('Stay 1-2 nights at the lodge').ambiguous)
+expect('length range "3-4 days" is ambiguous and flagged', days('A 3-4 days trip').duration === null && days('A 3-4 days trip').ambiguous)
+expect('"Mon to Fri 9-5" office hours are not a trip', none('Our office is open Mon to Fri 9-5.'))
+expect('"Thursday to Sunday" with no trip word is ignored', none('Open Thursday to Sunday for lunch.'))
+expect('"Thursday to Sunday" with a trip word counts', days('Join us for a retreat Thursday to Sunday').duration === '4 days / 3 nights')
+expect('bare count with no trip word is click-only', days('Only 5 days left to enter the draw, 3 nights prize').confidence !== 'sure')
+expect('bare count with a trip word near it is automatic', days('A 3-night cruise for singles').confidence === 'sure')
+expect('two different bare counts are ambiguous', days('7 nights on the ship and 3 nights in Rome').ambiguous)
+expect('number word "Two nights"', label('Two nights in a cozy lodge on this getaway') === '3 days / 2 nights')
+expect('number word "Three-night cruise"', label('A Three-night cruise') === '4 days / 3 nights')
+expect('"Sat 22 - Sun 24 Jan 2027"', days('Sat 22 - Sun 24 Jan 2027').duration === '3 days / 2 nights')
+expect('"1/22/2027 to 1/24/2027" (22 settles month/day)', days('1/22/2027 to 1/24/2027').duration === '3 days / 2 nights')
+expect('"22/01/2027 - 24/01/2027" (day first)', days('22/01/2027 - 24/01/2027').duration === '3 days / 2 nights')
+expect('"1/2/2027 to 1/4/2027" is skipped as ambiguous order', days('1/2/2027 to 1/4/2027').duration === null)
+expect('ISO range', days('2027-01-22 to 2027-01-24').duration === '3 days / 2 nights')
+expect('a phone number is not a date range', none('Call 603-315-2970 - 603-801-8476 now'))
+
+const gClash = groundDraft({ fields: {}, evidence: {} }, 'Weekend retreat January 22-24, 2027. Total 5 nights of fun.', undefined, 'check-model')
+expect('clash is flagged and the range is click-only', (gClash.flags ?? []).some((f) => /5 nights/.test(f)) && (gClash.clickOnly ?? []).includes('duration') && gClash.fields.duration === '3 days / 2 nights')
+const gBare = groundDraft({ fields: {}, evidence: {} }, 'Only 5 days left to enter the draw for our members, so hurry before the deadline.', undefined, 'check-model')
+expect('bare count with no trip word fills but is click-only', (gBare.clickOnly ?? []).includes('duration_days'))
+
+// ─── QA round: price on request wording ───
+expect('"price upon inquiry"', detectPriceOnRequest('Trip price upon inquiry').onRequest)
+expect('"price? call"', detectPriceOnRequest('Price? Call us!').onRequest)
+expect('"pricing? text me"', detectPriceOnRequest('Pricing? Text me').onRequest)
+
+// ─── QA round: publish gate and agent view ───
+expect('price_on_request satisfies the Price publish gate', publishBlockers({ name: 'White Mountains Weekend', destination: 'New Hampshire', duration: '3 days / 2 nights', price_display: '', price_on_request: true }).length === 0)
+expect('no price and no flag still blocks', publishBlockers({ name: 'White Mountains Weekend', destination: 'New Hampshire', duration: '3 days / 2 nights', price_display: '', price_on_request: false }).join() === 'Price')
+const view = agentFieldViews({ name: 'X', price_display: '', price_on_request: true }).find((f) => f.key === 'price_display')
+expect('agent view shows the price as found but never its value', view?.filled === true && view?.value === null)
+
+// ─── QA round: phone numbers and emails never reach public text ───
+const gp = groundDraft(
+  {
+    fields: {
+      name: 'White Mountains Weekend',
+      supplier: 'Mountain View Grand Resort & Spa',
+      short_description: 'Call Amy at 603-315-2970 for pricing',
+      full_description: 'A lovely weekend. Text Liz (603) 801-8476 or email liz@example.com to book.',
+      highlights: ['Spa time', 'Call 603.315.2970 to join', 'Mountain views'],
+      price_includes: ['Breakfast', 'Questions? liz@example.com'],
+      meta_description: 'Reach out on 603 315 2970 today',
+      keywords: ['white mountains', 'weekend getaway'],
+    },
+    evidence: {},
+  },
+  'Weekend at Mountain View Grand Resort & Spa. Call Amy at 603-315-2970 for pricing. Text Liz (603) 801-8476 or email liz@example.com to book. Spa time. Call 603.315.2970 to join. Mountain views. Breakfast. Questions? liz@example.com. Reach out on 603 315 2970 today. white mountains weekend getaway',
+  undefined,
+  'check-model',
+)
+const everything = JSON.stringify(gp.fields)
+expect('no phone number or email in any proposed field', !/\d{3}[\s.)-]*\d{3}[\s.-]*\d{4}/.test(everything) && !/@/.test(everything), everything)
+expect('clean list items are kept', JSON.stringify(gp.fields.highlights) === '["Spa time","Mountain views"]' && JSON.stringify(gp.fields.price_includes) === '["Breakfast"]')
+expect('phone fields are dropped with a reason, not blanked silently', gp.dropped.some((d) => d.field === 'short_description') && gp.fields.short_description === undefined)
+expect('the numbers still reach the review table as host contacts', (gp.hostContacts ?? []).length >= 2)
+expect('copyBlockers refuses text with a phone number', copyBlockers('Call Amy at 603-315-2970 for pricing', { grounding: '603-315-2970', field: 'short_description' }).some((b) => /phone/.test(b)))
+expect('copyBlockers passes clean text', !copyBlockers('A relaxed weekend in the mountains.', { grounding: 'weekend mountains', field: 'short_description' }).some((b) => /phone/.test(b)))
 
 console.log(failures ? `\n${failures} FAILED` : '\nAll trip duration checks passed')
 process.exit(failures ? 1 : 0)

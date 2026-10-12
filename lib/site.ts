@@ -15,10 +15,9 @@ export interface SiteProfile {
   country: 'CA' | 'US'
   /** Currency shown to a first-time visitor (prices are stored in USD and converted). */
   defaultCurrency: Currency
+  /** Every client, prospect and lead call goes to (833) 878-5386 (Joel, 2026-10-12), answered by our AI agent, on BOTH
+   * profiles. The old Canada office number must NOT appear on any public page (scripts/check-old-phone.ts enforces it). */
   phone: string
-  /** The number every "call or text for pricing" line sends people to (answered by our AI agent, Joel 2026-10-11).
-   * Trip hosts' own numbers are never shown publicly. '' = fall back to "Contact us for pricing". */
-  pricingPhone: string
   addressLines: string[]
   address: { locality: string; region: string; postalCode: string }
   registrations: string[]
@@ -61,8 +60,7 @@ const PROFILES: Record<SiteId, SiteProfile> = {
     locale: 'en_CA',
     country: 'CA',
     defaultCurrency: 'cad',
-    phone: '(365) 800-6363',
-    pricingPhone: '833-878-5386',
+    phone: '(833) 878-5386',
     addressLines: ['375 University Avenue, Suite 1072', 'Toronto, ON M5G 2J5'],
     address: { locality: 'Toronto', region: 'ON', postalCode: 'M5G 2J5' },
     registrations: ['Florida Seller of Travel # ST42324', 'California Seller of Travel # 2154919-50'],
@@ -75,16 +73,15 @@ const PROFILES: Record<SiteId, SiteProfile> = {
     handle: '',
   },
   us: {
-    // US company profile. Phone and street address are intentionally blank until Joel supplies
-    // them; the footer and schema.org markup skip empty fields rather than show made-up data.
+    // US company profile. The street address is intentionally blank until Joel supplies it; the footer and
+    // schema.org markup skip empty fields rather than show made-up data. The phone is the shared site-wide number.
     id: 'us',
     name: 'TravelFunBiz.com',
     url: 'https://travelfunbiz.com',
     locale: 'en_US',
     country: 'US',
     defaultCurrency: 'usd',
-    phone: '',
-    pricingPhone: '833-878-5386',
+    phone: '(833) 878-5386',
     addressLines: [],
     address: { locality: 'Boca Raton', region: 'FL', postalCode: '' },
     registrations: ['Florida Seller of Travel # ST42324', 'California Seller of Travel # 2154919-50'],
@@ -107,7 +104,6 @@ function resolveSite(): SiteProfile {
     name: process.env.NEXT_PUBLIC_SITE_NAME || base.name,
     locale: process.env.NEXT_PUBLIC_SITE_LOCALE || base.locale,
     phone: process.env.NEXT_PUBLIC_SITE_PHONE ?? base.phone,
-    pricingPhone: process.env.NEXT_PUBLIC_SITE_PRICING_PHONE ?? base.pricingPhone,
   }
 }
 
@@ -125,10 +121,10 @@ export const SITE_NAME = site.name
 export const SITE_LOCALE = site.locale
 export const DEFAULT_OG_IMAGE = `${SITE_URL}/group-of-friends-having-fun-on-tropical-beach-vaca.jpg`
 
-/** The "price on request" line shown on trip cards and pages. Always our number (site.pricingPhone), never a host's.
+/** The "price on request" line shown on trip cards and pages. Always our number (site.phone), never a host's.
  * `text` is the sentence, `phone` is the number as shown, `telHref` / `smsHref` are the links ('' when no number is set). */
 export function priceOnRequestLine(): { text: string; phone: string; telHref: string; smsHref: string } {
-  const phone = site.pricingPhone.trim()
+  const phone = site.phone.trim()
   const digits = phone.replace(/\D/g, '')
   if (!digits) return { text: 'Contact us for pricing', phone: '', telHref: '', smsHref: '' }
   const e164 = digits.length === 10 ? `+1${digits}` : `+${digits}`
