@@ -458,7 +458,8 @@ export async function saveGuide(admin: SupabaseClient, row: GuideWrite): Promise
 
 export async function setGuideStatus(admin: SupabaseClient, id: string, status: 'draft' | 'published'): Promise<{ guide?: GuideSummary; error?: string }> {
   const { data, error } = await withScopeFallback((v) =>
-    admin.from('guides').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select(v === 'new' ? SUMMARY_COLUMNS : SUMMARY_COLUMNS_OLD).maybeSingle(),
+    // Publishing is the admin's decision, so the "Held back: ..." notes from the quality gate are cleared with it.
+    admin.from('guides').update(status === 'published' ? { status, quality_notes: null, updated_at: new Date().toISOString() } : { status, updated_at: new Date().toISOString() }).eq('id', id).select(v === 'new' ? SUMMARY_COLUMNS : SUMMARY_COLUMNS_OLD).maybeSingle(),
   )
   if (error) return { error: error.message }
   if (!data) return { error: 'That guide no longer exists.' }
