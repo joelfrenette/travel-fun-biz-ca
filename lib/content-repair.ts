@@ -32,7 +32,7 @@ export type ContentType = 'post' | 'guide' | 'page_copy' | 'package'
 export type EditField = 'body' | 'title' | 'meta_title' | 'meta_description' | 'og_title' | 'og_description' | 'faq' | 'key_takeaways' | 'links' | 'ai_faqs' | 'keywords' | 'status'
 export type EditMethod = 'ai' | 'delete' | 'fixer' | 'links' | 'generate'
 /** The fields a repair can touch. `links` is not one of them: it is how a body edit made only of links is labelled. */
-type LogicalField = Exclude<EditField, 'links' | 'ai_faqs' | 'keywords' | 'status'>
+export type LogicalField = Exclude<EditField, 'links' | 'ai_faqs' | 'keywords' | 'status'>
 
 export interface FaqPair {
   q: string
@@ -789,7 +789,7 @@ export interface RepairResult {
   note: string
 }
 
-function logicalOf(field: OffenderField): LogicalField {
+export function logicalOf(field: OffenderField): LogicalField {
   if (field === 'summary' || field === 'body') return 'body'
   if (field === 'faq_q' || field === 'faq_a') return 'faq'
   if (field === 'takeaway') return 'key_takeaways'
@@ -859,7 +859,7 @@ export function buildEdits(item: Pick<RepairItem, 'type' | 'id' | 'path' | 'stor
 }
 
 /** Applies the plain-code fixers that match the blockers. Returns the new fields (the same object when nothing applied). */
-function applyFixers(f: RepairFields, blockers: string[], item: RepairItem, t: Tracker): RepairFields {
+export function applyFixers(f: RepairFields, blockers: string[], item: RepairItem, t: Tracker): RepairFields {
   const kinds = blockerKinds(blockers)
   let cur = f
   const set = (next: RepairFields, field: LogicalField | LogicalField[], method: EditMethod, reason: string) => {

@@ -8,8 +8,16 @@ import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters
 import { claimDailyOnce, deleteEdits, editsLoggable, insertEdits } from '@/lib/content-edits'
 import { tagVariant } from '@/lib/content-variants'
 import { enrollIfDue } from '@/lib/distribution'
+import { composeFullPost } from '@/lib/blog-composer'
+import { healComposedPost } from '@/lib/heal-targets'
 import { pingIndexNow } from '@/lib/indexnow'
 
+// Growth loop WP19: a draft is no longer left for a person. The shared repair runs first (plain code and one cheap call),
+// and a draft that is still blocked goes through the heal loop (lib/heal-loop.ts: suggester, independent QA judge, up to
+// three rounds, then the escalation ladder). It is published ONLY when the gate and the judge both pass; otherwise it is
+// marked rejected at once (reheal_state 'rejected', also in the heal's rejected list), which frees its slot and its trip.
+// A draft the heal could not reach today (out of budget or time, AI down) is not a failed try and is looked at again.
+//
 // Growth loop WP18-C: blog drafts the quality gate held back used to sit forever. The daily heal-content step now
 // gives each stuck autoblog draft a small number of fresh tries, with the same shared repair the writer uses:
 //   - only drafts the autoblog itself wrote (they carry a cta_style tag), under REHEAL_MAX_AGE_DAYS old, that were
@@ -27,6 +35,8 @@ export const REHEAL_MAX_TRIES = 2
 export const REHEAL_PER_DAY = 2
 const DRAFT_READ_LIMIT = 80
 const PER_POST_DEADLINE_MS = 100_000
+/** The heal loop gets longer per draft than the cheap repair: it makes several calls. The caller's own deadline still wins. */
+const HEAL_LOOP_DEADLINE_MS = 180_000
 
 type Row = Record<string, unknown>
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
@@ -60,7 +70,8 @@ export function isRehealCandidate(row: Row, tags: RehealTags | null, now: Date):
   if (!stuck) return false
   if ((tags.reheal_tries ?? 0) >= REHEAL_MAX_TRIES) return false
   if (tags.reheal_last && tags.reheal_last.slice(0, 10) === now.toISOString().slice(0, 10)) return false
-  if (hardHeldReasons(tags.held_reasons).length > 0) return false
+  // WP19: a draft held for a HARD reason (an experience claim, a price, an outside link ...) is no longer left for a person.
+  // The heal loop removes or softens the sentence behind it, and rejects the draft when that is not enough.
   return true
 }
 
@@ -152,7 +163,7 @@ async function groundingFor(admin: SupabaseClient, post: ComposedPost): Promise<
 
 /** Gives stuck autoblog drafts their daily try. `existing` is the set of paths that exist on the site (for the gate's
  * link check). Never throws. */
-export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall }): Promise<RehealResult> {
+export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number }): Promise<RehealResult> {
   const out: RehealResult = { tried: 0, published: 0, rejected: 0, repaired: 0, calls: 0, problems: [], note: '' }
   const now = opts.now ?? new Date()
   try {
@@ -184,21 +195,58 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
       out.tried++
 
       const composed = composedFromRow(row)
-      const ctx = { allowedPaths: [...opts.existing], groundingText: await groundingFor(admin, composed), deadlineMs: Date.now() + PER_POST_DEADLINE_MS }
+      const itemDeadline = Math.min(Date.now() + PER_POST_DEADLINE_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER)
+      const ctx = { allowedPaths: [...opts.existing], groundingText: await groundingFor(admin, composed), deadlineMs: itemDeadline }
       const repaired = await repairComposedPost(admin, composed, now, ctx, { model: opts.model })
       out.calls += repaired.calls
 
-      // The repair could not even start (no slot left, no log table, an error): that is not the draft's fault, so it does
-      // not use up one of its tries.
-      if (/^not repaired:/.test(repaired.note)) {
+      // The repair could not even start (no log table, an error): that is not the draft's fault, so it does not use up one
+      // of its tries. A full day of repair slots does not stop the heal loop, which has its own budget.
+      if (/^not repaired:/.test(repaired.note) && !/cap of/.test(repaired.note)) {
         out.problems.push(`${path}: ${repaired.note}`)
-        if (/cap of/.test(repaired.note)) break
         continue
       }
 
-      const clean = repaired.blockers.length === 0
-      const next = nextRehealState(tags.reheal_tries ?? 0, clean)
-      const v = repaired.value
+      // WP19: still blocked after the cheap repair means the heal loop, not a wait for a person.
+      let value = repaired.value
+      let blockersNow = repaired.blockers
+      let editIds = repaired.logIds
+      let healStatus: 'healed' | 'rejected_by_heal' | 'deferred' | null = null
+      let healReason = ''
+      if (blockersNow.length) {
+        const healDeadline = Math.min(Date.now() + HEAL_LOOP_DEADLINE_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER)
+        const healed = await healComposedPost(admin, value, now, ctx, {
+          model: opts.model,
+          keepSlug: true,
+          deadlineMs: healDeadline,
+          regenerate: async (reasons) => {
+            const base = [composed.primary_keyword, ...composed.secondary_keywords].filter(Boolean)
+            const angle = `${ctx.groundingText}\n\nA first draft of this post was refused by the quality checks for these reasons, so avoid them: ${reasons.join('; ')}`
+            return composeFullPost(angle, base.length ? base : composed.title, { deadlineMs: healDeadline })
+          },
+        })
+        out.calls += healed.outcome.calls
+        healStatus = healed.outcome.status === 'healed' ? 'healed' : healed.outcome.status === 'rejected_by_heal' ? 'rejected_by_heal' : 'deferred'
+        healReason = healed.outcome.reasons[0] ?? healed.outcome.note
+        if (healed.outcome.status === 'healed') {
+          value = healed.value
+          blockersNow = []
+          editIds = [...editIds, ...healed.logIds]
+        } else if (healed.outcome.status === 'deferred') {
+          // Nothing could be done today (budget, time, the AI): keep any cheap repair, spend no try, look again tomorrow.
+          out.problems.push(`${path}: heal waiting (${healReason})`)
+        }
+      }
+
+      const clean = blockersNow.length === 0
+      // A rejection is final at once (the loop already tried its rounds and the whole ladder); a deferral is not a try.
+      const next =
+        healStatus === 'rejected_by_heal'
+          ? { tries: (tags.reheal_tries ?? 0) + 1, state: 'rejected' as const }
+          : healStatus === 'deferred'
+            ? { tries: tags.reheal_tries ?? 0, state: 'retry' as const }
+            : nextRehealState(tags.reheal_tries ?? 0, clean)
+      const v = value
       const textColumns: Row = {
         title: v.title,
         body: v.body,
@@ -209,7 +257,6 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
         faq: v.faq,
         key_takeaways: v.key_takeaways,
       }
-      const editIds = repaired.logIds
       const changedText = editIds.length > 0
 
       if (clean) {
@@ -243,12 +290,12 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
         continue
       }
 
-      // Still blocked: keep any real text repair on the draft, record why, and count the try.
+      // Still blocked: keep any real text repair on the draft, record why, and count the try (a deferral counts none).
       if (changedText) await writeDraft(admin, id, textColumns, editIds, path, false, out)
       await tagVariant(admin, slug, {
-        held_reasons: repaired.blockers.join('; '),
+        held_reasons: healStatus === 'rejected_by_heal' ? `Rejected by heal: ${healReason}` : healStatus === 'deferred' ? [...blockersNow, `heal waiting: ${healReason}`].join('; ') : blockersNow.join('; '),
         reheal_tries: next.tries,
-        reheal_last: now.toISOString(),
+        ...(healStatus === 'deferred' ? {} : { reheal_last: now.toISOString() }),
         ...(next.state === 'rejected' ? { reheal_state: 'rejected' } : {}),
       })
       if (next.state === 'rejected') out.rejected++

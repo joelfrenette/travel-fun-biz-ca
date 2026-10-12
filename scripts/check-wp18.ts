@@ -81,6 +81,8 @@ const draftRow = (n: number, bodyExtra: string, over: Record<string, unknown> = 
 const tagRow = (n: number, tags: Record<string, unknown>) => ({ slug: `river-cruise-${n}`, variant_tags: { cta_style: 'soft-question', ...tags } })
 const existing = new Set(['/', '/packages', '/packages/rhine-cruise', '/blog'])
 const noModel = async () => null
+// A scripted stand-in for the AI: the QA judge passes, the suggester deletes the flagged sentence, anything else says nothing.
+const stubModel = async (prompt: string): Promise<string | null> => (/independent quality reviewer/.test(prompt) ? '{"pass":true,"failures":[]}' : /repairing sentences/.test(prompt) ? '{"rewrites":[{"id":0,"delete":true}]}' : '{}')
 
 async function main() {
   const now = new Date()
@@ -90,7 +92,7 @@ async function main() {
   const tagsMap = new Map<string, RehealTags>([['river-cruise-1', { cta_style: 'x', held_reasons: 'number not in the grounding: 180' }], ['river-cruise-2', { cta_style: 'x', held_reasons: 'fabricated experience claim' }], ['river-cruise-3', {}], ['river-cruise-4', { cta_style: 'x', held_reasons: 'number not in the grounding: 5', reheal_tries: 2 }], ['river-cruise-5', { cta_style: 'x', held_reasons: 'number not in the grounding: 5', reheal_state: 'rejected' }], ['river-cruise-6', { cta_style: 'x', held_reasons: 'number not in the grounding: 5', reheal_last: now.toISOString() }]])
   const pickRows = [1, 2, 3, 4, 5, 6].map((n) => draftRow(n, ''))
   const picked = selectRehealCandidates(pickRows, tagsMap, now, 5).map((r) => r.slug)
-  check('C: only a held, repairable, autoblog draft with tries left is picked', picked.join() === 'river-cruise-1', picked.join())
+  check('C: a held autoblog draft with tries left is picked, including one held for a HARD reason (WP19: the heal loop takes those too)', picked.join() === 'river-cruise-1,river-cruise-2', picked.join())
   check('C: a never-scored autoblog draft with no held reasons is picked', selectRehealCandidates([draftRow(7, '')], new Map([['river-cruise-7', { cta_style: 'x' }]]), now, 2).length === 1)
   check('C: a draft older than 14 days is not picked', selectRehealCandidates([draftRow(8, '', { created_at: new Date(Date.now() - 15 * 86_400_000).toISOString() })], new Map([['river-cruise-8', { cta_style: 'x', held_reasons: 'number not in the grounding: 1' }]]), now, 2).length === 0)
   check('C: a draft with a scored seo_score and no held reasons is not stuck', selectRehealCandidates([draftRow(9, '', { seo_score: 80 })], new Map([['river-cruise-9', { cta_style: 'x' }]]), now, 2).length === 0)
@@ -116,7 +118,7 @@ async function main() {
         ],
         content_variants: [
           tagRow(1, { held_reasons: 'number not in the grounding: 180' }),
-          tagRow(2, { held_reasons: 'needs a person: "x" holds a price, a date or a named person' }),
+          tagRow(2, { held_reasons: 'needs a person: "x" holds a price, a date or a named person', reheal_state: 'rejected' }),
           tagRow(3, { held_reasons: 'missing FAQ (0 questions, need at least 3)' }),
           tagRow(4, { held_reasons: 'number not in the grounding: 180' }),
           { slug: 'river-cruise-5', variant_tags: { cta_style: 'x', held_reasons: 'number not in the grounding: 180' } },
@@ -132,8 +134,8 @@ async function main() {
     const logged = db.tables.content_edits.filter((e) => e.content_id === 'post-1')
     check('C: the publish and the text edit are both logged in content_edits', logged.some((e) => e.field === 'status' && e.before === 'draft' && e.after === 'published' && e.published_after === true) && logged.some((e) => e.field === 'body'), JSON.stringify(logged.map((e) => e.field)))
     check('C: the held reasons are cleared and the state recorded', tag(1).held_reasons === '' && tag(1).reheal_state === 'published')
-    check('C: the draft held for a price (HARD) is left alone', post(2).status === 'draft' && db.tables.content_edits.filter((e) => e.content_id === 'post-2').length === 0 && !tag(2).reheal_tries)
-    check('C: a draft that cannot pass stays a draft and uses one try', post(3).status === 'draft' && tag(3).reheal_tries === 1 && !tag(3).reheal_state, JSON.stringify(tag(3)))
+    check('C: a draft already rejected by the heal is left alone', post(2).status === 'draft' && db.tables.content_edits.filter((e) => e.content_id === 'post-2').length === 0 && !tag(2).reheal_tries)
+    check('C: with the AI down a draft stays a draft and spends no try (WP19: a deferral is not a failed try)', post(3).status === 'draft' && !tag(3).reheal_tries && !tag(3).reheal_state, JSON.stringify(tag(3)))
     check('C: the blocked draft keeps its new reasons for the admin', String(tag(3).held_reasons).includes('FAQ'))
     check('C: a draft older than 14 days is untouched', post(5).status === 'draft' && String(post(5).body).includes('180'))
     check('C: drafts tried today are not tried twice the same day', (await rehealStuckDrafts(admin, { existing, now, model: noModel })).tried === 0)
@@ -142,8 +144,8 @@ async function main() {
     clearSlots(db)
     const tomorrow = new Date(now.getTime() + 86_400_000)
     db.tables.app_settings = db.tables.app_settings.filter((r) => !String(r.key).startsWith('content_repair_once'))
-    const r2 = await rehealStuckDrafts(admin, { existing, now: tomorrow, model: noModel })
-    check('C: on day two the blocked draft is tried again and retired after 2 failures', tag(3).reheal_state === 'rejected' && tag(3).reheal_tries === 2 && r2.rejected === 1, JSON.stringify(tag(3)))
+    const r2 = await rehealStuckDrafts(admin, { existing, now: tomorrow, model: stubModel })
+    check('C: on day two, with the AI back, the draft the heal cannot fix is rejected at once (WP19)', tag(3).reheal_state === 'rejected' && r2.rejected === 1, JSON.stringify(tag(3)))
     check('C: the retired draft is reported as rejected so its slot is freed', (await rejectedPostSlugs(admin)).has('river-cruise-3'))
     check('C: draft 4 (due but beyond the day-one limit) got its turn on day two', post(4).status === 'published' || tag(4).reheal_tries === 1, JSON.stringify(tag(4)))
 

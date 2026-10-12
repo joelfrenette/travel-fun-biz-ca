@@ -25,7 +25,8 @@ const valueAt = (r: Row, col: string): unknown => {
 export function fakeAdmin(db: Db): SupabaseClient {
   const from = (table: string) => {
     const filters: Array<(r: Row) => boolean> = []
-    let mode: 'select' | 'insert' | 'update' | 'delete' = 'select'
+    let mode: 'select' | 'insert' | 'upsert' | 'update' | 'delete' = 'select'
+    let upsertOn: string[] = ['id']
     let payload: Row[] = []
     let patch: Row = {}
     let head = false
@@ -36,6 +37,21 @@ export function fakeAdmin(db: Db): SupabaseClient {
     const rows = () => (db.tables[table] ??= [])
     const run = (): { data: Row[] | null; error: { message: string; code?: string } | null; count: number | null } => {
       if (mode !== 'select' && db.failWrites?.[table]) return { data: null, error: { message: db.failWrites[table] }, count: null }
+      if (mode === 'upsert') {
+        const touched: Row[] = []
+        for (const p of payload) {
+          const existing = rows().find((r) => upsertOn.every((c) => r[c] === p[c]))
+          if (existing) {
+            Object.assign(existing, p)
+            touched.push(existing)
+          } else {
+            const row: Row = { id: `id-${++counter}`, created_at: new Date().toISOString(), ...p }
+            rows().push(row)
+            touched.push(row)
+          }
+        }
+        return { data: wantRows ? touched : null, error: null, count: touched.length }
+      }
       if (mode === 'insert') {
         const inserted: Row[] = []
         for (const p of payload) {
@@ -67,7 +83,7 @@ export function fakeAdmin(db: Db): SupabaseClient {
     }
     const q: Record<string, unknown> = {
       select: (_cols?: string, o?: { head?: boolean }) => {
-        if (mode === 'insert' || mode === 'update') wantRows = true
+        if (mode === 'insert' || mode === 'update' || mode === 'upsert') wantRows = true
         head = !!o?.head
         return q
       },
@@ -77,9 +93,11 @@ export function fakeAdmin(db: Db): SupabaseClient {
         wantRows = false
         return q
       },
-      upsert: (row: Row | Row[]) => {
-        mode = 'insert'
+      // Like Supabase: a row whose conflict column(s) match an existing row UPDATES it; otherwise it is inserted.
+      upsert: (row: Row | Row[], o?: { onConflict?: string }) => {
+        mode = 'upsert'
         payload = Array.isArray(row) ? row : [row]
+        upsertOn = (o?.onConflict ?? 'id').split(',').map((c) => c.trim())
         wantRows = false
         return q
       },

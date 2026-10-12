@@ -259,8 +259,11 @@ export function columnsFor(type: ContentType, field: EditField, text: string): R
     case 'title':
       return type === 'post' ? { title: text } : null
     case 'status':
-      // Only the re-heal of stuck blog drafts logs a status edit (draft to published); undoing it unpublishes the post.
-      if (type !== 'post' || (text !== 'draft' && text !== 'published')) return null
+      // The heal logs a status edit (draft to published) when it publishes a held draft; undoing it unpublishes the page.
+      // A post also has a publish date; guides and page copy only a status.
+      if (text !== 'draft' && text !== 'published') return null
+      if (type === 'guide' || type === 'page_copy') return { status: text }
+      if (type !== 'post') return null
       return text === 'draft' ? { status: 'draft', publish_date: null } : { status: 'published', publish_date: new Date().toISOString().slice(0, 10) }
     default:
       return { [field]: text }
