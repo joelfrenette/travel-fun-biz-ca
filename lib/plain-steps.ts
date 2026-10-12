@@ -25,6 +25,9 @@ export const HARD_WAITING_ISSUE_ID = 'system:content-hard-waiting'
 /** The Needs attention item for parts of a "Promote this package" click that did not work (WP15). Same reason as above. */
 export const PROMOTION_ISSUE_ID = 'system:promotion-failing'
 
+/** The Needs attention item for live guide pages that no other page links to (WP16). Same reason as above. */
+export const GUIDE_ORPHANS_ISSUE_ID = 'system:guide-orphans'
+
 /** The page anchor of one issue on the Content Autopilot page, so an email can link straight to it. */
 export const issueAnchor = (id: string) => `issue-${id.replace(/[^a-z0-9]+/gi, '-')}`
 
@@ -144,6 +147,23 @@ export function plainAction(i: Issue): PlainAction {
       ],
       url: autopilot(i.id),
       urlLabel: 'Open this problem',
+      paste,
+    }
+  }
+  if (i.id === GUIDE_ORPHANS_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'These pages are live, but no other page on the site links to them. Google and visitors find pages by following links, so a page with no link in is hard to find and ranks worse.',
+      steps: [
+        'Open the Pages list with the link below. It is already filtered to the pages nothing links to.',
+        'Click Edit on one page and look at the name in the "Sits under" box. A hotel or a port should sit under its country or city (the web address name, for example italy).',
+        'Type the parent, click Save changes, and the parent page now links down to it.',
+        'You can also write a blog post about the place. A post links to a page when the page name is in its title or tags.',
+        'You do not need to fix them all today. This list refreshes by itself every few hours, and the item goes away when the list is empty.',
+      ],
+      url: adminLink('/admin/guides?filter=orphans'),
+      urlLabel: 'Open the pages nothing links to',
       paste,
     }
   }

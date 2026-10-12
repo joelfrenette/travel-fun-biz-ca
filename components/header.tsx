@@ -2,8 +2,8 @@
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Menu, X } from "lucide-react"
-import { useEffect, useState } from "react"
+import { ChevronDown, Menu, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
 import { ctaLink, primaryNavLinks, type NavLink } from "@/content/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -17,6 +17,43 @@ import { translate } from "@/lib/i18n"
 
 const linkClassName =
   "text-sm font-medium uppercase text-primary transition-colors hover:text-primary/80 dark:text-primary dark:hover:text-primary/80"
+
+/** A grouped item ("Cruises & Resorts"): a button that opens a short list of links. Closes on a click outside, on
+ * Escape and after a choice. In the phone menu the same links are shown as an indented list instead. */
+function NavGroup({ link, label, language, onChoose }: { link: NavLink; label: string; language: Language; onChoose?: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false) }
+    document.addEventListener("mousedown", onDown)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("mousedown", onDown)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [open])
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" className={`${linkClassName} inline-flex items-center gap-1`} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {label}
+        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      {open && (
+        <ul className="absolute left-0 top-full z-50 mt-2 min-w-[12rem] rounded-md border border-border bg-background py-2 shadow-lg">
+          {(link.children ?? []).map((child) => (
+            <li key={child.href}>
+              <Link href={child.href} className="block px-4 py-2 text-sm font-medium uppercase text-primary hover:bg-muted" onClick={() => { setOpen(false); onChoose?.() }}>
+                {translate(language, child.label)}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 function renderNavLink(link: NavLink, label: string, onClick?: () => void) {
   if (link.external) {
@@ -79,9 +116,13 @@ export function Header({ language, currency }: HeaderProps) {
         </a>
 
         {/* Desktop Navigation */}
-        <div className="hidden items-center gap-8 md:flex">
+        <div className="hidden items-center gap-5 md:flex lg:gap-8">
           {primaryNavLinks.map((link) =>
-            renderNavLink(link, translate(language, link.label)),
+            link.children ? (
+              <NavGroup key={link.label} link={link} label={translate(language, link.label)} language={language} />
+            ) : (
+              renderNavLink(link, translate(language, link.label))
+            ),
           )}
         </div>
 
@@ -110,7 +151,16 @@ export function Header({ language, currency }: HeaderProps) {
         <div className="border-t border-border bg-background md:hidden">
           <div className="container mx-auto flex flex-col gap-4 px-4 py-6">
             {primaryNavLinks.map((link) =>
-              renderNavLink(link, translate(language, link.label), () => setMobileMenuOpen(false)),
+              link.children ? (
+                <div key={link.label} className="flex flex-col gap-3">
+                  <span className="text-sm font-medium uppercase text-muted-foreground">{translate(language, link.label)}</span>
+                  <div className="flex flex-col gap-3 border-l border-border pl-4">
+                    {link.children.map((child) => renderNavLink(child, translate(language, child.label), () => setMobileMenuOpen(false)))}
+                  </div>
+                </div>
+              ) : (
+                renderNavLink(link, translate(language, link.label), () => setMobileMenuOpen(false))
+              ),
             )}
             <Button asChild className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
               <Link href={ctaLink.href} onClick={() => setMobileMenuOpen(false)}>

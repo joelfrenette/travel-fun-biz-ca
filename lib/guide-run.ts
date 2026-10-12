@@ -10,6 +10,9 @@ import { composeGuide, guideBlockers, groundingText, type GuideBrief, type Brief
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedGuide } from '@/lib/content-repair-adapters'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
+import { inferScope } from '@/lib/guide-scope'
+import { MODE_HOLD_NOTE } from '@/lib/guide-list'
+import { BACKFILL_KIND_ORDER, backfillProgress, effectiveGuideCaps, planBackfill, readBackfillState, type BackfillPlan, type BackfillProgress, type BackfillState } from '@/lib/guide-backfill'
 import { clearGuideFailure, readGuideFailures, recordGuideFailure, recentGuideFailureCount, MAX_GUIDE_ATTEMPTS, BREAKER_FAILURES, BREAKER_HOURS } from '@/lib/guide-failures'
 import {
   GUIDE_KINDS,
@@ -211,7 +214,7 @@ export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source:
   void kind
   void source
   if (blockers.length) return { publish: false, note: blockers.join('; ') }
-  if (mode !== 'publish') return { publish: false, note: 'held for review (guides_publish_mode=draft)' }
+  if (mode !== 'publish') return { publish: false, note: MODE_HOLD_NOTE }
   return { publish: true, note: null }
 }
 
@@ -220,8 +223,10 @@ export function publishDecision(kind: GuideKind, mode: GuidePublishMode, source:
 // ---------------------------------------------------------------------------------------------------
 
 /** True for a property name that "Promote this package" took from a trip title: such a guide is always a draft. */
-export function isGuessedProperty(cand: Pick<GuideCandidate, 'origin' | 'priority'>): boolean {
-  return cand.origin === 'package' && !!cand.priority
+export function isGuessedProperty(cand: Pick<GuideCandidate, 'origin' | 'priority' | 'backfill'>): boolean {
+  // A name taken from a trip title may not be a real hotel, resort, ship or line. That holds for a promoted package
+  // (WP15) and for the one-time backfill (WP16): both are always saved as drafts for a person to check.
+  return cand.origin === 'package' && (!!cand.priority || !!cand.backfill)
 }
 
 export interface WriteGuideResult {
@@ -305,6 +310,7 @@ export async function writeGuide(
       slug: cand.slug,
       name: cand.name,
       parent_slug: cand.parent_slug,
+      scope: cand.scope ?? inferScope(cand.kind, cand.name),
       summary: guide.summary,
       body: guide.body,
       sections: guide.sections,
@@ -366,7 +372,7 @@ const ORIGIN_ORDER: Record<GuideCandidate['origin'], number> = { destination: 0,
  * MAX_GUIDE_ATTEMPTS times is skipped. */
 export async function pickNextCandidate(admin: SupabaseClient, candidates: GuideCandidate[]): Promise<GuideCandidate | null> {
   const failures = await readGuideFailures(admin)
-  const eligible = candidates.filter((c) => (c.origin !== 'package' || c.priority) && (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
+  const eligible = candidates.filter((c) => (c.origin !== 'package' || c.priority || c.backfill) && (failures[`${c.kind}:${c.slug}`]?.n ?? 0) < MAX_GUIDE_ATTEMPTS)
   if (eligible.length === 0) return null
 
   // A guide that "Promote this package" put at the front of the line (WP15) is written before the normal rotation, under
@@ -374,6 +380,12 @@ export async function pickNextCandidate(admin: SupabaseClient, candidates: Guide
   // (origin 'package') is always saved as a draft (see writeGuide), so a guessed name is never published or posted.
   const promoted = eligible.filter((c) => c.priority)
   if (promoted.length > 0) return promoted.sort((a, b) => ORIGIN_ORDER[a.origin] - ORIGIN_ORDER[b.origin] || (a.kind === 'destinations' ? -1 : 0) - (b.kind === 'destinations' ? -1 : 0))[0]
+
+  // Pages on the one-time backfill list (WP16) come next: destinations first, then cruise lines, ships, resorts, hotels,
+  // river cruises, yachts. They obey the same gate and publish decision; only the number written per day differs while
+  // the batch runs (see effectiveGuideCaps). With the batch used up they continue here at the normal daily cap.
+  const backfilled = eligible.filter((c) => c.backfill)
+  if (backfilled.length > 0) return backfilled.sort((a, b) => BACKFILL_KIND_ORDER.indexOf(a.kind) - BACKFILL_KIND_ORDER.indexOf(b.kind) || a.name.localeCompare(b.name))[0]
 
   const { data } = await admin.from('guides').select('kind, created_at').order('created_at', { ascending: false })
   const newest = new Map<string, string>()
@@ -389,12 +401,38 @@ export async function pickNextCandidate(admin: SupabaseClient, candidates: Guide
   return eligible.filter((c) => c.kind === kind).sort((a, b) => ORIGIN_ORDER[a.origin] - ORIGIN_ORDER[b.origin])[0] ?? null
 }
 
+/** The pages a one-time backfill would queue right now, from the published trips. Reads only: no AI call, no write. */
+export async function buildBackfillPlan(admin: SupabaseClient): Promise<BackfillPlan> {
+  const [candidates, failures] = await Promise.all([listGuideCandidates(admin), readGuideFailures(admin)])
+  return planBackfill(candidates, failures, MAX_GUIDE_ATTEMPTS)
+}
+
+/** The backfill state and how far it has got, or null when there is none or it cannot be read (no extra allowance
+ * is then given: fail closed). */
+export async function loadBackfillProgress(admin: SupabaseClient): Promise<{ state: BackfillState; progress: BackfillProgress } | null> {
+  const state = await readBackfillState(admin)
+  if (!state || state.cancelled_at) return null
+  const { data, error } = await admin.from('guides').select('kind, slug, created_at')
+  if (error) return null
+  return { state, progress: backfillProgress(state, (data ?? []) as { kind: string; slug: string; created_at: string }[], await readGuideFailures(admin), MAX_GUIDE_ATTEMPTS) }
+}
+
+/** The caps to use for the picked page: the backfill allowance only when the page is on the backfill list, else the base caps. Pure. */
+export function capsForCandidate(
+  base: { perDay: number; perWeek: number },
+  cand: Pick<GuideCandidate, 'backfill'> | null,
+  backfill: { state: Pick<BackfillState, 'batch_cap'>; progress: Pick<BackfillProgress, 'remainingBatch'> } | null,
+): { perDay: number; perWeek: number } {
+  if (!cand || cand.backfill !== true || !backfill) return base
+  return effectiveGuideCaps(base, backfill.progress, backfill.state.batch_cap)
+}
+
 /** The pipeline's guides step: at most `guides_per_day` and `guides_per_week` (counted from the guides table,
  * failing closed), one guide per call, and none at all while the failure breaker is tripped. The caller has
  * already checked that Autopilot is on and not paused. */
 export async function runGuidesStep(admin: SupabaseClient, opts: { deadlineMs?: number } = {}): Promise<{ ok: boolean; note: string }> {
-  const { perDay, perWeek } = await getGuideCaps(admin)
-  if (perDay === 0 || perWeek === 0) return { ok: true, note: 'guides are switched off (a cap is 0)' }
+  const base = await getGuideCaps(admin)
+  if (base.perDay === 0 || base.perWeek === 0) return { ok: true, note: 'guides are switched off (a cap is 0)' }
   if (!isAiConfigured()) return { ok: true, note: 'AI writing is not configured, so no guides' }
 
   // The breaker comes before any AI call. If the log cannot be read, stay closed.
@@ -406,10 +444,13 @@ export async function runGuidesStep(admin: SupabaseClient, opts: { deadlineMs?: 
   // Fail closed AND visible: if the count cannot be read (for example the guides table does not exist yet),
   // nothing is written and the step shows as failed so it appears under Needs attention.
   if (usage.today === null || usage.week === null) return { ok: false, note: 'could not check how many guides were written (is the guides table set up?), so nothing was written' }
-  if (usage.today >= perDay) return { ok: true, note: `daily cap reached (${usage.today} of ${perDay} today)` }
-  if (usage.week >= perWeek) return { ok: true, note: `weekly cap reached (${usage.week} of ${perWeek} this week)` }
 
   const cand = await pickNextCandidate(admin, await listGuideCandidates(admin))
+  // The one-time backfill (WP16) lifts the caps by a bounded amount, and ONLY for a page that is on its list, until its
+  // batch is written. Any other page (and every page once the batch is used up) runs under the normal caps.
+  const { perDay, perWeek } = capsForCandidate(base, cand, await loadBackfillProgress(admin))
+  if (usage.today >= perDay) return { ok: true, note: `daily cap reached (${usage.today} of ${perDay} today)` }
+  if (usage.week >= perWeek) return { ok: true, note: `weekly cap reached (${usage.week} of ${perWeek} this week)` }
   if (!cand) return { ok: true, note: 'no guide candidates left (all written, or skipped after repeated failures)' }
 
   const result = await writeGuide(admin, cand, {

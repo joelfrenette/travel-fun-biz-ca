@@ -465,3 +465,26 @@ wizard; a real recap write; an agent round trip; the first trip heal; Outlook re
 
 **Next (filed, not started):** WP15 "Promote this package" (tracker row set back to backlog); gate tuning from week-1
 evidence; the daytime items from the earlier entries.
+
+## WP16: pages backfill, Pages list, scope labels, internal links, richer template (2026-10-12, built, NOT merged)
+
+Branch worktree-agent-a023682b3efe2df25, five commits. Migration 0041 (`guide_scope.sql`) written, NOT applied; every read
+and write falls back to the old columns until it is, so nothing breaks in between.
+
+- Backfill: `/admin/guides` card "One-time backfill from your trips". Preview is a dry run (no AI call, no write): the
+  pages, the ones left out and why, an estimate range ($0.05 a call, 2 to 4 calls a page). Start needs a batch size
+  chosen after the estimate (1 to 40, never uncapped). The existing pipeline guides step writes the list first and may
+  go up to 4 a day over the daily cap only until the batch is written; then the normal cap carries on, then the seed
+  list (countries, ports, suppliers). Same fact gate and publish decision; WP15's guessed-property rule untouched.
+- Pages list: `/admin/guides` (search, sort, filters, paging on the server), Review queue (AI drafts nobody rejected),
+  bulk Publish (clean drafts only) and Reject, edit scope, parent and meta text on the page screen (text edits logged to
+  Content edits, so Undo works), empty destination blurbs with the existing Generate with AI.
+- Scope: nine labels, inferred only from short known lists or name words, otherwise left empty. Parent chains drive the
+  breadcrumbs and the "More guides under" blocks.
+- Links: header Destinations and Cruises & Resorts menu, footer Explore block, home "Where our trips go", guide pages
+  link to blog posts, one Needs attention item for live pages nothing links to. Trip pages link to guides: helper
+  `listGuidesForPackage` is ready, the trip page itself belongs to the other branch.
+- Template: AI agent line from `site.phone`, key facts table, trip bullets, route diagram and trip-length chart only
+  when the stored itinerary or lengths exist, srcset hero images. No map (no coordinates are stored). No video.
+
+**Unverified:** every new screen and public block in a browser; the backfill with a real run; migration 0041 applied.

@@ -4,7 +4,12 @@ import { notFound } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
-import { getPublishedGuide, listRelatedGuides, oneLineSummary, getPublishedPackagesByIds, guideKinds, guidePath, type PublicGuide, type GuideKind } from "@/lib/guides"
+import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, oneLineSummary, getPublishedPackagesByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
+import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
+import { GuideCta } from "@/components/guide-cta"
+import { GuideFacts } from "@/components/guide-facts"
+import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
+import type { FactsInput } from "@/lib/guide-facts"
 import { getDestinationSlugs } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
@@ -25,7 +30,7 @@ const cleanText = (s: string) => s.replace(/\s+/g, " ").trim()
  * fields we really have go in: no address, rating or price. */
 export { GuideTakeaways, GuideArticle, GuideFaqList }
 
-export function guideJsonLd(guide: PublicGuide): object[] {
+export function guideJsonLd(guide: PublicGuide, trail?: TrailStep[]): object[] {
   const info = guideKinds[guide.kind]
   const url = absoluteUrl(guidePath(guide.kind, guide.slug))
   const description = guide.meta_description || cleanText(guide.summary)
@@ -55,8 +60,12 @@ export function guideJsonLd(guide: PublicGuide): object[] {
       "@type": "BreadcrumbList",
       itemListElement: [
         { "@type": "ListItem", position: 1, name: "Home", item: absoluteUrl("/") },
-        { "@type": "ListItem", position: 2, name: info.plural, item: absoluteUrl(info.urlPrefix) },
-        { "@type": "ListItem", position: 3, name: guide.name, item: url },
+        ...(trail && trail.length > 0
+          ? trail.map((step, i) => ({ "@type": "ListItem", position: i + 2, name: step.name, item: absoluteUrl(step.path) }))
+          : [
+              { "@type": "ListItem", position: 2, name: info.plural, item: absoluteUrl(info.urlPrefix) },
+              { "@type": "ListItem", position: 3, name: guide.name, item: url },
+            ]),
       ],
     },
   ]
@@ -99,36 +108,62 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const info = guideKinds[kind]
   const { language, currency } = getVisitorPreferences()
   const bestTimeSlug = kind === "destinations" ? slug : guide.parent_slug
-  const [usdToTargetRate, packages, relatedGuides, destinations, bestTime] = await Promise.all([
+  const [usdToTargetRate, packages, allGuides, destinations, bestTime, stories, tripFacts] = await Promise.all([
     getUsdToRate(currency),
     getPublishedPackagesByIds(guide.related_package_ids),
-    // Up to 6 other published guides: same parent first, then the same kind, then ones sharing a trip.
-    listRelatedGuides(guide, 6),
+    // Every published guide as a link row: related guides, the parent chain and the pages under this one all come from it.
+    listPublishedGuideLinks(),
     guide.parent_slug ? getDestinationSlugs() : Promise.resolve([]),
     // Only for a destination guide or a guide whose parent is a destination: the best-time page exists only when a real dated package does.
     bestTimeSlug ? getBestTimeToVisitPage(bestTimeSlug) : Promise.resolve(null),
+    // Blog posts written for one of this page's trips, or whose title or tags name this page. Empty when none match.
+    listPostsForGuide(guide, 3),
+    // The stored facts of this page's published trips (dates, length, itinerary stops) for the facts block.
+    getTripFactsByIds(guide.related_package_ids),
   ])
   const parentGuide = guide.parent_slug ? await getPublishedGuide("destinations", guide.parent_slug) : null
   const parentDestination = guide.parent_slug ? destinations.find((d) => d.slug === guide.parent_slug) : undefined
   const parentName = parentGuide?.name ?? parentDestination?.destination ?? null
+  // Up to 6 other published guides: same parent first, then the same kind, then ones sharing a trip.
+  const relatedGuides = pickRelatedGuides(guide, allGuides, 6)
+  // Breadcrumb: the parents (a country, then a city, then a port), then this page. A parent with trips but no guide still gets a link.
+  const trail = guideTrail(guide, allGuides, guide.parent_slug && parentName ? { slug: guide.parent_slug, name: parentName } : null)
+  const children = childGroups(guide, allGuides)
+  const scope = scopeOf(guide)
+  const parentStep = trail.length > 1 ? trail[trail.length - 2] : null
+  const factsInput: FactsInput = {
+    kindLabel: info.label,
+    scope,
+    // The step above this page in the trail, unless that step is only the kind's index page (no parent was found).
+    parent: parentStep && guide.parent_slug && parentStep.path !== info.urlPrefix ? { name: parentStep.name, path: parentStep.path } : null,
+    trips: tripFacts,
+    bestTime: bestTime && bestTimeSlug ? { destination: bestTime.destination, path: `/best-time-to-visit/${bestTimeSlug}` } : null,
+    childCount: children.reduce((n, g) => n + g.items.length, 0),
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(guideJsonLd(guide)) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(guideJsonLd(guide, trail)) }} />
 
         <div className="border-b bg-muted/30">
           <div className="container mx-auto max-w-4xl px-4 py-10">
             <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
               <Link href="/" className="hover:underline">Home</Link>
               <span className="mx-1.5">/</span>
-              <Link href={info.urlPrefix} className="hover:underline">{info.plural}</Link>
-              <span className="mx-1.5">/</span>
+              {trail.slice(0, -1).map((step) => (
+                <span key={step.path}>
+                  <Link href={step.path} className="hover:underline">{step.name}</Link>
+                  <span className="mx-1.5">/</span>
+                </span>
+              ))}
               <span className="text-foreground">{guide.name}</span>
             </nav>
-            <h1 className="mt-3 text-balance text-3xl font-bold text-foreground sm:text-4xl">{guide.name}: {info.guideLabel}</h1>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{scope ? `${SCOPE_LABEL[scope]} guide` : `${info.label} guide`}</p>
+            <h1 className="mt-1 text-balance text-3xl font-bold text-foreground sm:text-4xl">{guide.name}: {info.guideLabel}</h1>
             <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground">{guide.summary}</p>
+            <GuideCta name={guide.name} compact />
           </div>
         </div>
 
@@ -136,14 +171,39 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
           {guide.hero_image_url && (
             <figure>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={guide.hero_image_url} alt={guide.hero_alt || guide.name} className="aspect-[16/9] w-full rounded-xl object-cover" />
+              <img
+                src={guide.hero_image_url}
+                srcSet={heroSrcSet(guide.hero_image_url) ?? undefined}
+                sizes={heroSrcSet(guide.hero_image_url) ? HERO_SIZES.page : undefined}
+                alt={guide.hero_alt || guide.name}
+                className="aspect-[16/9] w-full rounded-xl object-cover"
+              />
               <figcaption className="mt-1.5 text-xs text-muted-foreground">Illustrative stock photo.</figcaption>
             </figure>
           )}
 
           <GuideTakeaways guide={guide} />
+          <GuideFacts input={factsInput} />
           <GuideArticle guide={guide} />
           <GuideFaqList guide={guide} />
+
+          {children.length > 0 && (
+            <section aria-labelledby="inside-heading">
+              <h2 id="inside-heading" className="mb-3 text-xl font-bold text-foreground">More guides under {guide.name}</h2>
+              <div className="space-y-4">
+                {children.map((group) => (
+                  <div key={group.label}>
+                    <h3 className="mb-1.5 text-sm font-semibold uppercase text-muted-foreground">{group.label}</h3>
+                    <ul className="flex flex-wrap gap-2">
+                      {group.items.slice(0, 24).map((g) => (
+                        <li key={g.id}><Link href={guidePath(g.kind, g.slug)} className="inline-block rounded-full border bg-card px-3 py-1 text-sm font-medium text-foreground hover:bg-muted">{g.name}</Link></li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {packages.length > 0 && (
             <section>
@@ -156,14 +216,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
             </section>
           )}
 
-          <section className="rounded-xl border bg-muted/30 p-6 text-center">
-            <p className="text-lg font-semibold text-foreground">Thinking about {guide.name}?</p>
-            <p className="mt-1 text-sm text-muted-foreground">Tell us who is travelling and roughly when, and our team will help you work out the right trip.</p>
-            <div className="mt-4 flex flex-wrap justify-center gap-3">
-              <Link href="/#contact" className="inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
-              <Link href="/packages" className="inline-block rounded-md border px-6 py-3 text-sm font-bold uppercase text-foreground hover:bg-muted">See all trips</Link>
-            </div>
-          </section>
+          <GuideCta name={guide.name} />
 
           {relatedGuides.length > 0 && (
             <section aria-labelledby="related-guides-heading">
@@ -177,6 +230,17 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
                       <span className="mt-1 block text-sm text-muted-foreground">{oneLineSummary(g.summary)}</span>
                     </Link>
                   </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {stories.length > 0 && (
+            <section aria-labelledby="stories-heading">
+              <h2 id="stories-heading" className="mb-3 text-xl font-bold text-foreground">From the blog</h2>
+              <ul className="space-y-1.5">
+                {stories.map((p) => (
+                  <li key={p.id}><Link href={`/blog/${p.slug}`} className="font-medium text-foreground hover:underline">{p.title}</Link></li>
                 ))}
               </ul>
             </section>

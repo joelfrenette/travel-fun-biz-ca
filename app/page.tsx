@@ -6,6 +6,8 @@ import { PackagesSection } from "@/components/packages-section"
 import { ContactForm } from "@/components/contact-form"
 import { Footer } from "@/components/footer"
 import { TestimonialsSection } from "@/components/testimonials-section"
+import { TopDestinations } from "@/components/top-destinations"
+import { listTopDestinationGuides } from "@/lib/guides"
 import { getPackages } from "@/lib/packages"
 import { getPublishedTestimonials } from "@/lib/testimonials"
 import { getVisitorPreferences } from "@/lib/preferences"
@@ -36,7 +38,7 @@ const organizationJsonLd = {
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
   const { language, currency } = preferences
-  const [packages, usdToTargetRate, testimonials] = await Promise.all([getPackages(), getUsdToRate(currency), getPublishedTestimonials()])
+  const [packages, usdToTargetRate, testimonials, topDestinations] = await Promise.all([getPackages(), getUsdToRate(currency), getPublishedTestimonials(), listTopDestinationGuides(6)])
   const packageNames = packages.map((pkg) => pkg.name)
 
   return (
@@ -51,6 +53,7 @@ export default async function HomePage() {
           currency={currency}
           usdToTargetRate={usdToTargetRate}
         />
+        <TopDestinations items={topDestinations} />
         <FeaturesSection language={language} />
 
         <TestimonialsSection language={language} testimonials={testimonials} />

@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -31,11 +31,11 @@ const unsortedTools: AdminNavItem[] = [
     href: "/admin/packages",
   },
   {
-    title: "Destinations",
-    description: "A short editorial blurb for each destination, shown on its /destinations page above the trip listings. AI-assisted, admin-reviewed.",
-    icon: Globe,
+    title: "Guide Pages",
+    description: "Destination, hotel, resort, cruise line, ship, river cruise and yacht pages: the site writes, improves and publishes them for Google, AI answers and enquiries. One screen for the backfill, the review queue and the searchable list.",
+    icon: Layers,
     status: "Active",
-    href: "/admin/destinations",
+    href: "/admin/guides",
   },
   {
     title: "Keyword Research",

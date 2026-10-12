@@ -4,6 +4,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { listPublishedGuides, guideKinds, guidePath, type GuideKind, type GuideSummary } from "@/lib/guides"
 import { getDestinationSlugs } from "@/lib/destinations"
+import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
@@ -109,7 +110,7 @@ export async function GuideIndexPage({ kind }: { kind: GuideKind }) {
                   {it.image && (
                     <div className="aspect-[16/9] overflow-hidden bg-muted">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={it.image} alt={it.alt || it.name} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                      <img src={it.image} srcSet={heroSrcSet(it.image) ?? undefined} sizes={HERO_SIZES.card} alt={it.alt || it.name} loading="lazy" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
                     </div>
                   )}
                   <div className="flex flex-1 flex-col gap-2 p-5">
