@@ -9,7 +9,7 @@ import { getSearchConsoleQueries, isSearchConsoleConfigured } from '@/lib/search
 import { rankedPageByKeyword } from '@/lib/keyword-pages'
 import { listSitePages, type SitePage } from '@/lib/site-pages'
 import type { ScorePackage } from '@/lib/keyword-score'
-import { keywordSetOf, type BlogTopicQueueRow } from '@/lib/blog-topics'
+import { autoApproveDecision, countApprovedUnused, keywordSetOf, recordAutoApprovals, type AutoApprovalEntry, type BlogTopicQueueRow } from '@/lib/blog-topics'
 import {
   buildClusters,
   chooseClustersToPlan,
@@ -536,28 +536,44 @@ export async function runKeywordEngine(admin: SupabaseClient, opts: { force?: bo
       }
       let queued = 0
       let duplicates = 0
+      let autoApproved = 0
+      const approvals: AutoApprovalEntry[] = []
+      // The approved-and-unused backlog is counted once, then kept up to date as ideas are approved here.
+      let backlog = planned.length ? await countApprovedUnused(admin) : null
+      const validSlugs = new Set(packages.map((x) => x.slug))
       for (const p of planned) {
         const keywords = [p.draft.primary_keyword, ...p.draft.secondary_keywords]
         const pkg = p.draft.package_slug ? packages.find((x) => x.slug === p.draft.package_slug) : undefined
         const volume = rows.find((r) => r.keyword === p.cluster.primary)?.volume
         const why = `Topic score ${p.cluster.score}/100${volume ? `, ${volume} Google searches a month for the main phrase` : ''}${p.draft.who_for ? `. For: ${p.draft.who_for}` : ''}${pkg ? `. Sells: ${pkg.name}` : ''}`
+        // Auto-approval: the final idea text goes through the same plan checks again (a no-AI idea included).
+        const packageText = pkg ? `${pkg.name} ${pkg.destination ?? ''} ${pkg.short_description ?? ''}` : ''
+        const recheck = validatePlanItem(p.draft, p.cluster, validSlugs, packageText)
+        const decision = autoApproveDecision({ score: p.cluster.score, packageSlug: pkg ? pkg.slug : null, blockers: recheck.ok ? [] : recheck.problems }, backlog)
         const { error } = await admin.from('blog_topic_queue').insert({
           angle: p.draft.angle,
           keyword: p.draft.primary_keyword,
           why,
           source: p.byAi ? 'keyword engine' : 'keyword engine (no AI)',
-          status: 'suggested',
+          status: decision.approve ? 'approved' : 'suggested',
           keywords,
           cluster_id: p.cluster.id,
           title_idea: p.draft.title_idea,
           score: p.cluster.score,
         })
-        if (!error) queued++
-        else if ((error as { code?: string }).code === '23505') duplicates++
+        if (!error) {
+          queued++
+          if (decision.approve) {
+            autoApproved++
+            if (backlog !== null) backlog++
+            approvals.push({ at: new Date().toISOString(), keyword: p.draft.primary_keyword, score: p.cluster.score, reason: decision.reason })
+          }
+        } else if ((error as { code?: string }).code === '23505') duplicates++
         else throw new Error(`could not save an idea: ${error.message}`)
       }
+      await recordAutoApprovals(admin, approvals)
       run.ideasAdded = queued
-      stage('TRACK', failed === 0, `${written} of ${rows.length} phrases updated${failed ? `, ${failed} failed` : ''}; ${queued} new blog idea${queued === 1 ? '' : 's'} saved${duplicates ? ` (${duplicates} already queued)` : ''}`)
+      stage('TRACK', failed === 0, `${written} of ${rows.length} phrases updated${failed ? `, ${failed} failed` : ''}; ${queued} new blog idea${queued === 1 ? '' : 's'} saved${autoApproved ? ` (${autoApproved} auto-approved)` : ''}${duplicates ? ` (${duplicates} already queued)` : ''}`)
     } catch (e) {
       stage('TRACK', false, errMsg(e, 'saving failed'))
     }
