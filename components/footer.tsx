@@ -1,6 +1,7 @@
 import Link from "next/link"
 import Image from "next/image"
 import { aboutLinks, legalLinks, officeInfo, recognitionBadges, socialPromos } from "@/content/footer"
+import { cruiseAndResortLinks, destinationsLink } from "@/content/navigation"
 import { NewsletterForm } from "@/components/newsletter-form"
 import { CookieSettingsLink } from "@/components/cookie-settings-link"
 import type { Language } from "@/lib/preferences"
@@ -42,6 +43,15 @@ export function Footer({ language }: FooterProps) {
                 </a>
               </div>
             </div>
+
+            <nav aria-label="Explore our guides" className="space-y-2 text-xs text-gray-400">
+              <p className="font-semibold uppercase text-white">{translate(language, "Explore")}</p>
+              {[destinationsLink, ...cruiseAndResortLinks].map((link) => (
+                <Link key={link.href} href={link.href} className="block hover:text-white">
+                  {translate(language, link.label)}
+                </Link>
+              ))}
+            </nav>
 
             <div className="space-y-2 text-xs text-gray-400">
               {aboutLinks.map((link) => (

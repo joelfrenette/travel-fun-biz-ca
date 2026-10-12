@@ -4,7 +4,7 @@ import { notFound } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
-import { getPublishedGuide, listPublishedGuideLinks, pickRelatedGuides, guideTrail, childGroups, oneLineSummary, getPublishedPackagesByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
+import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, oneLineSummary, getPublishedPackagesByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
 import { getDestinationSlugs } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
@@ -104,7 +104,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const info = guideKinds[kind]
   const { language, currency } = getVisitorPreferences()
   const bestTimeSlug = kind === "destinations" ? slug : guide.parent_slug
-  const [usdToTargetRate, packages, allGuides, destinations, bestTime] = await Promise.all([
+  const [usdToTargetRate, packages, allGuides, destinations, bestTime, stories] = await Promise.all([
     getUsdToRate(currency),
     getPublishedPackagesByIds(guide.related_package_ids),
     // Every published guide as a link row: related guides, the parent chain and the pages under this one all come from it.
@@ -112,6 +112,8 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
     guide.parent_slug ? getDestinationSlugs() : Promise.resolve([]),
     // Only for a destination guide or a guide whose parent is a destination: the best-time page exists only when a real dated package does.
     bestTimeSlug ? getBestTimeToVisitPage(bestTimeSlug) : Promise.resolve(null),
+    // Blog posts written for one of this page's trips, or whose title or tags name this page. Empty when none match.
+    listPostsForGuide(guide, 3),
   ])
   const parentGuide = guide.parent_slug ? await getPublishedGuide("destinations", guide.parent_slug) : null
   const parentDestination = guide.parent_slug ? destinations.find((d) => d.slug === guide.parent_slug) : undefined
@@ -211,6 +213,17 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
                       <span className="mt-1 block text-sm text-muted-foreground">{oneLineSummary(g.summary)}</span>
                     </Link>
                   </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {stories.length > 0 && (
+            <section aria-labelledby="stories-heading">
+              <h2 id="stories-heading" className="mb-3 text-xl font-bold text-foreground">From the blog</h2>
+              <ul className="space-y-1.5">
+                {stories.map((p) => (
+                  <li key={p.id}><Link href={`/blog/${p.slug}`} className="font-medium text-foreground hover:underline">{p.title}</Link></li>
                 ))}
               </ul>
             </section>

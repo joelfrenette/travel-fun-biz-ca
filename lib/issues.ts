@@ -11,7 +11,8 @@ import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { readHealSummary } from '@/lib/content-heal-run'
-import { HARD_WAITING_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { GUIDE_ORPHANS_ISSUE_ID, HARD_WAITING_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { readOrphanAudit } from '@/lib/guide-orphans'
 import { clearAllPromotionFailures, readPromotionFailures } from '@/lib/promotion'
 import { completenessScore } from '@/lib/package-completeness'
 import { openFindings, dismissFindings } from '@/lib/source-watch'
@@ -154,6 +155,26 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
       fix: `A guide is skipped after ${MAX_GUIDE_ATTEMPTS} failed tries so it cannot keep spending AI credits. Check ANTHROPIC_API_KEY in Vercel; click Dismiss to let them be tried again.`,
       actions: [{ label: 'Dismiss', kind: 'dismiss-guides' }],
     })
+  }
+
+  // Live guide pages that no other page links to (WP16). ONE item lists them all. The audit is stored and at most six
+  // hours old, and it stays silent when it cannot be read (an unreadable table is never reported as "nothing links").
+  try {
+    const audit = await readOrphanAudit(admin)
+    if (audit && audit.orphans.length > 0) {
+      const names = audit.orphans.slice(0, 8).map((o) => `${o.name} (${o.path})`).join(', ')
+      const more = audit.orphans.length > 8 ? ` and ${audit.orphans.length - 8} more` : ''
+      issues.push({
+        id: GUIDE_ORPHANS_ISSUE_ID,
+        area: 'system',
+        title: `${audit.orphans.length} live page${audit.orphans.length === 1 ? ' has' : 's have'} no link from any other page`,
+        detail: `${names}${more}. Checked ${new Date(audit.at).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })} across ${audit.checked} live guide pages.`,
+        fix: 'Open the Pages list (already filtered), set where each page sits (its country or city) or write a blog post about it, so a page links to it.',
+        link: { label: 'Open the pages nothing links to', href: '/admin/guides?filter=orphans' },
+      })
+    }
+  } catch {
+    // an unreadable audit is not worth failing the list
   }
 
   // Parts of a "Promote this package" click that did not work (WP15). One item lists every trip and the parts that failed.

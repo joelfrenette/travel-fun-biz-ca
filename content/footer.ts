@@ -12,7 +12,6 @@ export const officeInfo = {
 
 export const aboutLinks = [
   { label: 'Who We Are', href: '/who-we-are' },
-  { label: 'Destinations', href: '/destinations' },
 ]
 
 export const legalLinks = [
