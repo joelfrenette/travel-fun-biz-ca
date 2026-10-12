@@ -3,6 +3,7 @@ import { getDistributionMode } from '@/lib/distribution'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { guideDistributionPath, guideDistributionSlug } from '@/lib/guide-post-source'
 import type { GuideKind } from '@/lib/guides'
+import { autoHoldNote, readReleaseHours } from '@/lib/guide-release'
 
 // Social posts for published guides (growth loop WP7). A published guide is enrolled into the same
 // post_distribution ledger as a blog post (content_type 'post', slug `guide-<kind>-<slug>`, `path` set), and
@@ -12,7 +13,8 @@ import type { GuideKind } from '@/lib/guides'
 /** The most guides enrolled for social posting per UTC day, across every kind. */
 export const GUIDE_ENROLMENTS_PER_DAY = 1
 
-/** Kinds that name a real business. Their social posts are enrolled as `held` whatever distribution_mode is. */
+/** Kinds that name a real business. Their social posts are enrolled as `held` whatever distribution_mode is, and (in auto
+ * mode) released by themselves after guide_social_release_hours when the caption passes (lib/guide-release.ts). */
 export const HELD_GUIDE_KINDS: readonly GuideKind[] = ['hotels', 'resorts', 'ships', 'river-cruises', 'yachts']
 
 /** 00:00 UTC of the day `now` falls in, as an ISO string. */
@@ -85,13 +87,20 @@ export async function enrollGuideIfDue(admin: SupabaseClient, guide: GuideToEnro
     const before = await guideEnrolmentsSince(admin, since)
     if (before === null || before >= GUIDE_ENROLMENTS_PER_DAY) return 'skipped'
 
+    // Named properties are enrolled as held. In auto mode they carry an "Auto-hold" note and are released by the posting
+    // pass after guide_social_release_hours (default 24) if their caption passes the checks (lib/guide-release.ts);
+    // with the wait set to 0 (or unreadable) they wait for an approval, as they always did. In prepare mode every row
+    // waits for an approval, so no note is added.
+    const named = HELD_GUIDE_KINDS.includes(guide.kind)
+    const hours = named && mode === 'auto' ? await readReleaseHours(admin) : 0
+    const autoHold = named && mode === 'auto' && typeof hours === 'number' && hours > 0
     const { error } = await admin.from('post_distribution').insert({
       content_type: 'post',
       slug,
       title: guide.name,
       path: guideDistributionPath(guide.kind, guide.slug),
-      // Named properties always wait for Joel to release them from the Distribution screen, in any mode.
-      stage: mode === 'prepare' || HELD_GUIDE_KINDS.includes(guide.kind) ? 'held' : 'queued',
+      stage: mode === 'prepare' || named ? 'held' : 'queued',
+      ...(autoHold ? { last_error: autoHoldNote(hours as number) } : {}),
     })
     if (error) return 'skipped'
 

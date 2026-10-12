@@ -10,6 +10,8 @@ import { composedFromRow, firstPackageSlug, nextRehealState, rehealStuckDrafts, 
 import { revertEdit } from '../lib/content-edits'
 import { fakeAdmin, type Db } from './fake-admin'
 import { PAGE_COPY_DEFAULT_MODE, pageCopyModeOf } from '../lib/page-copy-run'
+import { autoHoldNote, CAPTION_FAILED_PREFIX, clearAutoHoldNote, DEFAULT_GUIDE_RELEASE_HOURS, guideCaptionProblems, parseReleaseHours, releaseHeldGuides } from '../lib/guide-release'
+import { enrollGuideIfDue } from '../lib/guide-distribution'
 import { classifyBlockers, fixOnOfferPhrases, repairContent, ruleFor, type RepairFields } from '../lib/content-repair'
 import { COPY_LIMITS } from '../lib/content-repair-adapters'
 import { agencyClaims } from '../lib/guide-composer'
@@ -193,6 +195,82 @@ async function main() {
     check('D: repairContent clears the phrase with plain code and zero model calls', res.blockers.length === 0 && res.calls === 0 && /Here is what is on offer\./.test(res.fields.body), JSON.stringify(res.blockers))
     check('D: that edit is logged as a plain fix', res.edits.length === 1 && res.edits[0].method === 'fixer' && /on offer/.test(res.edits[0].reason), JSON.stringify(res.edits.map((e) => e.reason)))
   }
+
+  // ---- E: held guide social posts are released after the wait if the caption passes ----
+  check('E: release hours parse: unset 24, 0 never, bad text 24, capped at 720', parseReleaseHours(null) === 24 && parseReleaseHours('') === 24 && parseReleaseHours('0') === 0 && parseReleaseHours('abc') === 24 && parseReleaseHours('-3') === 24 && parseReleaseHours('6') === 6 && parseReleaseHours('9999') === 720 && DEFAULT_GUIDE_RELEASE_HOURS === 24)
+  const cleanSrc = { title: 'Hotel Aurora guide', meta_description: 'What to expect at Hotel Aurora, a quiet seaside hotel, and who it suits.', grounding: '- Quiet seaside hotel\n- Rooms face the harbour' }
+  check('E: a plain caption passes', guideCaptionProblems(cleanSrc).length === 0, guideCaptionProblems(cleanSrc).join('|'))
+  check('E: a superlative is a problem', guideCaptionProblems({ ...cleanSrc, meta_description: 'The best hotel on the coast, and a quiet one.' }).some((p) => /superlative/.test(p)))
+  check('E: a number outside the guide facts is a problem, one inside is fine', guideCaptionProblems({ ...cleanSrc, meta_description: 'A quiet hotel with 450 rooms.' }).some((p) => /number not in/.test(p)) && guideCaptionProblems({ ...cleanSrc, meta_description: 'A quiet hotel with 450 rooms.', grounding: '- 450 rooms' }).length === 0)
+  check('E: a long dash and an empty description are problems', guideCaptionProblems({ ...cleanSrc, title: `Hotel ${String.fromCharCode(8212)} Aurora` }).length > 0 && guideCaptionProblems({ ...cleanSrc, meta_description: null }).length > 0)
+
+  const guideRow = (slug: string, over: Record<string, unknown> = {}) => ({ kind: 'hotels', slug, name: `Hotel ${slug}`, status: 'published', summary: 'A quiet hotel.', hero_image_url: null, og_title: null, meta_description: 'What to expect at this quiet seaside hotel and who it suits.', faq: [], key_takeaways: ['Quiet seaside hotel'], ...over })
+  const ledger = (slug: string, hoursAgo: number, over: Record<string, unknown> = {}) => ({ content_type: 'post', slug: `guide-hotels-${slug}`, title: `Hotel ${slug}`, path: `/hotels/${slug}`, stage: 'held', attempts: 0, sent_platforms: [], last_error: autoHoldNote(24), created_at: new Date(Date.now() - hoursAgo * 3_600_000).toISOString(), updated_at: new Date(Date.now() - hoursAgo * 3_600_000).toISOString(), ...over })
+  const stageOf = (db: Db, slug: string) => (db.tables.post_distribution.find((r) => r.slug === `guide-hotels-${slug}`) ?? {}) as Record<string, unknown>
+
+  {
+    // enrolment
+    const mk = (hours?: string, mode = 'auto'): Db => ({ tables: { app_settings: [{ key: 'distribution_mode', value: mode }, ...(hours === undefined ? [] : [{ key: 'guide_social_release_hours', value: hours }])], post_distribution: [] } })
+    let db = mk()
+    await enrollGuideIfDue(fakeAdmin(db), { kind: 'hotels', slug: 'one', name: 'One', status: 'published' })
+    check('E: a named place is enrolled held with the Auto-hold note (default 24 hours)', db.tables.post_distribution[0].stage === 'held' && String(db.tables.post_distribution[0].last_error).startsWith('Auto-hold:') && /24 hours/.test(String(db.tables.post_distribution[0].last_error)))
+    db = mk('0')
+    await enrollGuideIfDue(fakeAdmin(db), { kind: 'hotels', slug: 'one', name: 'One', status: 'published' })
+    check('E: wait of 0 keeps it held with no release note (manual, as before)', db.tables.post_distribution[0].stage === 'held' && !db.tables.post_distribution[0].last_error)
+    db = mk('24', 'prepare')
+    await enrollGuideIfDue(fakeAdmin(db), { kind: 'hotels', slug: 'one', name: 'One', status: 'published' })
+    check('E: prepare mode holds for approval with no release note', db.tables.post_distribution[0].stage === 'held' && !db.tables.post_distribution[0].last_error)
+    db = mk()
+    await enrollGuideIfDue(fakeAdmin(db), { kind: 'destinations', slug: 'cancun', name: 'Cancun', status: 'published' })
+    check('E: a destination guide is still queued straight away', db.tables.post_distribution[0].stage === 'queued')
+  }
+  {
+    const base = (): Db => ({
+      tables: {
+        app_settings: [{ key: 'distribution_mode', value: 'auto' }],
+        guides: [guideRow('old'), guideRow('fresh'), guideRow('manual'), guideRow('superl', { meta_description: 'The best hotel on the coast and who it suits.' })],
+        post_distribution: [ledger('old', 25), ledger('fresh', 2), ledger('manual', 30, { last_error: null }), ledger('superl', 30)],
+      },
+    })
+    let db = base()
+    let r = await releaseHeldGuides(fakeAdmin(db), { mode: 'auto' })
+    check('E: after 24 hours a clean held guide is released to queued, the note cleared', stageOf(db, 'old').stage === 'queued' && stageOf(db, 'old').last_error === null, JSON.stringify(r))
+    check('E: the per-day guide limit holds (only one released in a pass)', r.released === 1 && stageOf(db, 'superl').stage === 'held')
+    check('E: a guide held for under 24 hours is not released', stageOf(db, 'fresh').stage === 'held')
+    check('E: a row held by hand (no Auto-hold note) is never released', stageOf(db, 'manual').stage === 'held' && stageOf(db, 'manual').last_error === null)
+    check('E: a failing caption stays held and says why', String(stageOf(db, 'superl').last_error).startsWith('Caption check failed:') && /superlative/.test(String(stageOf(db, 'superl').last_error)), String(stageOf(db, 'superl').last_error))
+    r = await releaseHeldGuides(fakeAdmin(db), { mode: 'auto' })
+    check('E: a second pass the same day releases nothing more', r.released === 0 && stageOf(db, 'fresh').stage === 'held')
+    // fixing the caption lets it go the next day
+    db.tables.post_distribution = db.tables.post_distribution.filter((x) => x.slug !== 'guide-hotels-old')
+    ;(db.tables.guides.find((g) => g.slug === 'superl') as Record<string, unknown>).meta_description = 'What to expect at this quiet seaside hotel and who it suits.'
+    r = await releaseHeldGuides(fakeAdmin(db), { mode: 'auto' })
+    check('E: once the wording is fixed the held guide is released by itself', stageOf(db, 'superl').stage === 'queued', JSON.stringify(r))
+
+    db = base()
+    db.tables.app_settings.push({ key: 'guide_social_release_hours', value: '0' })
+    r = await releaseHeldGuides(fakeAdmin(db), { mode: 'auto' })
+    check('E: a wait of 0 never releases', r.released === 0 && stageOf(db, 'old').stage === 'held')
+    db = base()
+    r = await releaseHeldGuides(fakeAdmin(db), { mode: 'prepare' })
+    check('E: only auto mode releases', r.released === 0 && stageOf(db, 'old').stage === 'held')
+    db = base()
+    db.tables.post_distribution.push({ content_type: 'post', slug: 'guide-resorts-sent', title: 'x', path: '/resorts/sent', stage: 'done', created_at: new Date(Date.now() - 5 * 86_400_000).toISOString(), updated_at: new Date().toISOString() })
+    r = await releaseHeldGuides(fakeAdmin(db), { mode: 'auto' })
+    check('E: a guide already sent today uses up the day, so nothing is released', r.released === 0 && stageOf(db, 'old').stage === 'held')
+    db = base()
+    db.tables.guides = db.tables.guides.filter((g) => g.slug !== 'old')
+    r = await releaseHeldGuides(fakeAdmin(db), { mode: 'auto' })
+    check('E: a guide that is no longer published is not released', stageOf(db, 'old').stage === 'held')
+  }
+  {
+    const db: Db = { tables: { post_distribution: [ledger('old', 30, { last_error: `${CAPTION_FAILED_PREFIX} superlative` })] } }
+    await clearAutoHoldNote(fakeAdmin(db), 'guide-hotels-old')
+    check('E: approving by hand clears the held note', stageOf(db, 'old').last_error === null)
+  }
+  const dist = src('lib/distribution.ts')
+  check('E: the existing posting pass calls the release step before sending, and there is no new send path', /releaseHeldGuides\(admin, \{ mode \}\)/.test(dist) && !/uploadPostSend/.test(src('lib/guide-release.ts')) && !/sendText|sendPhotos|sendVideo/.test(src('lib/guide-release.ts')))
+  check('E: a held caption shows in Needs attention with grade-5 steps', /guide-caption:/.test(src('lib/issues.ts')) && /guide-caption:/.test(src('lib/plain-steps.ts')))
 
   // ---- MAIN-END ----
 }

@@ -3,6 +3,7 @@ import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { uploadPostGetStatus } from '@/lib/upload-post'
 import { resolvePostingTarget, platformsFor, PLATFORM_ACCEPTS, type PostingTarget } from '@/lib/social-provider'
+import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource } from '@/lib/guide-post-source'
@@ -166,6 +167,8 @@ export async function listDistributionQueue(admin: SupabaseClient): Promise<Dist
 export async function setDistributionStage(admin: SupabaseClient, slug: string, stage: 'queued' | 'held'): Promise<void> {
   const { error } = await admin.from('post_distribution').update({ stage, updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', slug)
   if (error) throw new Error(error.message)
+  // A hand approval makes the automatic "waiting 24 hours" or "caption check failed" note untrue.
+  if (stage === 'queued') await clearAutoHoldNote(admin, slug)
 }
 
 /** Posts every queued row via Upload-Post, oldest first, up to 5 per run (a small business's
@@ -188,7 +191,11 @@ export async function runDistribution(admin: SupabaseClient): Promise<string> {
   if (!(await acquireDistributionLock(admin))) return 'another distribution run is already in progress'
   try {
     const tailoredCaptionsOn = await getTailoredCaptionsEnabled(admin)
-    return await runDistributionLocked(admin, target, tailoredCaptionsOn)
+    // Guide posts about a named place wait here (held) and are let go after guide_social_release_hours if their
+    // caption passes (WP18-E). This only moves a row from held to queued; the send below is the same code as ever.
+    const release = await releaseHeldGuides(admin, { mode })
+    const sent = await runDistributionLocked(admin, target, tailoredCaptionsOn)
+    return release.released || release.stillHeld ? `${sent}; ${release.note}` : sent
   } finally {
     await releaseDistributionLock(admin)
   }
