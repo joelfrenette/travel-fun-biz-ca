@@ -85,9 +85,10 @@ export const MAX_REJECTS_PER_DAY = 3
 
 export const HEAL_LOG_KEY = 'heal_loop_log'
 export const HEAL_LOG_MAX = 100
-export const HEAL_REJECTED_KEY = 'heal_loop_rejected'
+const REJECTED_ROW_PREFIX = 'heal_rejected:'
+const REJECT_SAVE_SLACK_MS = 15 * 60_000
 const REJECTED_MAX = 300
-const COUNTER_PREFIX = 'heal_loop_calls_used'
+const COUNTER_PREFIX = 'heal_loop_call'
 const CALL_TIMEOUT_MS = 45_000
 
 // ---------------------------------------------------------------------------------------------------
@@ -123,7 +124,8 @@ export interface HealBudget {
 
 /** Opens today's budget. Fails closed: an unreadable cap or counter means a cap of 0. */
 export async function openBudget(admin: SupabaseClient, now: Date = new Date()): Promise<HealBudget> {
-  const counterKey = `${COUNTER_PREFIX}:${repairDay(now)}`
+  const prefix = `${COUNTER_PREFIX}:${repairDay(now)}:`
+  const taken = new Set<string>()
   const closed = (reason: string): HealBudget => ({ cap: 0, used: 0, readable: false, reason, remaining: () => 0, take: async () => false })
   let cap: number
   let used = 0
@@ -131,13 +133,12 @@ export async function openBudget(admin: SupabaseClient, now: Date = new Date()):
     const capRead = await getSettingStrict(admin, HEAL_CALLS_KEY)
     if (capRead.error) return closed(`could not read the heal limit (${capRead.error})`)
     cap = parseHealCap(capRead.value)
-    const usedRead = await getSettingStrict(admin, counterKey)
-    if (usedRead.error) return closed(`could not read today's heal counter (${usedRead.error})`)
-    if (usedRead.value !== null && usedRead.value.trim() !== '') {
-      const n = Number(usedRead.value)
-      if (!Number.isInteger(n) || n < 0) return closed("today's heal counter holds something that is not a number")
-      used = n
-    }
+    // One row per call, each with a unique key: two overlapping runs (the pipeline and Heal now) can never both take the
+    // same slot, so the day's spend cannot go past the cap (same idea as claimRepairSlot in lib/content-edits.ts).
+    const rows = await admin.from('app_settings').select('key').like('key', `${prefix}%`)
+    if (rows.error) return closed(`could not read today's heal counter (${rows.error.message})`)
+    for (const r of (rows.data ?? []) as { key: string }[]) taken.add(r.key)
+    used = taken.size
   } catch (e) {
     return closed(`could not read the heal counters (${e instanceof Error ? e.message : 'unknown error'})`)
   }
@@ -149,13 +150,25 @@ export async function openBudget(admin: SupabaseClient, now: Date = new Date()):
     remaining: () => (broken ? 0 : Math.max(0, cap - budget.used)),
     take: async (n = 1) => {
       if (broken || budget.used + n > cap) return false
-      const next = budget.used + n
-      const saved = await setSetting(admin, counterKey, String(next))
-      if (saved.error) {
-        broken = true
-        return false
+      for (let got = 0; got < n; got++) {
+        let claimed = false
+        for (let k = 1; k <= cap && !claimed; k++) {
+          const key = `${prefix}${k}`
+          if (taken.has(key)) continue
+          const { error } = await admin.from('app_settings').insert({ key, value: new Date().toISOString() })
+          if (!error) {
+            taken.add(key)
+            claimed = true
+          } else if ((error as { code?: string }).code === '23505') taken.add(key) // someone else just took it
+          else {
+            broken = true
+            budget.used = taken.size
+            return false
+          }
+        }
+        budget.used = taken.size
+        if (!claimed) return false
       }
-      budget.used = next
       return true
     },
   }
@@ -187,6 +200,8 @@ export interface HealDeps {
   budget: HealBudget
   /** Absolute time (Date.now() scale) the caller must be done by. */
   deadlineMs?: number
+  /** True for a held row whose gate is already clean: the independent judge must still pass it before it is called clean. */
+  requireJudge?: boolean
 }
 
 export interface HealRoundLog {
@@ -418,14 +433,19 @@ function judgePrompt(brief: string, text: string): string {
   return `You are an independent quality reviewer for a Canadian travel agency website. Decide whether the page text below is safe to publish. Judge it ONLY against the RULES and the FACTS. You did not write it and you must not be kind to it.\n\nRULES (a text that breaks any rule FAILS):\n${QA_RULES.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\nFACTS:\n${clipBrief(brief)}\n\nPAGE TEXT:\n${text}\n\nList every sentence that breaks a rule, copying the sentence EXACTLY as written in the page text. If nothing breaks a rule, pass.\nReturn ONLY minified JSON: {"pass":true,"failures":[]} or {"pass":false,"failures":[{"quote":"<exact sentence>","rule":<rule number>,"reason":"<short reason>"}]}`
 }
 
-function judgeText(f: RepairFields): string {
-  const parts = [plainForPrompt(f)]
+/** Longest text the judge is given. Longer text is NOT cut (the judge would then approve what it never read): it fails. */
+export const JUDGE_TEXT_MAX = 40_000
+
+/** The whole page as the judge reads it, or null when it is too long to review in one pass (fail closed). */
+export function judgeText(f: RepairFields): string | null {
+  const body = [f.title, f.summary, f.body].filter(Boolean).join('\n\n').replace(MD_LINK_ANY, (_a, label: string) => label)
+  const parts = [body]
   if (f.faq.length) parts.push(`FAQ:\n${f.faq.map((p) => `Q: ${p.q}\nA: ${p.a}`).join('\n')}`)
   if (f.key_takeaways.length) parts.push(`KEY TAKEAWAYS:\n${f.key_takeaways.map((t) => `- ${t}`).join('\n')}`)
   const meta = [f.meta_title, f.meta_description, f.og_title, f.og_description].filter((s) => s.trim())
   if (meta.length) parts.push(`SEARCH AND SHARE TEXT:\n${meta.map((m) => `- ${m}`).join('\n')}`)
   const all = parts.join('\n\n')
-  return all.length > 18_000 ? all.slice(0, 18_000) : all
+  return all.length > JUDGE_TEXT_MAX ? null : all
 }
 
 function sectionPrompt(brief: string, unit: Unit, reasons: string[]): string {
@@ -538,7 +558,7 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
   }
 
   const startBlockers = item.gate(original)
-  if (startBlockers.length === 0) return finish('already_clean', original, [], 'already clean', 0)
+  if (startBlockers.length === 0 && !deps.requireJudge) return finish('already_clean', original, [], 'already clean', 0)
   if (!deps.budget.readable) return finish('deferred', original, [deps.budget.reason ?? 'the heal counters could not be read'], deps.budget.reason ?? 'the heal counters could not be read', 0)
   if (deps.budget.remaining() < 2) return finish('deferred', original, ["today's heal limit is used up"], "today's heal limit is used up, so this waits for tomorrow", 0)
 
@@ -553,17 +573,24 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
 
   /** The independent judge. Runs only when the gate is clean. Returns pass, or the failures it found. */
   const judge = async (f: RepairFields): Promise<{ pass: boolean; answered: boolean; fails: JudgeFail[]; reasons: string[] }> => {
+    const text = judgeText(f)
+    // Text too long to review whole is never cut and approved: it fails closed (a real answer, so it is rejected, not retried).
+    if (text === null) {
+      judgeAnswered++
+      return { pass: false, answered: true, fails: [], reasons: ['the page is too long for the QA review to read in one pass'] }
+    }
     judgeRuns++
-    const answer = await bound(judgePrompt(target.brief, judgeText(f)), JUDGE_MAX_TOKENS, CALL_TIMEOUT_MS)
+    const answer = await bound(judgePrompt(target.brief, text), JUDGE_MAX_TOKENS, CALL_TIMEOUT_MS)
     if (!answer) return { pass: false, answered: false, fails: [], reasons: ['the QA review did not answer'] }
     const parsed = parseModelJson<{ pass?: unknown; failures?: unknown }>(answer)
     if (!parsed || typeof parsed !== 'object' || typeof parsed.pass !== 'boolean') return { pass: false, answered: false, fails: [], reasons: ['the QA review was unreadable'] }
     judgeAnswered++
-    const fails: JudgeFail[] = (Array.isArray(parsed.failures) ? parsed.failures : [])
+    const rawFailures = Array.isArray(parsed.failures) ? parsed.failures : []
+    const fails: JudgeFail[] = rawFailures
       .map((x) => ({ quote: typeof (x as JudgeFail)?.quote === 'string' ? (x as JudgeFail).quote : '', reason: typeof (x as JudgeFail)?.reason === 'string' ? (x as JudgeFail).reason.slice(0, 160) : 'breaks a rule' }))
       .filter((x) => x.quote.trim())
-    // A "pass" with failures listed is a fail: the judge can only ADD failures, never wave one through.
-    const pass = parsed.pass === true && fails.length === 0
+    // A "pass" with ANY failure listed (even one with no usable quote) is a fail: the judge can only ADD failures. The raw array is tested.
+    const pass = parsed.pass === true && rawFailures.length === 0
     return { pass, answered: true, fails, reasons: pass ? [] : fails.length ? fails.map((x) => `QA reviewer: ${x.reason} ("${x.quote.slice(0, 80)}")`) : ['QA reviewer said fail without naming a sentence'] }
   }
 
@@ -579,8 +606,17 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
 
   const touch = (o: Offender, method: EditMethod, reason: string) => tracker.touch(logicalOf(o.field), method, reason)
 
+  // A row the gate now calls clean (its held reasons are out of date) is still read by the independent judge before it can
+  // go live: a person may have parked it, and a clean gate alone is not enough to publish text nobody has reviewed.
+  if (startBlockers.length === 0) {
+    const first = await acceptState(original)
+    if (first.ok) return finish('already_clean', original, [], 'already clean and the QA review passed', 0)
+    if (first.judged === 'unreadable') return finish('deferred', original, first.reasons, `${first.reasons[0]}, so this waits for the next run`, 0)
+    qaNotes = first.reasons.slice(0, 8)
+  }
+
   // ---- rounds: SUGGESTER then QA ----
-  let lastReasons: string[] = startBlockers
+  let lastReasons: string[] = startBlockers.length ? startBlockers : qaNotes
   let rounds = 0
   for (let round = 1; round <= HEAL_MAX_ROUNDS; round++) {
     if (st.stop) break
@@ -845,19 +881,20 @@ export interface RejectedEntry {
 
 /** Items marked rejected_by_heal. Null when the list could not be read (callers then free nothing: fail closed). */
 export async function readRejected(admin: SupabaseClient): Promise<Record<string, RejectedEntry> | null> {
-  const { value, error } = await getSettingStrict(admin, HEAL_REJECTED_KEY)
+  // One app_settings row per rejected item (key heal_rejected:<item key>), so two runs can never overwrite each other's entry.
+  const { data, error } = await admin.from('app_settings').select('key, value').like('key', `${REJECTED_ROW_PREFIX}%`).limit(REJECTED_MAX)
   if (error) return null
-  const v = parseJson<Record<string, RejectedEntry>>(value, {})
-  return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+  const out: Record<string, RejectedEntry> = {}
+  for (const r of (data ?? []) as { key: string; value: string }[]) {
+    const entry = parseJson<RejectedEntry | null>(r.value, null)
+    if (entry && typeof entry === 'object' && typeof entry.at === 'string') out[r.key.slice(REJECTED_ROW_PREFIX.length)] = entry
+  }
+  return out
 }
 
 export async function markRejected(admin: SupabaseClient, key: string, entry: RejectedEntry): Promise<void> {
   try {
-    const map = (await readRejected(admin)) ?? {}
-    map[key] = { ...entry, reasons: entry.reasons.slice(0, 6).map((r) => r.slice(0, 200)) }
-    const keys = Object.keys(map)
-    if (keys.length > REJECTED_MAX) for (const k of keys.sort((a, b) => (map[a].at < map[b].at ? -1 : 1)).slice(0, keys.length - REJECTED_MAX)) delete map[k]
-    await setSetting(admin, HEAL_REJECTED_KEY, JSON.stringify(map))
+    await setSetting(admin, `${REJECTED_ROW_PREFIX}${key}`, JSON.stringify({ ...entry, reasons: entry.reasons.slice(0, 6).map((r) => r.slice(0, 200)) }))
   } catch {
     // the item's own status carries the truth too
   }
@@ -885,11 +922,19 @@ export async function freedBySince(admin: SupabaseClient, spec: { table: 'guides
   try {
     const map = await readRejected(admin)
     if (!map) return 0
-    const keys = new Set(Object.entries(map).filter(([, e]) => e.type === spec.type).map(([k]) => k))
-    if (keys.size === 0) return 0
-    const { data, error } = await admin.from(spec.table).select(spec.columns).gte('created_at', sinceIso).limit(500)
+    const entries = Object.entries(map).filter(([, e]) => e.type === spec.type)
+    if (entries.length === 0) return 0
+    const { data, error } = await admin.from(spec.table).select(`${spec.columns}, created_at`).gte('created_at', sinceIso).limit(500)
     if (error) return 0
-    return ((data ?? []) as unknown as Record<string, unknown>[]).filter((r) => keys.has(spec.keyOf(r))).length
+    // A rejection frees the page that was rejected, not a later page written for the same name: the row must have been created
+    // no later than REJECT_SAVE_SLACK_MS after the rejection was recorded (a new page is saved moments after its heal).
+    return ((data ?? []) as unknown as Record<string, unknown>[]).filter((r) => {
+      const hit = entries.find(([k]) => k === spec.keyOf(r))
+      if (!hit) return false
+      const created = Date.parse(String(r.created_at))
+      const rejected = Date.parse(hit[1].at)
+      return Number.isFinite(created) && Number.isFinite(rejected) && created <= rejected + REJECT_SAVE_SLACK_MS
+    }).length
   } catch {
     return 0
   }
@@ -910,7 +955,7 @@ export interface HealRun {
 export async function healItem(
   admin: SupabaseClient,
   target: HealTarget,
-  opts: { model?: ModelCall; deadlineMs?: number; now?: Date; budget?: HealBudget; recordRejected?: boolean } = {},
+  opts: { model?: ModelCall; deadlineMs?: number; now?: Date; budget?: HealBudget; recordRejected?: boolean; requireJudge?: boolean } = {},
 ): Promise<HealRun> {
   const now = opts.now ?? new Date()
   const empty = (status: HealStatus, reasons: string[], note: string): HealRun => ({
@@ -921,7 +966,7 @@ export async function healItem(
     if (!opts.model && !isAiConfigured()) return empty('deferred', ['AI writing is not configured'], 'AI writing is not configured, so nothing was healed')
     if (!(await editsLoggable(admin))) return empty('deferred', ['the content_edits table is not set up'], 'self-healing needs migration 0033 (the edit log), so nothing was healed')
     const budget = opts.budget ?? (await openBudget(admin, now))
-    const outcome = await healLoop(target, { model: opts.model ?? callModelText, budget, deadlineMs: opts.deadlineMs })
+    const outcome = await healLoop(target, { model: opts.model ?? callModelText, budget, deadlineMs: opts.deadlineMs, requireJudge: opts.requireJudge })
     let logIds: string[] = []
     let final = outcome
     if (outcome.status === 'healed' && outcome.edits.length) {

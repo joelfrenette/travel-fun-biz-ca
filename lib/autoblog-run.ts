@@ -114,6 +114,8 @@ export interface AutoblogResult {
   postId?: string
   postSlug?: string
   published?: boolean
+  /** True when the run could not do its job (not just "nothing to do today"): the pipeline step then shows as failed. */
+  failed?: boolean
 }
 
 const RUN_LOCK_KEY = 'autoblog_run_lock'
@@ -186,7 +188,7 @@ async function postsWrittenToday(admin: ReturnType<typeof getSupabaseAdmin>): Pr
 
 /** One post per call, at most. `scheduled: true` (the cron) also caps at one post per calendar
  * day; `scheduled: false` (the admin "run now" button) bypasses that daily cap. */
-export async function runAutoblog(opts: { scheduled: boolean }): Promise<AutoblogResult> {
+export async function runAutoblog(opts: { scheduled: boolean; deadlineMs?: number }): Promise<AutoblogResult> {
   const mode = await getAutoblogMode()
   if (mode === 'off') return { ran: false, mode, note: 'autoblog is off' }
 
@@ -205,7 +207,7 @@ export async function runAutoblog(opts: { scheduled: boolean }): Promise<Autoblo
   }
 }
 
-async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mode: AutoblogMode, opts: { scheduled: boolean }): Promise<AutoblogResult> {
+async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mode: AutoblogMode, opts: { scheduled: boolean; deadlineMs?: number }): Promise<AutoblogResult> {
   const existingPosts = await listPostsAdmin()
 
   if (opts.scheduled) {
@@ -228,7 +230,8 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // (it keeps the AI spend bounded). An unreadable list stops writing too (fail closed).
   if (mode === 'publish') {
     const limit = await rejectLimitReached(admin)
-    if (limit.reached) return { ran: false, mode, note: limit.note }
+    // A reached limit is a plain note; one that could not be read is also a failed step so it shows up in Needs attention.
+    if (limit.reached) return { ran: false, mode, note: limit.note, ...(limit.unreadable ? { failed: true } : {}) }
   }
 
   let topic: TopicIdea | null = null
@@ -294,7 +297,10 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // The routes that call this are killed at 300s. Compose and repair are told to wrap up by 240s from
   // now: the optional steps (FAQ/takeaways, the repair call) are skipped when too little time is left.
   const runStart = Date.now()
-  const deadlineMs = runStart + 240_000
+  // The route is killed at 300s. The pipeline passes its own hard stop (its start plus 280s); everything below ends before it.
+  const hardStop = Math.min(runStart + 285_000, opts.deadlineMs ?? runStart + 280_000)
+  const deadlineMs = Math.min(runStart + 240_000, hardStop - 30_000)
+  const healDeadline = Math.min(runStart + 270_000, hardStop)
   // The post is written for the topic's whole keyword set (primary first), not just one phrase.
   const seedKeywords = topic.keywords?.length ? topic.keywords : [topic.keyword]
   const composed = await composeFullPost(groundedAngle, seedKeywords, { style, allowedLinks, deadlineMs })
@@ -365,11 +371,11 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
       const healed = await healComposedPost(admin, final, new Date(), gateCtx, {
         storedBody: (body) => appendStyledCta(body, ctaStyle.id, groundingPackage),
         // The routes that run this are killed at 300s: stay clear of that.
-        deadlineMs: runStart + 270_000,
+        deadlineMs: healDeadline,
         regenerate: (reasons) =>
           composeFullPost(`${groundedAngle}
 
-A first draft of this post was refused by the quality checks for these reasons, so avoid them: ${reasons.join('; ')}`, seedKeywords, { style, allowedLinks, deadlineMs: runStart + 270_000 }),
+A first draft of this post was refused by the quality checks for these reasons, so avoid them: ${reasons.join('; ')}`, seedKeywords, { style, allowedLinks, deadlineMs: healDeadline }),
       })
       heal = healed.outcome
       if (healed.outcome.status === 'healed') {
@@ -386,11 +392,11 @@ A first draft of this post was refused by the quality checks for these reasons, 
   // diverges from the seed angle/keyword, so searching the cover image on the stale seed keyword
   // can return a photo (and Pexels alt text) unrelated to what was actually written.
   const imageSearchTerm = composed.tags[0] || composed.title
-  // A draft the heal rejected gets no photo: it is not going anywhere.
-  const image = rejectedByHeal ? null : await attachAutoblogCoverImage(admin, imageSearchTerm, composed.slug)
-
   let post: Awaited<ReturnType<typeof createPost>>
   try {
+    // A draft the heal rejected gets no photo: it is not going anywhere. The photo is filed under the FINAL slug (the heal can
+    // rewrite the title, and the slug follows it). It is inside this try so that any failure also takes back the audit rows.
+    const image = rejectedByHeal ? null : await attachAutoblogCoverImage(admin, imageSearchTerm, final.slug)
     post = await createPost({
       title: final.title,
       slug: final.slug,

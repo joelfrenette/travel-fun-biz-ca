@@ -268,7 +268,7 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
         if (logged.error) {
           out.problems.push(`${path}: it passes the gate but the publish could not be logged (${logged.error})${/check constraint/i.test(logged.error) ? '; apply migration 0043' : ''}`)
           // The text repair (if any) is still real: keep it on the draft, and do not use up a try.
-          if (changedText) await writeDraft(admin, id, textColumns, editIds, path, false, out)
+          if (changedText) await writeDraft(admin, id, textColumns, editIds, path, false, out, row.updated_at)
           continue
         }
         const { data: updated, error: upErr } = await admin
@@ -276,6 +276,8 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
           .update({ ...textColumns, status: 'published', publish_date: now.toISOString().slice(0, 10), updated_at: now.toISOString() })
           .eq('id', id)
           .eq('status', 'draft')
+          // nobody edited the draft while the loop was working (an edit changes updated_at); otherwise leave it alone
+          .match(row.updated_at ? { updated_at: row.updated_at } : {})
           .select('id')
         if (upErr || !updated?.length) {
           // Not published (an error, or a person published or removed it meanwhile): take the audit rows back.
@@ -293,7 +295,7 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
       }
 
       // Still blocked: keep any real text repair on the draft, record why, and count the try (a deferral counts none).
-      if (changedText) await writeDraft(admin, id, textColumns, editIds, path, false, out)
+      if (changedText) await writeDraft(admin, id, textColumns, editIds, path, false, out, row.updated_at)
       await tagVariant(admin, slug, {
         held_reasons: healStatus === 'rejected_by_heal' ? `Rejected by heal: ${healReason}` : healStatus === 'deferred' ? [...blockersNow, `heal waiting: ${healReason}`].join('; ') : blockersNow.join('; '),
         reheal_tries: next.tries,
@@ -310,11 +312,12 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
 }
 
 /** Saves a repaired text on a draft (the audit rows already exist; they are taken back if the save fails). */
-async function writeDraft(admin: SupabaseClient, id: string, columns: Row, editIds: string[], path: string, published: boolean, out: RehealResult): Promise<void> {
-  const { error } = await admin.from('posts').update({ ...columns, updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'draft')
-  if (error) {
+async function writeDraft(admin: SupabaseClient, id: string, columns: Row, editIds: string[], path: string, published: boolean, out: RehealResult, expectedUpdatedAt?: unknown): Promise<void> {
+  const { data, error } = await admin.from('posts').update({ ...columns, updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'draft').match(expectedUpdatedAt ? { updated_at: expectedUpdatedAt as string } : {}).select('id')
+  if (error || !data?.length) {
+    // Nothing was written (an error, or a person edited the draft meanwhile): take the audit rows back.
     await deleteEdits(admin, editIds).catch(() => undefined)
-    out.problems.push(`${path}: could not save the repaired text (${error.message})`)
+    out.problems.push(error ? `${path}: could not save the repaired text (${error.message})` : `${path}: changed by someone else while the heal was working, so it was left alone`)
     return
   }
   await finalizeEdits(admin, editIds, { id, path, published })

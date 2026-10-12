@@ -79,7 +79,7 @@ export function fakeAdmin(db: Db): SupabaseClient {
         out.sort((a, b) => (String(valueAt(a, col) ?? '') < String(valueAt(b, col) ?? '') ? (asc ? -1 : 1) : String(valueAt(a, col) ?? '') > String(valueAt(b, col) ?? '') ? (asc ? 1 : -1) : 0))
       }
       out = out.slice(offset, offset + max)
-      return { data: head ? null : out, error: null, count: hit.length }
+      return { data: head ? null : out.map((r) => ({ ...r })), error: null, count: hit.length }
     }
     const q: Record<string, unknown> = {
       select: (_cols?: string, o?: { head?: boolean }) => {
@@ -109,6 +109,10 @@ export function fakeAdmin(db: Db): SupabaseClient {
       },
       delete: () => ((mode = 'delete'), q),
       eq: (c: string, v: unknown) => (filters.push((r) => valueAt(r, c) === v), q),
+      match: (o: Row) => {
+        for (const [c, v] of Object.entries(o)) filters.push((r) => valueAt(r, c) === v)
+        return q
+      },
       neq: (c: string, v: unknown) => (filters.push((r) => valueAt(r, c) !== v), q),
       gt: (c: string, v: string) => (filters.push((r) => valueAt(r, c) != null && String(valueAt(r, c)) > v), q),
       gte: (c: string, v: string) => (filters.push((r) => valueAt(r, c) != null && String(valueAt(r, c)) >= v), q),

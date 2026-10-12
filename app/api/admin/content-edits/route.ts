@@ -41,6 +41,8 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}))
     // POST { action: 'set-heal-cap', value: 0..60 }   the most AI calls the heal loop may make in a day (default 20, hard max 60, 0 = off)
     if (body.action === 'set-heal-cap') {
+      // A blank or missing value must not become 0 (Number('') and Number(null) are 0, which would switch the loop off).
+      if ((typeof body.value !== 'number' && typeof body.value !== 'string') || String(body.value).trim() === '') return NextResponse.json({ error: 'Enter a whole number from 0 to 60.' }, { status: 400 })
       const saved = await setHealCap(getSupabaseAdmin(), Number(body.value))
       return saved.error ? NextResponse.json({ error: saved.error }, { status: 400 }) : NextResponse.json({ ok: true })
     }

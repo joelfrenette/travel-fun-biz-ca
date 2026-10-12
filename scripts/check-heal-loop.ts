@@ -32,12 +32,13 @@ import {
   rejectLimitReached,
   setHealCap,
   validateRegeneratedUnit,
+  judgeText,
   type HealBudget,
   type HealTarget,
 } from '../lib/heal-loop'
 import { healComposedPost } from '../lib/heal-targets'
 import { GUIDE_LIMITS, buildPostItem } from '../lib/content-repair-adapters'
-import { makeDetectCtx, type RepairFields, type RepairItem } from '../lib/content-repair'
+import { makeDetectCtx, validateRewrite, type RepairFields, type RepairItem } from '../lib/content-repair'
 import { revertEdit } from '../lib/content-edits'
 import { autoPublishBlockers, type ComposedPost } from '../lib/blog-composer'
 import { composedFromRow, rehealStuckDrafts, rejectedPostSlugs, type RehealTags } from '../lib/blog-reheal'
@@ -279,8 +280,8 @@ async function main() {
     const m = scripted({ suggest: deleteFirst, judge: () => '{"pass":false,"failures":[{"quote":"Narrow lanes open onto small squares.","reason":"unsupported"}]}' })
     const run = await healItem(admin, synthTarget(bodyOf(OLD_TOWN_FAMOUS)), { model: m.model, now: today })
     check('G: with a cap of 3 at most 3 model calls are made and the item waits (deferred)', m.count.total <= 3 && run.outcome.status === 'deferred', JSON.stringify({ n: m.count.total, s: run.outcome.status, r: run.outcome.reasons }))
-    const counter = db.tables.app_settings.find((r) => String(r.key).startsWith('heal_loop_calls_used:'))
-    check('G: the used count is saved in app_settings before each call', Number(counter?.value) === m.count.total, JSON.stringify(counter))
+    const slots = db.tables.app_settings.filter((r) => String(r.key).startsWith('heal_loop_call:'))
+    check('G: each call takes its own slot row in app_settings before it is made', slots.length === m.count.total, JSON.stringify(slots.map((r) => r.key)))
     const m2 = scripted({ suggest: deleteFirst })
     const second = await healItem(admin, synthTarget(bodyOf(OLD_TOWN_FAMOUS)), { model: m2.model, now: today })
     check('G: a second item the same day sees the used count: no call, waits for tomorrow', m2.count.total === 0 && second.outcome.status === 'deferred' && /limit/.test(second.outcome.reasons.join(' ')), JSON.stringify({ n: m2.count.total, r: second.outcome.reasons }))
@@ -314,9 +315,15 @@ async function main() {
     check('G: the card shows the unreadable counter in plain words', !card.readable && /could not be read/.test(card.waiting))
   }
   {
-    const db: Db = { tables: { app_settings: [{ key: `heal_loop_calls_used:${today.toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}`, value: 'xyz' }], content_edits: [] } }
-    const b = await openBudget(fakeAdmin(db), today)
-    check('G: FAIL CLOSED: a counter holding something that is not a number closes the budget', !b.readable && b.cap === 0)
+    // two overlapping runs (the pipeline and Heal now) that both read "0 used" can never exceed the cap together
+    const db: Db = { tables: { app_settings: [{ key: 'heal_loop_calls_per_day', value: '3' }], content_edits: [] } }
+    const admin = fakeAdmin(db)
+    const a = await openBudget(admin, today)
+    const b = await openBudget(admin, today)
+    const gotA = await a.take(2)
+    const gotB = await b.take(2)
+    const rows = db.tables.app_settings.filter((r) => String(r.key).startsWith('heal_loop_call:')).length
+    check('G: two runs that read the same count cannot spend past the cap (atomic slot rows)', gotA && !gotB && rows === 3 && b.remaining() === 0, JSON.stringify({ gotA, gotB, rows }))
   }
   {
     const db: Db = { tables: { app_settings: [], content_edits: [] }, failWrites: { app_settings: 'read only' } }
@@ -362,7 +369,10 @@ async function main() {
       tables: {
         guides: [{ id: 'g1', kind: 'hotels', slug: 'sea-view', created_at: stamp }, { id: 'g2', kind: 'hotels', slug: 'other', created_at: stamp }],
         page_copy: [{ id: 'p1', path: '/compare/a-vs-b', created_at: stamp }],
-        app_settings: [{ key: 'heal_loop_rejected', value: JSON.stringify({ 'guide:hotels:sea-view': { at: stamp, type: 'guide', path: '/hotels/sea-view', reasons: ['x'], rounds: 3 }, 'page_copy:/compare/a-vs-b': { at: stamp, type: 'page_copy', path: '/compare/a-vs-b', reasons: ['x'], rounds: 3 } }) }],
+        app_settings: [
+          { key: 'heal_rejected:guide:hotels:sea-view', value: JSON.stringify({ at: stamp, type: 'guide', path: '/hotels/sea-view', reasons: ['x'], rounds: 3 }) },
+          { key: 'heal_rejected:page_copy:/compare/a-vs-b', value: JSON.stringify({ at: stamp, type: 'page_copy', path: '/compare/a-vs-b', reasons: ['x'], rounds: 3 }) },
+        ],
       },
     }
     const admin = fakeAdmin(db)
@@ -372,6 +382,10 @@ async function main() {
     check('H: page copy rejected by the heal no longer counts either', copy.today === 0 && copy.week === 0, JSON.stringify(copy))
     const blind = await readCapUsage(failReads(admin, 'app_settings'))
     check('H: if the rejected list cannot be read nothing is freed (the count stays whole)', blind.today === 2, JSON.stringify(blind))
+    // an EARLIER rejection must not free a LATER page written for the same name
+    const old = new Date(Date.now() - 3 * 86_400_000).toISOString()
+    const db2: Db = { tables: { guides: [{ id: 'g9', kind: 'hotels', slug: 'sea-view', created_at: stamp }], app_settings: [{ key: 'heal_rejected:guide:hotels:sea-view', value: JSON.stringify({ at: old, type: 'guide', path: '/hotels/sea-view', reasons: ['x'], rounds: 3 }) }] } }
+    check('H: a rejection from days ago does not free a page written later for the same name', (await readCapUsage(fakeAdmin(db2))).today === 1)
     check('H: freedBySince frees nothing without a list', (await freedBySince(failReads(admin, 'app_settings'), { table: 'guides', type: 'guide', columns: 'kind, slug', keyOf: (r) => `guide:${String(r.kind)}:${String(r.slug)}` }, '2000-01-01')) === 0)
   }
 
@@ -556,6 +570,73 @@ async function main() {
     check('K: in draft mode nothing is touched', off.tried === 0)
   }
 
+  // ---- M: QA round 2 fixes ----
+  {
+    // M2: a text-only Undo on a heal-published guide also takes the page back to a draft
+    const db: Db = { tables: { app_settings: [{ key: 'guides_publish_mode', value: 'publish' }], content_edits: [], guides: [guideRow()] } }
+    const admin = fakeAdmin(db)
+    await healHeldGuides(admin, { now, model: scripted({ suggest: () => '{"rewrites":[{"id":0,"text":"The old town is a pleasant place to wander."}]}' }).model, guideBrief })
+    const bodyEdit = db.tables.content_edits.find((e) => e.field === 'body') as Record<string, unknown>
+    const undone = await revertEdit(admin, bodyEdit.id as string)
+    const sib = db.tables.content_edits.find((e) => e.field === 'status') as Record<string, unknown>
+    check('M2: undoing the text of a heal-published page also unpublishes it, never showing the old text live', undone.ok && db.tables.guides[0].status === 'draft' && /famous/i.test(String(db.tables.guides[0].body)) && !!sib.reverted_at, JSON.stringify(undone))
+    check('M2: the content-edits page groups the rows of one page and says Undo also drafts it', /groupEdits\(edits\)/.test(src('app/admin/content-edits/page.tsx')) && /Undo also takes the page back to a draft/.test(src('app/admin/content-edits/page.tsx')))
+  }
+  {
+    // M3: an admin edit made while the loop works is never overwritten
+    const db: Db = { tables: { app_settings: [{ key: 'guides_publish_mode', value: 'publish' }], content_edits: [], guides: [guideRow()] } }
+    const m = scripted({ suggest: () => { db.tables.guides[0].updated_at = '2030-01-01T00:00:00Z'; return '{"rewrites":[{"id":0,"text":"The old town is a pleasant place to wander."}]}' } })
+    const r = await healHeldGuides(fakeAdmin(db), { now, model: m.model, guideBrief })
+    check('M3: a guide an admin touched during the loop is left alone and its audit rows are taken back', db.tables.guides[0].status === 'draft' && /famous/i.test(String(db.tables.guides[0].body)) && db.tables.content_edits.length === 0 && r.published === 0 && r.problems.some((p) => /someone else/.test(p)), JSON.stringify({ r, edits: db.tables.content_edits.length }))
+    const row = (n: number) => ({ id: `post-${n}`, slug: `river-heal-${n}`, status: 'draft', title: 'River cruise for first timers', body: mkPost(' Our guests loved the Rhine last year.').body, meta_title: 'River cruise for first timers', meta_description: 'A plain guide for first-time river cruisers.', tags: ['river cruise first timers'], faq: mkPost('').faq, key_takeaways: mkPost('').key_takeaways, og_title: 'Is a river cruise right for you?', og_description: 'A plain-English look at river cruising for first timers.', primary_keyword: 'river cruise first timers', secondary_keywords: ['river cruise tips'], content_style: 'faq-led', seo_score: null, created_at: new Date(Date.now() - 86_400_000).toISOString(), updated_at: '2026-01-01T00:00:00Z' })
+    const pdb: Db = { tables: { app_settings: [{ key: 'autoblog_mode', value: 'publish' }], content_edits: [], posts: [row(1)], content_variants: [{ slug: 'river-heal-1', variant_tags: { cta_style: 'soft-question', held_reasons: 'fabricated personal experience claim' } }] } }
+    const pm = scripted({ suggest: () => { pdb.tables.posts[0].updated_at = '2030-01-01T00:00:00Z'; return '{"rewrites":[{"id":0,"delete":true}]}' } })
+    const pr = await rehealStuckDrafts(fakeAdmin(pdb), { existing: new Set(['/', '/packages/rhine-cruise']), now, model: pm.model })
+    check('M3: a blog draft an admin touched during the loop is not published or overwritten', pdb.tables.posts[0].status === 'draft' && pr.published === 0 && /Our guests loved/.test(String(pdb.tables.posts[0].body)) && !pdb.tables.content_edits.some((e) => e.field === 'status'), JSON.stringify(pr))
+  }
+  {
+    // M4: a held row whose gate is now clean still needs the independent judge, and a row an admin touched later is skipped
+    const cleanRow = (over: Record<string, unknown> = {}) => guideRow({ quality_notes: 'number not in the grounding: 180', ...over }, -1)
+    const base = (): Db => ({ tables: { app_settings: [{ key: 'guides_publish_mode', value: 'publish' }], content_edits: [], guides: [cleanRow()] } })
+    const down = scripted({ judge: () => null })
+    const d1 = base()
+    const r1 = await healHeldGuides(fakeAdmin(d1), { now, model: down.model, guideBrief })
+    check('M4: with the judge unreachable a gate-clean held guide is NOT published', d1.tables.guides[0].status === 'draft' && r1.published === 0 && r1.deferred === 1 && down.count.judge >= 1, JSON.stringify(r1))
+    const ok = scripted({})
+    const d2 = base()
+    const r2 = await healHeldGuides(fakeAdmin(d2), { now, model: ok.model, guideBrief })
+    check('M4: a gate-clean held guide is published only after the judge passes it', d2.tables.guides[0].status === 'published' && r2.published === 1 && ok.count.judge === 1, JSON.stringify(r2))
+    const bad = scripted({ judge: () => '{"pass":false,"failures":[{"quote":"Narrow lanes open onto small squares.","reason":"unsupported"}]}', suggest: deleteFirst })
+    const d3 = base()
+    const r3 = await healHeldGuides(fakeAdmin(d3), { now, model: bad.model, guideBrief })
+    check('M4: a judge that keeps failing a gate-clean guide never lets it go live', d3.tables.guides[0].status === 'draft' && r3.published === 0, JSON.stringify(r3))
+    const created = new Date(Date.now() - 86_400_000)
+    const parked = cleanRow({ created_at: created.toISOString(), updated_at: new Date(created.getTime() + 3_600_000).toISOString() })
+    check('M4: a row an admin touched after the writer saved it is skipped', !isHealDraftCandidate(parked, now, []) && isHealDraftCandidate(cleanRow({ created_at: created.toISOString(), updated_at: new Date(created.getTime() + 5_000).toISOString() }), now, []))
+  }
+  {
+    // M5, M6, M7: the judge reply, the judged text, negations
+    const noQuote = scripted({ suggest: deleteFirst, judge: () => '{"pass":true,"failures":[{"reason":"unsupported"}]}' })
+    const o5 = await healLoop(synthTarget(bodyOf(OLD_TOWN_FAMOUS)), { model: noQuote.model, budget: memBudget(30) })
+    check('M5: "pass" with a failure that has no usable quote is still a fail (the raw array is tested)', o5.status !== 'healed', o5.status)
+    const huge = synthTarget(bodyOf(OLD_TOWN_FAMOUS) + '\n\n## More\n\n' + 'Trams climb the hills here. '.repeat(1600))
+    const m6 = scripted({ suggest: deleteFirst })
+    const o6 = await healLoop(huge, { model: m6.model, budget: memBudget(30) })
+    check('M6: a page too long for the judge to read whole is never approved (fails closed, not cut)', o6.status === 'rejected_by_heal' && /too long/.test(o6.reasons.join(' ')) && m6.count.judge === 0, JSON.stringify({ s: o6.status, r: o6.reasons }))
+    check('M6: judgeText refuses rather than truncates', judgeText({ ...huge.item.fields }) === null && (judgeText({ ...synthTarget(bodyOf(OLD_TOWN_FAMOUS)).item.fields }) ?? '').includes('Cafes fill with locals'))
+    const vctx = makeDetectCtx('guide', GROUNDING, ['Lisbon'])
+    check('M7: a rewrite that drops "not", "no", "never", "without" or "n\'t" is refused', ['Do not swim here without a guide.', 'No dogs are allowed on the tram.', 'Visitors never need a ticket.', 'The tram doesn\'t run late.'].every((t, i) => validateRewrite(t, ['Swim here without a guide.', 'Dogs are allowed on the tram.', 'Visitors need a ticket.', 'The tram runs late.'][i], vctx) !== null) && validateRewrite('Do not swim here after dark.', 'Do not swim here.', vctx) === null)
+  }
+  {
+    // M1, M9, M11, M13: wiring
+    const auto = src('lib/autoblog-run.ts')
+    check('M1: the blog write step ends its heal before the pipeline hard stop', /hardStop = Math\.min\(runStart \+ 285_000, opts\.deadlineMs/.test(auto) && /healDeadline = Math\.min\(runStart \+ 270_000, hardStop\)/.test(auto) && /runAutoblog\(\{ scheduled: !opts\.force, deadlineMs: startedAt \+ 280_000 \}\)/.test(src('lib/pipeline.ts')))
+    check('M1: the cover image is inside the try that takes the audit rows back', /try \{\s*\/\/ A draft the heal rejected[\s\S]*?attachAutoblogCoverImage[\s\S]*?createPost\(/.test(auto) && /deleteEdits\(admin, repairLogIds\)/.test(auto))
+    check('M11: the cover image is filed under the final slug', /attachAutoblogCoverImage\(admin, imageSearchTerm, final\.slug\)/.test(auto))
+    check('M9: a blank cap is refused by the route and ignored by the card', /String\(body\.value\)\.trim\(\) === ''/.test(src('app/api/admin/content-edits/route.ts')) && /e\.target\.value\.trim\(\) === ""/.test(src('components/admin/self-healing-card.tsx')))
+    check('M13: an unreadable reject list fails the write step; a reached limit is a plain note', /limit\.unreadable \? \{ failed: true \}/.test(auto) && /ok: !result\.failed/.test(src('lib/pipeline.ts')))
+  }
+
   // ---- L: the daily brief line, wiring and hygiene ----
   {
     const lines = healLinesOf([
@@ -567,18 +648,18 @@ async function main() {
     check('L: the brief says what the heal did in the last day, rejected items as information only', lines.length === 3 && /rewrote and published 1/.test(lines[0]) && /nothing for you to do/.test(lines[1]) && !lines.some((l) => /old/.test(l)) && /tomorrow/.test(lines[2]), JSON.stringify(lines))
   }
   const read = (p: string) => src(p)
-  check('L: the blog writer runs the heal loop before it decides to publish', /healComposedPost\(admin, final/.test(read('lib/autoblog-run.ts')) && /rejectLimitReached\(admin\)/.test(read('lib/autoblog-run.ts')) && /reheal_state: 'rejected'/.test(read('lib/autoblog-run.ts')))
-  check('L: the guide writer runs the heal loop and the guessed-property rule decides the publish', /healComposedGuide\(admin, guide/.test(read('lib/guide-run.ts')) && /decideGuideSave\(isGuessedProperty\(cand\)/.test(read('lib/guide-run.ts')))
-  check('L: the page copy writer runs the heal loop', /healComposedCopy\(admin, copy/.test(read('lib/page-copy-run.ts')))
-  check('L: the daily heal runs the held guides, the held page copy and the stuck blog drafts', /healHeldGuides\(admin/.test(read('lib/content-heal-run.ts')) && /healHeldCopy\(admin/.test(read('lib/content-heal-run.ts')) && /rehealStuckDrafts\(admin/.test(read('lib/content-heal-run.ts')))
-  check('L: there is no new cron: the pipeline passes its deadline to the existing heal step', /runHealContentIfDue\(admin, \{ deadlineMs: startedAt \+ 280_000 \}\)/.test(read('lib/pipeline.ts')) && !/heal-loop|heal-drafts/.test(read('vercel.json')))
-  check('L: the heal never publishes a guessed property (comment and code in heal-drafts)', /if \(guessed\) \{/.test(read('lib/heal-drafts.ts')) && /NEVER published/.test(read('lib/heal-drafts.ts')) && /isGuessedProperty/.test(read('lib/heal-loop.ts')))
-  check('L: the Needs attention list no longer asks a person to check held drafts', !/id: HARD_WAITING_ISSUE_ID/.test(read('lib/issues.ts')) && /HEAL_LOOP_ISSUE_ID/.test(read('lib/issues.ts')))
+  check('L: the blog writer runs the heal loop before it decides to publish', /healComposedPost\(admin, final/.test(src('lib/autoblog-run.ts')) && /rejectLimitReached\(admin\)/.test(src('lib/autoblog-run.ts')) && /reheal_state: 'rejected'/.test(src('lib/autoblog-run.ts')))
+  check('L: the guide writer runs the heal loop and the guessed-property rule decides the publish', /healComposedGuide\(admin, guide/.test(src('lib/guide-run.ts')) && /decideGuideSave\(isGuessedProperty\(cand\)/.test(src('lib/guide-run.ts')))
+  check('L: the page copy writer runs the heal loop', /healComposedCopy\(admin, copy/.test(src('lib/page-copy-run.ts')))
+  check('L: the daily heal runs the held guides, the held page copy and the stuck blog drafts', /healHeldGuides\(admin/.test(src('lib/content-heal-run.ts')) && /healHeldCopy\(admin/.test(src('lib/content-heal-run.ts')) && /rehealStuckDrafts\(admin/.test(src('lib/content-heal-run.ts')))
+  check('L: there is no new cron: the pipeline passes its deadline to the existing heal step', /runHealContentIfDue\(admin, \{ deadlineMs: startedAt \+ 280_000 \}\)/.test(src('lib/pipeline.ts')) && !/heal-loop|heal-drafts/.test(src('vercel.json')))
+  check('L: the heal never publishes a guessed property (comment and code in heal-drafts)', /if \(guessed\) \{/.test(src('lib/heal-drafts.ts')) && /NEVER published/.test(src('lib/heal-drafts.ts')) && /isGuessedProperty/.test(src('lib/heal-loop.ts')))
+  check('L: the Needs attention list no longer asks a person to check held drafts', !/id: HARD_WAITING_ISSUE_ID/.test(src('lib/issues.ts')) && /HEAL_LOOP_ISSUE_ID/.test(src('lib/issues.ts')))
   for (const f of ['lib/heal-loop.ts', 'lib/heal-targets.ts', 'lib/heal-drafts.ts', 'scripts/check-heal-loop.ts']) {
     const text = read(f)
     check(`L: ${f} has no long dash and no control characters`, !LONG_DASH.test(text) && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text))
   }
-  check('L: every model call goes through the one bounded wrapper (no direct callAnthropic in the loop)', !/callAnthropic\(/.test(read('lib/heal-loop.ts')))
+  check('L: every model call goes through the one bounded wrapper (no direct callAnthropic in the loop)', !/callAnthropic\(/.test(src('lib/heal-loop.ts')))
 
   console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed.')
   process.exit(failed ? 1 : 0)

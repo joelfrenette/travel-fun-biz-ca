@@ -169,6 +169,8 @@ export function SelfHealingCard() {
                 key={card.loop.cap}
                 className="h-8 w-20 rounded-md border bg-background px-2 text-sm text-foreground"
                 onBlur={(e) => {
+                  // An empty box is "no change", never 0 (0 switches the heal off).
+                  if (e.target.value.trim() === "") return
                   const n = Number(e.target.value)
                   if (Number.isInteger(n) && n >= 0 && n <= 60 && n !== card.loop?.cap) void saveCap(n)
                 }}

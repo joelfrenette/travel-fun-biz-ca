@@ -32,6 +32,8 @@ export const COPY_HEALED_PER_DAY = 2
 /** Only rows this young are looked at (older held rows were reviewed or abandoned). */
 export const HEAL_DRAFT_MAX_AGE_DAYS = 30
 const PER_ITEM_MS = 180_000
+/** A row whose last change is more than this long after it was created was touched by a person (or a later step). */
+export const PARKED_AFTER_MS = 10 * 60_000
 const READ_LIMIT = 200
 
 type Row = Record<string, unknown>
@@ -51,9 +53,6 @@ export interface DraftHealResult {
   note: string
 }
 
-/** The outcome for a held row whose reasons are out of date: the gate is clean now, so there is nothing to heal. */
-const cleanOutcome = (): HealOutcome => ({ status: 'already_clean', fields: { body: '', meta_title: '', meta_description: '', og_title: '', og_description: '', faq: [], key_takeaways: [] }, blockers: [], reasons: [], rounds: 0, ladder: [], calls: 0, judgeRuns: 0, edits: [], log: [], note: 'already clean' })
-
 const emptyResult = (note = ''): DraftHealResult => ({ tried: 0, published: 0, healedDraft: 0, rejected: 0, deferred: 0, calls: 0, problems: [], note })
 
 /** The "Rejected by heal:" prefix healNoteOf writes. A row with it is finished. */
@@ -72,6 +71,10 @@ export function isHealDraftCandidate(row: Row, now: Date, modeHoldNotes: string[
   if (modeHoldNotes.includes(notes)) return false
   const created = Date.parse(str(row.created_at))
   if (!Number.isFinite(created) || now.getTime() - created > HEAL_DRAFT_MAX_AGE_DAYS * 86_400_000) return false
+  // A row someone edited after the writer saved it (updated_at well after created_at) may have been parked on purpose:
+  // the heal leaves it alone. The writer sets both stamps within moments of each other.
+  const updated = Date.parse(str(row.updated_at))
+  if (Number.isFinite(updated) && updated - created > PARKED_AFTER_MS) return false
   return true
 }
 
@@ -153,13 +156,19 @@ async function defaultCopyBrief(row: Row, admin: SupabaseClient): Promise<CopyBr
   }
 }
 
+/** Adds the "nobody changed this row since I read it" condition to an update. A row whose updated_at changed (an admin edited
+ * or published it while the loop was running) matches nothing, so the heal never overwrites a person's edit. */
+function guarded<T extends { eq: (c: string, v: unknown) => T; is: (c: string, v: null) => T }>(q: T, expectedUpdatedAt: unknown): T {
+  return expectedUpdatedAt ? q.eq('updated_at', expectedUpdatedAt) : q.is('updated_at', null)
+}
+
 /** Logs the publish, then makes it. No audit row, no publish. Returns an error text, or null when it worked. */
-async function publishLogged(admin: SupabaseClient, table: 'guides' | 'page_copy', type: 'guide' | 'page_copy', row: Row, path: string, textEditIds: string[], now: Date): Promise<string | null> {
+async function publishLogged(admin: SupabaseClient, table: 'guides' | 'page_copy', type: 'guide' | 'page_copy', row: Row, path: string, textEditIds: string[], now: Date, expectedUpdatedAt: unknown): Promise<string | null> {
   const id = str(row.id)
   const statusEdit: ContentEdit = { content_type: type, content_id: id, path, field: 'status', reason: 'the text now passes the full publish gate and the independent QA review, so the heal published it', before: 'draft', after: 'published', method: 'fixer', published_after: true, cost_usd: 0 }
   const logged = await insertEdits(admin, [statusEdit])
   if (logged.error) return `the publish could not be logged (${logged.error})${/check constraint/i.test(logged.error) ? '; apply migration 0043' : ''}`
-  const { data, error } = await admin.from(table).update({ status: 'published', quality_notes: null, updated_at: now.toISOString() }).eq('id', id).eq('status', 'draft').select('id')
+  const { data, error } = await guarded(admin.from(table).update({ status: 'published', quality_notes: null, updated_at: now.toISOString() }).eq('id', id).eq('status', 'draft'), expectedUpdatedAt).select('id')
   if (error || !data?.length) {
     await deleteEdits(admin, logged.ids).catch(() => undefined)
     return error ? `could not publish (${error.message})` : 'it was published, changed or removed by someone else meanwhile'
@@ -199,13 +208,8 @@ export async function healHeldGuides(admin: SupabaseClient, opts: HealDraftOpts 
       const guide = composedGuideFromRow(row)
       const guessed = isGuessedPropertyNote(str(row.quality_notes))
       const blockers = guideBlockers(guide, parts.ctx)
-      let healed: Healed<ComposedGuide>
-      if (blockers.length === 0) {
-        // The held reasons are out of date (the text was edited, or the rules changed): nothing to heal.
-        healed = { value: guide, logIds: [], outcome: cleanOutcome() }
-      } else {
-        healed = await healComposedGuide(admin, guide, parts.ctx, { kind, slug, path, links: parts.links, now, model: opts.model, deadlineMs: Math.min(Date.now() + PER_ITEM_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER) })
-      }
+      // A gate-clean row (stale held reasons) still goes past the independent judge before it can go live.
+      const healed: Healed<ComposedGuide> = await healComposedGuide(admin, guide, parts.ctx, { kind, slug, path, links: parts.links, now, model: opts.model, requireJudge: blockers.length === 0, deadlineMs: Math.min(Date.now() + PER_ITEM_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER) })
       out.calls += healed.outcome.calls
       await applyHealedRow(admin, 'guides', 'guide', row, path, healed.outcome, healed.logIds, healed.outcome.status === 'healed' ? sectionsColumns(healed.value) : null, guessed, now, out, (note) => ({ quality_notes: note, review_state: 'rejected' }), GUESSED_PROPERTY_NOTE)
       if (out.published && healed.outcome.status === 'healed') await pingIndexNow([path, '/sitemap.xml']).catch(() => undefined)
@@ -241,12 +245,7 @@ export async function healHeldCopy(admin: SupabaseClient, opts: HealDraftOpts = 
       }
       const copy = composedCopyFromRow(row)
       const blockers = pageCopyBlockers(copy, parts.ctx)
-      let healed: Healed<ComposedPageCopy>
-      if (blockers.length === 0) {
-        healed = { value: copy, logIds: [], outcome: cleanOutcome() }
-      } else {
-        healed = await healComposedCopy(admin, copy, parts.ctx, { path, links: parts.links, now, model: opts.model, deadlineMs: Math.min(Date.now() + PER_ITEM_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER) })
-      }
+      const healed: Healed<ComposedPageCopy> = await healComposedCopy(admin, copy, parts.ctx, { path, links: parts.links, now, model: opts.model, requireJudge: blockers.length === 0, deadlineMs: Math.min(Date.now() + PER_ITEM_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER) })
       out.calls += healed.outcome.calls
       const v = healed.value
       const columns: Row | null =
@@ -289,35 +288,38 @@ async function applyHealedRow(
   if (outcome.status === 'rejected_by_heal') {
     out.rejected++
     const patch = rejectedPatch([healNoteOf(outcome), guessed ? guessedNote : ''].filter(Boolean).join('; '))
-    let { error } = await admin.from(table).update({ ...patch, ...stamp }).eq('id', id)
+    let { error } = await guarded(admin.from(table).update({ ...patch, ...stamp }).eq('id', id), row.updated_at)
     // Until migration 0041 is applied a guide has no review_state column: the note and the rejected list still say it.
     if (error && 'review_state' in patch && /review_state|column|schema cache/i.test(error.message)) {
       const { review_state: _drop, ...rest } = patch
       void _drop
-      ;({ error } = await admin.from(table).update({ ...rest, ...stamp }).eq('id', id))
+      ;({ error } = await guarded(admin.from(table).update({ ...rest, ...stamp }).eq('id', id), row.updated_at))
     }
     if (error) out.problems.push(`${path}: could not mark it rejected (${error.message})`)
     return
   }
   // healed, or already clean
+  let expected: unknown = row.updated_at
   if (outcome.status === 'healed' && columns) {
-    const { error } = await admin.from(table).update({ ...columns, ...stamp }).eq('id', id).eq('status', 'draft')
-    if (error) {
+    const { data, error } = await guarded(admin.from(table).update({ ...columns, ...stamp }).eq('id', id).eq('status', 'draft'), expected).select('id')
+    if (error || !data?.length) {
+      // Nothing was written: take the audit rows back. Zero rows means a person changed or published the row meanwhile: skip it.
       await deleteEdits(admin, logIds).catch(() => undefined)
-      out.problems.push(`${path}: could not save the healed text (${error.message})`)
+      out.problems.push(error ? `${path}: could not save the healed text (${error.message})` : `${path}: changed by someone else while the heal was working, so the heal left it alone`)
       return
     }
+    expected = stamp.updated_at
   }
   if (guessed) {
     // A name taken from a trip title is never published by the heal; the text is better, the page still waits for a person to check the name.
     if (outcome.status === 'healed') {
-      await admin.from(table).update({ quality_notes: guessedNote, ...stamp }).eq('id', id)
+      await guarded(admin.from(table).update({ quality_notes: guessedNote, ...stamp }).eq('id', id), expected)
       await finalizeEdits(admin, logIds, { id, path, published: false })
       out.healedDraft++
     }
     return
   }
-  const problem = await publishLogged(admin, table, type, row, path, logIds, now)
+  const problem = await publishLogged(admin, table, type, row, path, logIds, now, expected)
   if (problem) {
     out.problems.push(`${path}: ${problem}`)
     // The text repair (if any) is real and stays; the page just is not published this time.

@@ -483,6 +483,8 @@ export function contentStems(text: string): string[] {
   return words.filter((w) => !STOP_WORDS.has(w)).map(stem).filter((s) => !NEUTRAL_STEMS.has(s))
 }
 
+const NEGATION = /\b(?:not|no|never|without|none|nor|cannot|\w+n't)\b/g
+
 /** Why a model rewrite must be thrown away, or null when it is acceptable. A rewrite may only shorten: it must not
  * be longer than the original, add a number, a name, a link, a price or a date, or keep the problem. */
 export function validateRewrite(original: string, rewrite: string, ctx: DetectCtx): string | null {
@@ -492,6 +494,9 @@ export function validateRewrite(original: string, rewrite: string, ctx: DetectCt
   if (wordsOf(text) > wordsOf(cleanOriginal) + 2) return 'longer than the original'
   const origNums = new Set(numbersIn(proseOf(original)))
   if (numbersIn(proseOf(text)).some((n) => !origNums.has(n) && !ctx.groundNums.has(n))) return 'adds a number'
+  // Negations must survive: dropping "not", "no", "never", "no longer" or "without" turns a warning into the opposite claim.
+  const negations = (s: string) => (s.replace(/[’]/g, "'").toLowerCase().match(NEGATION) ?? []).length
+  if (negations(text) < negations(original)) return 'drops a negation (not, no, never, without)'
   if (/https?:\/\/|\bwww\./i.test(text)) return 'adds a web address'
   const origLinks = new Set(internalLinksOfText(original))
   if (internalLinksOfText(text).some((l) => !origLinks.has(l))) return 'adds a link'

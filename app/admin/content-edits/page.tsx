@@ -22,6 +22,7 @@ interface Edit {
   published_after: boolean
   reverted_at: string | null
   created_at: string
+  content_id?: string | null
 }
 
 const FIELD_LABEL: Record<string, string> = {
@@ -79,6 +80,26 @@ function changedBits(edit: Edit): { removed: string[]; added: string[] } {
     return { removed: a.filter((x) => !bs.has(x)), added: b.filter((x) => !as.has(x)) }
   }
   return { removed: before ? [before] : [], added: after ? [after] : [] }
+}
+
+/** Keeps the rows of one page next to each other (a heal publish and its text edits), in the order the page first appears. */
+function groupEdits(edits: Edit[]): Edit[] {
+  const order: string[] = []
+  const groups = new Map<string, Edit[]>()
+  for (const e of edits) {
+    const key = e.content_id ? `${e.content_type}:${e.content_id}` : e.id
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
+    groups.get(key)!.push(e)
+  }
+  return order.flatMap((k) => groups.get(k)!)
+}
+
+/** Is there an automatic publish (a status edit that is not undone) for the same page as this text edit? */
+function hasLivePublish(edits: Edit[], e: Edit): boolean {
+  return !!e.content_id && edits.some((x) => x.field === "status" && !x.reverted_at && x.content_type === e.content_type && x.content_id === e.content_id)
 }
 
 export default function ContentEditsPage() {
@@ -150,8 +171,9 @@ export default function ContentEditsPage() {
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
         {loading && <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}
         {!loading && !error && edits.length === 0 && <p className="text-sm text-muted-foreground">Nothing yet. When the site fixes a page by itself, each change shows up here.</p>}
-        {edits.map((e) => {
+        {groupEdits(edits).map((e) => {
           const bits = changedBits(e)
+          const withPublish = e.field !== "status" && !e.reverted_at && e.published_after && hasLivePublish(edits, e)
           return (
             <div key={e.id} className="rounded-lg border p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -164,6 +186,7 @@ export default function ContentEditsPage() {
                     {e.published_after ? <Badge>Live</Badge> : <Badge variant="outline">Draft</Badge>}
                     {e.reverted_at && <Badge variant="destructive">Undone {new Date(e.reverted_at).toLocaleDateString("en-CA", { timeZone: "America/Toronto" })}</Badge>}
                   </p>
+                  {withPublish && <p className="text-xs text-amber-700">This text went live with an automatic publish. Undo also takes the page back to a draft, so the old text is never shown live.</p>}
                   <p className="text-xs text-muted-foreground">{new Date(e.created_at).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium", timeStyle: "short" })} &middot; {e.reason}</p>
                 </div>
                 {!e.reverted_at && (

@@ -26,6 +26,8 @@ interface CommonOpts {
   deadlineMs?: number
   now?: Date
   budget?: HealBudget
+  /** The independent judge must pass the text even when the gate is already clean (a held row that may have been parked by a person). */
+  requireJudge?: boolean
 }
 
 // ---- posts ----
@@ -57,7 +59,7 @@ export async function healComposedPost(
         }
       : undefined,
   }
-  const run = await healItem(admin, target, { model: opts.model, deadlineMs: opts.deadlineMs ?? ctx.deadlineMs, now: opts.now ?? now, budget: opts.budget })
+  const run = await healItem(admin, target, { model: opts.model, deadlineMs: opts.deadlineMs ?? ctx.deadlineMs, now: opts.now ?? now, budget: opts.budget, requireJudge: opts.requireJudge })
   if (run.outcome.status !== 'healed') return { value: post, outcome: run.outcome, logIds: run.logIds }
   const next = postFrom(post, run.outcome.fields)
   if (opts.keepSlug) next.slug = post.slug
@@ -74,7 +76,7 @@ export async function healComposedGuide(
 ): Promise<Healed<ComposedGuide>> {
   const item = buildGuideItem(guide, gateCtx, { path: opts.path, links: opts.links })
   const target: HealTarget = { type: 'guide', key: `guide:${opts.kind}:${opts.slug}`, path: opts.path, item, brief: gateCtx.grounding }
-  const run = await healItem(admin, target, { model: opts.model, deadlineMs: opts.deadlineMs, now: opts.now, budget: opts.budget })
+  const run = await healItem(admin, target, { model: opts.model, deadlineMs: opts.deadlineMs, now: opts.now, budget: opts.budget, requireJudge: opts.requireJudge })
   if (run.outcome.status !== 'healed') return { value: guide, outcome: run.outcome, logIds: run.logIds }
   // A healed body that no longer splits into sections would leave the saved sections out of step with the text: undo it.
   if (!parseArticle(`${run.outcome.fields.summary ?? guide.summary}\n\n${run.outcome.fields.body}`)) {
@@ -98,7 +100,7 @@ export async function healComposedCopy(
 ): Promise<Healed<ComposedPageCopy>> {
   const item = buildCopyItem(copy, gateCtx, { path: opts.path, links: opts.links })
   const target: HealTarget = { type: 'page_copy', key: `page_copy:${opts.path}`, path: opts.path, item, brief: gateCtx.grounding }
-  const run = await healItem(admin, target, { model: opts.model, deadlineMs: opts.deadlineMs, now: opts.now, budget: opts.budget })
+  const run = await healItem(admin, target, { model: opts.model, deadlineMs: opts.deadlineMs, now: opts.now, budget: opts.budget, requireJudge: opts.requireJudge })
   if (run.outcome.status !== 'healed') return { value: copy, outcome: run.outcome, logIds: run.logIds }
   return { value: copyFrom(copy, run.outcome.fields), outcome: run.outcome, logIds: run.logIds }
 }
