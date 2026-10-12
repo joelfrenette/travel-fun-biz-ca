@@ -32,6 +32,7 @@ export function fakeAdmin(db: Db): SupabaseClient {
     let wantRows = true
     let orderBy: { col: string; asc: boolean } | null = null
     let max = Infinity
+    let offset = 0
     const rows = () => (db.tables[table] ??= [])
     const run = (): { data: Row[] | null; error: { message: string; code?: string } | null; count: number | null } => {
       if (mode !== 'select' && db.failWrites?.[table]) return { data: null, error: { message: db.failWrites[table] }, count: null }
@@ -61,7 +62,7 @@ export function fakeAdmin(db: Db): SupabaseClient {
         const { col, asc } = orderBy
         out.sort((a, b) => (String(valueAt(a, col) ?? '') < String(valueAt(b, col) ?? '') ? (asc ? -1 : 1) : String(valueAt(a, col) ?? '') > String(valueAt(b, col) ?? '') ? (asc ? 1 : -1) : 0))
       }
-      out = out.slice(0, max)
+      out = out.slice(offset, offset + max)
       return { data: head ? null : out, error: null, count: hit.length }
     }
     const q: Record<string, unknown> = {
@@ -113,6 +114,7 @@ export function fakeAdmin(db: Db): SupabaseClient {
       },
       order: (col: string, o?: { ascending?: boolean }) => ((orderBy = { col, asc: o?.ascending !== false }), q),
       limit: (n: number) => ((max = n), q),
+      range: (from: number, to: number) => ((offset = from), (max = to - from + 1), q),
       maybeSingle: () => {
         const r = run()
         return Promise.resolve({ data: r.data?.[0] ?? null, error: r.error })

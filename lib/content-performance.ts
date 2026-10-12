@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isSearchConsoleConfigured, getPageMetrics } from '@/lib/search-console'
 import { listSitePages } from '@/lib/site-pages'
+import { getGa4LandingPageSessions, isGa4Configured } from '@/lib/ga4'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { blogSlugFromPath, rankScores, MIN_POSTS_FOR_CONFIDENCE, MIN_POST_AGE_DAYS, type StyleScore } from '@/lib/style-choice'
 
@@ -56,6 +57,16 @@ interface Row {
   social_sends: number | null
   social_failures: number | null
   leads: number | null
+}
+
+const MAX_GA4_ATTEMPTS = 2
+
+/** Pure: writes GA4 sessions into the snapshot rows. A page GA4 reported gets its sessions; a tracked page it did not
+ * report gets 0 (GA4 answered, so no sessions is a real measurement). Pages GA4 saw that no row exists for yet are added
+ * through `addRow`. */
+export function applyGa4Sessions<R extends { path: string; visits: number | null }>(rows: Map<string, R>, sessions: Map<string, number>, addRow: (path: string) => R): void {
+  for (const r of rows.values()) r.visits = sessions.get(r.path) ?? 0
+  for (const [p, n] of sessions) if (!rows.has(p)) addRow(p).visits = n
 }
 
 /** Takes today's snapshot, once a day (an atomic claim in app_settings, so overlapping passes cannot both
@@ -139,6 +150,28 @@ export async function snapshotContentPerformance(admin: SupabaseClient): Promise
       for (const [p, n] of counts) if (!rows.has(p)) row(p).visits = n
     } else {
       notes.push('no visits recorded yet')
+    }
+
+    // GA4 sessions per landing page (WP18-F): ONE read-only request a day (at most 2 tries), only when GA4 is
+    // connected. When it answers, it is the better visit number (site_visits has no writer yet) and fills `visits`.
+    // When it is not connected, or it fails, visits stay as they were (null if nothing else recorded them): never invented.
+    if (isGa4Configured()) {
+      const tryKey = `content_performance_ga4_try:${day}`
+      const tries = Number(await getSetting(admin, tryKey)) || 0
+      if (tries >= MAX_GA4_ATTEMPTS) {
+        notes.push('GA4 sessions skipped (already tried twice today)')
+      } else {
+        await setSetting(admin, tryKey, String(tries + 1))
+        try {
+          const sessions = await getGa4LandingPageSessions(VISIT_WINDOW_DAYS)
+          applyGa4Sessions(rows, sessions, row)
+          notes.push(`GA4 sessions for ${sessions.size} page${sessions.size === 1 ? '' : 's'}`)
+        } catch (e) {
+          notes.push(`GA4 sessions could not be read (${e instanceof Error ? e.message.slice(0, 120) : 'error'})`)
+        }
+      }
+    } else {
+      notes.push('GA4 is not connected, so visits are not measured')
     }
 
     // Social: the post, carousel and video sends and failures, per blog slug.
@@ -241,14 +274,14 @@ export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResu
     const day = (latest.data?.[0] as { day: string } | undefined)?.day ?? null
     if (!day) return { ready: true, day: null, tables: [], note: 'no snapshot taken yet' }
 
-    const perf = await fetchAll<{ path: string; clicks: number | null; leads: number | null }>((from, to) =>
-      admin.from(PERFORMANCE_TABLE).select('path, clicks, leads').eq('day', day).like('path', '/blog/%').range(from, to),
+    const perf = await fetchAll<{ path: string; clicks: number | null; leads: number | null; visits: number | null }>((from, to) =>
+      admin.from(PERFORMANCE_TABLE).select('path, clicks, leads, visits').eq('day', day).like('path', '/blog/%').range(from, to),
     )
     if (perf.error) return { ready: false, day, tables: [], note: perf.error }
-    const bySlug = new Map<string, { clicks: number | null; leads: number }>()
+    const bySlug = new Map<string, { clicks: number | null; leads: number; visits: number | null }>()
     for (const p of perf.rows) {
       const slug = blogSlugFromPath(p.path)
-      if (slug) bySlug.set(slug, { clicks: p.clicks, leads: p.leads ?? 0 })
+      if (slug) bySlug.set(slug, { clicks: p.clicks, leads: p.leads ?? 0, visits: p.visits ?? null })
     }
 
     const variants = await fetchAll<{ slug: string; variant_tags: Record<string, unknown> | null }>((from, to) =>
@@ -281,7 +314,7 @@ export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResu
       if (!tags.content_style) tagged.set(slug, { ...tags, content_style: style })
     }
 
-    interface Acc { posts: number; young: number; measured: number; clicks: number; leads: number }
+    interface Acc { posts: number; young: number; measured: number; clicks: number; leads: number; visitsMeasured: number; visits: number }
     const acc = new Map<string, Map<string, Acc>>()
     for (const [slug, tags] of tagged) {
       const perfRow = bySlug.get(slug)
@@ -290,12 +323,17 @@ export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResu
       for (const [key, value] of Object.entries(tags)) {
         if (!wantedKey(key) || typeof value !== 'string' || !value) continue
         const byValue = acc.get(key) ?? new Map<string, Acc>()
-        const cur = byValue.get(value) ?? { posts: 0, young: 0, measured: 0, clicks: 0, leads: 0 }
+        const cur = byValue.get(value) ?? { posts: 0, young: 0, measured: 0, clicks: 0, leads: 0, visitsMeasured: 0, visits: 0 }
         if (!old) {
           cur.young += 1
         } else {
           cur.posts += 1
           cur.leads += perfRow.leads
+          // GA4 sessions are an extra signal: counted only when measured (null is never turned into 0).
+          if (perfRow.visits !== null) {
+            cur.visitsMeasured += 1
+            cur.visits += perfRow.visits
+          }
           if (perfRow.clicks !== null) {
             cur.measured += 1
             cur.clicks += perfRow.clicks
@@ -319,6 +357,8 @@ export async function styleScores(admin: SupabaseClient): Promise<StyleScoreResu
             clicksPerPost: v.measured ? round(v.clicks / v.measured) : 0,
             leads: v.leads,
             leadsPerPost: v.posts ? round(v.leads / v.posts) : 0,
+            visitsMeasuredPosts: v.visitsMeasured,
+            visitsPerPost: v.visitsMeasured ? round(v.visits / v.visitsMeasured) : 0,
             sample: v.posts < MIN_POSTS_FOR_CONFIDENCE ? 'thin' : 'ok',
           })),
         )

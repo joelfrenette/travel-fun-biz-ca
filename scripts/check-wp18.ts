@@ -12,6 +12,9 @@ import { fakeAdmin, type Db } from './fake-admin'
 import { PAGE_COPY_DEFAULT_MODE, pageCopyModeOf } from '../lib/page-copy-run'
 import { autoHoldNote, CAPTION_FAILED_PREFIX, clearAutoHoldNote, DEFAULT_GUIDE_RELEASE_HOURS, guideCaptionProblems, parseReleaseHours, releaseHeldGuides } from '../lib/guide-release'
 import { enrollGuideIfDue } from '../lib/guide-distribution'
+import { sessionsByPath } from '../lib/ga4'
+import { applyGa4Sessions, snapshotContentPerformance } from '../lib/content-performance'
+import { rankScores } from '../lib/style-choice'
 import { classifyBlockers, fixOnOfferPhrases, repairContent, ruleFor, type RepairFields } from '../lib/content-repair'
 import { COPY_LIMITS } from '../lib/content-repair-adapters'
 import { agencyClaims } from '../lib/guide-composer'
@@ -271,6 +274,33 @@ async function main() {
   const dist = src('lib/distribution.ts')
   check('E: the existing posting pass calls the release step before sending, and there is no new send path', /releaseHeldGuides\(admin, \{ mode \}\)/.test(dist) && !/uploadPostSend/.test(src('lib/guide-release.ts')) && !/sendText|sendPhotos|sendVideo/.test(src('lib/guide-release.ts')))
   check('E: a held caption shows in Needs attention with grade-5 steps', /guide-caption:/.test(src('lib/issues.ts')) && /guide-caption:/.test(src('lib/plain-steps.ts')))
+
+  // ---- F: GA4 sessions per page into the daily snapshot ----
+  const sess = sessionsByPath([
+    { landingPage: '/blog/a', sessions: 10 }, { landingPage: '/blog/a/', sessions: 5 }, { landingPage: '/blog/a?utm_source=x', sessions: 1 },
+    { landingPage: '(not set)', sessions: 99 }, { landingPage: '/admin/autopilot', sessions: 7 }, { landingPage: '/api/x', sessions: 7 },
+    { landingPage: 'https://www.travelfunbiz.ca/packages/p', sessions: 3 }, { landingPage: '/', sessions: 40 }, { landingPage: '', sessions: 2 },
+  ])
+  check('F: GA4 rows become sessions per site path (query and slash dropped, admin and (not set) ignored)', sess.get('/blog/a') === 16 && sess.get('/packages/p') === 3 && sess.get('/') === 40 && sess.size === 3, JSON.stringify([...sess]))
+  {
+    const rows = new Map<string, { path: string; visits: number | null }>([['/blog/a', { path: '/blog/a', visits: null }], ['/blog/none', { path: '/blog/none', visits: null }]])
+    applyGa4Sessions(rows, new Map([['/blog/a', 16], ['/new', 4]]), (p) => { const r = { path: p, visits: null as number | null }; rows.set(p, r); return r })
+    check('F: sessions fill visits, an unreported tracked page is a real 0, a new page is added', rows.get('/blog/a')?.visits === 16 && rows.get('/blog/none')?.visits === 0 && rows.get('/new')?.visits === 4)
+  }
+  check('F: visits is an extra signal only: it breaks a tie but never beats clicks or leads',
+    rankScores([{ value: 'a', clicksPerPost: 5, posts: 3, visitsPerPost: 0 }, { value: 'b', clicksPerPost: 5, posts: 3, visitsPerPost: 40 }])[0].value === 'b' &&
+    rankScores([{ value: 'a', clicksPerPost: 6, posts: 3, visitsPerPost: 0 }, { value: 'b', clicksPerPost: 5, posts: 3, visitsPerPost: 400 }])[0].value === 'a' &&
+    rankScores([{ value: 'a', clicksPerPost: 5, posts: 3 }, { value: 'b', clicksPerPost: 5, posts: 4 }])[0].value === 'b')
+  {
+    // not connected: nothing is invented, visits stay null
+    delete process.env.GA4_PROPERTY_ID
+    const db: Db = { tables: { app_settings: [], site_visits: [], post_distribution: [], content_pipeline: [], leads: [], posts: [{ slug: 'a', title: 'A', status: 'published' }], content_performance: [] } }
+    const note = await snapshotContentPerformance(fakeAdmin(db))
+    const saved = db.tables.content_performance ?? []
+    check('F: with GA4 not connected the snapshot leaves visits null and says so', saved.length > 0 && saved.every((r) => r.visits === null) && /GA4 is not connected/.test(String(note)), String(note))
+  }
+  check('F: GA4 is read with one report request and the snapshot caps tries at 2 a day', (src('lib/ga4.ts').match(/runReport/g) ?? []).length >= 2 && /MAX_GA4_ATTEMPTS = 2/.test(src('lib/content-performance.ts')) && !/method: 'POST'[\s\S]{0,200}batchRunReports/.test(src('lib/ga4.ts')))
+  check('F: migration 0042 is written (comment only, the visits column already exists from 0029)', /comment on column public\.content_performance\.visits/.test(src('supabase/migrations/0042_visits_ga4.sql')) && !/add column/i.test(src('supabase/migrations/0042_visits_ga4.sql')))
 
   // ---- MAIN-END ----
 }
