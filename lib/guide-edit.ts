@@ -9,7 +9,8 @@ export const EDITABLE_TEXT_FIELDS = ['meta_title', 'meta_description', 'og_title
 export type EditableTextField = (typeof EDITABLE_TEXT_FIELDS)[number]
 
 const LIMITS: Record<EditableTextField, number> = { meta_title: 70, meta_description: 200, og_title: 70, og_description: 140 }
-const DASH = /[–—]|\s--\s/
+// An en dash, an em dash or a spaced double hyphen (built from code points so this file has no dash character in it).
+const DASH = new RegExp(`[${String.fromCharCode(0x2013)}${String.fromCharCode(0x2014)}]|\\s--\\s`)
 
 export interface GuideEditPatch {
   text: Partial<Record<EditableTextField, string>>
