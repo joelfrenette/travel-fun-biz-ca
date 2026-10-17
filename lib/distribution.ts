@@ -9,6 +9,7 @@ import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource } from '@/lib/guide-post-source'
 import { fitCaption, tightestLimit, generatePlatformCaptions, buildFallbackCaption, buildNetworkFallbacks, groupNetworksForSend, type PlatformCaptions } from '@/lib/social-captions'
 import type { UploadPostSendResult } from '@/lib/upload-post'
+import { buildGroundingText } from '@/lib/post-grounding'
 import { tagVariant } from '@/lib/content-variants'
 import { HOOK_STYLES, CTA_STYLES, hashtagCapFor, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
@@ -19,9 +20,7 @@ async function loadGrounding(admin: SupabaseClient, slug: string): Promise<strin
   try {
     const { data, error } = await admin.from('posts').select('faq, key_takeaways').eq('slug', slug).maybeSingle()
     if (error || !data) return undefined
-    const faq = Array.isArray(data.faq) ? (data.faq as Array<{ q?: unknown; a?: unknown }>).map((f) => `${typeof f.q === 'string' ? f.q : ''} ${typeof f.a === 'string' ? f.a : ''}`.trim()) : []
-    const takeaways = Array.isArray(data.key_takeaways) ? (data.key_takeaways as unknown[]).filter((t): t is string => typeof t === 'string') : []
-    const text = [...takeaways.map((t) => `- ${t}`), ...faq.map((f) => `- ${f}`)].join('\n').slice(0, 1500)
+    const text = buildGroundingText(data.key_takeaways, data.faq, 1500)
     return text || undefined
   } catch {
     return undefined

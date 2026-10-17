@@ -78,3 +78,10 @@ One entry per improvement committed on branch `staging` by the unattended loop. 
 - Why it helps traffic: these pages rank for high-intent searches but had no way to act; now each ends with a call or enquiry step, so visits turn into leads.
 - Offline check: `pnpm dlx tsx scripts/check-cta-coverage.ts`.
 - How to UAT on staging: open a best-time page, a compare page and /destinations or /cruises. Each ends with a "Thinking about ...?" box with the call line, "Ask us about your trip" and "See all trips". On best-time and compare pages the enquiry link carries the first trip name.
+
+## Reel scripts grounded in stored key takeaways and FAQ answers
+
+- What changed: new pure helper `buildGroundingText(keyTakeaways, faq, maxChars = 1200)` in `lib/post-grounding.ts` (stored columns only, cut at a word boundary, empty input gives ''). `lib/distribution.ts` `loadGrounding` now uses it (same bullet format, limit 1500). `generateVideoScript` and `scriptPrompt` in `lib/video-script.ts` take an optional `facts` string: when non-empty the prompt gets a "Facts you may use" block saying nothing outside Title, Summary and Facts may be asserted, and numbers in facts count as grounded in the hook check and the cover title check. `lib/autopilot.ts` passes the helper output built from the already-loaded post (faq, key_takeaways). Callers without facts get a byte-identical prompt. No new AI call, no new data.
+- Why it helps traffic: reels can now use the post's own specifics (real takeaways and FAQ answers) instead of generic scene-setters, so hooks are more concrete and watchable, while the number check still blocks anything not stored.
+- Offline check: `pnpm dlx tsx scripts/check-video-script-facts.ts`.
+- How to UAT on staging: generate a reel for a post that has key takeaways. The hook and beats should reuse its real details; any number spoken must appear in the post title, summary, takeaways or FAQ. A post with no takeaways or FAQ behaves as before.

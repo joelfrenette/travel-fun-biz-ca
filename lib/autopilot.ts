@@ -1,3 +1,4 @@
+import { buildGroundingText } from '@/lib/post-grounding'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused, setAutomationPaused } from '@/lib/automation-kill-switch'
@@ -322,7 +323,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
         try {
           // The hook formula rotates over the last 5 videos so consecutive videos do not open the same way.
           const preferred = rotateStyle(await readRecentVariantValues(admin, 'video_hook', 12), HOOK_FORMULAS)
-          const script = await generateVideoScript(post.title, post.meta_description || '', preferred)
+          const script = await generateVideoScript(post.title, post.meta_description || '', preferred, buildGroundingText(post.key_takeaways, post.faq) || undefined)
           if (!script) {
             await fail(row, 'video', 'could not write a video script', false)
           } else {
