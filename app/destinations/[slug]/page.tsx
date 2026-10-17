@@ -5,6 +5,9 @@ import { MapPin, Calendar } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
+import { GuideHeaderFeature } from "@/components/guide-header-feature"
+import { pickHeaderFeature, type HeaderPastTrip } from "@/lib/guide-header"
+import type { TravelPackage } from "@/types/travel"
 import { guideJsonLd, guideMetadata } from "@/components/guide-page"
 import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection } from "@/components/guide-parts"
 import { getDestinationPage } from "@/lib/destinations"
@@ -54,6 +57,15 @@ export default async function DestinationPage({ params }: Props) {
   const destination = page?.destination ?? guide!.name
   const upcoming = page?.upcoming ?? []
   const recaps = page?.recaps ?? []
+  // What the header's right-hand card shows (lib/guide-header.ts): the nearest upcoming trip, else the latest past
+  // trip, else the guide's photo with quick facts from its stored takeaways, else nothing (one column).
+  const feature = pickHeaderFeature<TravelPackage, HeaderPastTrip>(
+    guide,
+    upcoming.map((item) => ({ item, from: page?.upcomingFrom[item.id] ?? null })),
+    recaps,
+  )
+  const restTrips = feature.rest
+  const heroInHeader = feature.kind === "facts" && !!feature.image
 
   const { language, currency } = getVisitorPreferences()
   const usdToTargetRate = await getUsdToRate(currency)
@@ -122,7 +134,8 @@ export default async function DestinationPage({ params }: Props) {
       <main className="flex-1">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
         <div className="border-b bg-muted/30">
-          <div className="container mx-auto px-4 py-10">
+          <div className={`container mx-auto px-4 py-10 ${feature.kind !== "none" ? "grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]" : ""}`}>
+            <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Destination</p>
             <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{guide ? `${destination}: ${guideKinds.destinations.guideLabel}` : `${destination} Trips`}</h1>
             {guide && formatDate(guide.updated_at) && (
@@ -136,13 +149,15 @@ export default async function DestinationPage({ params }: Props) {
             ) : (
               blurb && <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">{blurb.blurb}</p>
             )}
+            </div>
+            <GuideHeaderFeature feature={feature} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
           </div>
         </div>
 
         <div className="container mx-auto space-y-12 px-4 py-10">
           {guide && (
             <div className="mx-auto max-w-3xl space-y-10">
-              {guide.hero_image_url && (
+              {guide.hero_image_url && !heroInHeader && (
                 <figure>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -167,11 +182,13 @@ export default async function DestinationPage({ params }: Props) {
 
           {/* The guide block above comes first so the answer content is the top of the page; the trip grid follows.
               With no guide the grid is the first block, exactly as before. */}
-          {upcoming.length > 0 && (
+          {/* The nearest trip is the header card, so this section only lists the REST: with one trip it is not rendered
+              at all (no duplicate). Cards are centred and wrap, so a lone or odd one out is never stuck on the left. */}
+          {restTrips.length > 0 && (
             <section>
-              <h2 className="mb-4 text-xl font-bold uppercase text-foreground">Upcoming trips to {destination}</h2>
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {upcoming.map((pkg) => (
+              <h2 className="mb-4 text-center text-xl font-bold uppercase text-foreground">More upcoming trips to {destination}</h2>
+              <div className="grid justify-center gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),22rem))]">
+                {restTrips.map((pkg) => (
                   <PackageCard key={pkg.id} package={pkg} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
                 ))}
               </div>

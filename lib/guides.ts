@@ -174,6 +174,18 @@ export async function getPublishedPackagesByIds(ids: string[]): Promise<TravelPa
   return ((data ?? []) as DbPackage[]).map(dbPackageToTravelPackage)
 }
 
+/** The published trip rows a guide lists, with their dates and recap fields, so the page can tell upcoming from past
+ * (lib/past-trip.ts) and pick the nearest for the header (lib/guide-header.ts). Anon client: published rows only. */
+export async function getPublishedTripRowsByIds(ids: string[]): Promise<DbPackage[]> {
+  if (ids.length === 0) return []
+  const { data, error } = await supabase.from('travel_packages').select('*').in('id', ids).eq('status', 'published')
+  if (error) {
+    console.error('[guides] related trip rows failed:', error.message)
+    return []
+  }
+  return (data ?? []) as DbPackage[]
+}
+
 /** The stored facts of the published trips a guide lists (for the key-facts table, the route and the length chart).
  * Anon client, so RLS lets only published trips through. Never throws: a read error is an empty list. */
 export async function getTripFactsByIds(ids: string[]): Promise<TripFact[]> {
