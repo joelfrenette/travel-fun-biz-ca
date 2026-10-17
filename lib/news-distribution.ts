@@ -45,7 +45,7 @@ export interface NewsToEnrol {
  * news post, distribution is off, automation is paused, the post is already in the ledger, today's news count is already
  * `perDay`, today's total across all kinds is already at the ceiling, or either count cannot be read. `prepare` mode
  * enrols into `held` (a person approves it), `auto` into `queued`, exactly as enrollIfDue does for blog posts. */
-export async function enrollNewsIfDue(admin: SupabaseClient, post: NewsToEnrol, perDay: number): Promise<'enrolled' | 'skipped'> {
+export async function enrollNewsIfDue(admin: SupabaseClient, post: NewsToEnrol, perDay: number): Promise<'enrolled' | 'skipped' | 'ceiling'> {
   try {
     if (post.status !== 'published' || !isNewsSlug(post.slug)) return 'skipped'
     const mode = await getDistributionMode(admin)
@@ -58,7 +58,10 @@ export async function enrollNewsIfDue(admin: SupabaseClient, post: NewsToEnrol, 
     const since = utcDayStart()
     const newsBefore = await newsEnrolmentsSince(admin, since)
     const allBefore = await allEnrolmentsSince(admin, since)
-    if (newsBefore === null || allBefore === null || newsBefore >= perDay || allBefore >= SOCIAL_ENROLMENTS_PER_DAY_CEILING) return 'skipped'
+    if (newsBefore === null || allBefore === null || newsBefore >= perDay) return 'skipped'
+    // The ceiling is shared with blog posts and guides and is one-sided (news cannot reserve room in it), so when it is the
+    // reason news is skipped the caller says so in the step note.
+    if (allBefore >= SOCIAL_ENROLMENTS_PER_DAY_CEILING) return 'ceiling'
 
     const { error } = await admin.from('post_distribution').insert({ content_type: 'post', slug: post.slug, title: post.title, stage: mode === 'prepare' ? 'held' : 'queued' })
     if (error) return 'skipped'
@@ -69,7 +72,7 @@ export async function enrollNewsIfDue(admin: SupabaseClient, post: NewsToEnrol, 
     const allAfter = await allEnrolmentsSince(admin, since)
     if (newsAfter === null || allAfter === null || newsAfter > perDay || allAfter > SOCIAL_ENROLMENTS_PER_DAY_CEILING) {
       await admin.from('post_distribution').delete().eq('content_type', 'post').eq('slug', post.slug).neq('stage', 'done')
-      return 'skipped'
+      return allAfter !== null && allAfter > SOCIAL_ENROLMENTS_PER_DAY_CEILING ? 'ceiling' : 'skipped'
     }
     return 'enrolled'
   } catch (err) {

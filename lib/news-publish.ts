@@ -3,7 +3,7 @@ import { EST_COST_USD_PER_CALL, type ContentEdit } from '@/lib/content-repair'
 import { attachEdits, deleteEdits, editsLoggable, insertEdits } from '@/lib/content-edits'
 import { site } from '@/lib/site'
 import type { NewsBrief, NewsFacts } from '@/lib/news-brief'
-import { NEWS_TAG, buildNewsBody, newsSlug, newsTitle } from '@/lib/news-post'
+import { NEWS_TAG, buildNewsBody, markSupersededBody, newsSlug, newsTitle } from '@/lib/news-post'
 import type { NewsItemRow } from '@/lib/news-ingest'
 
 // Growth loop WP20: saving a news brief as a normal blog post. Reuses the blog (posts table, /blog/<slug>): no new page type,
@@ -21,6 +21,8 @@ export interface NewsPostInput {
   calls: number
   /** True when the strip fallback removed sentences before the brief passed. */
   stripped?: boolean
+  /** The older brief of the same storm this one updates; linked from the top of the new post. */
+  supersedes?: { title: string; slug: string }
   now: Date
 }
 
@@ -53,7 +55,7 @@ export function buildNewsPostRow(i: NewsPostInput, phone: string = site.phone ??
   return {
     title: newsTitle(i.brief.headline),
     slug,
-    body: buildNewsBody({ brief: i.brief, sourceName: i.facts.sourceName, url: i.item.url, reportedAt: i.item.published_at ?? i.item.fetched_at, phone }),
+    body: buildNewsBody({ supersedes: i.supersedes, brief: i.brief, sourceName: i.facts.sourceName, url: i.item.url, reportedAt: i.item.published_at ?? i.item.fetched_at, phone }),
     cover_image_url: null,
     alt_text: null,
     tags: [NEWS_TAG, i.item.category],
@@ -119,6 +121,32 @@ export async function createNewsPost(admin: SupabaseClient, input: NewsPostInput
     return { ok: true, slug, id: saved.id, published: publish, note: note || (publish ? 'published' : 'saved as a draft') }
   } catch (e) {
     return { ok: false, published: false, note: `the post could not be saved (${e instanceof Error ? e.message : 'unexpected error'})` }
+  }
+}
+
+/** Marks an older LIVE storm brief with an "Update: superseded" heading line that links the newer one. The change is logged in
+ * content_edits first (field body, so Undo puts the old text back) and only a published post is touched. Returns whether it
+ * was marked. Never throws. */
+export async function markSuperseded(admin: SupabaseClient, oldSlug: string, newer: { title: string; slug: string }): Promise<boolean> {
+  try {
+    const { data } = await admin.from('posts').select('id, body, status').eq('slug', oldSlug).maybeSingle()
+    const p = data as { id: string; body: string; status: string } | null
+    if (!p || p.status !== 'published') return false
+    const next = markSupersededBody(p.body, newer.title, newer.slug)
+    if (next === p.body || !(await editsLoggable(admin))) return false
+    const logged = await insertEdits(admin, [
+      // published_after is false on purpose: undoing this text change must never unpublish the post.
+      { content_type: 'post', content_id: p.id, path: `/blog/${oldSlug}`, field: 'body', reason: 'a newer bulletin of the same storm went live, so this brief is marked superseded', before: p.body, after: next, method: 'generate', published_after: false, cost_usd: 0 },
+    ])
+    if (logged.error) return false
+    const { error } = await admin.from('posts').update({ body: next, updated_at: new Date().toISOString() }).eq('id', p.id)
+    if (error) {
+      await deleteEdits(admin, logged.ids).catch(() => undefined)
+      return false
+    }
+    return true
+  } catch {
+    return false
   }
 }
 

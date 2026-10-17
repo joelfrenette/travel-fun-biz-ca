@@ -38,7 +38,21 @@ export const displaySourceName = (sourceName: string): string => sourceName.repl
 
 const safeMarkdownUrl = (url: string): string => url.replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/\s/g, '%20')
 
+/** A storm bulletin is stale fast: its post moves to the archived heading after this many hours (other news after 30 days). */
+export const NEWS_STORM_ARCHIVE_AFTER_HOURS = 48
+export const SUPERSEDED_HEADING = '## Update: superseded'
+
+/** Puts the "Update: superseded" heading line, with a link to the newer brief, at the top of an older storm post. Idempotent. Pure. */
+export function markSupersededBody(body: string, newerTitle: string, newerSlug: string): string {
+  if (body.includes(SUPERSEDED_HEADING)) return body
+  return `${SUPERSEDED_HEADING}\n\nA newer bulletin has replaced this one: [${newerTitle.replace(/[[\]]/g, '')}](/blog/${newerSlug}).\n\n${body}`
+}
+
+export const isSupersededBody = (body: string): boolean => body.includes(SUPERSEDED_HEADING)
+
 export interface NewsBodyInput {
+  /** The older brief this one updates (a later bulletin of the same storm with different figures). Linked from the top. */
+  supersedes?: { title: string; slug: string }
   brief: NewsBrief
   sourceName: string
   url: string
@@ -54,6 +68,7 @@ export function buildNewsBody(i: NewsBodyInput): string {
   const lines = [
     `**What happened:** ${i.brief.happened}`,
     '',
+    ...(i.supersedes ? [`*This updates our earlier brief: [${i.supersedes.title.replace(/[[\]]/g, '')}](/blog/${i.supersedes.slug}).*`, ''] : []),
     '## What it means for travellers',
     '',
     i.brief.means.join(' '),
@@ -89,7 +104,9 @@ export function newsSourceFromBody(body: string): { name: string; url: string } 
 export function newsArchived(post: { title?: string; tags?: unknown; slug?: string | null; publish_date?: string | null }, now: Date = new Date()): boolean {
   if (!isNewsPost(post) || !post.publish_date) return false
   const t = Date.parse(post.publish_date)
-  return Number.isFinite(t) && now.getTime() - t > NEWS_ARCHIVE_AFTER_DAYS * 86_400_000
+  const storm = Array.isArray(post.tags) && post.tags.some((x) => typeof x === 'string' && x.toLowerCase() === 'storm')
+  const limit = storm ? NEWS_STORM_ARCHIVE_AFTER_HOURS * 3_600_000 : NEWS_ARCHIVE_AFTER_DAYS * 86_400_000
+  return Number.isFinite(t) && now.getTime() - t > limit
 }
 
 /** The heading line the reader sees: archived news gets a visible prefix; the stored title is never changed. */
