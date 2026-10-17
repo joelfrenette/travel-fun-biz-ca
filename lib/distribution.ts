@@ -4,10 +4,10 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { uploadPostGetStatus } from '@/lib/upload-post'
 import { resolvePostingTarget, platformsFor, PLATFORM_ACCEPTS, type PostingTarget } from '@/lib/social-provider'
 import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
-import { utmLink } from '@/lib/utm'
+import { utmLink, canonicalNetwork } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource } from '@/lib/guide-post-source'
-import { fitCaption, tightestLimit, generatePlatformCaptions, buildFallbackCaption, type PlatformCaptions } from '@/lib/social-captions'
+import { fitCaption, tightestLimit, generatePlatformCaptions, buildFallbackCaption, buildNetworkFallbacks, groupNetworksForSend, type PlatformCaptions } from '@/lib/social-captions'
 import type { UploadPostSendResult } from '@/lib/upload-post'
 import { tagVariant } from '@/lib/content-variants'
 import { HOOK_STYLES, CTA_STYLES, hashtagCapFor, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
@@ -212,7 +212,9 @@ async function sendTailored(
   send: (platforms: string[], text: string) => Promise<UploadPostSendResult>,
   platforms: string[],
   captions: PlatformCaptions | null,
+  baseCaptions: Record<string, string>,
   sharedCaption: string,
+  provider: string,
 ): Promise<UploadPostSendResult & { sent: string[] }> {
   const tailoredPlatforms = platforms.filter((p) => captions?.[p])
   const fallbackPlatforms = platforms.filter((p) => !captions?.[p])
@@ -221,8 +223,14 @@ async function sendTailored(
   for (const p of tailoredPlatforms) {
     calls.push(send([p], captions![p]).then((result) => ({ platforms: [p], result })))
   }
-  if (fallbackPlatforms.length > 0) {
-    calls.push(send(fallbackPlatforms, sharedCaption).then((result) => ({ platforms: fallbackPlatforms, result })))
+  // Each non-tailored network has its own caption (own limit, hashtag cap, UTM source). GoHighLevel already
+  // makes one call per network inside the provider, so groups of one cost nothing extra there. Upload-Post is
+  // metered per call, so networks with the same limit, hashtag cap and link clickability share one call (the
+  // first network's caption) and the call count never exceeds the number of distinct groups.
+  const groups = provider === 'ghl' ? fallbackPlatforms.map((p) => [p]) : groupNetworksForSend(fallbackPlatforms)
+  for (const group of groups) {
+    const text = baseCaptions[group[0]] || sharedCaption
+    calls.push(send(group, text).then((result) => ({ platforms: group, result })))
   }
   const outcomes = await Promise.all(calls)
 
@@ -298,7 +306,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       }
       const { data: post } = isGuideRow ? { data: guideSource } : await admin.from('posts').select('title, cover_image_url, meta_description, faq, key_takeaways, tags').eq('slug', row.slug).maybeSingle()
       const pageUrl = isGuideRow ? absoluteUrl(row.path as string) : `${SITE_URL}/blog/${row.slug}`
-      const link = utmLink(pageUrl, { source: 'social', medium: 'social', campaign: row.slug, content: post?.cover_image_url ? 'post-photo' : 'post-text' })
+      // Each network gets its own link: utm_source is that network's canonical name (twitter is x).
+      const networkLink = (p: string) => utmLink(pageUrl, { source: canonicalNetwork(p), medium: 'social', campaign: row.slug, content: 'fallback' })
       const title = post?.title || row.title
       // Only networks that accept this kind of post, and never ones this post already reached.
       const kind = post?.cover_image_url ? 'photo' : 'text'
@@ -326,18 +335,22 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const takeawaysRaw: unknown = (post as { key_takeaways?: unknown } | null)?.key_takeaways
       const tagsRaw: unknown = (post as { tags?: unknown } | null)?.tags
       const guideFacts = isGuideRow ? guideSource : null
-      const fallbackCaption = buildFallbackCaption(
-        {
-          title,
-          metaDescription: post?.meta_description,
-          faqQuestions: guideFacts?.faqQuestions ?? (Array.isArray(faqRaw) ? (faqRaw as Array<{ q?: unknown }>).map((f) => f?.q) : []),
-          keyTakeaways: guideFacts?.keyTakeaways ?? (Array.isArray(takeawaysRaw) ? takeawaysRaw : []),
-          tags: Array.isArray(tagsRaw) ? tagsRaw : [],
-        },
-        platforms[0],
-        link,
-        { networks: platforms, limit: tightestLimit(platforms), hashtagCap: Math.min(...platforms.map(hashtagCapFor)) },
-      )
+      const captionFacts = {
+        title,
+        metaDescription: post?.meta_description,
+        faqQuestions: guideFacts?.faqQuestions ?? (Array.isArray(faqRaw) ? (faqRaw as Array<{ q?: unknown }>).map((f) => f?.q) : []),
+        keyTakeaways: guideFacts?.keyTakeaways ?? (Array.isArray(takeawaysRaw) ? takeawaysRaw : []),
+        tags: Array.isArray(tagsRaw) ? tagsRaw : [],
+      }
+      // Per-network captions (own limit, hashtag cap and UTM source). The old single caption below stays as the
+      // last-resort fallback for any network with no entry.
+      const baseCaptions = buildNetworkFallbacks(captionFacts, platforms, networkLink)
+      const link = networkLink(platforms[0])
+      const fallbackCaption = buildFallbackCaption(captionFacts, platforms[0], link, {
+        networks: platforms,
+        limit: tightestLimit(platforms),
+        hashtagCap: Math.min(...platforms.map(hashtagCapFor)),
+      })
       const rawCaption = fallbackCaption ?? [title, post?.meta_description, link].filter(Boolean).join('\n\n')
       // Mechanical limit check against the tightest of the target platforms' real character
       // limits (lib/social-captions.ts) - the fallback/shared-call path sends this same caption to
@@ -361,7 +374,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           // account the same opening style.
           hookStyles[p] = rotateStyle(valuesFromRows(variantRows, `hook_style:${p}`, 12), HOOK_STYLES, i)
           ctaStyles[p] = rotateStyle(valuesFromRows(variantRows, `cta_style:${p}`, 12), CTA_STYLES, i)
-          links[p] = utmLink(pageUrl, { source: p, medium: 'social', campaign: row.slug, content: hookStyles[p] })
+          links[p] = utmLink(pageUrl, { source: canonicalNetwork(p), medium: 'social', campaign: row.slug, content: hookStyles[p] })
         }
         tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding: isGuideRow ? guideSource?.grounding : await loadGrounding(admin, row.slug) })
         // Record only the styles that actually reached a caption (a dropped caption used none).
@@ -381,7 +394,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       }
       const send = (p: string[], text: string) =>
         post?.cover_image_url ? target.sendPhotos(p, text, [post.cover_image_url]) : target.sendText(p, text)
-      const result = await sendTailored(send, platforms, tailored, sharedCaption)
+      const result = await sendTailored(send, platforms, tailored, baseCaptions, sharedCaption, target.provider)
       const sentPlatforms = [...new Set([...already, ...result.sent])]
 
       if (result.ok && result.confirmed === false) {

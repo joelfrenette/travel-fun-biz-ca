@@ -204,6 +204,42 @@ export function buildFallbackCaption(
   return problems.length === 0 ? caption : null
 }
 
+/** Groups networks that can safely share one send: same character limit, same hashtag cap and same link
+ * clickability. Pure; never returns more groups than networks, and keeps the input order. */
+export function groupNetworksForSend(platforms: ReadonlyArray<string>): string[][] {
+  const groups = new Map<string, string[]>()
+  for (const p of platforms) {
+    const key = `${PLATFORM_CHAR_LIMITS[p.toLowerCase()] ?? DEFAULT_CHAR_LIMIT}|${hashtagCapFor(p)}|${networkSupportsLinks(p)}`
+    const list = groups.get(key)
+    if (list) list.push(p)
+    else groups.set(key, [p])
+  }
+  return [...groups.values()]
+}
+
+/** One caption per network, each built at that network's own limit and hashtag cap with that network's own
+ * link. No AI. A network whose no-AI caption cannot be built gets the old title + description + link text,
+ * trimmed to its limit with the link kept. */
+export function buildNetworkFallbacks(
+  facts: FallbackCaptionFacts,
+  platforms: ReadonlyArray<string>,
+  linkFor: (network: string) => string,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const p of platforms) {
+    const limit = PLATFORM_CHAR_LIMITS[p.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
+    const link = linkFor(p)
+    const built = buildFallbackCaption(facts, p, link, { networks: [p], limit, hashtagCap: hashtagCapFor(p) })
+    if (built) {
+      out[p] = built
+      continue
+    }
+    const body = [facts.title, facts.metaDescription].filter(Boolean).join('\n\n')
+    out[p] = fitCaptionWithLink(body, link, limit)
+  }
+  return out
+}
+
 /** Cuts a too-long caption down without ever cutting the link (see fitCaptionWithLink). */
 function fitKeepingLink(text: string, link: string, limit: number): string {
   if (text.length <= limit) return text
