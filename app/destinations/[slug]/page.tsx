@@ -124,7 +124,7 @@ export default async function DestinationPage({ params }: Props) {
         <div className="border-b bg-muted/30">
           <div className="container mx-auto px-4 py-10">
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Destination</p>
-            <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{page ? `${destination} Trips` : `${destination}: Travel Guide`}</h1>
+            <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{guide ? `${destination}: ${guideKinds.destinations.guideLabel}` : `${destination} Trips`}</h1>
             {guide && formatDate(guide.updated_at) && (
               <p className="mt-2 text-sm text-muted-foreground"><time dateTime={guide.updated_at}>Updated {formatDate(guide.updated_at)}</time></p>
             )}
@@ -140,17 +140,6 @@ export default async function DestinationPage({ params }: Props) {
         </div>
 
         <div className="container mx-auto space-y-12 px-4 py-10">
-          {upcoming.length > 0 && (
-            <section>
-              <h2 className="mb-4 text-xl font-bold uppercase text-foreground">Upcoming trips to {destination}</h2>
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {upcoming.map((pkg) => (
-                  <PackageCard key={pkg.id} package={pkg} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
-                ))}
-              </div>
-            </section>
-          )}
-
           {guide && (
             <div className="mx-auto max-w-3xl space-y-10">
               {guide.hero_image_url && (
@@ -174,6 +163,19 @@ export default async function DestinationPage({ params }: Props) {
               <RelatedGuidesSection guides={relatedGuideCards(relatedGuides)} />
               <BlogStoriesSection stories={stories} />
             </div>
+          )}
+
+          {/* The guide block above comes first so the answer content is the top of the page; the trip grid follows.
+              With no guide the grid is the first block, exactly as before. */}
+          {upcoming.length > 0 && (
+            <section>
+              <h2 className="mb-4 text-xl font-bold uppercase text-foreground">Upcoming trips to {destination}</h2>
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {upcoming.map((pkg) => (
+                  <PackageCard key={pkg.id} package={pkg} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
+                ))}
+              </div>
+            </section>
           )}
 
           {childBlocks.length > 0 && (

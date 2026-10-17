@@ -64,3 +64,10 @@ One entry per improvement committed on branch `staging` by the unattended loop. 
 - Why it helps traffic: LinkedIn and Facebook posts are no longer cut to the X length, so they carry the full hook and description, and analytics can credit each visit to the right network instead of one "social" bucket.
 - Offline check: `pnpm dlx tsx scripts/check-distribution-captions.ts`.
 - How to UAT on staging: queue a post to X, LinkedIn and Facebook with AI captions off. The LinkedIn and Facebook captions should be longer than 280 characters and the X one shorter. Each link ends with utm_source equal to its own network. Upload-Post shows one call per group of equal-limit networks. Note: networks in the same Upload-Post group share the first network's link tag.
+
+## Destination page: guide H1 and guide block above the trip grid
+
+- What changed: in `app/destinations/[slug]/page.tsx`, when a guide exists the H1 is now `${destination}: ${guideKinds.destinations.guideLabel}` (same string as the guide page template) and the guide block (key takeaways, facts, article, FAQ, guide CTA, related guides, stories) renders before the "Upcoming trips" card grid. The compact CTA and "Send an enquiry" link stay in the header. With no guide the H1 stays "{destination} Trips" and the order is unchanged. No data, schema or metadata changes, no new copy.
+- Why it helps traffic: the H1 now matches the title tag and the page's real content (the guide), and the answer content sits at the top of the page for search and AI answer engines instead of below a card grid.
+- Offline check: `pnpm dlx tsx scripts/check-destination-page.ts`.
+- How to UAT on staging: open a destination that has a guide. The H1 reads "{Place}: Travel Guide", key takeaways and the article come first, trip cards follow, and the header still shows the enquiry link. Open a destination with trips but no guide: H1 reads "{Place} Trips" and the cards are first.
