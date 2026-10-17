@@ -7,6 +7,7 @@ import { ConsentAnalytics } from "@/components/consent-analytics"
 import { CookieBanner } from "@/components/cookie-banner"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AttributionCapture } from "@/components/attribution-capture"
+import { VisitTracker } from "@/components/visit-tracker"
 import { ScrollToTop } from "@/components/scroll-to-top"
 import { cookies } from 'next/headers'
 import { normalizeLanguage } from '@/lib/preferences'
@@ -65,6 +66,8 @@ export default function RootLayout({
           {children}
           <ScrollToTop />
           <AttributionCapture />
+          {/* Sends nothing unless the visitor accepted analytics AND the admin switch visit_tracking is on (off by default). */}
+          <VisitTracker />
           <SiteAnalytics />
         </ThemeProvider>
         {/* Google Analytics only loads after the visitor accepts analytics (components/consent-analytics.tsx). */}
