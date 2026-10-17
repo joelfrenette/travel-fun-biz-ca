@@ -43,9 +43,30 @@ export function guideJsonLd(guide: PublicGuide, trail?: TrailStep[]): object[] {
     ...(guide.created_at ? { datePublished: guide.created_at } : {}),
     ...(guide.updated_at ? { dateModified: guide.updated_at } : {}),
   }
+  const inLanguage = SITE_LOCALE.replace("_", "-")
+  const isPartOf = { "@type": "WebSite", url: absoluteUrl("/") }
+  // Speakable: only selectors whose content is really on the page (the takeaways aside and the FAQ section).
+  const speakableSelectors = [
+    ...(guide.key_takeaways.length > 0 ? ["#key-takeaways"] : []),
+    ...(guide.faq.length > 0 ? ["#guide-faq"] : []),
+  ]
+  const speakable = speakableSelectors.length > 0 ? { speakable: { "@type": "SpeakableSpecification", cssSelector: speakableSelectors } } : {}
   const main: object =
     guide.kind === "destinations"
-      ? { "@context": "https://schema.org", "@type": info.schemaType, name: guide.name, description, url, image, ...(guide.updated_at ? { dateModified: guide.updated_at } : {}) }
+      ? {
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          "@id": url,
+          url,
+          name: guide.name,
+          ...(description ? { description } : {}),
+          ...dates,
+          publisher: organization,
+          inLanguage,
+          isPartOf,
+          ...speakable,
+          mainEntity: { "@type": info.schemaType, name: guide.name, ...(description ? { description } : {}), image, url },
+        }
       : {
           "@context": "https://schema.org",
           "@type": "Article",
@@ -54,6 +75,9 @@ export function guideJsonLd(guide: PublicGuide, trail?: TrailStep[]): object[] {
           url,
           image,
           ...dates,
+          inLanguage,
+          isPartOf,
+          ...speakable,
           author: organization,
           publisher: organization,
           mainEntityOfPage: { "@type": "WebPage", "@id": url },
@@ -172,7 +196,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
               <p className="mt-2 text-sm text-muted-foreground"><time dateTime={guide.updated_at}>Updated {formatDate(guide.updated_at)}</time></p>
             )}
             <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground">{guide.summary}</p>
-            <GuideCta name={guide.name} compact />
+            <GuideCta name={guide.name} packageName={packages[0]?.name} compact />
           </div>
         </div>
 
@@ -225,7 +249,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
             </section>
           )}
 
-          <GuideCta name={guide.name} />
+          <GuideCta name={guide.name} packageName={packages[0]?.name} />
 
           <RelatedGuidesSection guides={relatedGuideCards(relatedGuides)} />
           <BlogStoriesSection stories={stories} />

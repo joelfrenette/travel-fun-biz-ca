@@ -97,6 +97,8 @@ export default async function DestinationPage({ params }: Props) {
       name: `${destination} Trips | ${SITE_NAME}`,
       description: `Upcoming group trips, cruises and singles getaways to ${destination}, plus real recaps from past trips there.`,
       url: pageUrl,
+      // With a guide, the guide is the one primary entity of this URL: the trip list points at it.
+      ...(guide ? { about: { "@id": pageUrl }, isPartOf: { "@id": pageUrl } } : {}),
       ...(allItems.length > 0
         ? {
             mainEntity: {
@@ -129,7 +131,7 @@ export default async function DestinationPage({ params }: Props) {
             {guide ? (
               <>
                 <p className="mt-3 max-w-3xl text-pretty text-foreground">{guide.summary}</p>
-                <GuideCta name={destination} compact />
+                <GuideCta name={destination} packageName={upcoming[0]?.name} compact />
               </>
             ) : (
               blurb && <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">{blurb.blurb}</p>
@@ -168,7 +170,7 @@ export default async function DestinationPage({ params }: Props) {
               <GuideFacts input={factsInput} />
               <GuideArticle guide={guide} />
               <GuideFaqList guide={guide} />
-              <GuideCta name={destination} />
+              <GuideCta name={destination} packageName={upcoming[0]?.name} />
               <RelatedGuidesSection guides={relatedGuideCards(relatedGuides)} />
               <BlogStoriesSection stories={stories} />
             </div>

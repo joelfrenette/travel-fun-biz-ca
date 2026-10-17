@@ -20,7 +20,7 @@ function articleHtml(markdown: string): string {
 export function GuideTakeaways({ guide }: { guide: GuideParts }) {
   if (guide.key_takeaways.length === 0) return null
   return (
-    <aside className="rounded-xl border bg-muted/30 p-5" aria-label="Key takeaways">
+    <aside id="key-takeaways" className="rounded-xl border bg-muted/30 p-5" aria-label="Key takeaways">
       <h2 className="mb-2 text-base font-bold uppercase text-foreground">Key takeaways</h2>
       <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
         {guide.key_takeaways.map((t) => <li key={t}>{t}</li>)}

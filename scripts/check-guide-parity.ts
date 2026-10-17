@@ -32,7 +32,7 @@ for (const [label, src] of [['guide-page', guidePage], ['destination page', dest
 expect('guide-page no longer defines the sections inline', !/id="related-guides-heading"|id="stories-heading"/.test(guidePage))
 expect('destination page calls listPostsForGuide(guide, 3)', /listPostsForGuide\(guide, 3\)/.test(dest))
 expect('destination page calls pickRelatedGuides(guide, allGuides, 6)', /pickRelatedGuides\(guide, allGuides, 6\)/.test(dest))
-expect('destination page renders a compact GuideCta', /<GuideCta name=\{destination\} compact \/>/.test(dest))
+expect('destination page renders a compact GuideCta', /<GuideCta name=\{destination\}[^>]* compact \/>/.test(dest))
 expect('destination time uses updated_at', /dateTime=\{guide\.updated_at\}/.test(dest))
 expect('guide-page time uses updated_at', /dateTime=\{guide\.updated_at\}/.test(guidePage))
 
@@ -40,7 +40,7 @@ expect('JSON-LD has datePublished from created_at', /datePublished: guide\.creat
 expect('JSON-LD organization has url', /const organization = \{[^\n]*url: absoluteUrl\("\/"\)/.test(guidePage))
 expect('JSON-LD organization has logo', /const organization = \{[^\n]*logo:/.test(guidePage))
 expect('author and publisher share the organization', /author: organization,\s*publisher: organization/.test(guidePage))
-expect('destination branch has dateModified', /"@type": info\.schemaType[^\n]*dateModified: guide\.updated_at/.test(guidePage))
+expect('destination WebPage has dateModified (via the shared dates)', /"@type": "WebPage",[\s\S]*?\.\.\.dates,[\s\S]*?mainEntity: \{ "@type": info\.schemaType/.test(guidePage) && /\.\.\.\(guide\.updated_at \? \{ dateModified: guide\.updated_at \} : \{\}\)/.test(guidePage))
 expect('no new Date() used as a modified date', !/dateModified:\s*new Date\(/.test(guidePage) && !/dateModified:\s*new Date\(/.test(dest))
 expect('guide-page has no new Date() at all', !/new Date\(\)/.test(guidePage))
 
