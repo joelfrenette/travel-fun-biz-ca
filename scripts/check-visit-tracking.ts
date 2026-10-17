@@ -12,6 +12,8 @@ import {
   purgeCutoff,
   purgeOldVisits,
   runVisitPurgeIfDue,
+  purgeOldAuthEvents,
+  VISIT_DAILY_CAP_KEY,
   touchesForNewVisit,
   VISIT_TRACKING_KEY,
 } from '../lib/visit-tracking'
@@ -31,13 +33,13 @@ const SITE = 'travelfunbiz.ca'
 const VID = 'aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb'
 const SID = 'cccccccc-1111-4222-8333-dddddddddddd'
 const hdrs = (o: Record<string, string> = {}) => {
-  const m = new Map(Object.entries({ 'user-agent': UA, ...o }).map(([k, v]) => [k.toLowerCase(), v]))
+  const m = new Map(Object.entries({ 'user-agent': UA, 'sec-fetch-site': 'same-origin', ...o }).map(([k, v]) => [k.toLowerCase(), v]))
   return { get: (k: string) => m.get(k.toLowerCase()) ?? null }
 }
 const body = (o: Record<string, unknown> = {}) => JSON.stringify({ t: 'pv', vid: VID, sid: SID, path: '/blog/rome', ref_host: '', ...o })
 const mk = (on: boolean): Db => ({ tables: { app_settings: on ? [{ key: VISIT_TRACKING_KEY, value: 'on' }] : [], site_visits: [] } })
-const go = (db: Db, over: { headers?: ReturnType<typeof hdrs>; bodyText?: string; now?: number; limiter?: (v: string) => Promise<boolean> } = {}) =>
-  handleVisit({ admin: fakeAdmin(db), headers: over.headers ?? hdrs(), bodyText: over.bodyText ?? body(), siteHost: SITE, limiter: over.limiter ?? (async () => true), now: over.now })
+const go = (db: Db, over: { headers?: ReturnType<typeof hdrs>; bodyText?: string; now?: number; limiter?: (v: string) => Promise<boolean>; ipLimiter?: () => Promise<boolean> } = {}) =>
+  handleVisit({ admin: fakeAdmin(db), headers: over.headers ?? hdrs(), bodyText: over.bodyText ?? body(), siteHost: SITE, limiter: over.limiter ?? (async () => true), ipLimiter: over.ipLimiter, now: over.now })
 
 async function main() {
   // ---- off by default ----
@@ -98,6 +100,26 @@ async function main() {
     check('route uses the existing rate-limit helper per visitor id', /allowKey\(RATE_LIMIT\.bucket, vid/.test(src('app/api/track/visit/route.ts')))
     const foreign = await go(mk(true), { headers: hdrs({ Origin: 'https://evil.example' }) })
     check('a beacon from another website is ignored', foreign.outcome === 'ignored')
+
+    // same-origin proof is required: a matching Origin, or Sec-Fetch-Site: same-origin when there is no Origin
+    const bare = mk(true)
+    const noProof = await go(bare, { headers: hdrs({ 'sec-fetch-site': 'none' }) })
+    check('no Origin and no same-origin Sec-Fetch-Site: 204, nothing stored', noProof.status === 204 && noProof.outcome === 'ignored' && bare.tables.site_visits.length === 0, JSON.stringify(noProof))
+    const crossSite = mk(true)
+    const cs = await go(crossSite, { headers: hdrs({ 'sec-fetch-site': 'cross-site' }) })
+    check('Sec-Fetch-Site: cross-site is ignored', cs.outcome === 'ignored' && crossSite.tables.site_visits.length === 0)
+    const withOrigin = mk(true)
+    const wo = await go(withOrigin, { headers: hdrs({ Origin: 'https://www.travelfunbiz.ca', 'sec-fetch-site': '' }) })
+    check('a matching Origin is accepted', wo.outcome === 'stored' && withOrigin.tables.site_visits.length === 1, JSON.stringify(wo))
+    const sfsOnly = mk(true)
+    const so = await go(sfsOnly, { headers: hdrs({ 'sec-fetch-site': 'same-origin' }) })
+    check('Sec-Fetch-Site: same-origin without an Origin is accepted', so.outcome === 'stored')
+
+    // per-IP limit (visitor ids are chosen by the sender, so they cannot be the only key)
+    const ipDb = mk(true)
+    const ip = await go(ipDb, { ipLimiter: async () => false })
+    check('per-IP limit answers 429 and stores nothing, even with a fresh visitor id', ip.status === 429 && ipDb.tables.site_visits.length === 0)
+    check('route applies the per-IP limit with the existing helper', /allowRequest\(request, IP_RATE_LIMIT\.bucket, IP_RATE_LIMIT\.limit, IP_RATE_LIMIT\.windowSeconds\)/.test(src('app/api/track/visit/route.ts')) && /track_visit_ip', limit: 120, windowSeconds: 60/.test(src('lib/visit-tracking.ts')))
   }
 
   // ---- bots ----
@@ -176,6 +198,32 @@ async function main() {
     check('a visit older than 24 hours takes no more page views', old.outcome === 'ignored' && db.tables.site_visits[0].page_views === 1)
   }
 
+  // ---- global daily insert cap ----
+  {
+    const now = Date.parse('2026-10-17T12:00:00Z')
+    const today = Array.from({ length: 3 }, (_, i) => ({ id: 't' + i, session_id: 's' + i, created_at: '2026-10-17T01:00:00.000Z' }))
+    const yesterday = [{ id: 'y1', session_id: 'sy', created_at: '2026-10-16T23:00:00.000Z' }]
+    const capped: Db = { tables: { app_settings: [{ key: VISIT_TRACKING_KEY, value: 'on' }, { key: VISIT_DAILY_CAP_KEY, value: '3' }], site_visits: [...today, ...yesterday] } }
+    const over = await go(capped, { now })
+    check('daily cap: at the cap a new visit answers 204 and stores nothing', over.status === 204 && capped.tables.site_visits.length === 4, JSON.stringify(over))
+    const roomy: Db = { tables: { app_settings: [{ key: VISIT_TRACKING_KEY, value: 'on' }, { key: VISIT_DAILY_CAP_KEY, value: '4' }], site_visits: [...today, ...yesterday] } }
+    const ok = await go(roomy, { now })
+    check('daily cap: yesterday does not count, under the cap it stores', ok.outcome === 'stored' && roomy.tables.site_visits.length === 5, JSON.stringify(ok))
+    const dflt = mk(true)
+    check('daily cap: the default is 20000', (await go(dflt, { now })).outcome === 'stored' && /DEFAULT_DAILY_CAP = 20000/.test(src('lib/visit-tracking.ts')))
+    const broken = mk(true)
+    const real = fakeAdmin(broken)
+    const failCount = {
+      from: (t: string) => {
+        const q = real.from(t) as unknown as Record<string, unknown>
+        if (t !== 'site_visits') return q
+        return { ...q, select: (cols: string, o?: { head?: boolean }) => (o?.head ? { gte: () => Promise.resolve({ data: null, error: { message: 'boom' }, count: null }) } : (q.select as (c: string, o?: unknown) => unknown)(cols, o)) }
+      },
+    } as never
+    const fc = await handleVisit({ admin: failCount, headers: hdrs(), bodyText: body(), siteHost: SITE, limiter: async () => true, now })
+    check('daily cap: an unreadable counter fails closed (204, nothing stored)', fc.status === 204 && broken.tables.site_visits.length === 0, JSON.stringify(fc))
+  }
+
   // ---- purge ----
   {
     const now = Date.parse('2026-10-17T12:00:00Z')
@@ -195,6 +243,15 @@ async function main() {
     const n1 = await runVisitPurgeIfDue(fakeAdmin(daily), now)
     const n2 = await runVisitPurgeIfDue(fakeAdmin(daily), now)
     check('daily purge runs once per day (claim)', /deleted 25/.test(String(n1)) && n2 === null, `${n1} | ${n2}`)
+    const authDb: Db = { tables: { app_settings: [], site_visits: [], auth_events: [{ id: 1, ts: '2025-01-01T00:00:00.000Z', kind: 'login_ok' }, { id: 2, ts: '2026-10-01T00:00:00.000Z', kind: 'login_ok' }] } }
+    const ra = await purgeOldAuthEvents(fakeAdmin(authDb), now)
+    check('auth_events older than 13 months are purged, recent ones kept', ra.deleted === 1 && authDb.tables.auth_events.length === 1 && authDb.tables.auth_events[0].id === 2, JSON.stringify(ra))
+    const authDaily: Db = { tables: { app_settings: [], site_visits: [], auth_events: [{ id: 1, ts: '2025-01-01T00:00:00.000Z', kind: 'login_fail' }] } }
+    const nd = await runVisitPurgeIfDue(fakeAdmin(authDaily), now)
+    check('the daily purge step also purges the sign-in log (same step, no new cron)', /sign-in log/.test(String(nd)) && authDaily.tables.auth_events.length === 0, String(nd))
+    const authBig: Db = { tables: { app_settings: [], auth_events: Array.from({ length: 7000 }, (_, i) => ({ id: i, ts: '2024-01-01T00:00:00.000Z', kind: 'login_ok' })) } }
+    const rab = await purgeOldAuthEvents(fakeAdmin(authBig), now, { batch: 999999, maxBatches: 999 })
+    check('auth_events purge is batch-capped (1000 x 5)', rab.deleted === 5000 && authBig.tables.auth_events.length === 2000)
     const big: Db = { tables: { app_settings: [], site_visits: Array.from({ length: 7000 }, (_, i) => ({ id: `o${i}`, created_at: '2024-01-01T00:00:00.000Z' })) } }
     const rb = await purgeOldVisits(fakeAdmin(big), now, { batch: 999999, maxBatches: 999 })
     check('batch size and batch count are hard-capped (1000 x 5)', rb.deleted === 5000 && big.tables.site_visits.length === 2000, JSON.stringify(rb))

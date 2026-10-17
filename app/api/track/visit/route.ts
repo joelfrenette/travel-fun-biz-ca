@@ -1,7 +1,7 @@
-import { allowKey } from '@/lib/abuse-guard'
+import { allowKey, allowRequest } from '@/lib/abuse-guard'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { SITE_URL } from '@/lib/site'
-import { handleVisit, RATE_LIMIT } from '@/lib/visit-tracking'
+import { handleVisit, IP_RATE_LIMIT, RATE_LIMIT } from '@/lib/visit-tracking'
 
 // Consent-gated first-party visit beacon. Switched OFF by default: while app_settings visit_tracking is not "on" this
 // answers 204 and stores nothing. All the rules live in lib/visit-tracking.ts (handleVisit). Public by design (visitors
@@ -20,6 +20,7 @@ export async function POST(request: Request) {
       headers: request.headers,
       bodyText,
       siteHost,
+      ipLimiter: () => allowRequest(request, IP_RATE_LIMIT.bucket, IP_RATE_LIMIT.limit, IP_RATE_LIMIT.windowSeconds),
       limiter: (vid) => allowKey(RATE_LIMIT.bucket, vid, RATE_LIMIT.limit, RATE_LIMIT.windowSeconds),
     })
     if (res.status === 204) return noContent()

@@ -30,6 +30,11 @@ function recordFailure(ip: string) {
   else entry.count += 1
 }
 
+/** The sign-in log is a side note: wait for it at most 1.5 seconds so a slow database never slows a sign-in. */
+function logWithoutWaiting(kind: 'login_ok' | 'login_fail', request: Request): Promise<void> {
+  return Promise.race([recordAuthEvent(kind, request), new Promise<void>((resolve) => setTimeout(resolve, 1500))])
+}
+
 export async function POST(request: Request) {
   const ip = clientIp(request)
   if (isLocked(ip)) {
@@ -45,12 +50,12 @@ export async function POST(request: Request) {
 
     if (!(await checkCredentials(email, password))) {
       recordFailure(ip)
-      await recordAuthEvent('login_fail', request)
+      await logWithoutWaiting('login_fail', request)
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
     failures.delete(ip)
-    await recordAuthEvent('login_ok', request)
+    await logWithoutWaiting('login_ok', request)
     const token = createToken(email)
     return NextResponse.json({ token })
   } catch {

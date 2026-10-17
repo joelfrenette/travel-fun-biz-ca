@@ -13,6 +13,11 @@ import { classifyVisit, type Channel } from '@/lib/traffic-source'
 // channel. Never an IP address, never the full user agent, never a cookie.
 export const VISIT_TRACKING_KEY = 'visit_tracking'
 export const VISIT_RETENTION_MONTHS = 13
+/** app_settings key: the most new visit rows stored per UTC day (all visitors together). */
+export const VISIT_DAILY_CAP_KEY = 'visit_tracking_daily_cap'
+export const DEFAULT_DAILY_CAP = 20000
+/** Per client IP: at most this many beacons a minute (every visitor behind one IP shares it). */
+export const IP_RATE_LIMIT = { bucket: 'track_visit_ip', limit: 120, windowSeconds: 60 } as const
 export const PURGE_BATCH = 1000
 export const PURGE_MAX_BATCHES = 5
 export const MAX_BODY_BYTES = 2048
@@ -165,6 +170,8 @@ export async function handleVisit(args: {
   bodyText: string
   /** true when this visitor id is still under the rate limit */
   limiter: (visitorId: string) => Promise<boolean>
+  /** true when this client IP is still under its per-IP limit (the route supplies it). */
+  ipLimiter?: () => Promise<boolean>
   siteHost: string
   now?: number
 }): Promise<VisitResult> {
@@ -174,6 +181,7 @@ export async function handleVisit(args: {
     if (isPrivacyOptOut(headers)) return result(204, 'opt-out')
     if (!(await isVisitTrackingOn(admin))) return result(204, 'off')
     if (isBotUserAgent(headers.get('user-agent'))) return result(204, 'bot')
+    // Same-origin only: a matching Origin, or (no Origin) Sec-Fetch-Site: same-origin. Anything else stores nothing.
     const origin = headers.get('origin')
     if (origin) {
       let oh = ''
@@ -185,11 +193,15 @@ export async function handleVisit(args: {
       const mine = args.siteHost.toLowerCase().replace(/^www\./, '')
       const reqHost = (headers.get('host') || '').toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '')
       if (oh !== mine && oh !== reqHost) return result(204, 'ignored')
+    } else if ((headers.get('sec-fetch-site') || '').toLowerCase() !== 'same-origin') {
+      return result(204, 'ignored')
     }
     const parsed = parseVisitBody(args.bodyText)
     if (!parsed.ok) return result(400, 'invalid')
     const p = parsed.value
     if (!isTrackablePath(p.path)) return result(204, 'ignored')
+    // Visitor ids are chosen by the sender, so a per-IP limit comes first and the per-visitor one second.
+    if (args.ipLimiter && !(await args.ipLimiter())) return result(429, 'rate-limited')
     if (!(await args.limiter(p.vid))) return result(429, 'rate-limited')
 
     const existing = await findSession(admin, p.sid)
@@ -216,6 +228,9 @@ export async function handleVisit(args: {
     })
     const touch: Touch = { channel: cls.channel as Channel, source: cls.source }
     if (row) return await addPageView(admin, row, p, touch, now)
+
+    // Global daily insert cap: over it (or counter unreadable) stores nothing.
+    if (!(await underDailyCap(admin, now))) return result(204, 'ignored')
 
     // A new visit: carry the visitor's first touch and last non-direct touch forward from their previous visit.
     const prevRes = await admin
@@ -271,6 +286,23 @@ export async function handleVisit(args: {
   }
 }
 
+/** True while today's (UTC) new-visit rows are under the cap. An unreadable setting or counter answers false (fail closed). */
+export async function underDailyCap(admin: SupabaseClient, now: number): Promise<boolean> {
+  try {
+    const { value, error } = await getSettingStrict(admin, VISIT_DAILY_CAP_KEY)
+    if (error) return false
+    const n = Number(value)
+    const cap = value != null && value.trim() !== '' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_DAILY_CAP
+    const dayStart = new Date(now)
+    dayStart.setUTCHours(0, 0, 0, 0)
+    const res = await admin.from('site_visits').select('id', { count: 'exact', head: true }).gte('created_at', dayStart.toISOString())
+    if (res.error || res.count == null) return false
+    return res.count < cap
+  } catch {
+    return false
+  }
+}
+
 async function findSession(admin: SupabaseClient, sid: string): Promise<{ row: ExistingRow | null; error?: string }> {
   const { data, error } = await admin
     .from('site_visits')
@@ -319,6 +351,29 @@ export async function purgeOldVisits(admin: SupabaseClient, now = Date.now(), op
   return { deleted }
 }
 
+/** Deletes admin sign-in log rows (auth_events) older than 13 months, in capped batches. Same fail-closed rules as the visit purge. */
+export async function purgeOldAuthEvents(admin: SupabaseClient, now = Date.now(), opts: { batch?: number; maxBatches?: number } = {}): Promise<{ deleted: number; error?: string }> {
+  const batch = Math.max(1, Math.min(opts.batch ?? PURGE_BATCH, PURGE_BATCH))
+  const maxBatches = Math.max(1, Math.min(opts.maxBatches ?? PURGE_MAX_BATCHES, PURGE_MAX_BATCHES))
+  const cutoff = purgeCutoff(now).toISOString()
+  let deleted = 0
+  try {
+    for (let i = 0; i < maxBatches; i++) {
+      const { data, error } = await admin.from('auth_events').select('id').lt('ts', cutoff).order('ts', { ascending: true }).limit(batch)
+      if (error) return { deleted, error: error.message }
+      const ids = ((data ?? []) as { id: string }[]).map((r) => r.id)
+      if (!ids.length) break
+      const del = await admin.from('auth_events').delete().in('id', ids)
+      if (del.error) return { deleted, error: del.error.message }
+      deleted += ids.length
+      if (ids.length < batch) break
+    }
+  } catch (e) {
+    return { deleted, error: e instanceof Error ? e.message : 'unknown error' }
+  }
+  return { deleted }
+}
+
 /** Housekeeping step: once a day (atomic claim in app_settings, no new cron). Never throws. Returns a note, or null when already done today. */
 export async function runVisitPurgeIfDue(admin: SupabaseClient, now = Date.now()): Promise<string | null> {
   const day = new Date(now).toISOString().slice(0, 10)
@@ -330,6 +385,11 @@ export async function runVisitPurgeIfDue(admin: SupabaseClient, now = Date.now()
     return `could not claim today's visit purge: ${e instanceof Error ? e.message : 'unknown error'}`
   }
   const r = await purgeOldVisits(admin, now)
-  if (r.error) return `visit purge stopped (${r.error.slice(0, 120)}) after deleting ${r.deleted}`
-  return r.deleted ? `deleted ${r.deleted} visit${r.deleted === 1 ? '' : 's'} older than ${VISIT_RETENTION_MONTHS} months` : null
+  const a = await purgeOldAuthEvents(admin, now)
+  const notes: string[] = []
+  if (r.error) notes.push(`visit purge stopped (${r.error.slice(0, 120)}) after deleting ${r.deleted}`)
+  else if (r.deleted) notes.push(`deleted ${r.deleted} visit${r.deleted === 1 ? '' : 's'} older than ${VISIT_RETENTION_MONTHS} months`)
+  if (a.error) notes.push(`sign-in log purge stopped (${a.error.slice(0, 120)}) after deleting ${a.deleted}`)
+  else if (a.deleted) notes.push(`deleted ${a.deleted} sign-in log row${a.deleted === 1 ? '' : 's'} older than ${VISIT_RETENTION_MONTHS} months`)
+  return notes.length ? notes.join('; ') : null
 }
