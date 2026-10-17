@@ -1,5 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
-import { ungroundedNumbers, repairDashes } from '@/lib/hook-styles'
+import { ungroundedNumbers, repairDashes, normaliseHashtags } from '@/lib/hook-styles'
 
 // Short-form video script generation (factory item 1/6, video pipeline): one model call produces
 // a hook, a sequence of beats (scene description + on-screen text + the spoken voiceover line for
@@ -55,7 +55,12 @@ const FORMULA_NOTES: Record<HookFormula, { hook: string; cover: string }> = {
   story: { hook: 'open with a short second-person scene ("Picture...", "You step off...") in general travel terms, never as something we did or a named traveller', cover: 'a short scene-setting headline' },
 }
 
-function scriptPrompt(postTitle: string, postSummary: string, formulaHint?: HookFormula): string {
+export function scriptPrompt(postTitle: string, postSummary: string, formulaHint?: HookFormula, facts?: string): string {
+  const factsBlock = facts && facts.trim() ? `
+Facts you may use (from the post's stored key takeaways and FAQ answers):
+${facts.trim()}
+Nothing outside the Title, Summary and Facts may be asserted.
+` : ''
   const formulaNote = formulaHint
     ? `Your hook formula must specifically be: ${formulaHint} (${FORMULA_NOTES[formulaHint].hook}). Write the coverTitle in the same spirit: ${FORMULA_NOTES[formulaHint].cover}.`
     : `Pick ONE of these hook formulas and use it: ${HOOK_FORMULAS.join(', ')}.`
@@ -63,7 +68,7 @@ function scriptPrompt(postTitle: string, postSummary: string, formulaHint?: Hook
 
 Title: ${postTitle}
 Summary: ${postSummary}
-
+${factsBlock}
 ${NO_FABRICATION}
 
 The hook is the first spoken line - it has to earn the next 2 seconds of attention. ${formulaNote} A weak hook is a vague scene-setter ("Have you ever wondered about..."); a strong one states something specific and surprising in one breath.
@@ -112,8 +117,8 @@ function fallbackHook(postTitle: string): string {
   return postTitle.replace(/[.!?]+$/, '') + '.'
 }
 
-async function runScriptStep(postTitle: string, postSummary: string, formulaHint?: HookFormula): Promise<VideoScript | null> {
-  const r = await callAnthropic({ max_tokens: 2000, messages: [{ role: 'user', content: scriptPrompt(postTitle, postSummary, formulaHint) }] }, { timeoutMs: 40_000 })
+async function runScriptStep(postTitle: string, postSummary: string, formulaHint?: HookFormula, facts?: string): Promise<VideoScript | null> {
+  const r = await callAnthropic({ max_tokens: 2000, messages: [{ role: 'user', content: scriptPrompt(postTitle, postSummary, formulaHint, facts) }] }, { timeoutMs: 40_000 })
   if (!r || !r.res.ok) return null
   const parsed = parseModelJson<Partial<VideoScript>>(anthropicText(await r.res.json()))
   if (!parsed || typeof parsed.hook !== 'string' || !Array.isArray(parsed.beats) || parsed.beats.length === 0) return null
@@ -122,7 +127,7 @@ async function runScriptStep(postTitle: string, postSummary: string, formulaHint
     .map((b) => ({ ...b, brollSearchTerms: Array.isArray(b.brollSearchTerms) ? b.brollSearchTerms.filter((t): t is string => typeof t === 'string') : [] }))
   if (beats.length === 0) return null
   // The cover headline is public text on the first frame: any number in it must come from the post.
-  const knownNumbers = new Set(`${postTitle} ${postSummary}`.match(/\d+/g) ?? [])
+  const knownNumbers = new Set(`${postTitle} ${postSummary} ${facts ?? ''}`.match(/\d+/g) ?? [])
   const rawCover = typeof parsed.coverTitle === 'string' ? parsed.coverTitle.trim().replace(/\s+/g, ' ') : ''
   const coverTitle = rawCover && rawCover.length <= 60 && (rawCover.match(/\d+/g) ?? []).every((n) => knownNumbers.has(n)) ? rawCover : undefined
   // No em dashes in anything the viewer sees or hears: a comma says the same thing.
@@ -133,7 +138,7 @@ async function runScriptStep(postTitle: string, postSummary: string, formulaHint
     beats: beats.map((b) => ({ ...b, onScreenText: noDash(b.onScreenText), voiceover: noDash(b.voiceover) })),
     title: noDash(typeof parsed.title === 'string' ? parsed.title : postTitle),
     description: noDash(typeof parsed.description === 'string' ? parsed.description : ''),
-    hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.filter((h): h is string => typeof h === 'string') : [],
+    hashtags: Array.isArray(parsed.hashtags) ? normaliseHashtags(parsed.hashtags) : [],
   }
 }
 
@@ -141,20 +146,20 @@ async function runScriptStep(postTitle: string, postSummary: string, formulaHint
  * attempt if it doesn't match a real formula category; after that, a safe hook built from the
  * post's own title is used instead of looping forever on "perfect." Returns null only when AI is
  * unconfigured or every attempt fails outright (not just a weak hook) - never blocks on this. */
-export async function generateVideoScript(postTitle: string, postSummary: string, preferredFormula?: HookFormula): Promise<VideoScript | null> {
+export async function generateVideoScript(postTitle: string, postSummary: string, preferredFormula?: HookFormula, facts?: string): Promise<VideoScript | null> {
   if (!isAiConfigured()) return null
 
   // A hook with a number that is not in the post is never kept (same rule the cover headline has).
   // Spelled-out numbers (two..twelve, dozen, hundred, thousand) count too.
-  const hookOk = (s: VideoScript) => ungroundedNumbers(s.hook, `${postTitle} ${postSummary}`).length === 0 && !!detectHookFormula(s.hook, preferredFormula)
+  const hookOk = (s: VideoScript) => ungroundedNumbers(s.hook, `${postTitle} ${postSummary} ${facts ?? ''}`).length === 0 && !!detectHookFormula(s.hook, preferredFormula)
 
-  const first = await runScriptStep(postTitle, postSummary, preferredFormula)
+  const first = await runScriptStep(postTitle, postSummary, preferredFormula, facts)
   if (!first) return null
   if (hookOk(first)) return first
 
   // The retry keeps the rotation's choice when there is one; otherwise it picks a formula at random as before.
   const formula = preferredFormula ?? HOOK_FORMULAS[Math.floor(Math.random() * HOOK_FORMULAS.length)]
-  const retry = await runScriptStep(postTitle, postSummary, formula)
+  const retry = await runScriptStep(postTitle, postSummary, formula, facts)
   if (retry && hookOk(retry)) return retry
 
   // Neither attempt produced a hook matching a known formula - use the better-structured attempt

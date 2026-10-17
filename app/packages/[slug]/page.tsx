@@ -23,6 +23,7 @@ import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
 import { TripTestimonials } from "@/components/trip-testimonials"
+import { listGuidesForPackage, guideKinds, guidePath } from "@/lib/guides"
 import { TripGallery } from "@/components/trip-gallery"
 import { TripVideo } from "@/components/trip-video"
 import { TripJournal } from "@/components/trip-journal"
@@ -67,10 +68,11 @@ export default async function PackagePage({ params }: Props) {
   const { language, currency } = getVisitorPreferences()
   // One rule for "past trip" (lib/past-trip.ts): recap_mode auto / recap / live. A past trip is never unpublished.
   const isPastTrip = isPastTripRow(pkg)
-  const [allPackages, usdToTargetRate, tripTestimonials, nextTrip] = await Promise.all([
+  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip] = await Promise.all([
     getPackages(),
     getUsdToRate(currency),
     getPublishedTestimonialsForPackage(pkg.id),
+    listGuidesForPackage({ id: pkg.id, destination: pkg.destination }),
     isPastTrip ? getNextTripForRecap(pkg) : Promise.resolve(null),
   ])
   const happened = isPastTrip ? happenedLabel(pkg.available_from, pkg.available_to) : null
@@ -346,6 +348,21 @@ export default async function PackagePage({ params }: Props) {
         {tripTestimonials.length > 0 && (
           <section className="container mx-auto px-4 pb-12">
             <TripTestimonials testimonials={tripTestimonials} language={language} />
+          </section>
+        )}
+
+        {tripGuides.length > 0 && (
+          <section className="container mx-auto px-4 pb-12">
+            <aside className="rounded-xl border bg-muted/30 p-5" aria-labelledby="trip-guides-heading">
+              <h2 id="trip-guides-heading" className="mb-2 text-lg font-semibold text-foreground">Guides for this trip</h2>
+              <ul className="space-y-1.5">
+                {tripGuides.map((g) => (
+                  <li key={g.id}>
+                    <Link href={guidePath(g.kind, g.slug)} className="font-medium text-foreground hover:underline">{g.name}: {guideKinds[g.kind].guideLabel}</Link>
+                  </li>
+                ))}
+              </ul>
+            </aside>
           </section>
         )}
 

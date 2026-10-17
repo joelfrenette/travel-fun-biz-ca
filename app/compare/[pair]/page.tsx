@@ -14,6 +14,7 @@ import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcr
 import type { DbPackage } from "@/lib/packages"
 import { comparePath } from "@/lib/page-copy"
 import { getUsablePageCopy } from "@/lib/page-copy-render"
+import { GuideCta } from "@/components/guide-cta"
 import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
 
 export const revalidate = 300
@@ -106,6 +107,10 @@ export default async function ComparePage({ params }: Props) {
             <PageCopyFaq copy={copy} />
           </div>
         )}
+
+        <div className="container mx-auto px-4 pb-10">
+          <GuideCta name={`${page.a.destination} vs ${page.b.destination}`} packageName={page.a.packages[0]?.name ?? page.b.packages[0]?.name} />
+        </div>
       </main>
       <Footer language={language} />
     </div>

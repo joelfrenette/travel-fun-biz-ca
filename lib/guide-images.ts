@@ -10,6 +10,8 @@ export const HERO_WIDTHS = [480, 800, 1200, 1600] as const
 export const HERO_SIZES = {
   /** The big picture at the top of a guide page (the article column is 896px wide at most). */
   page: '(min-width: 896px) 896px, 100vw',
+  /** The picture in the right-hand feature card of a guide header (22rem wide on desktop, full width on mobile). */
+  header: '(min-width: 1024px) 352px, 100vw',
   /** A card in a grid of three, two or one. */
   card: '(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw',
 } as const

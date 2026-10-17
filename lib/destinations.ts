@@ -18,6 +18,8 @@ export async function getDestinationSlugs(): Promise<{ destination: string; slug
 export interface DestinationPage {
   destination: string
   upcoming: TravelPackage[]
+  /** Each upcoming trip's stored start date by id (a TravelPackage carries no dates); used to find the nearest. */
+  upcomingFrom: Record<string, string | null>
   recaps: DbPackage[]
 }
 
@@ -30,6 +32,7 @@ export async function getDestinationPage(slug: string): Promise<DestinationPage 
   return {
     destination: group.destination,
     upcoming: group.packages.filter((row) => !isPastTrip(row)).map(dbPackageToTravelPackage),
+    upcomingFrom: Object.fromEntries(group.packages.filter((row) => !isPastTrip(row)).map((row) => [row.id, row.available_from ?? null])),
     recaps: group.packages.filter((row) => isPastTrip(row)),
   }
 }

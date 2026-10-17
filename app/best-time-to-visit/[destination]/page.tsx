@@ -13,6 +13,7 @@ import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import { bestTimePath } from "@/lib/page-copy"
 import { getUsablePageCopy } from "@/lib/page-copy-render"
+import { GuideCta } from "@/components/guide-cta"
 import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
 
 export const revalidate = 300
@@ -137,6 +138,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
           </section>
 
           {copy && copy.faq.length > 0 && <PageCopyFaq copy={copy} />}
+          <GuideCta name={page.destination} packageName={page.packages[0]?.name} />
         </div>
       </main>
       <Footer language={language} />

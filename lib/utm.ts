@@ -37,7 +37,14 @@ export function slugifyUtm(value: string | null | undefined): string {
     .slice(0, 100)
 }
 
-const PLACEHOLDER = /\[[A-Z_]+\]|\{\{|%7B%7B/i
+/** The one name a network goes by in utm_source: lowercased, and "twitter" becomes "x" so one account never
+ * shows up as two sources. Safe to call twice (idempotent). */
+export function canonicalNetwork(name: string | null | undefined): string {
+  const n = String(name ?? '').trim().toLowerCase()
+  return n === 'twitter' ? 'x' : n
+}
+
+const PLACEHOLDER =/\[[A-Z_]+\]|\{\{|%7B%7B/i
 
 export function utmLink(url: string, tags: UtmTags, opts: { overwrite?: boolean } = {}): string {
   if (typeof url !== 'string' || !/^https?:\/\//i.test(url) || PLACEHOLDER.test(url)) return url

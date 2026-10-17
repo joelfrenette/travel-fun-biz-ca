@@ -1,12 +1,15 @@
 import Link from "next/link"
 import { site } from "@/lib/site"
-import { telHref } from "@/lib/guide-facts"
+import { telHref, enquiryHref } from "@/lib/guide-facts"
+
+export { enquiryHref }
 
 // The call to action on every guide page (growth loop WP16): the phone line of our AI agent and the enquiry form. The number is
 // read from site.phone (lib/site.ts), never typed here, so it follows the site profile; with no number set the
 // phone line is simply left out and the enquiry form is still offered.
 
-export function GuideCta({ name, compact = false }: { name: string; compact?: boolean }) {
+export function GuideCta({ name, compact = false, packageName }: { name: string; compact?: boolean; packageName?: string | null }) {
+  const enquiry = enquiryHref(packageName)
   const phone = site.phone?.trim() || ""
   const tel = telHref(phone)
   if (compact) {
@@ -18,7 +21,7 @@ export function GuideCta({ name, compact = false }: { name: string; compact?: bo
             {tel ? <a href={tel} className="font-semibold text-foreground hover:underline">{phone}</a> : <span className="font-semibold text-foreground">{phone}</span>}
           </span>
         )}
-        <Link href="/#contact" className="font-semibold text-primary hover:underline">Send an enquiry</Link>
+        <Link href={enquiry} className="font-semibold text-primary hover:underline">Send an enquiry</Link>
       </p>
     )
   }
@@ -34,7 +37,7 @@ export function GuideCta({ name, compact = false }: { name: string; compact?: bo
             <span className="inline-block rounded-md border border-primary px-6 py-3 text-sm font-bold text-primary">Call or text our AI agent: {phone}</span>
           )
         )}
-        <Link href="/#contact" className="inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
+        <Link href={enquiry} className="inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
         <Link href="/packages" className="inline-block rounded-md border px-6 py-3 text-sm font-bold uppercase text-foreground hover:bg-muted">See all trips</Link>
       </div>
     </section>

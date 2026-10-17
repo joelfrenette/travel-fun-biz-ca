@@ -49,6 +49,46 @@ export const HASHTAG_RULES: Record<string, string> = {
   youtube: '0 to 3 hashtags, no timestamps needed',
 }
 
+/** Most hashtags a no-AI fallback caption may carry per network (the top of each HASHTAG_RULES range, never above 3). */
+export const HASHTAG_CAPS: Record<string, number> = {
+  instagram: 3,
+  tiktok: 3,
+  x: 2,
+  twitter: 2,
+  linkedin: 3,
+  pinterest: 3,
+  bluesky: 2,
+  facebook: 2,
+  threads: 2,
+  youtube: 3,
+}
+const DEFAULT_HASHTAG_CAP = 3
+
+export function hashtagCapFor(network: string): number {
+  return HASHTAG_CAPS[network.toLowerCase()] ?? DEFAULT_HASHTAG_CAP
+}
+
+/** Turns stored tags or model hashtags into clean "#Word" tags: strips '#', spaces and punctuation
+ * (words are joined with a capital letter, so "river cruise" becomes "#RiverCruise"), drops empty and
+ * number-only tags, removes repeats ignoring case, and keeps at most `cap` (default 3). */
+export function normaliseHashtags(tags: ReadonlyArray<unknown>, cap = DEFAULT_HASHTAG_CAP): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of tags) {
+    if (out.length >= Math.max(0, cap)) break
+    if (typeof raw !== 'string') continue
+    const parts = raw.replace(/#/g, ' ').split(/[^A-Za-z0-9]+/).filter(Boolean)
+    const word = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('')
+    if (!word || /^\d+$/.test(word) || word.length > 30) continue
+    const key = word.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(`#${word}`)
+    if (out.length >= Math.max(0, cap)) break
+  }
+  return out
+}
+
 /** Picks the next style from `catalogue`, given `recent` values with the MOST RECENT FIRST.
  * Rules, in order: never the most recent one (unless it is the only choice); among the rest prefer
  * the one used least in the last 5; ties go to the one used longest ago across the whole `recent`

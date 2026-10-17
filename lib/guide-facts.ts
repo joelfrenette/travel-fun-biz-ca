@@ -146,3 +146,10 @@ export function telHref(phone: string | null | undefined): string | null {
   if (digits.length === 11 && digits.startsWith('1')) return `tel:+${digits}`
   return null
 }
+
+/** Enquiry link for a call to action: the contact form with the trip pre-chosen. The query string goes BEFORE the
+ * hash (a query after the hash is never read). No named trip falls back to "Custom Package". */
+export function enquiryHref(packageName?: string | null): string {
+  const name = (packageName ?? '').replace(/\s+/g, ' ').trim()
+  return `/?package=${encodeURIComponent(name || 'Custom Package')}#contact`
+}

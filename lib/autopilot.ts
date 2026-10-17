@@ -1,3 +1,4 @@
+import { buildGroundingText } from '@/lib/post-grounding'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused, setAutomationPaused } from '@/lib/automation-kill-switch'
@@ -7,13 +8,13 @@ import { getDistributionMode, setDistributionMode, getDistributionAccounts, getD
 import { generateAndSaveCarousel, carouselKey, type CarouselSlide } from '@/lib/carousel'
 import { generateVideoScript, capScriptDuration, coverTitleFor, detectHookFormula, HOOK_FORMULAS } from '@/lib/video-script'
 import { tagVariant } from '@/lib/content-variants'
-import { rotateStyle, readRecentVariantValues, readVariantTag } from '@/lib/hook-styles'
+import { rotateStyle, hashtagCapFor, readRecentVariantValues, readVariantTag } from '@/lib/hook-styles'
 import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, type BeatVisual } from '@/lib/shotstack'
 import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
 import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
 import { resolvePostingTarget, getProvider, platformsFor, sentPlatformsOf, type PostingTarget } from '@/lib/social-provider'
 import { ghlSocialMissing } from '@/lib/ghl-social'
-import { fitCaptionWithLink, tightestLimit } from '@/lib/social-captions'
+import { fitCaptionWithLink, tightestLimit, buildFallbackCaption } from '@/lib/social-captions'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL, SITE_NAME, absoluteUrl } from '@/lib/site'
 import { isAiConfigured } from '@/lib/ai-verify'
@@ -156,10 +157,13 @@ interface PostFacts {
   body: string
   cover_image_url: string | null
   meta_description: string | null
+  faq?: unknown
+  key_takeaways?: unknown
+  tags?: unknown
 }
 
 async function loadPost(admin: SupabaseClient, slug: string): Promise<PostFacts | null> {
-  const { data } = await admin.from('posts').select('slug, title, body, cover_image_url, meta_description, status').eq('slug', slug).maybeSingle()
+  const { data } = await admin.from('posts').select('slug, title, body, cover_image_url, meta_description, faq, key_takeaways, tags, status').eq('slug', slug).maybeSingle()
   return data && data.status === 'published' ? (data as PostFacts) : null
 }
 
@@ -290,7 +294,22 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       const raw = await getSetting(admin, carouselKey(row.slug))
       const slides = raw ? (JSON.parse(raw) as CarouselSlide[]) : []
       if (post && slides.length) {
-        const caption = fitCaptionWithLink([post.title, post.meta_description].filter(Boolean).join('\n\n'), postLink(row.slug, 'carousel', await readVariantTag(admin, row.slug, 'carousel_cta')), tightestLimit(carouselTargets))
+        const carouselLink = postLink(row.slug, 'carousel', await readVariantTag(admin, row.slug, 'carousel_cta'))
+        const carouselLimit = tightestLimit(carouselTargets)
+        // Hook, one description line, fixed call to action, link and up to 3 hashtags; the old title + description text if that is not possible.
+        const caption =
+          buildFallbackCaption(
+            {
+              title: post.title,
+              metaDescription: post.meta_description,
+              faqQuestions: Array.isArray(post.faq) ? (post.faq as Array<{ q?: unknown }>).map((f) => f?.q) : [],
+              keyTakeaways: Array.isArray(post.key_takeaways) ? post.key_takeaways : [],
+              tags: Array.isArray(post.tags) ? post.tags : [],
+            },
+            carouselTargets[0],
+            carouselLink,
+            { networks: carouselTargets, limit: carouselLimit, hashtagCap: Math.min(...carouselTargets.map(hashtagCapFor)) },
+          ) ?? fitCaptionWithLink([post.title, post.meta_description].filter(Boolean).join('\n\n'), carouselLink, carouselLimit)
         const result = await target.target.sendPhotos(carouselTargets, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
         await settlePost(row, 'carousel', result, carouselTargets, save, fail, notes)
       }
@@ -304,7 +323,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
         try {
           // The hook formula rotates over the last 5 videos so consecutive videos do not open the same way.
           const preferred = rotateStyle(await readRecentVariantValues(admin, 'video_hook', 12), HOOK_FORMULAS)
-          const script = await generateVideoScript(post.title, post.meta_description || '', preferred)
+          const script = await generateVideoScript(post.title, post.meta_description || '', preferred, buildGroundingText(post.key_takeaways, post.faq) || undefined)
           if (!script) {
             await fail(row, 'video', 'could not write a video script', false)
           } else {

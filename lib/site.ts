@@ -172,3 +172,11 @@ export function hreflangAlternates(path: string): Record<string, string> | undef
     'x-default': absoluteUrl(clean),
   }
 }
+
+/** "2026-09-03T10:00:00Z" -> "September 3, 2026". Empty or unparseable input gives null so callers can omit the date. */
+export function formatDate(value: string | null | undefined): string | null {
+  if (!value) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
+}
