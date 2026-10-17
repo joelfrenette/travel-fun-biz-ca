@@ -86,7 +86,7 @@ export function newsSourceFromBody(body: string): { name: string; url: string } 
 }
 
 /** True once a news post is more than NEWS_ARCHIVE_AFTER_DAYS old (by its publish date). */
-export function newsArchived(post: { tags?: unknown; slug?: string | null; publish_date?: string | null }, now: Date = new Date()): boolean {
+export function newsArchived(post: { title?: string; tags?: unknown; slug?: string | null; publish_date?: string | null }, now: Date = new Date()): boolean {
   if (!isNewsPost(post) || !post.publish_date) return false
   const t = Date.parse(post.publish_date)
   return Number.isFinite(t) && now.getTime() - t > NEWS_ARCHIVE_AFTER_DAYS * 86_400_000
