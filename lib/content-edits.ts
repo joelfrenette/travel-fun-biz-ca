@@ -313,9 +313,11 @@ export interface RevertResult {
   needsForce?: boolean
 }
 
+/** `skipSiblingUnpublish` is for edits that never went live with a publish (the click-rate loop edits pages that were already live):
+ * their revert changes the text and nothing else, so an earlier heal publish of the same page is never undone by it. */
 /** Puts the `before` text of one audit row back on its page and stamps reverted_at. If the field no longer holds the
  * edit's `after` text (a later edit, or a person, changed it), nothing is written unless `force` is true. */
-export async function revertEdit(admin: SupabaseClient, id: string, opts: { force?: boolean } = {}): Promise<RevertResult> {
+export async function revertEdit(admin: SupabaseClient, id: string, opts: { force?: boolean; skipSiblingUnpublish?: boolean } = {}): Promise<RevertResult> {
   const { data: found, error } = await admin.from('content_edits').select('*').eq('id', id).maybeSingle()
   if (error) return { ok: false, error: error.message }
   const edit = found as EditRow | null
@@ -332,7 +334,7 @@ export async function revertEdit(admin: SupabaseClient, id: string, opts: { forc
 
   // A text edit that went live together with a heal publish: putting the old text back on a live page would show text that
   // failed the checks. So the publish is undone first, in the same action (the page goes back to a draft), and only then the text.
-  if (edit.field !== 'status' && edit.published_after && edit.content_id && row.status === 'published') {
+  if (!opts.skipSiblingUnpublish && edit.field !== 'status' && edit.published_after && edit.content_id && row.status === 'published') {
     const { data: siblings } = await admin.from('content_edits').select('*').eq('content_type', edit.content_type).eq('content_id', edit.content_id).eq('field', 'status').eq('after', 'published').is('reverted_at', null).limit(1)
     const sibling = ((siblings ?? []) as EditRow[])[0]
     if (sibling) {

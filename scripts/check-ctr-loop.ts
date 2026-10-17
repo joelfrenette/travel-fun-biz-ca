@@ -141,7 +141,7 @@ async function main() {
     const r = await runCtrLoop(fakeAdmin(db), { now: NOW, model: s.model, getPairs: async () => [] })
     check('start: one test started, two model calls (suggester then judge)', r.started === 1 && r.calls === 2 && s.prompts.length === 2, JSON.stringify(r))
     check('start: the live page now has the new title and description', db.tables.posts[0].meta_title === goodTitle && db.tables.posts[0].meta_description === goodDesc)
-    check('start: logged in content_edits with before and after (so Undo works)', db.tables.content_edits.length === 2 && db.tables.content_edits.some((e) => e.field === 'meta_title' && e.before === 'Rhine cruise' && e.after === goodTitle && e.method === 'generate' && e.published_after === true))
+    check('start: logged in content_edits with before and after (so Undo works)', db.tables.content_edits.length === 2 && db.tables.content_edits.some((e) => e.field === 'meta_title' && e.before === 'Rhine cruise' && e.after === goodTitle && e.method === 'generate' && e.published_after === false))
     const exp = expsOf(db)[0]
     check('start: the experiment records page, old, new and the baseline', !!exp && exp.path === '/blog/rhine-1' && exp.oldTitle === 'Rhine cruise' && exp.newTitle === goodTitle && Math.abs(exp.baselineCtr - 0.02) < 1e-9 && exp.baselinePosition === 3 && exp.baselineImpressions === 1000 && exp.status === 'running' && exp.editIds.length === 2)
     check('start: the calls were taken from the heal budget', heal(db) === 2)
@@ -253,6 +253,18 @@ async function main() {
     check('fell: the result is stored with the after numbers', Math.abs((e.afterCtr ?? 0) - 0.01) < 1e-9 && e.afterImpressions === 1000)
     const retry = await runCtrLoop(fakeAdmin(db), { now: new Date(later.getTime() + 86_400_000), model: stubModel().model, getPairs: async () => [] })
     check('fell: that page is not tested again for a long while', retry.started === 0)
+  }
+  {
+    // A heal publish of the same page earlier on must survive a click-rate revert: the revert changes text, never the status.
+    const db = await started()
+    const type = String(db.tables.content_edits[0].content_type)
+    db.tables.content_edits.push({ id: 'heal-publish-1', content_type: type, content_id: 'post-1', path: '/blog/rhine-1', field: 'status', before: 'draft', after: 'published', reason: 'heal', method: 'repair', published_after: true, reverted_at: null })
+    check('revert keeps status: the click-rate edits are logged as not published by the edit', db.tables.content_edits.filter((x) => x.field !== 'status').every((x) => x.published_after === false))
+    for (const x of db.tables.content_edits) if (x.field !== 'status') x.published_after = true // rows written before this fix
+    const r = await evaluate(db, { clicks: 10, impressions: 1000, position: 3 })
+    const heal = db.tables.content_edits.find((x) => x.id === 'heal-publish-1')!
+    check('revert keeps status: a click-rate revert never puts a live page back to draft', r.reverted === 1 && db.tables.posts[0].status === 'published' && db.tables.posts[0].meta_title === 'Rhine cruise', String(db.tables.posts[0].status))
+    check('revert keeps status: the earlier heal publish edit is not reverted', !heal.reverted_at)
   }
   {
     const db = await started()

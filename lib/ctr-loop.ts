@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { isAiConfigured, parseModelJson } from '@/lib/ai-verify'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { POST_EXPERIENCE_CLAIM_PATTERNS } from '@/lib/blog-composer'
-import { callModelText, EST_COST_USD_PER_CALL, MIN_MS_PER_CALL, type ContentEdit, type ContentType, type ModelCall } from '@/lib/content-repair'
+import { modelCallFor, EST_COST_USD_PER_CALL, MIN_MS_PER_CALL, type ContentEdit, type ContentType, type ModelCall } from '@/lib/content-repair'
 import { deleteEdits, editsLoggable, insertEdits, recordRepairSpend, repairDay, revertEdit } from '@/lib/content-edits'
 import { COUNT_CLAIM, EXPERIENCE_CLAIM_PATTERNS, RECENCY_PATTERNS, SUPERLATIVE_PATTERNS, WORD_NUMBER_PATTERNS, numbersIn } from '@/lib/guide-composer'
 import { guideKinds, GUIDE_KINDS, type GuideKind } from '@/lib/guides'
@@ -598,7 +598,7 @@ async function evaluateExperiments(admin: SupabaseClient, now: Date, out: CtrLoo
     // a field changed since by someone else is left alone, and the test says so.
     let blocked = ''
     for (const id of live) {
-      const r = await revertEdit(admin, id)
+      const r = await revertEdit(admin, id, { skipSiblingUnpublish: true })
       if (!r.ok) blocked = r.needsForce ? 'the page was changed again after the test started, so it was left as it is' : (r.error ?? 'the change could not be undone')
     }
     if (blocked) {
@@ -641,7 +641,7 @@ export async function runCtrLoop(admin: SupabaseClient, opts: CtrLoopOpts = {}):
     }
 
     // (a, b) start new tests. Needs the model, the heal budget, time, and today's slots.
-    const model = opts.model ?? callModelText
+    const model = opts.model ?? modelCallFor('ctr-loop')
     if (!opts.model && !isAiConfigured()) return finish(out, lines)
     const day = repairDay(now)
     const left = await slotsLeftToday(admin, day)
@@ -747,7 +747,7 @@ export async function runCtrLoop(admin: SupabaseClient, opts: CtrLoopOpts = {}):
       const usedCalls = Math.max(1, out.calls - callsBefore)
       const reason = `Search title and description reworded to lift the click rate (${(w.ctr * 100).toFixed(1)} percent of searchers clicked at position ${w.position.toFixed(1)}, where about ${(w.expected * 100).toFixed(1)} percent is typical). It is checked after ${CTR_EVAL_AFTER_DAYS} days and undone by itself if the click rate falls.`
       const edits: ContentEdit[] = []
-      const mk = (field: 'meta_title' | 'meta_description', before: string, after: string) => edits.push({ content_type: page.type, content_id: page.id, path: page.path, field, reason, before, after, method: 'generate', published_after: true, cost_usd: 0 })
+      const mk = (field: 'meta_title' | 'meta_description', before: string, after: string) => edits.push({ content_type: page.type, content_id: page.id, path: page.path, field, reason, before, after, method: 'generate', published_after: false, cost_usd: 0 })
       if (suggested.title !== page.storedTitle) mk('meta_title', page.storedTitle, suggested.title)
       if (suggested.description !== page.storedDescription) mk('meta_description', page.storedDescription, suggested.description)
       if (edits.length === 0) continue
@@ -783,7 +783,7 @@ export async function runCtrLoop(admin: SupabaseClient, opts: CtrLoopOpts = {}):
       const saved = await setSetting(admin, experimentKey(page.path, exp.startedAt), JSON.stringify(exp))
       if (saved.error) {
         // The change is live and logged (Undo works) but the test would never be compared: take it back so nothing runs unwatched.
-        for (const id of logged.ids) await revertEdit(admin, id, { force: true })
+        for (const id of logged.ids) await revertEdit(admin, id, { force: true, skipSiblingUnpublish: true })
         out.problems.push(`click-rate test: could not save the test for ${page.path} (${saved.error}), so the change was undone`)
         break
       }

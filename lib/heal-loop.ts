@@ -9,7 +9,7 @@ import {
   blockerKinds,
   bodySentences,
   buildEdits,
-  callModelText,
+  modelCallFor,
   cloneFields,
   detectOffenders,
   deterministicFix,
@@ -966,7 +966,7 @@ export async function healItem(
     if (!opts.model && !isAiConfigured()) return empty('deferred', ['AI writing is not configured'], 'AI writing is not configured, so nothing was healed')
     if (!(await editsLoggable(admin))) return empty('deferred', ['the content_edits table is not set up'], 'self-healing needs migration 0033 (the edit log), so nothing was healed')
     const budget = opts.budget ?? (await openBudget(admin, now))
-    const outcome = await healLoop(target, { model: opts.model ?? callModelText, budget, deadlineMs: opts.deadlineMs, requireJudge: opts.requireJudge })
+    const outcome = await healLoop(target, { model: opts.model ?? modelCallFor('heal-loop'), budget, deadlineMs: opts.deadlineMs, requireJudge: opts.requireJudge })
     let logIds: string[] = []
     let final = outcome
     if (outcome.status === 'healed' && outcome.edits.length) {

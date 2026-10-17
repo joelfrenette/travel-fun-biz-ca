@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     if (!ctx.name && !ctx.destination) return NextResponse.json({ error: 'Fill in at least the package name or destination first, so the AI has something real to write from.' }, { status: 400 })
 
     const prompt = `${GROUNDING}\n\nTask: ${fieldInstruction(field)}\n\nPACKAGE DETAILS:\n${details}`
-    const r = await callAnthropic({ max_tokens: field === 'full_description' ? 4000 : 2000, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 50_000 })
+    const r = await callAnthropic({ max_tokens: field === 'full_description' ? 4000 : 2000, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 50_000, feature: 'admin-generate-field' })
     if (!r) return NextResponse.json({ error: 'The AI did not answer in time. Try again.' }, { status: 504 })
     if (!r.res.ok) {
       const t = await r.res.text().catch(() => '')

@@ -146,7 +146,7 @@ Return ONLY minified JSON of this exact shape, nothing else:
 {"ideas":[{"angle":"<one-sentence post angle>","keyword":"<target search phrase, lowercase>","why":"<short reason this angle is worth writing, <100 chars>","source":"ai suggestion"}]}`
 
   try {
-    const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000 })
+    const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000, feature: 'blog-topics' })
     if (!r || !r.res.ok) {
       const body = r ? await r.res.text().catch(() => '') : ''
       console.error('[blog-topics] suggestTopics: Anthropic call failed', r ? `status ${r.res.status}` : '(no response)', body.slice(0, 500))

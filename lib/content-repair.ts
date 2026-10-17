@@ -619,9 +619,10 @@ export function acceptGenerated(raw: unknown, keys: GenKey[], limits: RepairLimi
 
 export type ModelCall = (prompt: string, maxTokens: number, timeoutMs: number) => Promise<string | null>
 
-export const callModelText: ModelCall = async (prompt, maxTokens, timeoutMs) => {
+/** The model call, tagged with the feature name the AI meter files its cost under (heal, CTR and page-copy runs are told apart). */
+export const modelCallFor = (feature: string): ModelCall => async (prompt, maxTokens, timeoutMs) => {
   try {
-    const r = await callAnthropic({ max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }, { timeoutMs })
+    const r = await callAnthropic({ max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }, { timeoutMs, feature })
     if (!r || !r.res.ok) return null
     const payload = await r.res.json().catch(() => null)
     if ((payload as { stop_reason?: string } | null)?.stop_reason === 'max_tokens') return null
@@ -631,6 +632,8 @@ export const callModelText: ModelCall = async (prompt, maxTokens, timeoutMs) => 
     return null
   }
 }
+
+export const callModelText: ModelCall = modelCallFor('content-repair')
 
 /** One model call that writes the requested missing fields from the page text. Returns what survived the filters. */
 export async function generateExtras(model: ModelCall, f: RepairFields, keys: GenKey[], limits: RepairLimits, keyword: string | null, bodyCtx: DetectCtx, timeoutMs = CALL_TIMEOUT_MS): Promise<{ got: Partial<Pick<RepairFields, GenKey>>; answered: boolean }> {

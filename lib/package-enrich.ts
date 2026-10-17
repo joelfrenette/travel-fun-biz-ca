@@ -315,7 +315,7 @@ Return ONLY minified JSON with exactly these keys:
 /** The real writer: one model call (90 second limit). Tokens come back so the cost can be shown. */
 export const modelCopyWriter: CopyWriter = async ({ pkg, transcript, wanted }) => {
   if (!isAiConfigured()) return { raw: null, error: 'AI writing is not configured (ANTHROPIC_API_KEY is not set).' }
-  const r = await callAnthropic({ max_tokens: 6000, messages: [{ role: 'user', content: copyPrompt(pkg, transcript, wanted) }] }, { timeoutMs: 90_000 })
+  const r = await callAnthropic({ max_tokens: 6000, messages: [{ role: 'user', content: copyPrompt(pkg, transcript, wanted) }] }, { timeoutMs: 90_000, feature: 'package-enrich' })
   if (!r) return { raw: null, error: 'The AI did not answer in time for the page copy.' }
   if (!r.res.ok) return { raw: null, error: `The AI request for the page copy failed (HTTP ${r.res.status}).` }
   const payload = await r.res.json().catch(() => null)

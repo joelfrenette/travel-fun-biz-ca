@@ -6,6 +6,11 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 //     its way back, and every failure is swallowed.
 //   - Tokens come from the API's own `usage` field. Cost is an ESTIMATE from the rate table below.
 //   - No prompt or reply text is stored, only counts.
+//   - The feature tag: callers pass an explicit `feature` to callAnthropic; the stack-trace guess
+//     (featureFromStack) is only the fallback, since a bundler can rename or inline frames.
+//   - On a serverless host the background insert can be dropped once the response is sent.
+//     @vercel/functions (waitUntil) is not a dependency of this project, so it is not used here;
+//     if it is added later, wrap the promises in meterResponse with waitUntil().
 
 export interface ApiCallRow {
   ts: string

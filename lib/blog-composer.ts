@@ -108,7 +108,7 @@ async function runComposerStep<T>(step: Step, ctx: ComposerContext): Promise<T |
   const prompt = composerPrompt(step, ctx)
   const r = await callAnthropic(
     { max_tokens: step === 'body' ? 8000 : 4000, messages: [{ role: 'user', content: prompt }] },
-    { timeoutMs: step === 'body' ? 170_000 : 40_000 },
+    { timeoutMs: step === 'body' ? 170_000 : 40_000, feature: 'blog-composer' },
   )
   if (!r || !r.res.ok) return null
   const payload = await r.res.json()
@@ -581,7 +581,7 @@ export async function gateWithRepair(
   const prompt = `Rewrite each numbered text below so it no longer has the problem named in the square brackets. Keep the meaning, tone, markdown formatting and length as close as you can. Do not add any number, count, number word, date, price or link. Where a number or count is removed, say it in general terms instead (for example "a few", "several", "most"). Never use the long dash character.\n\n${list}\n\nReturn ONLY minified JSON with the rewritten text for every number: {"rewrites":[{"id":0,"text":"..."}]}`
   let rewrites: { id: number; text: string }[] = []
   try {
-    const r = await callAnthropic({ max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 60_000 })
+    const r = await callAnthropic({ max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 60_000, feature: 'blog-composer' })
     if (r && r.res.ok) {
       const payload = await r.res.json()
       if ((payload as { stop_reason?: string })?.stop_reason !== 'max_tokens') {

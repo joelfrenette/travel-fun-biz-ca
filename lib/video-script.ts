@@ -113,7 +113,7 @@ function fallbackHook(postTitle: string): string {
 }
 
 async function runScriptStep(postTitle: string, postSummary: string, formulaHint?: HookFormula): Promise<VideoScript | null> {
-  const r = await callAnthropic({ max_tokens: 2000, messages: [{ role: 'user', content: scriptPrompt(postTitle, postSummary, formulaHint) }] }, { timeoutMs: 40_000 })
+  const r = await callAnthropic({ max_tokens: 2000, messages: [{ role: 'user', content: scriptPrompt(postTitle, postSummary, formulaHint) }] }, { timeoutMs: 40_000, feature: 'video-script' })
   if (!r || !r.res.ok) return null
   const parsed = parseModelJson<Partial<VideoScript>>(anthropicText(await r.res.json()))
   if (!parsed || typeof parsed.hook !== 'string' || !Array.isArray(parsed.beats) || parsed.beats.length === 0) return null

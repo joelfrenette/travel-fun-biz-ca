@@ -153,7 +153,7 @@ Rules:
 type CallResult = { ok: true; text: string } | { ok: false; error: string }
 
 async function callText(prompt: string, maxTokens: number, timeoutMs: number): Promise<CallResult> {
-  const r = await callAnthropic({ max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }, { timeoutMs })
+  const r = await callAnthropic({ max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }, { timeoutMs, feature: 'guide-composer' })
   if (!r) return { ok: false, error: 'the AI did not answer in time' }
   if (!r.res.ok) return { ok: false, error: `the AI request failed (HTTP ${r.res.status})` }
   const payload = await r.res.json().catch(() => null)

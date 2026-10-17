@@ -212,7 +212,7 @@ export async function callAnthropic(
 /** Minimal round-trip to confirm the key + a model actually work. */
 export async function pingAi(): Promise<boolean> {
   try {
-    const r = await callAnthropic({ max_tokens: 8, messages: [{ role: 'user', content: 'Reply with the two letters OK.' }] })
+    const r = await callAnthropic({ max_tokens: 8, messages: [{ role: 'user', content: 'Reply with the two letters OK.' }] }, { feature: 'ai-ping' })
     return !!r?.res.ok
   } catch {
     return false
@@ -247,7 +247,7 @@ Return ONLY minified JSON of this exact shape, nothing else:
 Return {"findings":[]} if everything checks out.`
 
   try {
-    const r = await callAnthropic({ max_tokens: 1024, messages: [{ role: 'user', content: prompt }] })
+    const r = await callAnthropic({ max_tokens: 1024, messages: [{ role: 'user', content: prompt }] }, { feature: 'ai-verify' })
     if (!r || !r.res.ok) return []
     const data = await r.res.json()
     const text: string = anthropicText(data)
