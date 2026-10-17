@@ -6,6 +6,7 @@ import { NewsletterForm } from "@/components/newsletter-form"
 import { CookieSettingsLink } from "@/components/cookie-settings-link"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
+import { listTopDestinationGuides } from "@/lib/guides"
 
 interface FooterProps {
   language: Language
@@ -28,6 +29,22 @@ function FooterTile({ href, src, alt, fit }: { href: string; src: string; alt: s
         unoptimized
       />
     </Link>
+  )
+}
+
+/** Compact "Trips by destination" list from the published destination guides. Renders nothing when there are none. */
+async function FooterDestinations({ language }: { language: Language }) {
+  const guides = await listTopDestinationGuides(6)
+  if (guides.length === 0) return null
+  return (
+    <nav aria-label="Trips by destination" className="space-y-2 text-xs text-gray-400">
+      <p className="font-semibold uppercase text-white">{translate(language, "Trips by destination")}</p>
+      {guides.map((g) => (
+        <Link key={g.id} href={`/destinations/${g.slug}`} className="block hover:text-white">
+          {g.name}
+        </Link>
+      ))}
+    </nav>
   )
 }
 
@@ -73,19 +90,8 @@ export function Footer({ language }: FooterProps) {
               ))}
             </nav>
 
-            <div className="space-y-2 text-xs text-gray-400">
-              {aboutLinks.map((link) => (
-                <Link key={link.href} href={link.href} className="block hover:text-white">
-                  {translate(language, link.label)}
-                </Link>
-              ))}
-              {legalLinks.map((link) => (
-                <Link key={link.href} href={link.href} className="block hover:text-white">
-                  {translate(language, link.label)}
-                </Link>
-              ))}
-              <CookieSettingsLink className="block text-left hover:text-white" label={translate(language, "Cookie settings")} />
-            </div>
+            {/* @ts-expect-error async server component: this repo's React types predate async JSX */}
+            <FooterDestinations language={language} />
 
             <div className="space-y-1 text-xs text-gray-400">
               {officeInfo.registrations.map((item) => (
@@ -118,7 +124,8 @@ export function Footer({ language }: FooterProps) {
             ))}
           </div>
 
-          <div>
+          {/* Newsletter first on phones, original (last) position from lg up. */}
+          <div className="order-first lg:order-none">
             <div className="mb-4 bg-[#e31e24] px-6 py-3 text-center">
               <p className="text-2xl font-bold leading-tight">
                 {translate(language, 'NOTIFY ME OF')}
@@ -131,6 +138,25 @@ export function Footer({ language }: FooterProps) {
             </div>
           </div>
         </div>
+
+        <nav
+          aria-label="Legal and company"
+          className="mt-10 flex flex-wrap items-center gap-y-2 border-t border-white/10 pt-6 text-xs text-gray-400"
+        >
+          {[...aboutLinks, ...legalLinks].map((link, i) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`hover:text-white ${i > 0 ? "ml-3 border-l border-white/20 pl-3" : ""}`}
+            >
+              {translate(language, link.label)}
+            </Link>
+          ))}
+          <CookieSettingsLink
+            className="ml-3 border-l border-white/20 pl-3 text-left hover:text-white"
+            label={translate(language, "Cookie settings")}
+          />
+        </nav>
       </div>
     </footer>
   )
