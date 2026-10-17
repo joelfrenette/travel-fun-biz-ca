@@ -432,7 +432,8 @@ check('files owned by another branch are untouched (git diff against main)', (()
   try {
     const base = execSync('git merge-base HEAD main', { encoding: 'utf8' }).trim()
     const changed = execSync(`git diff --name-only ${base}`, { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
-    const forbidden = ['components/package-card.tsx', 'app/packages/[slug]/page.tsx', 'lib/site.ts', 'lib/trip-duration.ts', 'supabase/migrations/0040_price_on_request.sql']
+    // The trip page left this list when the staging loop added its "Guides for this trip" block (scripts/check-package-guides.ts guards that edit).
+    const forbidden = ['components/package-card.tsx', 'lib/site.ts', 'lib/trip-duration.ts', 'supabase/migrations/0040_price_on_request.sql']
     const hit = changed.filter((f) => forbidden.includes(f) || /wizard/i.test(f))
     if (hit.length) console.log('     touched:', hit.join(', '))
     return hit.length === 0
