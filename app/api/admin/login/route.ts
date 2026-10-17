@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { checkCredentials, createToken } from '@/lib/admin-auth'
+import { recordAuthEvent } from '@/lib/auth-log'
 
 // Per-IP failed-attempt limiter. In-memory, so it is per server instance: on Vercel that
 // still throttles a burst against one warm function, which is what a password guesser
@@ -44,10 +45,12 @@ export async function POST(request: Request) {
 
     if (!(await checkCredentials(email, password))) {
       recordFailure(ip)
+      await recordAuthEvent('login_fail', request)
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
     failures.delete(ip)
+    await recordAuthEvent('login_ok', request)
     const token = createToken(email)
     return NextResponse.json({ token })
   } catch {

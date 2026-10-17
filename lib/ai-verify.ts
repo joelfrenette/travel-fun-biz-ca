@@ -1,4 +1,5 @@
 import { site } from '@/lib/site'
+import { featureFromStack, meterResponse, recordApiCall } from '@/lib/ai-meter'
 
 // Ported from Nomad Escape Plan's lib/ai-verify.ts (Factory Phase 1: foundation), trimmed to the
 // generic engine: dateContext/callAnthropic/anthropicText/parseModelJson/verifyRecord are subject-
@@ -155,10 +156,13 @@ export async function callAnthropic(
     max_tokens: number
     messages: { role: 'user' | 'assistant'; content: AnthropicContent }[]
   },
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; feature?: string } = {},
 ): Promise<{ res: Response; model: string } | null> {
   const key = process.env.ANTHROPIC_API_KEY
   if (!key) return null
+  // The usage meter (lib/ai-meter.ts, table api_calls) tags each call with a feature: the caller's
+  // own tag, else the caller's file name read off the stack (taken now, before any await trims it).
+  const feature = opts.feature ?? featureFromStack(new Error().stack)
   // Current models reason before they answer, and that reasoning spends the same max_tokens
   // budget. With a low cap the reply is cut off mid-JSON; only generated tokens are billed, so a
   // floor costs nothing when the answer is short. Every call is told today's date as a system
@@ -182,11 +186,15 @@ export async function callAnthropic(
     } catch (e) {
       // A timeout means the model was working, not unavailable — trying the next candidate would
       // only spend the same wait again. Give up.
-      if (e instanceof Error && e.name === 'TimeoutError') return null
+      if (e instanceof Error && e.name === 'TimeoutError') {
+        void recordApiCall({ feature, model, input_tokens: 0, output_tokens: 0, ok: false })
+        return null
+      }
       continue
     }
     if (res.ok) {
       cachedModel = model
+      meterResponse(res, model, feature)
       return { res, model }
     }
     const body = await res.clone().text().catch(() => '')
@@ -194,8 +202,10 @@ export async function callAnthropic(
       last = { res, model }
       continue
     }
+    meterResponse(res, model, feature)
     return { res, model }
   }
+  if (last) meterResponse(last.res, last.model, feature)
   return last
 }
 
