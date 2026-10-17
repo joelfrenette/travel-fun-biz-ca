@@ -101,6 +101,30 @@ export function titleSimilarity(a: string, b: string): number {
 
 export const SIMILAR_TITLE_THRESHOLD = 0.7
 
+/** What makes one storm bulletin different from the last: the warning or watch level, the category and the wind figures.
+ * Two bulletins of the same storm with the same signature say the same thing (a duplicate); a different signature is an UPDATE.
+ * Empty when the text carries none of these. Pure. */
+export function stormSignature(title: string, summary: string): string {
+  const text = `${title} ${summary}`.toLowerCase()
+  const bits: string[] = []
+  for (const m of text.matchAll(/\b(hurricane|tropical storm|storm surge|typhoon) (warning|watch)\b/g)) bits.push(`${m[1]} ${m[2]}`)
+  for (const m of text.matchAll(/\bcategory (\d)\b/g)) bits.push(`cat${m[1]}`)
+  for (const m of text.matchAll(/\b(\d{2,3}) ?(mph|km\/h|kph|knots?|kt)\b/g)) bits.push(`${m[1]}${m[2]}`)
+  for (const m of text.matchAll(/\b(tropical depression|tropical storm|hurricane|major hurricane|post-tropical)\b/g)) bits.push(m[1])
+  return [...new Set(bits)].sort().join('|')
+}
+
+/** True when `title`/`summary` repeats an earlier item. For a storm the title match alone is not enough: the same storm with a
+ * different signature (a new warning, a higher category, stronger winds) is an update, not a repeat. Pure. */
+export function isRepeatOf(
+  item: { title: string; summary: string; category: string },
+  others: { title: string; summary: string; category?: string }[],
+): boolean {
+  if (item.category !== 'storm') return isNearDuplicate(item.title, others.map((o) => o.title))
+  const sig = stormSignature(item.title, item.summary)
+  return others.some((o) => (titleKey(o.title) === titleKey(item.title) || titleSimilarity(item.title, o.title) >= SIMILAR_TITLE_THRESHOLD) && stormSignature(o.title, o.summary) === sig)
+}
+
 /** True when `title` repeats one of `others` (the same words once numbers and filler are ignored, or 70% the same words). Pure. */
 export function isNearDuplicate(title: string, others: string[]): boolean {
   const key = titleKey(title)

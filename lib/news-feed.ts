@@ -65,13 +65,32 @@ const CONTROL = new RegExp('[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f
 /** Plain one-line text from a feed field: CDATA unwrapped, entities decoded, HTML removed (including script and style
  * with their content), control and invisible characters removed, spaces collapsed, cut to `max`. */
 export function cleanFeedText(raw: string, max: number): string {
-  let s = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+  // Bounded work: a hostile field is cut BEFORE any scan, and every scan below is linear (indexOf) or runs on the cut text, so a
+  // 1 MB feed full of unterminated tags cannot make the reader quadratic.
+  let s = (raw.length > max * 12 + 1000 ? raw.slice(0, max * 12 + 1000) : raw).replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '')
   s = decodeEntities(s)
-  s = s.replace(/<(script|style)[\s\S]*?<\/\1\s*>/gi, ' ').replace(/<!--[\s\S]*?-->/g, ' ')
+  s = dropBlocks(dropBlocks(dropBlocks(s, 'script', '</script'), 'style', '</style'), '!--', '-->')
   s = s.replace(/<\/?[a-z][^>]*>/gi, ' ')
   s = decodeEntities(s)
-  s = s.replace(/<\/?[a-z][^>]*>/gi, ' ').replace(CONTROL, '').replace(/\s+/g, ' ').trim()
+  s = s.replace(/<\/?[a-z][^>]*>/gi, ' ').replace(/[<>]/g, ' ').replace(CONTROL, '').replace(/\s+/g, ' ').trim()
   return s.length > max ? `${s.slice(0, max - 1).trimEnd()}.` : s
+}
+
+/** Removes every `<open ... close ...>` block, case-insensitively, in one linear pass. An unterminated block drops the rest. */
+function dropBlocks(s: string, open: string, close: string): string {
+  const lower = s.toLowerCase()
+  let out = ''
+  let pos = 0
+  for (;;) {
+    const i = lower.indexOf(`<${open}`, pos)
+    if (i < 0) break
+    out += `${s.slice(pos, i)} `
+    const j = lower.indexOf(close, i + 1)
+    if (j < 0) return out
+    const k = close.endsWith('>') ? j + close.length : lower.indexOf('>', j)
+    pos = k < 0 ? s.length : close.endsWith('>') ? k : k + 1
+  }
+  return out + s.slice(pos)
 }
 
 /** Text that talks to a model instead of describing news. Such an item is not used at all. */
@@ -98,20 +117,97 @@ export function looksLikeInjection(text: string): boolean {
 // ---------------------------------------------------------------------------------------------------
 
 /** Removes the XML declaration, any DOCTYPE (and so every entity definition) and processing instructions. */
-function stripPrologue(xml: string): string {
-  return xml.replace(/^﻿/, '').replace(/<\?[\s\S]*?\?>/g, '').replace(/<!DOCTYPE[\s\S]*?(\[[\s\S]*?\])?\s*>/gi, '')
+function stripPrologueBom(xml: string): string {
+  return xml.replace(/^﻿/, '')
 }
 
-/** The inner text of the first <name> element in a block (namespace prefix allowed), or ''. Case-insensitive. */
-function firstTag(block: string, name: string): string {
-  const re = new RegExp(`<(?:[a-z0-9]+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[a-z0-9]+:)?${name}\\s*>`, 'i')
-  const m = re.exec(block)
-  return m ? m[1] : ''
+/** Linear (indexOf) removal of leading processing instructions and the DOCTYPE with every entity definition. */
+function stripPrologue(input: string): string {
+  let xml = stripPrologueBom(input)
+  for (let n = 0; n < 5; n++) {
+    const t = xml.trimStart()
+    if (!t.startsWith('<?')) {
+      xml = t
+      break
+    }
+    const e = t.indexOf('?>')
+    if (e < 0) return ''
+    xml = t.slice(e + 2)
+  }
+  const d = xml.toLowerCase().indexOf('<!doctype')
+  if (d >= 0) {
+    const gt = xml.indexOf('>', d)
+    const br = xml.indexOf('[', d)
+    let end = gt
+    if (br >= 0 && (gt < 0 || br < gt)) {
+      const cb = xml.indexOf(']', br)
+      end = cb < 0 ? -1 : xml.indexOf('>', cb)
+    }
+    if (end < 0) return ''
+    xml = xml.slice(0, d) + xml.slice(end + 1)
+  }
+  return xml
+}
+
+/** The inner text of the first <name> element in a block (namespace prefix allowed), or ''. Case-insensitive. Linear: it walks
+ * the block with indexOf and never uses a lazy regex over the whole block. */
+function firstTag(block: string, name: string, lower: string = block.toLowerCase()): string {
+  const openRe = new RegExp(`^(?:[a-z0-9]+:)?${name.toLowerCase()}(?=[\\s>/])`)
+  const closeRe = new RegExp(`^(?:[a-z0-9]+:)?${name.toLowerCase()}\\s*>`)
+  let from = 0
+  for (;;) {
+    const i = lower.indexOf('<', from)
+    if (i < 0) return ''
+    from = i + 1
+    if (!openRe.test(lower.slice(i + 1, i + 1 + name.length + 24))) continue
+    const e = lower.indexOf('>', i)
+    if (e < 0) return ''
+    if (lower[e - 1] === '/') continue
+    let c = lower.indexOf('</', e)
+    while (c >= 0) {
+      if (closeRe.test(lower.slice(c + 2, c + 2 + name.length + 24))) return block.slice(e + 1, c)
+      c = lower.indexOf('</', c + 2)
+    }
+    return ''
+  }
+}
+
+/** Splits a feed into its <item> or <entry> blocks in one linear pass. A block with no closing tag ends the scan. */
+function splitBlocks(xml: string, tag: string, limit: number): string[] {
+  const lower = xml.toLowerCase()
+  const out: string[] = []
+  let pos = 0
+  while (out.length < limit) {
+    const i = lower.indexOf(`<${tag}`, pos)
+    if (i < 0) break
+    const next = lower[i + tag.length + 1]
+    if (next !== '>' && next !== ' ' && next !== '\n' && next !== '\t' && next !== '\r') {
+      pos = i + 1
+      continue
+    }
+    const j = lower.indexOf(`</${tag}`, i)
+    if (j < 0) break
+    const end = lower.indexOf('>', j)
+    if (end < 0) break
+    if (end - i <= 60_000) out.push(xml.slice(i, end + 1))
+    pos = end + 1
+  }
+  return out
 }
 
 /** The href of an Atom <link>, preferring rel="alternate" (or no rel), else the first one. */
 function atomLink(block: string): string {
-  const links = [...block.matchAll(/<link\b([^>]*)\/?>/gi)].map((m) => m[1])
+  const links: string[] = []
+  const lower = block.toLowerCase()
+  let pos = 0
+  while (links.length < 20) {
+    const i = lower.indexOf('<link', pos)
+    if (i < 0) break
+    const e = lower.indexOf('>', i)
+    if (e < 0) break
+    links.push(block.slice(i + 5, e).replace(/\/$/, ''))
+    pos = e + 1
+  }
   const attr = (s: string, a: string) => new RegExp(`\\b${a}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(s)
   const pick = (s: string) => {
     const m = attr(s, 'href')
@@ -146,17 +242,19 @@ export function parseFeed(xmlRaw: string, opts: { maxItems?: number; now?: numbe
     const isRss = /<rss[\s>]/i.test(xml) || /<channel[\s>]/i.test(xml)
     const format: ParsedFeed['format'] = isAtom ? 'atom' : isRdf ? 'rdf' : isRss ? 'rss' : 'unknown'
     if (format === 'unknown') return { format, items: [], skipped: 0, error: 'this is not an RSS or Atom feed' }
-    const blocks = [...xml.matchAll(isAtom ? /<entry[\s>][\s\S]*?<\/entry\s*>/gi : /<item[\s>][\s\S]*?<\/item\s*>/gi)].map((m) => m[0])
+    // At most 3 x maxItems blocks are looked at, each at most 60 KB, so even a hostile 1 MB feed costs a bounded amount of work.
+    const blocks = splitBlocks(xml, isAtom ? 'entry' : 'item', maxItems * 3)
     const items: RawFeedItem[] = []
     let skipped = 0
     for (const block of blocks) {
       if (items.length >= maxItems) break
-      const title = cleanFeedText(firstTag(block, 'title'), TITLE_MAX_CHARS)
-      const link = (isAtom ? atomLink(block) : cleanFeedText(firstTag(block, 'link'), 600)).trim()
+      const lower = block.toLowerCase()
+      const title = cleanFeedText(firstTag(block, 'title', lower), TITLE_MAX_CHARS)
+      const link = (isAtom ? atomLink(block) : cleanFeedText(firstTag(block, 'link', lower), 600)).trim()
       // Only the short summary. content:encoded and atom <content> are the article body and are never read.
-      const summary = cleanFeedText(firstTag(block, isAtom ? 'summary' : 'description'), SUMMARY_MAX_CHARS)
-      const dateRaw = isAtom ? firstTag(block, 'published') || firstTag(block, 'updated') : firstTag(block, 'pubDate') || firstTag(block, 'date')
-      const guidRaw = cleanFeedText(isAtom ? firstTag(block, 'id') : firstTag(block, 'guid'), 400)
+      const summary = cleanFeedText(firstTag(block, isAtom ? 'summary' : 'description', lower), SUMMARY_MAX_CHARS)
+      const dateRaw = isAtom ? firstTag(block, 'published', lower) || firstTag(block, 'updated', lower) : firstTag(block, 'pubDate', lower) || firstTag(block, 'date', lower)
+      const guidRaw = cleanFeedText(isAtom ? firstTag(block, 'id', lower) : firstTag(block, 'guid', lower), 400)
       if (!title || !/^https:\/\//i.test(link)) {
         skipped++
         continue

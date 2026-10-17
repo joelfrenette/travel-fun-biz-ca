@@ -28,7 +28,7 @@ export interface NewsSource {
   /** Hosts an item link may point to (the host itself or any subdomain). An item linking anywhere else is dropped. */
   linkHosts: string[]
   enabled: boolean
-  confidence: 'documented' | 'convention' | 'unverified'
+  confidence: 'verified' | 'documented' | 'convention' | 'unverified'
   docs: string
 }
 
@@ -77,6 +77,8 @@ export const NEWS_SOURCES: readonly NewsSource[] = [
     confidence: 'documented',
     docs: 'https://www.gov.uk/foreign-travel-advice (every GOV.UK finder offers an Atom feed)',
   },
+  // Follow-up, not now: Canada's advisories are a JSON open-data feed (data.international.gc.ca/travel-voyage), not RSS, so this
+  // entry stays disabled until a small JSON reader is written. The feedUrl below is a placeholder and is never fetched.
   {
     key: 'gac-advisories',
     name: 'the Government of Canada',
@@ -95,9 +97,9 @@ export const NEWS_SOURCES: readonly NewsSource[] = [
     tier: 2,
     defaultCategory: 'industry',
     linkHosts: ['skift.com'],
-    enabled: false,
-    confidence: 'convention',
-    docs: 'WordPress /feed/ convention. Open it in a browser once; if it shows items, set enabled to true.',
+    enabled: true,
+    confidence: 'verified',
+    docs: 'Checked with a plain fetch on 2026-10-17: valid RSS, 10 items.',
   },
   {
     key: 'cruise-industry-news',
@@ -106,9 +108,9 @@ export const NEWS_SOURCES: readonly NewsSource[] = [
     tier: 2,
     defaultCategory: 'industry',
     linkHosts: ['cruiseindustrynews.com'],
-    enabled: false,
-    confidence: 'unverified',
-    docs: 'Open the publisher RSS page, confirm the exact feed URL, fix feedUrl here, then set enabled to true.',
+    enabled: true,
+    confidence: 'verified',
+    docs: 'Checked with a plain fetch on 2026-10-17: valid RSS, 15 items.',
   },
   {
     key: 'cruise-hive',
@@ -117,9 +119,9 @@ export const NEWS_SOURCES: readonly NewsSource[] = [
     tier: 2,
     defaultCategory: 'industry',
     linkHosts: ['cruisehive.com'],
-    enabled: false,
-    confidence: 'convention',
-    docs: 'WordPress /feed convention. Open it in a browser once; if it shows items, set enabled to true.',
+    enabled: true,
+    confidence: 'verified',
+    docs: 'Checked with a plain fetch on 2026-10-17: valid RSS, 9 items.',
   },
 ]
 
@@ -139,6 +141,13 @@ export const SUMMARY_MAX_CHARS = 600
 export const TITLE_MAX_CHARS = 200
 /** Items older than this are not stored, and stored items older than this are expired. */
 export const NEWS_MAX_AGE_DAYS = 7
+/** Storms and breaking official notices go stale fast: past this many hours they are not stored, expired, and never published. */
+export const NEWS_FAST_MAX_AGE_HOURS = 36
+
+/** How old an item may be before it is no longer news: 36 hours for a storm or a breaking notice, 7 days for the rest. */
+export function maxAgeMs(category: string, breaking: boolean): number {
+  return category === 'storm' || breaking ? NEWS_FAST_MAX_AGE_HOURS * 3_600_000 : NEWS_MAX_AGE_DAYS * 86_400_000
+}
 
 export const enabledSources = (): NewsSource[] => NEWS_SOURCES.filter((s) => s.enabled)
 export const sourceByKey = (key: string): NewsSource | undefined => NEWS_SOURCES.find((s) => s.key === key)
