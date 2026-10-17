@@ -26,6 +26,16 @@ export interface LlmsData {
   posts: LlmsLink[]
 }
 
+const UNSAFE = /[$€£]|\bCAD\b|\bUSD\b|https?:\/\/|www\.|@|\d{3}[\s.)-]*\d{3}[\s.-]*\d{4}/i
+
+/** A link title with markdown brackets and long dashes taken out. Empty when it holds a price, an email, a phone number or a
+ * web address (the link is then left out of the file, the same rule as the summaries). Pure. */
+export function safeTitle(raw: string | null | undefined): string {
+  const t = (raw ?? '').replace(/[[\]]/g, '').replace(LONG_DASHES, '-').replace(/\s+/g, ' ').trim()
+  if (!t || UNSAFE.test(t)) return ''
+  return t
+}
+
 /** The first sentence of a stored text, markdown taken off, cut at LLMS_SUMMARY_MAX. Empty when it is unsafe or empty:
  * a price, an email, a phone number or a web address never goes into the file. Pure. */
 export function oneLine(raw: string | null | undefined): string {
@@ -34,7 +44,7 @@ export function oneLine(raw: string | null | undefined): string {
   const m = /^(.+?[.!?])(\s|$)/.exec(t)
   if (m) t = m[1]
   t = t.replace(LONG_DASHES, '-')
-  if (/[$€£]|\bCAD\b|\bUSD\b|https?:\/\/|www\.|@|\d{3}[\s.)-]*\d{3}[\s.-]*\d{4}/i.test(t)) return ''
+  if (UNSAFE.test(t)) return ''
   if (t.length > LLMS_SUMMARY_MAX) t = `${t.slice(0, LLMS_SUMMARY_MAX - 1).replace(/\s+\S*$/, '')}.`
   return t
 }
@@ -58,7 +68,7 @@ export function allocateLinks<T>(sections: T[][], total: number): T[][] {
   return out
 }
 
-const line = (l: LlmsLink) => `- [${l.title.replace(/[[\]]/g, '').trim()}](${absoluteUrl(l.path)})${l.summary ? `: ${l.summary}` : ''}`
+const line = (l: LlmsLink) => `- [${safeTitle(l.title)}](${absoluteUrl(l.path)})${l.summary ? `: ${l.summary}` : ''}`
 
 /** The file. Pure: the same data always gives the same text. */
 export function buildLlmsTxt(data: LlmsData, max = LLMS_MAX_LINKS): string {
@@ -67,7 +77,9 @@ export function buildLlmsTxt(data: LlmsData, max = LLMS_MAX_LINKS): string {
     { heading: 'Trips', links: data.trips },
     ...data.guides.map((g) => ({ heading: guideKinds[g.kind].plural, links: g.links })),
     { heading: 'Blog posts', links: data.posts },
-  ].filter((s) => s.links.length > 0)
+  ]
+    .map((s) => ({ ...s, links: s.links.filter((l) => safeTitle(l.title)) }))
+    .filter((s) => s.links.length > 0)
   const picked = allocateLinks(sections.map((s) => s.links), max)
   const place = site.address.locality ? `${site.address.locality}, ${site.address.region}` : ''
   const phone = site.phone.trim()

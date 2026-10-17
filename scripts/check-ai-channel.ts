@@ -2,7 +2,7 @@
 // Run: pnpm dlx tsx scripts/check-ai-channel.ts
 import { readFileSync } from 'node:fs'
 import { aiAssistantOf, CHANNEL_LABELS, CHANNELS, classifyVisit, touchForLanding, type Channel } from '../lib/traffic-source'
-import { allocateLinks, buildLlmsTxt, LLMS_MAX_LINKS, oneLine, type LlmsData, type LlmsLink } from '../lib/llms-txt'
+import { allocateLinks, buildLlmsTxt, LLMS_MAX_LINKS, oneLine, safeTitle, type LlmsData, type LlmsLink } from '../lib/llms-txt'
 import { site } from '../lib/site'
 
 let failed = 0
@@ -93,8 +93,14 @@ const route = src('app/llms.txt/route.ts')
 check('llms: uses the public client, not the admin client', /integrations\/supabase\/client/.test(lib) && !/supabase-admin/.test(lib) && !/getSupabaseAdmin/.test(lib))
 check('llms: posts are read as published only', /from\('posts'\)[^\n]*\.eq\('status', 'published'\)/.test(lib))
 check('llms: route is cached for an hour and plain text', /revalidate = 3600/.test(route) && /text\/plain/.test(route))
-check('sitemap lists /llms.txt and robots does not block it', /llms\.txt/.test(src('app/sitemap.ts')) && !/llms/.test(src('app/robots.ts')) && /allow: '\/'/.test(src('app/robots.ts')))
+check('sitemap does not list /llms.txt (it is not a page) and robots does not block it', !/llms/.test(src('app/sitemap.ts')) && !/llms/.test(src('app/robots.ts')) && /allow: '\/'/.test(src('app/robots.ts')))
 check('no em or en dashes in the new files', !LONG_DASH.test(lib) && !LONG_DASH.test(route))
+
+// titles are scrubbed like the summaries
+check('llms: safeTitle drops a title with a price, an email, a phone number or a web address', safeTitle('Rome from $1,999') === '' && safeTitle('Email me@x.com') === '' && safeTitle('Call 604-555-0199') === '' && safeTitle('See https://x.com') === '' && safeTitle('Deal in CAD') === '' && safeTitle('Rome Escape') === 'Rome Escape')
+check('llms: safeTitle strips brackets and long dashes', safeTitle('Rome [week] ' + String.fromCharCode(0x2014) + ' trip') === 'Rome week - trip')
+const dirty = buildLlmsTxt({ destinations: [], trips: [link('Rome from $1,999', '/packages/bad'), link('Rome Escape', '/packages/rome-escape')], guides: [], posts: [link('Write to a@b.ca', '/blog/bad2')] })
+check('llms: a link whose title is unsafe is left out, and its section too when empty', !dirty.includes('/packages/bad') && !dirty.includes('/blog/bad2') && dirty.includes('/packages/rome-escape') && !/## Blog posts/.test(dirty))
 
 console.log(failed === 0 ? '\nAll AI channel and llms.txt checks passed.' : `\n${failed} check(s) FAILED.`)
 process.exit(failed === 0 ? 0 : 1)
