@@ -7,7 +7,8 @@
     "dev": "next dev",
     "lint": "next lint",
     "seo:audit": "node scripts/audit-live-seo.mjs",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
