@@ -18,6 +18,7 @@ import { runGuidesStep } from '@/lib/guide-run'
 import { runPageCopyStep } from '@/lib/page-copy-run'
 import { runHealContentIfDue } from '@/lib/content-heal-run'
 import { runSourceWatchIfDue } from '@/lib/source-watch'
+import { runIndexNowCatchupIfDue } from '@/lib/indexnow-catchup'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -69,6 +70,14 @@ async function housekeeping(admin: SupabaseClient, run: PipelineRun, startedAt =
     if (note) run.steps.push({ step: 'performance', ok: !/could not|failed/i.test(note), note })
   } catch {
     // a snapshot problem is never the pipeline's problem
+  }
+  try {
+    // Once a day (the claim inside), and only when IndexNow is set up: re-ping, in one batch of at most 100, the pages
+    // changed in the last 48 hours that have no recorded successful ping. Free; it never edits a page.
+    const catchup = await runIndexNowCatchupIfDue(admin)
+    if (catchup) run.steps.push({ step: 'indexnow', ok: catchup.ok, note: catchup.note })
+  } catch {
+    // a ping problem is never the pipeline's problem
   }
   try {
     // Once a week (the claim inside; also once on the first pass after deploy): read each supplier page behind

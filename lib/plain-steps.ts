@@ -211,6 +211,17 @@ export function plainAction(i: Issue): PlainAction {
       paste: 'Please give me the contents of supabase/migrations/0033_content_edits.sql so I can run it in the Supabase SQL editor.',
     }
   }
+  if (i.id === 'system:step-indexnow') {
+    return {
+      id: i.id,
+      title: 'Bing could not be told about your newest pages',
+      why: 'Once a day the site tells Bing (and a few smaller search engines) which pages are new or changed, so they show up sooner. Today that message did not go through. Your pages are fine and Google is not affected. The site tries again tomorrow.',
+      steps: ['Open the Content Autopilot page with the link below and read the red line. It says what went wrong.', 'If it says "not readable" or "could not read", open Supabase, then the app_settings table, and check that the row named indexnow_ledger is empty or looks like {"/blog/example":"2026-10-01T10:00:00.000Z"}. Delete the row if you are unsure; it is rebuilt by itself.', 'If it says Bing did not take the pages, open Vercel, then your project, then Settings, then Environment Variables, and check that INDEXNOW_KEY is set. Then open travelfunbiz.ca/indexnow-key.txt in your browser: it must show that same key.', 'If it keeps failing for three days, copy the message below and paste it to Claude.'],
+      url: autopilot(i.id),
+      urlLabel: 'Open the Autopilot page',
+      paste,
+    }
+  }
   if (i.id === 'system:keyword-engine') {
     const needsUpdate = /migration 0032/i.test(text)
     return {
