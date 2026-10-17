@@ -18,6 +18,7 @@ import { runGuidesStep } from '@/lib/guide-run'
 import { runPageCopyStep } from '@/lib/page-copy-run'
 import { runHealContentIfDue } from '@/lib/content-heal-run'
 import { runSourceWatchIfDue } from '@/lib/source-watch'
+import { runValueSnapshotIfDue } from '@/lib/value-snapshot'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -67,6 +68,13 @@ async function housekeeping(admin: SupabaseClient, run: PipelineRun, startedAt =
     // Once a day (the claim inside), before the brief so the brief can use today's numbers.
     const note = await snapshotContentPerformance(admin)
     if (note) run.steps.push({ step: 'performance', ok: !/could not|failed/i.test(note), note })
+  } catch {
+    // a snapshot problem is never the pipeline's problem
+  }
+  try {
+    // Once a month (the period is the table's primary key): freeze the Website Value page into value_snapshots.
+    // Read-only against the live site, no paid calls, silent unless it wrote one.
+    await runValueSnapshotIfDue(admin)
   } catch {
     // a snapshot problem is never the pipeline's problem
   }
