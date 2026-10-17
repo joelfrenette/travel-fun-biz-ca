@@ -168,7 +168,7 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         }
         // Text that talks to a model is not news. It is stored as rejected so a person can see it happened, and never used.
         if (looksLikeInjection(`${item.title} ${item.summary}`)) {
-          const r = await storeItem(admin, { ...base, category: source.defaultCategory, status: 'rejected', reject_reason: 'the feed text contained instruction-like wording, so it was not used', decided_at: now.toISOString() })
+          const r = await storeItem(admin, { ...base, category: source.defaultCategory, status: 'rejected', reject_reason: 'the feed text contained instruction-like wording, so it was not used' })
           if (r === 'stored') result.rejected++
           else if (r === 'duplicate') result.duplicates++
           continue

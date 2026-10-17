@@ -27,6 +27,7 @@ import {
   type RepairFields,
   type RepairLimits,
 } from '@/lib/content-repair'
+import { isNewsSlug } from '@/lib/news-post'
 import { TRIP_SLOT_PREFIX, claimDailyOnce, claimRepairSlot, countEditsSince, editsLoggable, insertEdits, readRepairSpend, recordRepairSpend, deleteEdits, repairDay, startOfSiteDayIso, REPAIR_ITEMS_PER_DAY } from '@/lib/content-edits'
 import {
   assemblePackageChanges,
@@ -604,7 +605,9 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
   if (pErr || gErr || cErr) return { ok: false, note: `could not read the pages: ${(pErr ?? gErr ?? cErr)?.message}` }
 
   const items: HealItem[] = [
-    ...((posts ?? []) as Row[]).map((r) => postItem(r, idx)),
+    // Travel news posts (slug "news-...", WP20) are short briefs built only from a feed item and are never rewritten, scored
+    // into extra FAQ or takeaways, or otherwise healed by the daily content heal: the facts must stay exactly the source's.
+    ...((posts ?? []) as Row[]).filter((r) => !isNewsSlug(typeof r.slug === 'string' ? r.slug : '')).map((r) => postItem(r, idx)),
     ...((guides ?? []) as Row[]).map((r) => guideItem(r, idx)),
     ...((copies ?? []) as Row[]).map((r) => copyItem(r, idx)),
   ]

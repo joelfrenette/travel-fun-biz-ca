@@ -39,6 +39,7 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { attachAutoblogCoverImage } from '@/lib/blog-image'
 import { pingIndexNow } from '@/lib/indexnow'
 import { SITE_ID } from '@/lib/site'
+import { isNewsSlug } from '@/lib/news-post'
 import type { PackageGrounding } from '@/lib/blog-topics'
 
 // Found 2026-10-03: lib/blog-composer.ts's body prompt explicitly tells the AI "do not include a
@@ -181,9 +182,10 @@ async function postsWrittenToday(admin: ReturnType<typeof getSupabaseAdmin>): Pr
   const start = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`
   const { data, error } = await admin.from('posts').select('slug').gte('created_at', start).limit(100)
   if (error) return null
-  // A draft the daily re-check retired (rejected) no longer uses up the day's post.
+  // A draft the daily re-check retired (rejected) no longer uses up the day's post. Travel news posts (slug "news-...", WP20)
+  // have their own daily number and never use up the day's blog post.
   const retired = await rejectedPostSlugs(admin)
-  return (data ?? []).filter((p: { slug: string }) => !retired.has(p.slug)).length
+  return (data ?? []).filter((p: { slug: string }) => !retired.has(p.slug) && !isNewsSlug(p.slug)).length
 }
 
 /** One post per call, at most. `scheduled: true` (the cron) also caps at one post per calendar

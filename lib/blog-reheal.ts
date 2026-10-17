@@ -11,6 +11,7 @@ import { enrollIfDue } from '@/lib/distribution'
 import { composeFullPost } from '@/lib/blog-composer'
 import { healComposedPost } from '@/lib/heal-targets'
 import { pingIndexNow } from '@/lib/indexnow'
+import { isNewsSlug } from '@/lib/news-post'
 
 // Growth loop WP19: a draft is no longer left for a person. The shared repair runs first (plain code and one cheap call),
 // and a draft that is still blocked goes through the heal loop (lib/heal-loop.ts: suggester, independent QA judge, up to
@@ -176,7 +177,9 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
     const since = new Date(now.getTime() - REHEAL_MAX_AGE_DAYS * 86_400_000).toISOString()
     const { data: drafts, error } = await admin.from('posts').select('*').eq('status', 'draft').gte('created_at', since).order('created_at', { ascending: true }).limit(DRAFT_READ_LIMIT)
     if (error) return { ...out, problems: [`could not read the blog drafts (${error.message})`], note: 'blog drafts not re-checked' }
-    const rows = (drafts ?? []) as Row[]
+    // Travel news drafts (slug "news-...", WP20) are queued by the news step and go live only through it, in travel_news_mode
+    // publish, with their own gate and judge. The blog re-check never touches them.
+    const rows = ((drafts ?? []) as Row[]).filter((r) => !isNewsSlug(str(r.slug)))
     if (!rows.length) return { ...out, note: 'no blog drafts waiting' }
 
     const { data: tagRows } = await admin.from('content_variants').select('slug, variant_tags').in('slug', rows.map((r) => str(r.slug)))

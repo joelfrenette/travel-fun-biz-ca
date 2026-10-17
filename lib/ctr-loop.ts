@@ -276,6 +276,8 @@ export async function resolveEditablePage(admin: SupabaseClient, path: string): 
   const clean = path.split(/[?#]/)[0].replace(/\/+$/, '')
   try {
     const blog = /^\/blog\/([^/]+)$/.exec(clean)?.[1]
+    // Travel news posts (slug "news-...", WP20) are never reworded by the click-rate loop: their wording is checked against the feed item.
+    if (blog && blog.startsWith('news-')) return null
     if (blog) {
       const { data } = await admin.from('posts').select('*').eq('slug', blog).eq('status', 'published').maybeSingle()
       const r = data as Row | null

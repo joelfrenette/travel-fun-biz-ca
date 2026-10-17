@@ -17,6 +17,7 @@ import { styleById } from "@/lib/content-styles"
 import { PackageCard } from "@/components/package-card"
 import { GuideCta } from "@/components/guide-cta"
 import { listGuidesForPost, guideKinds, guidePath } from "@/lib/guides"
+import { isNewsPost, newsArchived, newsHeading, newsSourceFromBody } from "@/lib/news-post"
 
 export const revalidate = 300
 
@@ -56,7 +57,13 @@ export default async function BlogPostPage({ params }: Props) {
   const hasQuickAnswer = /<p><strong>Quick answer:/.test(renderedBody)
   const bodyHtml = hasQuickAnswer ? renderedBody.replace(/<p>(<strong>Quick answer:)/, '<p class="quick-answer">$1') : renderedBody
   const faq = (Array.isArray(post.faq) ? post.faq : []).filter((f) => f && typeof f.q === "string" && typeof f.a === "string" && f.q && f.a)
-  const takeaways = (Array.isArray(post.key_takeaways) ? post.key_takeaways : []).filter((t) => typeof t === "string" && t)
+  // Travel news (WP20): an ordinary post tagged travel-news. Its first key takeaway is only the social hook and repeats the
+  // "What happened" line, so the takeaways box is not shown; the page shows an Updated date, the original source in its
+  // markup (citation), and "Archived news" in the heading line once it is more than 30 days old. It is never unpublished.
+  const isNews = isNewsPost(post)
+  const archived = newsArchived(post)
+  const newsSource = isNews ? newsSourceFromBody(post.body) : null
+  const takeaways = isNews ? [] : (Array.isArray(post.key_takeaways) ? post.key_takeaways : []).filter((t) => typeof t === "string" && t)
   const keywords = [post.primary_keyword, ...(post.secondary_keywords ?? [])].filter((k): k is string => !!k)
   const section = styleById(post.content_style)?.label
   const wordCount = post.body.trim().split(/\s+/).filter(Boolean).length
@@ -71,11 +78,11 @@ export default async function BlogPostPage({ params }: Props) {
 
   // What the call to action names: the destination of the linked package when there is one, else the post primary keyword, else its title.
   const linkedPackage = post.related_package_id ? relatedPackages.find((p) => p.id === post.related_package_id) : undefined
-  const ctaName = linkedPackage?.destination?.trim() || post.primary_keyword?.trim() || post.title
+  const ctaName = isNews ? "your next trip" : linkedPackage?.destination?.trim() || post.primary_keyword?.trim() || post.title
   // Show "Updated" only when the post was really edited more than a day after it was published.
   const publishedMs = post.publish_date ? new Date(post.publish_date).getTime() : NaN
   const updatedMs = post.updated_at ? new Date(post.updated_at).getTime() : NaN
-  const showUpdated = Number.isFinite(publishedMs) && Number.isFinite(updatedMs) && updatedMs - publishedMs > 24 * 60 * 60 * 1000
+  const showUpdated = isNews ? Number.isFinite(updatedMs) : Number.isFinite(publishedMs) && Number.isFinite(updatedMs) && updatedMs - publishedMs > 24 * 60 * 60 * 1000
   const dateFmt: Intl.DateTimeFormatOptions = { year: "numeric", month: "long", day: "numeric" }
 
   const speakableSelectors = [hasQuickAnswer ? ".quick-answer" : null, takeaways.length > 0 ? "#key-takeaways" : null].filter((s): s is string => !!s)
@@ -97,7 +104,9 @@ export default async function BlogPostPage({ params }: Props) {
     isPartOf: { "@type": "Blog", url: absoluteUrl("/blog") },
     inLanguage: SITE_LOCALE.replace("_", "-"),
     ...(keywords.length > 0 ? { keywords: keywords.join(", ") } : {}),
-    ...(section ? { articleSection: section } : {}),
+    ...(isNews ? { articleSection: "Travel news" } : section ? { articleSection: section } : {}),
+    // The original report this brief is based on (the feed item's own page), named so readers and search engines can follow it.
+    ...(newsSource ? { isBasedOn: newsSource.url, citation: { "@type": "CreativeWork", name: newsSource.name, url: newsSource.url } } : {}),
     ...(speakableSelectors.length > 0 ? { speakable: { "@type": "SpeakableSpecification", cssSelector: speakableSelectors } } : {}),
   }
 
@@ -131,12 +140,13 @@ export default async function BlogPostPage({ params }: Props) {
           <Link href="/blog" className="text-sm text-muted-foreground hover:underline">&larr; All stories</Link>
 
           <header className="mt-4 mb-8">
-            {post.tags.length > 0 && (
+            {(post.tags.length > 0 || archived) && (
               <div className="mb-3 flex flex-wrap gap-1.5">
+                {archived && <Badge variant="outline" className="text-[10px] uppercase">Archived news</Badge>}
                 {post.tags.map((t) => <Badge key={t} variant="secondary" className="text-[10px] uppercase">{t}</Badge>)}
               </div>
             )}
-            <h1 className="text-balance text-3xl font-bold text-foreground sm:text-4xl">{post.title}</h1>
+            <h1 className="text-balance text-3xl font-bold text-foreground sm:text-4xl">{newsHeading(post)}</h1>
             <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
               {post.publish_date && (
                 <span className="flex items-center gap-1.5"><Calendar className="h-4 w-4" /><time dateTime={post.publish_date}>{new Date(post.publish_date).toLocaleDateString("en-CA", dateFmt)}</time></span>

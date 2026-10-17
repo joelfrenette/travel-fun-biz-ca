@@ -142,7 +142,8 @@ const daysAgoIso = (days: number) => new Date(Date.now() - days * 86_400_000).to
 
 async function enrollRecentPosts(admin: SupabaseClient): Promise<number> {
   const { data: posts } = await admin.from('posts').select('slug').eq('status', 'published').gte('publish_date', daysAgoIso(ENROLL_WINDOW_DAYS).slice(0, 10))
-  const slugs = (posts ?? []).map((p: { slug: string }) => p.slug)
+  // Travel news posts (slug "news-...", WP20) are short text briefs: no carousel and no paid video render is made for them.
+  const slugs = (posts ?? []).map((p: { slug: string }) => p.slug).filter((s: string) => !s.startsWith('news-'))
   if (!slugs.length) return 0
   const { data: existing } = await admin.from('content_pipeline').select('slug').in('slug', slugs)
   const have = new Set((existing ?? []).map((r: { slug: string }) => r.slug))
