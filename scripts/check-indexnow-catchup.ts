@@ -11,6 +11,7 @@ function check(name: string, ok: boolean, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  ${detail}`}`)
   if (!ok) failed++
 }
+const LONG_DASH = new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']')
 const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
 
 const NOW = new Date('2026-10-17T15:00:00.000Z')
@@ -133,7 +134,7 @@ async function main() {
   check('pipeline runs the catch-up inside housekeeping (no new cron)', /runIndexNowCatchupIfDue\(admin\)/.test(src('lib/pipeline.ts')))
   check('no new cron was added', !/indexnow/i.test(src('vercel.json')))
   check('a failed catch-up has grade-5 steps in Needs attention', /system:step-indexnow/.test(src('lib/plain-steps.ts')))
-  check('no em or en dashes in the new module', !/[–—]/.test(src('lib/indexnow-catchup.ts')))
+  check('no em or en dashes in the new module', !LONG_DASH.test(src('lib/indexnow-catchup.ts')))
 
   console.log(failed === 0 ? '\nAll IndexNow catch-up checks passed.' : `\n${failed} check(s) FAILED.`)
   process.exit(failed === 0 ? 0 : 1)

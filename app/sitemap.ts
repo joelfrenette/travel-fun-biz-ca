@@ -27,6 +27,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: absoluteUrl('/'), lastModified: new Date(), changeFrequency: 'weekly', priority: 1 },
     { url: absoluteUrl('/packages'), lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.8 },
     { url: absoluteUrl('/who-we-are'), lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.4 },
+    // The plain-text guide for AI assistants (app/llms.txt/route.ts); robots.txt already allows it.
+    { url: absoluteUrl('/llms.txt'), lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.2 },
     ...packages.map((p) => ({
       url: absoluteUrl(`/packages/${p.slug}`),
       lastModified: new Date(p.updated_at),

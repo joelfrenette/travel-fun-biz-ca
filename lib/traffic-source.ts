@@ -9,9 +9,55 @@
 // anything to a visitor's browser or the database yet.
 //
 // "MODULAR: nothing site-specific" per Nomad's own comment - copied unchanged where it's pure.
-export type Channel = 'search' | 'paid_search' | 'social' | 'paid_social' | 'email' | 'referral' | 'bio' | 'direct' | 'other'
+export type Channel = 'search' | 'ai_assistant' | 'paid_search' | 'social' | 'paid_social' | 'email' | 'referral' | 'bio' | 'direct' | 'other'
 
-export const CHANNELS: readonly Channel[] = ['search', 'paid_search', 'social', 'paid_social', 'email', 'referral', 'bio', 'direct', 'other']
+export const CHANNELS: readonly Channel[] = ['search', 'ai_assistant', 'paid_search', 'social', 'paid_social', 'email', 'referral', 'bio', 'direct', 'other']
+
+/** Plain-English label for each channel (reports, the value page and the funnel use this, so a new channel never shows as a raw key). */
+export const CHANNEL_LABELS: Record<Channel, string> = {
+  search: 'Search engines',
+  ai_assistant: 'AI assistants',
+  paid_search: 'Paid search',
+  social: 'Social media',
+  paid_social: 'Paid social',
+  email: 'Email',
+  referral: 'Referrals',
+  bio: 'Link in bio',
+  direct: 'Direct',
+  other: 'Other',
+}
+
+/** Where a visitor came from when an AI assistant sent them (the link a chatbot shows in its answer). Checked
+ * BEFORE the search list because gemini.google.com would otherwise count as Google search. */
+const AI_ASSISTANT_HOSTS: [RegExp, string][] = [
+  [/(^|\.)(chatgpt\.com|chat\.openai\.com)$/, 'chatgpt'],
+  [/(^|\.)perplexity\.ai$/, 'perplexity'],
+  [/(^|\.)claude\.ai$/, 'claude'],
+  [/^gemini\.google\.com$/, 'gemini'],
+  [/^copilot\.microsoft\.com$/, 'copilot'],
+  [/(^|\.)you\.com$/, 'you.com'],
+  [/(^|\.)phind\.com$/, 'phind'],
+]
+
+/** utm_source values the assistants add themselves (ChatGPT adds utm_source=chatgpt.com) or that we would tag by hand. */
+const AI_ASSISTANT_UTM: [RegExp, string][] = [
+  [/^(chatgpt(\.com)?|chat\.openai\.com|openai)$/, 'chatgpt'],
+  [/^perplexity(\.ai)?$/, 'perplexity'],
+  [/^claude(\.ai)?$/, 'claude'],
+  [/^gemini(\.google\.com)?$/, 'gemini'],
+  [/^copilot(\.microsoft\.com)?$/, 'copilot'],
+  [/^you(\.com)?$/, 'you.com'],
+  [/^phind(\.com)?$/, 'phind'],
+]
+
+/** The assistant a visit came from, from the utm_source tag first and the referrer host second. Null when none. Pure. */
+export function aiAssistantOf(utmSource: string | null | undefined, referrerHost: string | null | undefined): string | null {
+  const tag = (utmSource ?? '').trim().toLowerCase()
+  for (const [re, name] of AI_ASSISTANT_UTM) if (tag && re.test(tag)) return name
+  const host = (referrerHost ?? '').trim().toLowerCase().replace(/^www\./, '')
+  for (const [re, name] of AI_ASSISTANT_HOSTS) if (host && re.test(host)) return name
+  return null
+}
 
 const SEARCH_HOSTS: [RegExp, string][] = [
   [/(^|\.)google\.[a-z.]+$/, 'google'],
@@ -88,6 +134,12 @@ export function classifyVisit(input: {
   const site = (input.siteHost ?? '').toLowerCase().replace(/^www\./, '')
   if (site && referrerHost === site) referrerHost = ''
   const out = (channel: Channel, fallback: string) => ({ channel, source: utmSource || referrerHost || fallback, referrerHost })
+
+  // An AI assistant sending a visitor is its own channel, unless the link was tagged as paid or email on purpose.
+  const assistant = aiAssistantOf(utmSource, referrerHost)
+  if (assistant && !PAID_SEARCH_MEDIUMS.test(medium) && !PAID_SOCIAL_MEDIUMS.test(medium) && !EMAIL_MEDIUMS.test(medium) && clickId !== 'gclid' && clickId !== 'msclkid') {
+    return { channel: 'ai_assistant', source: assistant, referrerHost }
+  }
 
   if (medium) {
     if (PAID_SEARCH_MEDIUMS.test(medium)) return out('paid_search', 'paid_search')
