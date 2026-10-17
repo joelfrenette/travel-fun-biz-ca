@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Loader2 } from "lucide-react"
 import type { FunnelResult } from "@/lib/funnel"
+import { CHANNEL_LABELS, type Channel } from "@/lib/traffic-source"
 
 function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -62,7 +63,7 @@ export function FunnelPanel() {
             <p className="mb-2 text-xs font-medium text-muted-foreground">Visits by channel</p>
             <div className="flex flex-wrap gap-2">
               {funnel.visitsByChannel.map((c) => (
-                <Badge key={c.channel} variant="secondary">{c.channel}: {c.count.toLocaleString()}</Badge>
+                <Badge key={c.channel} variant="secondary">{CHANNEL_LABELS[c.channel as Channel] ?? c.channel}: {c.count.toLocaleString()}</Badge>
               ))}
             </div>
           </div>
