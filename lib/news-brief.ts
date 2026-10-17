@@ -136,6 +136,7 @@ function maskLevelPhrases(text: string, sourceLower: string): string {
 const FIRST_OR_SECOND_PERSON = [/\b(we|we're|we've|we'll|our|ours|my|me|you|your|yours|you're|you'll|you've|yourself|ourselves)\b/i, /\bI\b|\bI'(m|ve|ll|d)\b/, /\bus\b/]
 const ADVICE = [
   /\b(should|must|ought to|need to|needs to|have to|has to)\b/i,
+  /\b(reconsider|postpone|postponing|monitor|monitoring|prepare|preparing|proceed|proceeding)\b/i,
   /\b(recommend|recommends|recommended|advise|advises|advised|urge|urges|urged|encourage|encourages|encouraged|suggest|suggests|suggested)\b/i,
   /\b(ensure|make sure|be sure|please|consider|remember|beware|be careful|be aware)\b/i,
   /\b(avoid|avoiding|do not|don't|never|always)\b/i,
@@ -152,7 +153,10 @@ const ONLY_IF_IN_SOURCE: [RegExp, string][] = [
   [/\b(best|worst|biggest|largest|smallest|deadliest|strongest|weakest|most|least|record|record-breaking|unprecedented|historic|massive|devastating|catastrophic|dangerous|deadly|severe|extreme|major|huge|dramatic|shocking|chaos|chaotic|crisis|terrifying|unthinkable|worsening|escalating|sweeping|widespread)\b/gi, 'a superlative or dramatic word'],
   [/\b(today|tonight|tomorrow|yesterday|this week|this weekend|next week|last week|this month|this morning|this evening|overnight|currently|recently|just|now|latest|newly|breaking|earlier|soon|shortly|imminent|ongoing)\b/gi, 'a time or recency claim'],
   [/\b(january|february|march|april|may|june|july|august|september|october|november|december|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, 'a date or day name'],
-  [/\b(cancel\w*|delay\w*|clos(e|ed|es|ing|ure|ures)|shut\w*|suspend\w*|evacuat\w*|damag\w*|injur\w*|dead|death\w*|died|kill\w*|casualt\w*|fatal\w*|strand\w*|disrupt\w*|banned|ban|bans|halted|grounded|rerout\w*|diverted)\b/gi, 'an effect on travel or people'],
+  [/\b(cancel\w*|delay\w*|clos(e|ed|es|ing|ure|ures)|shut\w*|suspend\w*|evacuat\w*|damag\w*|injur\w*|dead|death\w*|died|kill\w*|casualt\w*|fatal\w*|strand\w*|disrupt\w*|ban|bans|banned|banning|halted|grounded|rerout\w*|diverted|flood\w*|landfall|strengthen\w*|weaken\w*|curfew\w*|outage\w*|destroy\w*|attack\w*|lockdown\w*|sanction\w*|outbreak\w*|restrict\w*|shortage\w*|overwhelm\w*|impos\w*|riot\w*|protest\w*|strike\w*|struck|hit|hits|collaps\w*|surge\w*|wreck\w*|erupt\w*|quake\w*|wildfire\w*|fire|fires|storm surge|power cut\w*|blackout\w*|looting|clash\w*|unrest|violence|violent|kidnap\w*|crime|terror\w*|bomb\w*|explos\w*|shooting|shot|arrest\w*|detain\w*|detention|deport\w*|quarantin\w*|infect\w*|disease\w*|illness\w*|virus\w*)\b/gi, 'an effect or event'],
+  // Safety verdicts and forecasts: the feed item has to say them itself. (Advice words such as should, must, avoid and
+  // reconsider are never allowed outside an attributed official level phrase; see ADVICE.)
+  [/\b(safe|safely|safer|safest|unsafe|can|cannot|may|will|would|could|expected|expect|expects|likely|unlikely|probable|forecast|predicted|anticipated|certain|guaranteed|no risk|risk[- ]free|secure|secured)\b/gi, 'a safety verdict, permission or forecast'],
   [/\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|hundreds|thousand|thousands|million|millions|billion|dozen|dozens|several|many|numerous|countless|half|double|triple)\b/gi, 'a number written in words'],
 ]
 
@@ -184,15 +188,47 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 function present(sourceLower: string, word: string, loose = true): boolean {
   const w = word.toLowerCase().replace(/'s$/, '')
   if (!w) return true
+  // Strict: the whole word, with an optional plural or possessive, never a longer word ("niger" is not in "nigeria")
+  // and never one side of a hyphenated name ("guinea" is not in "guinea-bissau").
+  if (new RegExp(`(?<![\\w-])${escapeRe(w)}(?:s|es|'s)?(?![\\w-])`).test(sourceLower)) return true
+  if (!loose) return false
   if (new RegExp(`\\b${escapeRe(w)}`).test(sourceLower)) return true
-  if (!loose || w.length < 6) return false
+  if (w.length < 6) return false
   return new RegExp(`\\b${escapeRe(w.slice(0, w.length >= 8 ? 6 : 5))}`).test(sourceLower)
+}
+
+/** True when the capitalised phrase `run` (one or more words in a row) is in the feed item as a whole. A single word that only
+ * ever appears inside a longer name ("Sudan" in "South Sudan") does not count. */
+function nameSupported(source: string, run: string[]): boolean {
+  const re = new RegExp(`(?<![\\w-])${escapeRe(run.join(' '))}(?:s|es|'s)?(?![\\w-])`, 'gi')
+  for (const m of source.matchAll(re)) {
+    if (run.length > 1) return true
+    const prev = /([A-Z][A-Za-z'-]*) $/.exec(source.slice(0, m.index ?? 0))
+    if (!prev || COMMON_STARTERS.has(prev[1].toLowerCase())) return true
+  }
+  return false
+}
+
+/** Capitalised words in a row, outside the plain words that open a sentence. Pure. */
+function nameRuns(t: string): string[][] {
+  const toks = [...t.matchAll(/\b[A-Z][A-Za-z'-]*\b/g)]
+    .map((m) => ({ w: m[0].replace(/'s$/, ''), idx: m.index ?? 0, end: (m.index ?? 0) + m[0].length }))
+    .filter((k) => k.w !== 'LEVELTEXT' && k.w.length >= 2)
+    .filter((k) => !((k.idx === 0 || /[.!?]\s+$/.test(t.slice(0, k.idx))) && COMMON_STARTERS.has(k.w.toLowerCase())))
+  const runs: string[][] = []
+  let prevEnd = -1
+  for (const k of toks) {
+    if (runs.length && t.slice(prevEnd, k.idx) === ' ') runs[runs.length - 1].push(k.w)
+    else runs.push([k.w])
+    prevEnd = k.end
+  }
+  return runs
 }
 
 const numberTokens = (s: string): string[] => (s.match(/\d[\d,.]*/g) ?? []).map((t) => t.replace(/[,.]+$/, '').replace(/,/g, ''))
 
 /** Problems in a run of text (a headline, one sentence or the whole brief), judged against the feed item. Pure. */
-export function lexicalProblems(text: string, f: NewsFacts, opts: { allowAdviceMask?: boolean } = {}): string[] {
+export function lexicalProblems(text: string, f: NewsFacts, opts: { mask?: boolean } = {}): string[] {
   const problems: string[] = []
   const t = tidy(text)
   if (!t) return ['empty text']
@@ -207,7 +243,9 @@ export function lexicalProblems(text: string, f: NewsFacts, opts: { allowAdviceM
   if (FIRST_OR_SECOND_PERSON.some((re) => re.test(t))) problems.push('uses I, we, our, you or your (write in the third person)')
   if ([...EXPERIENCE_CLAIM_PATTERNS, ...POST_EXPERIENCE_CLAIM_PATTERNS].some((re) => re.test(t))) problems.push('claims an experience')
 
-  const masked = opts.allowAdviceMask === false ? t : maskLevelPhrases(t, sourceLower)
+  // The government's own level wording ("Reconsider travel", "Do not travel") may be copied word for word, but ONLY inside a
+  // sentence that says it is the source's statement and ONLY when the feed item has that exact wording.
+  const masked = opts.mask ? maskLevelPhrases(t, sourceLower) : t
   for (const re of ADVICE) {
     const m = re.exec(masked)
     if (m) problems.push(`gives advice or an instruction ("${m[0]}"); only restate what the source says`)
@@ -226,21 +264,41 @@ export function lexicalProblems(text: string, f: NewsFacts, opts: { allowAdviceM
   const bad = numberTokens(t).filter((n) => !sourceNumbers.has(n))
   if (bad.length) problems.push(`a number that is not in the feed item (${[...new Set(bad)].slice(0, 3).join(', ')})`)
 
-  // Names: every capitalised word must already be in the feed item. At the start of a sentence a plain word is fine.
+  // Names: every run of capitalised words must be in the feed item as a whole name (whole words only, so Niger is not Nigeria,
+  // Guinea is not Guinea-Bissau and Sudan is not South Sudan). A plain word that opens a sentence is fine.
   const flagged = new Set<string>()
-  for (const m of t.matchAll(/\b[A-Z][A-Za-z'-]*\b/g)) {
-    const raw = m[0].replace(/'s$/, '')
-    if (raw === 'LEVELTEXT' || raw.length < 2) continue
-    const idx = m.index ?? 0
-    const atStart = idx === 0 || /[.!?]\s+$/.test(t.slice(0, idx))
-    const lower = raw.toLowerCase()
-    if (present(sourceLower, lower, false)) continue
-    if (atStart && COMMON_STARTERS.has(lower)) continue
-    flagged.add(raw)
-  }
+  for (const run of nameRuns(t)) if (!nameSupported(source, run)) flagged.add(run.join(' '))
   if (flagged.size) problems.push(`a name that is not in the feed item (${[...flagged].slice(0, 4).join(', ')})`)
   return problems
 }
+
+/** The source's display name without the leading "the" ("US Department of State"). */
+const sourceShortName = (f: Pick<NewsFacts, 'sourceName'>): string => f.sourceName.replace(/^the\s+/i, '')
+
+/** True when a sentence says it is the source's statement: it opens with "The source" or "According to", it uses says, said,
+ * states, stated, reports or reported, it has "according to" in it, or it names the source. Pure. */
+export function isAttributed(sentence: string, f: Pick<NewsFacts, 'sourceName'>): boolean {
+  const s = sentence.trim()
+  return /^(the source|according to)\b/i.test(s) || /\b(says|said|states|stated|reports|reported)\b|\baccording to\b/i.test(s) || s.toLowerCase().includes(sourceShortName(f).toLowerCase())
+}
+
+/** Everything wrong with ONE "what it means" sentence: it must be attributed to the source, be one short sentence, and pass the
+ * word checks (level wording may be copied only here, inside an attributed sentence). Pure. */
+export function meansSentenceProblems(m: string, f: NewsFacts): string[] {
+  const out: string[] = []
+  if (sentencesOf(m).length !== 1 || !/[.]$/.test(m.trim())) out.push('each item must be one sentence ending with a full stop')
+  if (m.length > MEANS_SENTENCE_MAX_CHARS) out.push('too long')
+  const attributed = isAttributed(m, f)
+  if (!attributed) out.push('must say it is the source\'s statement (start with "The source" or "According to", or use says, states or reports)')
+  out.push(...lexicalProblems(m, f, { mask: attributed }))
+  return out
+}
+
+/** Words an official-notice relay may use without the notice containing them: plain linking and reporting words, never a fact. */
+const NEUTRAL_WORDS = new Set([
+  ...RELAY_WORDS,
+  ...'cites citing cited reasons reason source sources says said stays stay remains remain unchanged same following reissued reissue notice notices update updates updated includes include including because causes cause listed lists list wording text statement'.split(' '),
+])
 
 /** The whole-brief gate. An empty list means clean. Pure. */
 export function briefProblems(b: NewsBrief, f: NewsFacts): string[] {
@@ -257,14 +315,10 @@ export function briefProblems(b: NewsBrief, f: NewsFacts): string[] {
   const happenedSentences = sentencesOf(happened)
   if (happenedSentences.length !== 1 || !/[.]$/.test(happened)) out.push('what happened: must be exactly one sentence ending with a full stop')
   if (happened.length > HOOK_MAX_CHARS) out.push(`what happened: ${happened.length} characters, the limit is ${HOOK_MAX_CHARS} (it is also the social hook)`)
-  add(lexicalProblems(happened, f), 'what happened')
+  add(lexicalProblems(happened, f, { mask: isAttributed(happened, f) }), 'what happened')
 
   if (b.means.length < 1 || b.means.length > 3) out.push('what it means: write one to three sentences')
-  b.means.forEach((m, i) => {
-    if (sentencesOf(m).length !== 1 || !/[.]$/.test(m.trim())) out.push(`what it means (${i + 1}): each item must be one sentence ending with a full stop`)
-    if (m.length > MEANS_SENTENCE_MAX_CHARS) out.push(`what it means (${i + 1}): too long`)
-    add(lexicalProblems(m, f), `what it means (${i + 1})`)
-  })
+  b.means.forEach((m, i) => add(meansSentenceProblems(m, f), `what it means (${i + 1})`))
 
   const range = wordRange(f.tier)
   const words = wordCount(briefText(b))
@@ -275,14 +329,14 @@ export function briefProblems(b: NewsBrief, f: NewsFacts): string[] {
   const shared = new Set(contentWords(briefText(b)).filter((w) => itemWords.has(w)))
   if (shared.size < Math.min(2, itemWords.size)) out.push('grounding: the brief does not use the feed item words')
 
-  // Tier 1 (an official notice): copy, do not paraphrase freely. At least 70% of the content words must be in the item
-  // or be neutral relay words ("reported", "advisory", "travellers" ...).
+  // Tier 1 (an official notice): copy, do not paraphrase. EVERY content word of the headline and the brief must be a whole word of
+  // the notice (a plural or possessive is fine) or be on the short neutral list ("reported", "source", "says" ...). No prefix
+  // matching: "kidnapped" is not "kidnapping".
   if (f.tier === 1) {
     const sourceLower = factsText(f).toLowerCase()
-    const mine = contentWords(briefText(b))
-    const unsupported = [...new Set(mine.filter((w) => !present(sourceLower, w) && !RELAY_WORDS.has(w)))]
-    const supported = mine.length - mine.filter((w) => unsupported.includes(w)).length
-    if (mine.length && supported / mine.length < 0.7) out.push(`official notice: ${unsupported.slice(0, 6).join(', ')} are not in the notice; copy only what the notice says`)
+    const mine = contentWords(`${b.headline} ${briefText(b)}`)
+    const unsupported = [...new Set(mine.filter((w) => !present(sourceLower, w, false) && !NEUTRAL_WORDS.has(w)))]
+    if (unsupported.length) out.push(`official notice: ${unsupported.slice(0, 6).join(', ')} ${unsupported.length === 1 ? 'is' : 'are'} not in the notice; copy only what the notice says`)
     if (b.means.reduce((n, m) => n + wordCount(m), 0) > 45) out.push('official notice: keep "what it means" to 45 words or fewer')
   }
   return out
@@ -301,7 +355,7 @@ function itemBlock(f: NewsFacts): string {
 const RULES = [
   'Every fact (event, place, name, number, date, level, effect) must be taken from the FEED ITEM. If the feed item does not say it, leave it out.',
   'Do not give advice or instructions of any kind (no "should", "must", "avoid", "check", "make sure"), and never a medical, legal or safety instruction. You may only say what the source says.',
-  'Do not state effects (cancellations, delays, closures, damage, injuries, deaths) unless the feed item states them.',
+  'Do not state effects or events (cancellations, delays, closures, damage, injuries, deaths, flooding, curfews, outbreaks, attacks) unless the feed item states them. Never say a place or trip is safe or unsafe, and never forecast ("will", "expected", "likely", "can", "may") unless the feed item says it. Every "what it means" sentence must be attributed to the source ("The source says ...", "According to ...").',
   'No superlatives, drama words or time words (best, worst, major, severe, record, today, now, latest, recently) unless the feed item uses them.',
   'No first person ("I", "we", "our") and no "you" or "your". No claim about what a travel agency did or experienced.',
   'No web addresses, email addresses, links or markdown.',
@@ -345,6 +399,12 @@ export interface BriefDeps {
   budget: HealBudget
   /** Absolute time (Date.now() scale) the caller must be done by. */
   deadlineMs?: number
+  /** Takes one of the news step's own call slots for the day (news may use at most half of the heal cap). Called before every
+   * model call; false means no call. When absent only the heal budget and the reserve limit calls. */
+  claimCall?: () => Promise<boolean>
+  /** Review a brief that was already written (a saved draft about to go live) instead of writing one: the gate and the
+   * independent judge only, no writer. */
+  existing?: NewsBrief
 }
 
 interface JudgeVerdict {
@@ -377,7 +437,7 @@ export async function writeNewsBrief(f: NewsFacts, deps: BriefDeps): Promise<Bri
       return null
     }
     // News never takes one of the last NEWS_BUDGET_RESERVE calls of the day: those are for healing held pages.
-    if (calls >= NEWS_MAX_CALLS_PER_ITEM || deps.budget.remaining() <= NEWS_BUDGET_RESERVE || !(await deps.budget.take(1))) {
+    if (calls >= NEWS_MAX_CALLS_PER_ITEM || deps.budget.remaining() <= NEWS_BUDGET_RESERVE || (deps.claimCall && !(await deps.claimCall())) || !(await deps.budget.take(1))) {
       st.stop = 'budget'
       return null
     }
@@ -406,6 +466,17 @@ export async function writeNewsBrief(f: NewsFacts, deps: BriefDeps): Promise<Bri
     const reason = (x: unknown) => (typeof (x as { reason?: unknown })?.reason === 'string' ? String((x as { reason: string }).reason).slice(0, 140) : 'breaks a rule')
     const reasons = failures.map((x) => `QA reviewer: ${reason(x)} ("${quote(x).slice(0, 80)}")`).slice(0, 5)
     return { pass: false, answered: true, reasons: reasons.length ? reasons : ['QA reviewer said fail without naming the text'], quotes: failures.map(quote).filter(Boolean) }
+  }
+
+  // Review only: a saved draft about to go live is checked again by the same gate and the same independent judge. Nothing is
+  // rewritten; a problem is a rejection, an unreachable reviewer is a wait.
+  if (deps.existing) {
+    const problems = briefProblems(deps.existing, f)
+    if (problems.length) return out('rejected', null, problems, 0)
+    const verdict = await judge(deps.existing)
+    if (verdict.pass) return out('ok', deps.existing, [], 0)
+    if (!verdict.answered) return out('deferred', null, [st.stop === 'time' ? 'ran out of time' : st.stop === 'budget' ? "today's AI limit is used up" : 'the QA review could not be reached'], 0)
+    return out('rejected', null, verdict.reasons, 0)
   }
 
   let last: NewsBrief | null = null
@@ -449,7 +520,7 @@ export async function writeNewsBrief(f: NewsFacts, deps: BriefDeps): Promise<Bri
   if (last && !st.stop && !judgeDown) {
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
     const named = (m: string) => quotes.some((q) => norm(q).length >= 12 && (norm(m).includes(norm(q)) || norm(q).includes(norm(m))))
-    const kept = last.means.filter((m) => lexicalProblems(m, f).length === 0 && m.length <= MEANS_SENTENCE_MAX_CHARS && !named(m))
+    const kept = last.means.filter((m) => meansSentenceProblems(m, f).length === 0 && !named(m))
     if (kept.length >= 1 && kept.length < last.means.length) {
       const stripped: NewsBrief = { ...last, means: kept }
       const problems = briefProblems(stripped, f)
