@@ -20,6 +20,7 @@ import { runHealContentIfDue } from '@/lib/content-heal-run'
 import { runSourceWatchIfDue } from '@/lib/source-watch'
 import { runValueSnapshotIfDue } from '@/lib/value-snapshot'
 import { runIndexNowCatchupIfDue } from '@/lib/indexnow-catchup'
+import { runVisitPurgeIfDue } from '@/lib/visit-tracking'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -86,6 +87,14 @@ async function housekeeping(admin: SupabaseClient, run: PipelineRun, startedAt =
     if (catchup) run.steps.push({ step: 'indexnow', ok: catchup.ok, note: catchup.note })
   } catch {
     // a ping problem is never the pipeline's problem
+  }
+  try {
+    // Once a day (the claim inside): delete first-party visit rows older than 13 months, a capped batch at a time.
+    // It runs whether or not visit tracking is on, because retention applies to anything already stored.
+    const purge = await runVisitPurgeIfDue(admin)
+    if (purge) run.steps.push({ step: 'visit-purge', ok: !/could not|stopped/i.test(purge), note: purge })
+  } catch {
+    // a purge problem is never the pipeline's problem
   }
   try {
     // Once a week (the claim inside; also once on the first pass after deploy): read each supplier page behind

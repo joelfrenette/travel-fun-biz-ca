@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getGa4Report, isGa4Configured } from '@/lib/ga4'
+import { isVisitTrackingOn } from '@/lib/visit-tracking'
 
 // Dashboard funnel (e10/f10-2, factory Phase 10-11). Nomad's own factory hit a real bug from this
 // exact kind of number appearing on two screens computed two different ways and disagreeing
@@ -33,19 +35,42 @@ export function latestRollingImpressions(rows: { day: string; impressions: numbe
   return latest.impressions ?? 0
 }
 
+const VISITS_NOT_TRACKED_NOTE =
+  "Visit tracking is switched off, so first-party visits are not recorded. The switch is in System health and should be turned on only after your lawyer has approved the cookie wording. GA4 sessions fill this in when GA4 is connected."
+
+/** Pure: the Visits stage. First-party visits (one per session) when tracking is on and rows exist; otherwise GA4 sessions
+ * when GA4 answered; otherwise honestly "not tracked". Never a made-up number. */
+export function visitsStage(input: { trackingOn: boolean; firstPartyCount: number; ga4Sessions: number | null }): FunnelStage {
+  const base = { key: 'visits', label: 'Visits' }
+  if (input.trackingOn && input.firstPartyCount > 0) {
+    return { ...base, count: input.firstPartyCount, tracked: true, note: 'Real visits recorded by this site (one per visit, only from people who accepted analytics), last 28 days. Visitors who declined are not counted, so GA4 may show more.' }
+  }
+  if (input.ga4Sessions !== null) {
+    return { ...base, count: input.ga4Sessions, tracked: true, note: input.trackingOn ? 'Visit tracking is on but has recorded no visits yet, so this is GA4 sessions for the last 28 days.' : 'GA4 sessions for the last 28 days (visit tracking is off).' }
+  }
+  return {
+    ...base,
+    count: 0,
+    tracked: false,
+    note: input.trackingOn ? 'Visit tracking is on but no visits have been recorded yet, and GA4 is not connected.' : VISITS_NOT_TRACKED_NOTE,
+  }
+}
+
 export async function getFunnel(admin: SupabaseClient, days = 28): Promise<FunnelResult> {
   const sinceIso = new Date(Date.now() - days * 86400000).toISOString()
 
-  // site_visits has no write path yet (blocked on cookie-consent wording) so this is empty today,
-  // but once it's live this table only grows - the exact count comes from Postgres COUNT (cheap,
-  // no rows transferred) rather than pulling every row into Node; the channel breakdown below is
-  // capped at a bounded sample since it's a shape/ratio, not a number that needs to be exact.
+  // site_visits is written only while the admin switch visit_tracking is on (off by default). It is one row per visit and
+  // only grows, so the exact count comes from Postgres COUNT (cheap, no rows transferred) rather than pulling every row into
+  // Node; the channel breakdown below is capped at a bounded sample since it's a shape/ratio, not a number that needs to be
+  // exact. While tracking is off nothing is read from the table at all (old rows from a past "on" period are not shown).
   const VISIT_SAMPLE_LIMIT = 5000
+  const trackingOn = await isVisitTrackingOn(admin)
+  const noVisits = Promise.resolve({ count: 0, data: [] as { channel: string | null }[] })
   const [gscRes, visitsCountRes, visitsSampleRes, leadsRes, ordersRes] = await Promise.all([
     // Each row is already a rolling 28-day total (see lib/rankings-snapshot.ts), so read ONLY the latest.
     admin.from('gsc_ranking_days').select('day, impressions').order('day', { ascending: false }).limit(1),
-    admin.from('site_visits').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso),
-    admin.from('site_visits').select('channel').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT),
+    trackingOn ? admin.from('site_visits').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso) : noVisits,
+    trackingOn ? admin.from('site_visits').select('channel').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT) : noVisits,
     admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', sinceIso),
     admin.from('orders').select('amount_cents, status, is_test').gte('created_at', sinceIso),
   ])
@@ -53,6 +78,17 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
   const impressions = latestRollingImpressions((gscRes.data ?? []) as { day: string; impressions: number | null }[])
   const visitCount = visitsCountRes.count ?? 0
   const visitRows = visitsSampleRes.data ?? []
+  // GA4 is the fallback when tracking is off or has recorded nothing. One cached read-only call; a slow or failed answer
+  // means "not tracked", never a guess.
+  let ga4Sessions: number | null = null
+  if (!(trackingOn && visitCount > 0) && isGa4Configured()) {
+    try {
+      const report = await Promise.race([getGa4Report(days), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('GA4 timed out')), 8000))])
+      ga4Sessions = report.totals.sessions
+    } catch {
+      ga4Sessions = null
+    }
+  }
   const realOrders = (ordersRes.data ?? []).filter((o: { is_test: boolean }) => !o.is_test)
   const paidOrders = realOrders.filter((o: { status: string }) => o.status === 'paid')
   const revenueCents = paidOrders.reduce((sum, o: { amount_cents: number | null }) => sum + (o.amount_cents ?? 0), 0)
@@ -75,13 +111,7 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
         tracked: true,
         note: 'Google impressions over the last 28 days, from the latest daily Search Console snapshot (one rolling total, never added up across days). Needs CRON_SECRET set and the site verified in Search Console before this fills in.',
       },
-      {
-        key: 'visits',
-        label: 'Visits',
-        count: visitCount,
-        tracked: false,
-        note: "No code writes to site_visits yet. It only reads UTM/referrer into the visitor's own browser storage today, waiting on the cookie-consent wording (setup checklist, Part 6) before a real visit can be recorded server-side.",
-      },
+      visitsStage({ trackingOn, firstPartyCount: visitCount, ga4Sessions }),
       {
         key: 'leads',
         label: 'Leads (trip inquiries)',
