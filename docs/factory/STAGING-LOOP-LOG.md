@@ -50,3 +50,10 @@ One entry per improvement committed on branch `staging` by the unattended loop. 
 - Why it helps traffic: a pasted URL on Instagram and TikTok cannot be tapped and wastes caption space. Telling people to use the bio link sends them to the one place that works.
 - Offline check: `pnpm dlx tsx scripts/check-fallback-caption.ts`.
 - How to UAT on staging: queue a post to Instagram only and read the caption: it ends with "Full guide: link in our bio." and has no http link. Queue Instagram plus Facebook and check the caption still has the link. Check the bio link of the account points to the site.
+
+## Honest sitemap lastModified
+
+- What changed: new pure helpers in `lib/sitemap-dates.ts` (`maxIso`, `lastModOrUndefined`, `lastModField`). `app/sitemap.ts` no longer uses `new Date()` anywhere. Destination, best-time and compare entries take the stored `updated_at` of the matching destination guide (compare uses the newer of its two); index pages (destinations, each guide kind, packages, blog) use the max stored timestamp of their items. Where no stored timestamp exists the field is omitted. No new queries.
+- Why it helps traffic: a lastmod that changes on every request teaches Google to ignore it. Honest dates let crawlers re-fetch pages that really changed, so fresh guides get re-indexed sooner.
+- Offline check: `pnpm dlx tsx scripts/check-sitemap-lastmod.ts`.
+- How to UAT on staging: open /sitemap.xml. A destination with a published guide shows a lastmod equal to that guide's updated date; home and who-we-are show no lastmod; reload and confirm dates do not change to the current time.
