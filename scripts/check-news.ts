@@ -47,8 +47,9 @@ async function main() {
   check('allowlist: an unknown url is not allowed', !isAllowedFeedUrl('https://evil.example.com/feed.xml'))
   check('allowlist: http (not https) is not allowed', !isAllowedFeedUrl(nhc.feedUrl.replace('https://', 'http://')))
   check('allowlist: a url with credentials is not allowed', !isAllowedFeedUrl('https://user:pw@www.nhc.noaa.gov/index-at.xml'))
-  const disabled = NEWS_SOURCES.find((s) => !s.enabled)!
-  check('allowlist: a disabled source url is not allowed', !isAllowedFeedUrl(disabled.feedUrl))
+  // Every source is enabled now, so the "disabled" case uses the retired placeholder address that was never a real feed.
+  const disabled = NEWS_SOURCES.find((s) => !s.enabled)
+  check('allowlist: a disabled or retired source url is not allowed', disabled ? !isAllowedFeedUrl(disabled.feedUrl) : !isAllowedFeedUrl('https://travel.gc.ca/travelling/advisories/rss'))
   check('allowlist: every feed url is https and every source names its link hosts', NEWS_SOURCES.every((s) => s.feedUrl.startsWith('https://') && s.linkHosts.length > 0))
   check('allowlist: tier 1 official sources are enabled, the unverified ones are not', enabledSources().every((s) => s.confidence !== 'unverified'))
   check('allowlist: item links must stay on the source hosts', linkAllowedFor(nhc, 'https://www.nhc.noaa.gov/text/x.shtml') && !linkAllowedFor(nhc, 'https://nhc.noaa.gov.evil.com/x') && !linkAllowedFor(nhc, 'http://www.nhc.noaa.gov/x') && !linkAllowedFor(nhc, 'https://example.com/x'))
@@ -148,7 +149,7 @@ const ATOM = `<feed xmlns="http://www.w3.org/2005/Atom"><title>Travel advice</ti
   const t0 = Date.now()
   const timedOut = await Promise.race([fetchFeed(nhc, fresh, slow), new Promise<'late'>((r) => setTimeout(() => r('late'), 12_500))])
   check('fetch: a hanging feed times out at about 10 seconds', timedOut !== 'late' && (timedOut as { kind: string }).kind === 'error' && Date.now() - t0 < 12_000)
-  check('fetch: a disabled source is never fetched', (await fetchFeed(NEWS_SOURCES.find((s) => !s.enabled)!, fresh, mkFetch(() => rssRes()))).kind === 'error')
+  check('fetch: a disabled source is never fetched', (await fetchFeed(NEWS_SOURCES.find((s) => !s.enabled) ?? { ...nhc, enabled: false }, fresh, mkFetch(() => rssRes()))).kind === 'error')
   check('rate limit: due when never fetched or 30 minutes ago, not before', fetchDue({ fails: 0 }, NOW) && fetchDue({ fails: 0, lastFetchAt: new Date(NOW - 31 * 60_000).toISOString() }, NOW) && !fetchDue({ fails: 0, lastFetchAt: new Date(NOW - 10 * 60_000).toISOString() }, NOW))
 }
 
@@ -581,7 +582,7 @@ async function part2() {
   // ---- tier 2 end to end (a tier 2 source is switched on only inside this check) ----
   {
     const skift = NEWS_SOURCES.find((x) => x.key === 'skift')!
-    check('trade feeds: skift, cruise-industry-news and cruise-hive are enabled; the Canadian JSON advisories stay disabled', ['skift', 'cruise-industry-news', 'cruise-hive'].every((k) => sourceByKey(k)?.enabled === true) && sourceByKey('gac-advisories')?.enabled === false)
+    check('trade feeds: skift, cruise-industry-news and cruise-hive are enabled; the Canadian JSON advisories are enabled as a json source (proved in scripts/check-news-json.ts)', ['skift', 'cruise-industry-news', 'cruise-hive'].every((k) => sourceByKey(k)?.enabled === true) && sourceByKey('gac-advisories')?.enabled === true && sourceByKey('gac-advisories')?.kind === 'json')
     const feed = `<?xml version="1.0"?><rss version="2.0"><channel><item><title>Cruise line suspends calls at Port Alpha after pier damage</title><link>https://skift.com/2026/10/13/atlas-port-alpha/</link><guid>SK-1</guid><pubDate>Tue, 13 Oct 2026 12:00:00 GMT</pubDate><description>${FACTS_T2.summary}</description></item><item><title>Airline appoints new chief marketing officer</title><link>https://skift.com/2026/10/13/cmo/</link><guid>SK-2</guid><pubDate>Tue, 13 Oct 2026 12:00:00 GMT</pubDate><description>Business news.</description></item></channel></rss>`
     const s = newStubs()
     const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto' })
@@ -600,7 +601,8 @@ async function part2() {
     const s = newStubs()
     const { admin } = world({ travel_news_mode: 'draft' })
     let t = NOW
-    const official = enabledSources().filter((x) => x.tier === 1)
+    // The RSS and Atom official feeds only: the JSON advisory source has its own checks in check-news-json.ts.
+    const official = enabledSources().filter((x) => x.tier === 1 && x.kind !== 'json')
     for (let i = 0; i < 3; i++) {
       t += 31 * 60_000
       await ingestFeeds(admin, { fetchDeps: feedDeps(s, { [NHC_URL]: NHC_FEED, [STATE_URL]: 503, [NHC_EP_URL]: NHC_FEED, [UK_URL]: STATE_FEED }, () => t), now: new Date(t), sources: official })
