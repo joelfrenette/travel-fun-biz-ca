@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ChevronDown, Menu, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
-import { ctaLink, primaryNavLinks, type NavLink } from "@/content/navigation"
+import { ctaLink, primaryNavLinks, splitPrimaryNav, MORE_LABEL, type NavLink } from "@/content/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useTheme } from "next-themes"
 import { LanguageToggle } from "@/components/language-toggle"
@@ -16,11 +16,13 @@ import { SITE_NAME } from "@/lib/site"
 import { translate } from "@/lib/i18n"
 
 const linkClassName =
-  "text-sm font-medium uppercase text-primary transition-colors hover:text-primary/80 dark:text-primary dark:hover:text-primary/80"
+  "whitespace-nowrap text-sm font-medium uppercase text-primary transition-colors hover:text-primary/80 dark:text-primary dark:hover:text-primary/80"
 
-/** A grouped item ("Cruises & Resorts"): a button that opens a short list of links. Closes on a click outside, on
- * Escape and after a choice. In the phone menu the same links are shown as an indented list instead. */
-function NavGroup({ link, label, language, onChoose }: { link: NavLink; label: string; language: Language; onChoose?: () => void }) {
+// Wide desktops show every item inline; narrower ones put the secondary items under a "More" drop-down.
+
+/** A grouped item ("Cruises & Resorts", "More"): a button that opens a short list of links. Closes on a click outside,
+ * on Escape and after a choice. In the phone menu the same links are shown as an indented list instead. */
+function NavGroup({ link, label, language, onChoose, align = "left", className = "" }: { link: NavLink; label: string; language: Language; onChoose?: () => void; align?: "left" | "right"; className?: string }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -35,18 +37,24 @@ function NavGroup({ link, label, language, onChoose }: { link: NavLink; label: s
     }
   }, [open])
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={`relative ${className}`}>
       <button type="button" className={`${linkClassName} inline-flex items-center gap-1`} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
         {label}
         <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
       {open && (
-        <ul className="absolute left-0 top-full z-50 mt-2 min-w-[12rem] rounded-md border border-border bg-background py-2 shadow-lg">
+        <ul className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full z-50 mt-2 min-w-[12rem] rounded-md border border-border bg-background py-2 shadow-lg`}>
           {(link.children ?? []).map((child) => (
             <li key={child.href}>
-              <Link href={child.href} className="block px-4 py-2 text-sm font-medium uppercase text-primary hover:bg-muted" onClick={() => { setOpen(false); onChoose?.() }}>
-                {translate(language, child.label)}
-              </Link>
+              {child.external ? (
+                <a href={child.href} target="_blank" rel="noopener noreferrer" className="block whitespace-nowrap px-4 py-2 text-sm font-medium uppercase text-primary hover:bg-muted" onClick={() => { setOpen(false); onChoose?.() }}>
+                  {translate(language, child.label)}
+                </a>
+              ) : (
+                <Link href={child.href} className="block whitespace-nowrap px-4 py-2 text-sm font-medium uppercase text-primary hover:bg-muted" onClick={() => { setOpen(false); onChoose?.() }}>
+                  {translate(language, child.label)}
+                </Link>
+              )}
             </li>
           ))}
         </ul>
@@ -55,7 +63,7 @@ function NavGroup({ link, label, language, onChoose }: { link: NavLink; label: s
   )
 }
 
-function renderNavLink(link: NavLink, label: string, onClick?: () => void) {
+function renderNavLink(link: NavLink, label: string, onClick?: () => void, extraClass = "") {
   if (link.external) {
     return (
       <a
@@ -63,7 +71,7 @@ function renderNavLink(link: NavLink, label: string, onClick?: () => void) {
         href={link.href}
         target="_blank"
         rel="noopener noreferrer"
-        className={linkClassName}
+        className={`${linkClassName} ${extraClass}`}
         onClick={onClick}
       >
         {label}
@@ -72,7 +80,7 @@ function renderNavLink(link: NavLink, label: string, onClick?: () => void) {
   }
 
   return (
-    <Link key={link.href} href={link.href} className={linkClassName} onClick={onClick}>
+    <Link key={link.href} href={link.href} className={`${linkClassName} ${extraClass}`} onClick={onClick}>
       {label}
     </Link>
   )
@@ -87,6 +95,7 @@ export function Header({ language, currency }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { resolvedTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const { more } = splitPrimaryNav(primaryNavLinks)
 
   useEffect(() => {
     setMounted(true)
@@ -101,14 +110,14 @@ export function Header({ language, currency }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <nav className="container mx-auto flex h-16 items-center justify-between px-4">
-        <a href="/" className="flex items-center">
+      <nav className="container mx-auto flex h-16 items-center justify-between gap-2 px-4 lg:gap-4">
+        <a href="/" className="flex items-center lg:shrink-0">
           <Image
             src={logoSrc}
             alt={SITE_NAME}
             width={280}
             height={112}
-            className="h-16 w-auto py-2 sm:h-18"
+            className="h-16 w-auto py-2 sm:h-18 lg:h-14 xl:h-16"
             priority
             unoptimized
             suppressHydrationWarning
@@ -116,17 +125,27 @@ export function Header({ language, currency }: HeaderProps) {
         </a>
 
         {/* Desktop Navigation */}
-        <div className="hidden items-center gap-5 md:flex lg:gap-8">
+        <div className={`hidden min-w-0 items-center gap-3 lg:flex xl:gap-5 min-[1700px]:gap-7`}>
           {primaryNavLinks.map((link) =>
             link.children ? (
               <NavGroup key={link.label} link={link} label={translate(language, link.label)} language={language} />
             ) : (
-              renderNavLink(link, translate(language, link.label))
+              renderNavLink(link, translate(language, link.label), undefined, link.secondary ? "hidden min-[1700px]:inline" : "")
             ),
+          )}
+          {/* Narrower desktops: the secondary items live under one "More" drop-down (hidden once they fit inline). */}
+          {more.length > 0 && (
+            <NavGroup
+              link={{ label: MORE_LABEL, href: "#", children: more }}
+              label={translate(language, MORE_LABEL)}
+              language={language}
+              align="right"
+              className="min-[1700px]:hidden"
+            />
           )}
         </div>
 
-        <div className="hidden items-center gap-2 md:flex">
+        <div className="hidden shrink-0 items-center gap-2 lg:flex">
           <LanguageToggle language={language} />
           <CurrencyToggle currency={currency} />
           <ThemeToggle />
@@ -136,7 +155,7 @@ export function Header({ language, currency }: HeaderProps) {
         </div>
 
         {/* Mobile Menu Button */}
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-2 lg:hidden">
           <LanguageToggle language={language} />
           <CurrencyToggle currency={currency} />
           <ThemeToggle />
@@ -148,7 +167,7 @@ export function Header({ language, currency }: HeaderProps) {
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="border-t border-border bg-background md:hidden">
+        <div className="border-t border-border bg-background lg:hidden">
           <div className="container mx-auto flex flex-col gap-4 px-4 py-6">
             {primaryNavLinks.map((link) =>
               link.children ? (

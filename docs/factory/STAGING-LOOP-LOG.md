@@ -92,3 +92,10 @@ One entry per improvement committed on branch `staging` by the unattended loop. 
 - Why it helps traffic: the header uses its space, a lone trip is no longer stranded on the left, and the booking card sits above the fold, so more visits reach a trip page or enquiry.
 - Offline check: `pnpm dlx tsx scripts/check-guide-header.ts` (and `check-destination-page.ts`, updated for the new heading).
 - How to UAT on staging: open /destinations/croatia. The single trip is the card on the right of the header and there is no "upcoming trips" section below. Open a destination with several trips: nearest in the header, the rest centred below. Open a guide with only a past trip: a "Past trip" card linking to the recap. Open a guide with no trips: photo plus Quick facts. Check at phone width that the card sits under the intro.
+
+## Site header menu: no overlap, one-line labels, "More" drop-down
+
+- What changed: `components/header.tsx` and `content/navigation.ts`. Labels are `whitespace-nowrap`. The desktop menu now starts at 1024 (below that the phone menu shows, so 768 to 1023 is no longer crammed). Under 1700px wide, the less important items (Travel Agents, In The News, About Us, Contact Us, Booking, flagged `secondary` in the nav list) sit under one "More" drop-down (same keyboard and aria behaviour as Cruises & Resorts: aria-haspopup, aria-expanded, Escape and outside click close it); at 1700px and up they show inline. Pure helper `splitPrimaryNav`. All hrefs, Destinations, the six Cruises & Resorts pages and Get Started are unchanged and always visible. Logo is slightly smaller at 1024 to 1279 and no longer shrinks on desktop.
+- Why it helps traffic: a clean header keeps the main paths (All Trips, Destinations, Cruises & Resorts, Blog, Get Started) readable and clickable on laptop screens, so fewer visitors bounce at the top of the page.
+- Offline check: `pnpm dlx tsx scripts/check-nav-split.ts`.
+- How to UAT on staging: at 1024, 1280 and 1536 wide you see five items, "More" and Get Started on one line with no overlap; open "More" for the other five. At 1920 all nine show inline. At phone width the menu button lists every item.
