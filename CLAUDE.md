@@ -61,3 +61,11 @@ The roadmap is in the admin at `/admin/tracker` (Supabase-backed). Use cases Joe
 admin land with `epic_id = null`; at the start of a session, query
 `roadmap_usecases where epic_id is null`, file each under the right epic/feature with a priority,
 and mark shipped work `done`. Add roadmap rows for any new work you take on.
+
+## Shared factory repo
+
+github.com/joelfrenette/autoblogging is the cross-site knowledge base for our four sites (Nomad Escape Plan, HOACrimes.com, TravelFunBiz.ca, TravelFun.ai).
+- Before starting work on content/SEO, social distribution, funnel tracking, or ops reliability, read the matching file there. Someone may have already solved it.
+- When you find a genuinely portable bug class or pattern, open a PR against that repo (see its README for entry style) and add a line to CONTRIBUTIONS.md. Don't wait to be asked.
+- Do not put product specifics (pricing, brand voice, niche strategy), secrets or customer data in it.
+- At /handoff, state whether anything from this session belongs there.
