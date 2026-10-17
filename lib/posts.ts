@@ -42,6 +42,33 @@ export async function getPublishedPosts(): Promise<Post[]> {
   return data || []
 }
 
+function keywordWords(k: string | null | undefined): Set<string> {
+  return new Set((k ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4))
+}
+
+/**
+ * Stored-data-only related posts. Score = 2 per shared tag, +3 for the same linked package, plus 1 per shared
+ * primary_keyword words of 4+ letters. Self and unpublished are skipped, ties go to the newest
+ * publish_date, then slug (deterministic). Returns [] when the best score is 0: never padded.
+ */
+export function pickRelatedPosts(post: Post, allPublished: Post[], limit = 3): Post[] {
+  const tags = new Set((post.tags ?? []).map((t) => String(t).toLowerCase()))
+  const words = keywordWords(post.primary_keyword)
+  const scored: { p: Post; score: number; ms: number }[] = []
+  for (const p of allPublished) {
+    if (!p || p.id === post.id || p.slug === post.slug || p.status !== 'published') continue
+    let score = 0
+    for (const t of new Set((p.tags ?? []).map((x) => String(x).toLowerCase()))) if (tags.has(t)) score += 2
+    if (post.related_package_id && p.related_package_id === post.related_package_id) score += 3
+    for (const w of keywordWords(p.primary_keyword)) if (words.has(w)) score++
+    if (score <= 0) continue
+    const ms = p.publish_date ? new Date(p.publish_date).getTime() : NaN
+    scored.push({ p, score, ms: Number.isFinite(ms) ? ms : 0 })
+  }
+  scored.sort((a, b) => b.score - a.score || b.ms - a.ms || a.p.slug.localeCompare(b.p.slug))
+  return scored.slice(0, Math.max(0, limit)).map((s) => s.p)
+}
+
 export async function getPublishedPostBySlug(slug: string): Promise<Post | null> {
   const { data, error } = await supabase.from('posts').select('*').eq('slug', slug).eq('status', 'published').maybeSingle()
   if (error) {

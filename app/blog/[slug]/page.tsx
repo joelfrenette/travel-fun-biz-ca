@@ -5,7 +5,7 @@ import { Calendar, Clock } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Badge } from "@/components/ui/badge"
-import { getPublishedPostBySlug } from "@/lib/posts"
+import { getPublishedPostBySlug, getPublishedPosts, pickRelatedPosts } from "@/lib/posts"
 import { getRelatedPackages } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
@@ -60,12 +60,14 @@ export default async function BlogPostPage({ params }: Props) {
   const keywords = [post.primary_keyword, ...(post.secondary_keywords ?? [])].filter((k): k is string => !!k)
   const section = styleById(post.content_style)?.label
   const wordCount = post.body.trim().split(/\s+/).filter(Boolean).length
-  const [relatedPackages, usdToTargetRate, relatedGuides] = await Promise.all([
+  const [relatedPackages, usdToTargetRate, relatedGuides, allPosts] = await Promise.all([
     getRelatedPackages(post.related_package_id),
     getUsdToRate(currency),
     // Published guides this post is really about (destination of its linked package, or a guide name in its tags or title). Empty when none match.
     listGuidesForPost(post),
+    getPublishedPosts(),
   ])
+  const morePosts = pickRelatedPosts(post, allPosts, 3)
 
   // What the call to action names: the destination of the linked package when there is one, else the post primary keyword, else its title.
   const linkedPackage = post.related_package_id ? relatedPackages.find((p) => p.id === post.related_package_id) : undefined
@@ -176,6 +178,26 @@ export default async function BlogPostPage({ params }: Props) {
                 ))}
               </div>
             </section>
+          )}
+
+          {morePosts.length > 0 && (
+            <aside className="mt-10" aria-labelledby="more-stories-heading">
+              <h2 id="more-stories-heading" className="mb-4 text-xl font-semibold text-foreground">More stories</h2>
+              <ul className="grid gap-4 sm:grid-cols-3">
+                {morePosts.map((p) => (
+                  <li key={p.id} className="overflow-hidden rounded-xl border">
+                    <Link href={`/blog/${p.slug}`} className="block">
+                      {p.cover_image_url && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.cover_image_url} alt={p.alt_text || p.title} loading="lazy" className="aspect-video w-full object-cover" />
+                      )}
+                      <span className="block p-3 font-medium text-foreground hover:underline">{p.title}</span>
+                    </Link>
+                    {p.meta_description && <p className="px-3 pb-3 text-sm text-muted-foreground line-clamp-2">{p.meta_description}</p>}
+                  </li>
+                ))}
+              </ul>
+            </aside>
           )}
 
           {relatedGuides.length > 0 && (

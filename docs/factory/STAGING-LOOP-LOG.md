@@ -29,3 +29,10 @@ One entry per improvement committed on branch `staging` by the unattended loop. 
 - Why it helps traffic: when the AI caption step is off or fails, posts used to open with the plain title. Now they open with a real question from the post, which stops the scroll, and end with a clear call to action and the link, with clean capped hashtags.
 - Offline check: `pnpm dlx tsx scripts/check-fallback-caption.ts`.
 - How to UAT on staging: with tailored captions off, let one blog post and one guide go out (or read the queued caption). Check line 1 is a question from the post's FAQ, then one description line, "Read the full guide:", the link, then up to 3 hashtags. Check a post with no FAQ and no takeaways still sends the old title + description text.
+
+## Related posts block on blog posts
+
+- What changed: new pure `pickRelatedPosts(post, allPublished, limit=3)` in `lib/posts.ts`. Score is 2 per shared tag, 3 for the same linked package, 1 per shared primary-keyword word of 4+ letters. Self and unpublished are skipped, ties go to the newest publish_date, and it returns an empty list when nothing scores (never padded). `app/blog/[slug]/page.tsx` adds `getPublishedPosts()` to the existing `Promise.all` and renders a "More stories" aside after the FAQ (title link to /blog/<slug>, lazy cover thumbnail with alt text, one-line stored meta description). Nothing renders when the list is empty. Stored data only, no AI. The posts table has no separate excerpt column, so the stored meta_description is the one-line excerpt.
+- Why it helps traffic: blog posts now link to each other, which adds crawl paths, spreads link value to newer posts and keeps readers on the site longer.
+- Offline check: `pnpm dlx tsx scripts/check-related-posts.ts`.
+- How to UAT on the staging preview: open a post that shares a tag or linked trip with another post. Check "More stories" under the FAQ with up to 3 cards and working links. Open a post that shares nothing and check no empty box shows.
