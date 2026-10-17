@@ -307,7 +307,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             },
             carouselTargets[0],
             carouselLink,
-            { limit: carouselLimit, hashtagCap: Math.min(...carouselTargets.map(hashtagCapFor)) },
+            { networks: carouselTargets, limit: carouselLimit, hashtagCap: Math.min(...carouselTargets.map(hashtagCapFor)) },
           ) ?? fitCaptionWithLink([post.title, post.meta_description].filter(Boolean).join('\n\n'), carouselLink, carouselLimit)
         const result = await target.target.sendPhotos(carouselTargets, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
         await settlePost(row, 'carousel', result, carouselTargets, save, fail, notes)

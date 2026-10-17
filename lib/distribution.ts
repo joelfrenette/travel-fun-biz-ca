@@ -336,7 +336,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         },
         platforms[0],
         link,
-        { limit: tightestLimit(platforms), hashtagCap: Math.min(...platforms.map(hashtagCapFor)) },
+        { networks: platforms, limit: tightestLimit(platforms), hashtagCap: Math.min(...platforms.map(hashtagCapFor)) },
       )
       const rawCaption = fallbackCaption ?? [title, post?.meta_description, link].filter(Boolean).join('\n\n')
       // Mechanical limit check against the tightest of the target platforms' real character

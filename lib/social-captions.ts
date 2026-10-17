@@ -151,6 +151,15 @@ export interface FallbackCaptionFacts {
 
 /** The fixed plain-words call to action on line 3 of a fallback caption. */
 export const FALLBACK_CTA_LINE = 'Read the full guide:'
+/** The call to action for Instagram and TikTok, where a caption link is plain text and cannot be tapped. */
+export const BIO_CTA_LINE = 'Full guide: link in our bio.'
+
+/** Picks the fallback call to action. Bio wording (no URL in the text) only when every target network has a
+ * non-clickable caption link; any clickable network in the list keeps the link wording so the link is never lost. */
+export function fallbackCtaFor(networks: ReadonlyArray<string>): { line: string; includeLink: boolean } {
+  const bio = networks.length > 0 && networks.every((n) => !networkSupportsLinks(n))
+  return bio ? { line: BIO_CTA_LINE, includeLink: false } : { line: FALLBACK_CTA_LINE, includeLink: true }
+}
 const HOOK_MAX = 140
 
 const cleanLine = (s: unknown): string => (typeof s === 'string' ? repairDashes(s).replace(/\s+/g, ' ').trim() : '')
@@ -163,7 +172,7 @@ export function buildFallbackCaption(
   facts: FallbackCaptionFacts,
   network: string,
   link: string,
-  opts: { limit?: number; hashtagCap?: number } = {},
+  opts: { limit?: number; hashtagCap?: number; networks?: ReadonlyArray<string> } = {},
 ): string | null {
   const limit = opts.limit ?? PLATFORM_CHAR_LIMITS[network.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
   const questions = (facts.faqQuestions ?? []).map(cleanLine).filter((q) => q && q.length <= HOOK_MAX)
@@ -177,7 +186,11 @@ export function buildFallbackCaption(
   const cap = Math.min(opts.hashtagCap ?? hashtagCapFor(network), 3)
   const tags = normaliseHashtags([facts.category, ...(facts.tags ?? [])], cap).join(' ')
 
-  const build = (body: string, hashtags: string) => [[hook, body, FALLBACK_CTA_LINE].filter(Boolean).join('\n'), `${link0}${hashtags ? `\n\n${hashtags}` : ''}`].join('\n\n')
+  const cta = fallbackCtaFor(opts.networks?.length ? opts.networks : [network])
+  const build = (body: string, hashtags: string) =>
+    cta.includeLink
+      ? [[hook, body, cta.line].filter(Boolean).join('\n'), `${link0}${hashtags ? `\n\n${hashtags}` : ''}`].join('\n\n')
+      : [[hook, body, cta.line].filter(Boolean).join('\n'), hashtags].filter(Boolean).join('\n\n')
   let caption = build(bodyFull, tags)
   if (caption.length > limit) caption = build(bodyFull, '')
   if (caption.length > limit && bodyFull) {

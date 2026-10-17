@@ -43,3 +43,10 @@ One entry per improvement committed on branch `staging` by the unattended loop. 
 - Why it helps traffic: speakable and a clear WebPage/entity split help Google and AI answer engines pick the direct-answer blocks and cite the right entity. The prefilled enquiry form removes a step for the visitor, which lifts conversions from guide traffic.
 - Offline check: `pnpm dlx tsx scripts/check-guide-schema.ts`.
 - How to UAT on the staging preview: open a destination guide, view source, and find `"@type":"WebPage"` with a `TouristDestination` mainEntity and a `speakable` block. Click "Ask us about your trip" on a guide with a related trip and check the contact form opens with that trip chosen; on a blog post with no trip it should show Custom Package.
+
+## Instagram/TikTok link-in-bio CTA wording
+
+- What changed: new pure `fallbackCtaFor(networks)` in `lib/social-captions.ts`. When every target network is Instagram or TikTok (links are not tappable there), the fallback caption ends with the fixed line "Full guide: link in our bio." and leaves the raw URL out. Any clickable network in the list (Facebook, X, LinkedIn and so on) keeps "Read the full guide:" plus the UTM link. `buildFallbackCaption` takes a new `networks` option, and `lib/distribution.ts` and `lib/autopilot.ts` pass their target list so a mixed shared caption keeps the link. No new fact, number or claim.
+- Why it helps traffic: a pasted URL on Instagram and TikTok cannot be tapped and wastes caption space. Telling people to use the bio link sends them to the one place that works.
+- Offline check: `pnpm dlx tsx scripts/check-fallback-caption.ts`.
+- How to UAT on staging: queue a post to Instagram only and read the caption: it ends with "Full guide: link in our bio." and has no http link. Queue Instagram plus Facebook and check the caption still has the link. Check the bio link of the account points to the site.

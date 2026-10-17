@@ -1,6 +1,6 @@
 // Offline checks for the no-AI fallback caption and hashtag cleaner. No network, no database.
 // Run: pnpm dlx tsx scripts/check-fallback-caption.ts   (exits 1 on any failed expectation)
-import { buildFallbackCaption, PLATFORM_CHAR_LIMITS, FALLBACK_CTA_LINE } from '../lib/social-captions'
+import { buildFallbackCaption, PLATFORM_CHAR_LIMITS, FALLBACK_CTA_LINE, BIO_CTA_LINE, fallbackCtaFor, tightestLimit } from '../lib/social-captions'
 import { normaliseHashtags, hashtagCapFor } from '../lib/hook-styles'
 import { readFileSync } from 'node:fs'
 
@@ -27,13 +27,17 @@ for (const n of networks) {
   if (!c) continue
   const lines = c.split('\n').filter((l) => l.trim())
   expect(`${n}: line 1 is the first FAQ question, not the title`, lines[0] === facts.faqQuestions[0] && !c.startsWith(facts.title))
-  expect(`${n}: has the fixed CTA line and the link intact`, c.includes(FALLBACK_CTA_LINE) && c.includes(link))
+  const bioNet = n === 'instagram' || n === 'tiktok'
+  expect(
+    `${n}: has the right fixed CTA line (${bioNet ? 'bio' : 'link'}) and ${bioNet ? 'no URL' : 'the link intact'}`,
+    bioNet ? c.includes(BIO_CTA_LINE) && !c.includes(FALLBACK_CTA_LINE) && !/https?:\/\//i.test(c) : c.includes(FALLBACK_CTA_LINE) && c.includes(link) && !c.includes('link in our bio'),
+  )
   expect(`${n}: within the limit`, c.length <= PLATFORM_CHAR_LIMITS[n], String(c.length))
   expect(`${n}: no em dash`, !c.includes(EM))
   const tags = c.match(/#\S+/g) ?? []
   expect(`${n}: hashtags at most 3 and at most the network cap`, tags.length <= 3 && tags.length <= hashtagCapFor(n), tags.join(' '))
   expect(`${n}: hashtags deduped, no double # or spaces`, new Set(tags.map((t) => t.toLowerCase())).size === tags.length && tags.every((t) => /^#[A-Za-z0-9]+$/.test(t)), tags.join(' '))
-  expect(`${n}: link comes before hashtags`, tags.length === 0 || c.indexOf(link) < c.indexOf(tags[0] ?? ""))
+  expect(`${n}: link comes before hashtags`, bioNet || tags.length === 0 || c.indexOf(link) < c.indexOf(tags[0] ?? ""))
 }
 
 const takeawayOnly = buildFallbackCaption({ ...facts, faqQuestions: [] }, 'facebook', link)
@@ -48,6 +52,22 @@ const tight = buildFallbackCaption(facts, 'x', link, { limit: 280 })
 expect('x: tight fit keeps the link whole', !!tight && tight.includes(link) && tight.length <= 280)
 const shared = buildFallbackCaption(facts, 'facebook', link, { limit: 280, hashtagCap: 1 })
 expect('shared limit and hashtag cap are honoured', !!shared && shared.length <= 280 && (shared.match(/#\S+/g) ?? []).length <= 1)
+
+// link-in-bio wording
+const hasUrl = (s: string) => /https?:\/\//i.test(s)
+const ig = buildFallbackCaption(facts, 'instagram', link, { networks: ['instagram'] }) ?? ''
+expect('instagram only: bio line, no http URL', ig.includes('link in our bio') && !hasUrl(ig) && !ig.includes(FALLBACK_CTA_LINE))
+const tt = buildFallbackCaption(facts, 'tiktok', link, { networks: ['tiktok'] }) ?? ''
+expect('tiktok only: bio line, no http URL', tt.includes('link in our bio') && !hasUrl(tt))
+const fb = buildFallbackCaption(facts, 'facebook', link, { networks: ['facebook'] }) ?? ''
+expect('facebook only: URL kept, no bio line', fb.includes(link) && fb.includes(FALLBACK_CTA_LINE) && !fb.includes('link in our bio'))
+const mixed = buildFallbackCaption(facts, 'instagram', link, { networks: ['instagram', 'facebook'], limit: tightestLimit(['instagram', 'facebook']) }) ?? ''
+expect('mixed instagram+facebook keeps the URL and link wording', mixed.includes(link) && mixed.includes(FALLBACK_CTA_LINE) && !mixed.includes('link in our bio'))
+const both = buildFallbackCaption(facts, 'instagram', link, { networks: ['instagram', 'tiktok'], limit: tightestLimit(['instagram', 'tiktok']) }) ?? ''
+expect('all non-clickable list uses bio wording and no URL', both.includes('link in our bio') && !hasUrl(both))
+expect('fallbackCtaFor: pure choice', fallbackCtaFor(['instagram']).includeLink === false && fallbackCtaFor(['TikTok', 'instagram']).line === BIO_CTA_LINE && fallbackCtaFor(['instagram', 'x']).includeLink === true && fallbackCtaFor([]).includeLink === true)
+expect('bio captions respect length caps, hashtag cap and have no em dash', [ig, tt, both].every((c) => c.length <= 2200 && !c.includes(EM) && (c.match(/#\S+/g) ?? []).length <= 3) && both.length <= tightestLimit(['instagram', 'tiktok']))
+expect('BIO_CTA_LINE has no em dash', !BIO_CTA_LINE.includes(EM))
 
 // normaliseHashtags
 expect('strips # and spaces, joins words', normaliseHashtags(['#river cruise']).join() === '#RiverCruise')
