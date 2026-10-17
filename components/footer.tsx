@@ -11,6 +11,26 @@ interface FooterProps {
   language: Language
 }
 
+function FooterTile({ href, src, alt, fit }: { href: string; src: string; alt: string; fit: "contain" | "cover" }) {
+  return (
+    <Link
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`relative block aspect-[16/7] w-full overflow-hidden rounded transition-opacity hover:opacity-90 ${fit === "contain" ? "bg-white" : "bg-[#1f1f1f]"}`}
+    >
+      <Image
+        src={src}
+        alt={alt}
+        fill
+        sizes="(min-width: 1024px) 25vw, 100vw"
+        className={fit === "contain" ? "object-contain p-2" : "object-cover"}
+        unoptimized
+      />
+    </Link>
+  )
+}
+
 export function Footer({ language }: FooterProps) {
   return (
     <footer className="bg-[#2a2a2a] text-white">
@@ -81,57 +101,20 @@ export function Footer({ language }: FooterProps) {
               </p>
             ))}
 
-            <div className="pt-4">
-              <Image
-                src="https://travelfunbiz.com/wp-content/uploads/2025/10/logo-IATAN.png"
-                alt="IATAN - International Airlines Travel Agent Network"
-                width={300}
-                height={120}
-                className="h-auto w-[300px]"
-                unoptimized
-              />
-            </div>
           </div>
 
+          {/* Every badge and promo sits in an identical tile (same width, same height) so the two columns line up
+              whatever the shape of the source picture. Logos are shown whole on white (contain); photo banners fill
+              their tile (cover). */}
           <div className="space-y-4">
             {recognitionBadges.map((badge) => (
-              <Link
-                key={badge.href}
-                href={badge.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block transition-opacity hover:opacity-90"
-              >
-                <Image
-                  src={badge.src}
-                  alt={badge.alt}
-                  width={320}
-                  height={140}
-                  className="h-auto w-full rounded"
-                  unoptimized
-                />
-              </Link>
+              <FooterTile key={badge.href} href={badge.href} src={badge.src} alt={badge.alt} fit="contain" />
             ))}
           </div>
 
           <div className="space-y-4">
             {socialPromos.map((promo) => (
-              <Link
-                key={promo.href}
-                href={promo.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block transition-opacity hover:opacity-90"
-              >
-                <Image
-                  src={promo.src}
-                  alt={promo.alt}
-                  width={320}
-                  height={140}
-                  className="h-auto w-full rounded"
-                  unoptimized
-                />
-              </Link>
+              <FooterTile key={promo.href} href={promo.href} src={promo.src} alt={promo.alt} fit="cover" />
             ))}
           </div>
 

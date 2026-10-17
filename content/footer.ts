@@ -52,6 +52,11 @@ export const recognitionBadges = [
     src: 'https://travelfunbiz.com/wp-content/uploads/2024/01/asta-logo-1-e1705621308273-300x122.png',
     alt: 'ASTA - American Society of Travel Advisors',
   },
+  {
+    href: 'https://www.iata.org/',
+    src: 'https://travelfunbiz.com/wp-content/uploads/2025/10/logo-IATAN.png',
+    alt: 'IATAN - International Airlines Travel Agent Network',
+  },
 ]
 
 export const socialPromos = [
