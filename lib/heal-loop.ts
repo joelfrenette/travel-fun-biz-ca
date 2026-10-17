@@ -429,7 +429,7 @@ const QA_RULES = [
   'A specific fact (a feature, an amenity, an inclusion, a name) must be supported by the FACTS. General, well-known travel advice needs no source.',
 ]
 
-function judgePrompt(brief: string, text: string): string {
+export function judgePrompt(brief: string, text: string): string {
   return `You are an independent quality reviewer for a Canadian travel agency website. Decide whether the page text below is safe to publish. Judge it ONLY against the RULES and the FACTS. You did not write it and you must not be kind to it.\n\nRULES (a text that breaks any rule FAILS):\n${QA_RULES.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\nFACTS:\n${clipBrief(brief)}\n\nPAGE TEXT:\n${text}\n\nList every sentence that breaks a rule, copying the sentence EXACTLY as written in the page text. If nothing breaks a rule, pass.\nReturn ONLY minified JSON: {"pass":true,"failures":[]} or {"pass":false,"failures":[{"quote":"<exact sentence>","rule":<rule number>,"reason":"<short reason>"}]}`
 }
 

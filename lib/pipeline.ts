@@ -12,7 +12,7 @@ import { sendThrottledAlert } from '@/lib/alerts'
 import { selfHeal } from '@/lib/heal'
 import { runDebriefIfDue } from '@/lib/debrief'
 import { snapshotContentPerformance } from '@/lib/content-performance'
-import { plainAction, HARD_WAITING_ISSUE_ID } from '@/lib/plain-steps'
+import { plainAction, HARD_WAITING_ISSUE_ID, CANNIBALISATION_ISSUE_ID } from '@/lib/plain-steps'
 import { alertHtml } from '@/lib/brief-html'
 import { runGuidesStep } from '@/lib/guide-run'
 import { runPageCopyStep } from '@/lib/page-copy-run'
@@ -228,7 +228,7 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
   try {
     // Pages held for a person are shown on the page and in the daily brief; they are not an emergency, so they do not
     // re-send this email every six hours for as long as they wait.
-    const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup' && i.id !== HARD_WAITING_ISSUE_ID)
+    const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup' && i.id !== HARD_WAITING_ISSUE_ID && i.id !== CANNIBALISATION_ISSUE_ID)
     if (open.length) {
       const actions = open.map(plainAction)
       const dateLabel = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto', weekday: 'long', month: 'long', day: 'numeric' })

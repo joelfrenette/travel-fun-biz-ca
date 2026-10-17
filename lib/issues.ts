@@ -11,7 +11,8 @@ import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { healLoopCard } from '@/lib/heal-loop'
-import { GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { readCannibalisation } from '@/lib/ctr-loop'
 import { readOrphanAudit } from '@/lib/guide-orphans'
 import { clearAllPromotionFailures, readPromotionFailures } from '@/lib/promotion'
 import { completenessScore } from '@/lib/package-completeness'
@@ -237,6 +238,23 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     }
   } catch {
     // an unreadable card is not worth failing the list
+  }
+
+  // Search phrases where two or more of our pages get impressions (hub row 2). ONE informational item lists the top 5 and
+  // names the stronger page. Stored daily by the heal; silent when it is older than a week or cannot be read.
+  try {
+    const record = await readCannibalisation(admin)
+    if (record && record.items.length > 0 && Date.now() - Date.parse(record.at) < 8 * 86_400_000) {
+      issues.push({
+        id: CANNIBALISATION_ISSUE_ID,
+        area: 'system',
+        title: `For your information: ${record.items.length} search phrase${record.items.length === 1 ? '' : 's'} show${record.items.length === 1 ? 's' : ''} two of your pages in Google`,
+        detail: record.items.map((c) => `"${c.query}": ${c.pages.slice(0, 3).map((p) => `${p.path} (${p.clicks} click${p.clicks === 1 ? '' : 's'}, ${p.impressions} views)`).join(' vs ')}; the stronger page is ${c.stronger}`).join(' | '),
+        fix: 'Nothing is broken. To stop the pages sharing the clicks, link from the weaker page to the stronger one and make the weaker page about something a little different. Ignore it if both pages are meant to be there.',
+      })
+    }
+  } catch {
+    // an unreadable list is not worth failing the issue list
   }
 
   // Compare and best-time page copy that could not be written. One item lists them all.
