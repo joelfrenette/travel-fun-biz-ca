@@ -21,6 +21,7 @@ import { runSourceWatchIfDue } from '@/lib/source-watch'
 import { runValueSnapshotIfDue } from '@/lib/value-snapshot'
 import { runIndexNowCatchupIfDue } from '@/lib/indexnow-catchup'
 import { runVisitPurgeIfDue } from '@/lib/visit-tracking'
+import { runNewsStep } from '@/lib/news-run'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -48,6 +49,11 @@ const WRITE_START_BY_MS = 60_000
 const GUIDES_START_BY_MS = 100_000
 // The page copy step makes one AI call (80 second limit), so it must start before this.
 const COPY_START_BY_MS = 60_000
+// The travel news step reads a few small feeds (10 second limit each, at most once in 30 minutes per feed) and writes at most
+// travel_news_per_day short briefs (each a few short model calls), so it must start before this and stops by NEWS_DEADLINE_MS,
+// which leaves the posting steps below their time.
+const NEWS_START_BY_MS = 100_000
+const NEWS_DEADLINE_MS = 200_000
 // The heal step scores everything in a few seconds, then fixes a handful of pages (each at most one 45 second call);
 // it stops starting pages after 60 seconds, so it must start before this to end well inside the 300 second route limit.
 const HEAL_START_BY_MS = 120_000
@@ -190,6 +196,22 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
       run.steps.push({ step: 'copy', ok: result.ok, note: result.note })
     } catch (e) {
       run.steps.push({ step: 'copy', ok: false, note: e instanceof Error ? e.message : 'page copy step failed' })
+    }
+  }
+
+  // 1d. TRAVEL NEWS (WP20): read the allowlisted official and trade feeds (RSS and Atom only, never an article page), keep
+  // items that change a traveller's plans, and write up to travel_news_per_day of our own short briefs, each through the
+  // quality gate and an independent judge on the shared heal call budget. Mode travel_news_mode: off (silent), draft
+  // (default: saved as drafts, nothing goes live) or publish. A published brief is enrolled for social below, in step 2.
+  // Silent when the mode is off; a problem is a step note, which Needs attention shows.
+  if (overBudget() || Date.now() - startedAt > NEWS_START_BY_MS) {
+    run.steps.push({ step: 'news', ok: true, note: 'continues on the next pass' })
+  } else {
+    try {
+      const news = await runNewsStep(admin, { deadlineMs: startedAt + NEWS_DEADLINE_MS })
+      if (news) run.steps.push({ step: 'news', ok: news.ok, note: news.note })
+    } catch (e) {
+      run.steps.push({ step: 'news', ok: false, note: e instanceof Error ? e.message : 'news step failed' })
     }
   }
 

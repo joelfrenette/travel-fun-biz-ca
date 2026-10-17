@@ -147,17 +147,23 @@ export interface FallbackCaptionFacts {
   keyTakeaways?: ReadonlyArray<unknown> | null
   tags?: ReadonlyArray<unknown> | null
   category?: string | null
+  /** 'news' for a travel news post: its caption is always the deterministic one, with the news call to action below. */
+  kind?: 'news' | null
 }
 
 /** The fixed plain-words call to action on line 3 of a fallback caption. */
 export const FALLBACK_CTA_LINE = 'Read the full guide:'
 /** The call to action for Instagram and TikTok, where a caption link is plain text and cannot be tapped. */
 export const BIO_CTA_LINE = 'Full guide: link in our bio.'
+/** The same two lines for travel news posts, which point at a short update and the official source, not a guide. */
+export const NEWS_CTA_LINE = 'Read the full update and the official source:'
+export const NEWS_BIO_CTA_LINE = 'Full update and the official source: link in our bio.'
 
 /** Picks the fallback call to action. Bio wording (no URL in the text) only when every target network has a
  * non-clickable caption link; any clickable network in the list keeps the link wording so the link is never lost. */
-export function fallbackCtaFor(networks: ReadonlyArray<string>): { line: string; includeLink: boolean } {
+export function fallbackCtaFor(networks: ReadonlyArray<string>, kind?: 'news' | null): { line: string; includeLink: boolean } {
   const bio = networks.length > 0 && networks.every((n) => !networkSupportsLinks(n))
+  if (kind === 'news') return bio ? { line: NEWS_BIO_CTA_LINE, includeLink: false } : { line: NEWS_CTA_LINE, includeLink: true }
   return bio ? { line: BIO_CTA_LINE, includeLink: false } : { line: FALLBACK_CTA_LINE, includeLink: true }
 }
 const HOOK_MAX = 140
@@ -186,7 +192,7 @@ export function buildFallbackCaption(
   const cap = Math.min(opts.hashtagCap ?? hashtagCapFor(network), 3)
   const tags = normaliseHashtags([facts.category, ...(facts.tags ?? [])], cap).join(' ')
 
-  const cta = fallbackCtaFor(opts.networks?.length ? opts.networks : [network])
+  const cta = fallbackCtaFor(opts.networks?.length ? opts.networks : [network], facts.kind)
   const build = (body: string, hashtags: string) =>
     cta.includeLink
       ? [[hook, body, cta.line].filter(Boolean).join('\n'), `${link0}${hashtags ? `\n\n${hashtags}` : ''}`].join('\n\n')

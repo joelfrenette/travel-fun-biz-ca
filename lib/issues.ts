@@ -11,7 +11,10 @@ import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { healLoopCard } from '@/lib/heal-loop'
-import { CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { failingSources, newsTableReady } from '@/lib/news-ingest'
+import { getNewsMode } from '@/lib/news-settings'
+import { sourceByKey } from '@/lib/news-sources'
 import { readCannibalisation } from '@/lib/ctr-loop'
 import { readOrphanAudit } from '@/lib/guide-orphans'
 import { clearAllPromotionFailures, readPromotionFailures } from '@/lib/promotion'
@@ -238,6 +241,37 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     }
   } catch {
     // an unreadable card is not worth failing the list
+  }
+
+  // Travel news (WP20), only while it is switched on: the table is missing (a one-time setup item, amber, never emailed), or a
+  // feed failed 3 times in a row (one item per feed, with plain steps). A single failed read is not an issue.
+  try {
+    if ((await getNewsMode(admin)) !== 'off') {
+      const ready = await newsTableReady(admin)
+      if (!ready.ok) {
+        issues.push({
+          id: NEWS_SETUP_ISSUE_ID,
+          area: 'setup',
+          title: 'Travel news needs one database update',
+          detail: 'The news_items table does not exist yet, so the news step does nothing.',
+          fix: 'Run migration 0047 (supabase/migrations/0047_news_items.sql) in the Supabase SQL editor.',
+        })
+      } else {
+        for (const f of await failingSources(admin)) {
+          const source = sourceByKey(f.key)
+          issues.push({
+            id: `${NEWS_SOURCE_ISSUE_PREFIX}${f.key}`,
+            area: 'system',
+            title: `The news feed "${f.name}" failed ${f.fails} times in a row`,
+            detail: `Last problem: ${f.lastError}`,
+            fix: 'Open the feed in a browser. If it shows a page of text, wait an hour. If it shows an error, ask Claude to fix the feed address.',
+            ...(source ? { link: { label: 'Open the feed', href: source.feedUrl } } : {}),
+          })
+        }
+      }
+    }
+  } catch {
+    // a news note is never worth failing the issue list
   }
 
   // Search phrases where two or more of our pages get impressions (hub row 2). ONE informational item lists the top 5 and

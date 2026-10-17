@@ -294,6 +294,9 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // hook rotation, UTM, tagging, the send) is the same code for both. A guide that is no longer published
       // sends nothing.
       const isGuideRow = typeof row.path === 'string'
+      // A travel news post (slug "news-...", WP20) never gets AI-written tailored captions: its facts are checked word by
+      // word against the feed item, so only the deterministic caption built from the saved hook is ever sent.
+      const isNewsRow = !isGuideRow && row.slug.startsWith('news-')
       const guideSource = isGuideRow ? await loadGuidePostSource(admin, row.path as string) : null
       if (isGuideRow && !guideSource) {
         await admin
@@ -340,6 +343,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         faqQuestions: guideFacts?.faqQuestions ?? (Array.isArray(faqRaw) ? (faqRaw as Array<{ q?: unknown }>).map((f) => f?.q) : []),
         keyTakeaways: guideFacts?.keyTakeaways ?? (Array.isArray(takeawaysRaw) ? takeawaysRaw : []),
         tags: Array.isArray(tagsRaw) ? tagsRaw : [],
+        // Travel news (WP20) uses its own call to action line ("Read the full update and the official source:").
+        kind: isNewsRow ? ('news' as const) : null,
       }
       // Per-network captions (own limit, hashtag cap and UTM source). The old single caption below stays as the
       // last-resort fallback for any network with no entry.
@@ -363,7 +368,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // and each network gets its own UTM-tagged link (source = network, content = hook style). This
       // only changes the TEXT handed to the same single send per network below.
       let tailored: PlatformCaptions | null = null
-      if (tailoredCaptionsOn) {
+      if (tailoredCaptionsOn && !isNewsRow) {
         const hookStyles: Record<string, HookStyle> = {}
         const ctaStyles: Record<string, CtaStyle> = {}
         const links: Record<string, string> = {}
