@@ -71,3 +71,10 @@ One entry per improvement committed on branch `staging` by the unattended loop. 
 - Why it helps traffic: the H1 now matches the title tag and the page's real content (the guide), and the answer content sits at the top of the page for search and AI answer engines instead of below a card grid.
 - Offline check: `pnpm dlx tsx scripts/check-destination-page.ts`.
 - How to UAT on staging: open a destination that has a guide. The H1 reads "{Place}: Travel Guide", key takeaways and the article come first, trip cards follow, and the header still shows the enquiry link. Open a destination with trips but no guide: H1 reads "{Place} Trips" and the cards are first.
+
+## Guide CTA on best-time, compare and guide index pages
+
+- What changed: the existing `GuideCta` (phone from `site.phone` inside the component, enquiry link, see all trips) now closes `app/best-time-to-visit/[destination]/page.tsx` (name = destination, enquiry tied to the first listed trip), `app/compare/[pair]/page.tsx` (name = "A vs B", enquiry tied to the first listed trip) and `components/guide-index-page.tsx` (name = kind plural, lower case). No new copy, no new phone constant.
+- Why it helps traffic: these pages rank for high-intent searches but had no way to act; now each ends with a call or enquiry step, so visits turn into leads.
+- Offline check: `pnpm dlx tsx scripts/check-cta-coverage.ts`.
+- How to UAT on staging: open a best-time page, a compare page and /destinations or /cruises. Each ends with a "Thinking about ...?" box with the call line, "Ask us about your trip" and "See all trips". On best-time and compare pages the enquiry link carries the first trip name.

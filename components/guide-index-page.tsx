@@ -4,6 +4,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { listPublishedGuides, guideKinds, guidePath, type GuideKind, type GuideSummary } from "@/lib/guides"
 import { getDestinationSlugs } from "@/lib/destinations"
+import { GuideCta } from "@/components/guide-cta"
 import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { jsonLdHtml } from "@/lib/jsonld"
@@ -121,6 +122,9 @@ export async function GuideIndexPage({ kind }: { kind: GuideKind }) {
               ))}
             </div>
           )}
+          <div className="mt-12">
+            <GuideCta name={info.plural.toLowerCase()} />
+          </div>
         </section>
       </main>
       <Footer language={language} />
