@@ -21,7 +21,9 @@ export function shortUserAgent(ua: string | null | undefined): string {
 
 /** Build the row to store. Pure, so the check can prove no raw IP or user agent leaks into it. */
 export function buildAuthEvent(kind: AuthEventKind, ip: string, ua: string | null | undefined, now: Date = new Date()) {
-  return { ts: now.toISOString(), kind, ip_hash: hashKey(`auth:${ip}`), ua_short: shortUserAgent(ua) }
+  // With no real salt the hash would be a constant-salted, reversible-by-guessing value: store nothing instead.
+  const salted = !!(process.env.RATE_LIMIT_SALT || process.env.CRON_SECRET)
+  return { ts: now.toISOString(), kind, ip_hash: salted ? hashKey(`auth:${ip}`) : '', ua_short: shortUserAgent(ua) }
 }
 
 /** Record one admin sign-in event. Never throws. `writer` is for tests. */

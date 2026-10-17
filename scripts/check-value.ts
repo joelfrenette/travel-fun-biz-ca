@@ -1,9 +1,13 @@
 // Offline checks for the AI meter, the admin sign-in log, the Website Value page and the Users page logic.
 // No network, no database. Run: pnpm dlx tsx scripts/check-value.ts
 import { estimateCostUsd, featureFromStack, meterResponse, recordApiCall, usageFrom } from '../lib/ai-meter'
+import { readFileSync } from 'node:fs'
 import { buildAuthEvent, recordAuthEvent, shortUserAgent } from '../lib/auth-log'
+import { collectValueData } from '../lib/value-data'
+import { readAllPages } from '../lib/paged-read'
+import { VISIT_TRACKING_KEY } from '../lib/visit-tracking'
 import {
-  buildValueReport, cleanInputsPatch, computeEstimate, latestDayRows, latestRow, tileStatus, trailingRevenue, channelShares,
+  buildValueReport, cleanInputsPatch, computeEstimate, latestDayRows, latestRow, tileStatus, trailingRevenue, channelShares, organicShareOfVisits, channelLabel,
   type Adjustment, type ValueData,
 } from '../lib/value'
 import { buildDataRoomCsv, scrubPersonal } from '../lib/value-export'
@@ -67,6 +71,19 @@ async function main() {
   check('auth event never holds the raw IP', !JSON.stringify(ev).includes('203.0.113.7') && ev.ip_hash.length === 32)
   check('auth event keeps only a short browser label', ev.ua_short === 'Chrome on Windows', ev.ua_short)
   check('auth event hash is stable and salted', buildAuthEvent('login_fail', '203.0.113.7', null).ip_hash === ev.ip_hash && buildAuthEvent('login_ok', '203.0.113.8', null).ip_hash !== ev.ip_hash)
+  {
+    const saltBefore = { s: process.env.RATE_LIMIT_SALT, c: process.env.CRON_SECRET }
+    delete process.env.RATE_LIMIT_SALT
+    delete process.env.CRON_SECRET
+    const unsalted = buildAuthEvent('login_ok', '203.0.113.7', null)
+    check('auth event: with no real salt the ip_hash is empty, never the constant-fallback hash', unsalted.ip_hash === '' && !JSON.stringify(unsalted).includes('203.0.113.7'))
+    process.env.CRON_SECRET = 'cron-secret-test'
+    const withCron = buildAuthEvent('login_ok', '203.0.113.7', null)
+    check('auth event: CRON_SECRET counts as a real salt', withCron.ip_hash.length === 32)
+    delete process.env.CRON_SECRET
+    if (saltBefore.s !== undefined) process.env.RATE_LIMIT_SALT = saltBefore.s
+    else process.env.RATE_LIMIT_SALT = 'test-salt'
+  }
   check('auth event has no email or password fields', !('email' in ev) && !('password' in ev) && shortUserAgent(undefined) === 'unknown')
   const authRows: unknown[] = []
   await recordAuthEvent('login_ok', new Request('http://x/', { headers: { 'x-forwarded-for': '198.51.100.9' } }), { from: () => ({ insert: async (r) => (authRows.push(r), { error: null }) }) })
@@ -223,8 +240,90 @@ async function main() {
 
   const v0 = visitorStats([])
   check('visitors: empty shows "Needs visit tracking switched on"', !v0.tracked && v0.message === 'Needs visit tracking switched on' && v0.total === 0)
-  const v1 = visitorStats([{ channel: 'organic', landing_path: '/a?x=1', created_at: '2026-10-16T01:00:00Z' }, { channel: 'direct', landing_path: '/a', created_at: '2026-10-17T01:00:00Z' }])
+  const v1 = visitorStats([{ channel: 'search', landing_path: '/a?x=1', created_at: '2026-10-16T01:00:00Z' }, { channel: 'direct', landing_path: '/a', created_at: '2026-10-17T01:00:00Z' }])
   check('visitors: channels and pages when rows exist', v1.tracked && v1.total === 2 && v1.byPage[0].page === '/a' && v1.byPage[0].visits === 2 && v1.byChannel.length === 2)
+
+  // visitors: site_visits is one row per SESSION
+  const vs = visitorStats([
+    { channel: 'search', landing_path: '/a', last_path: '/b', page_views: 3, duration_s: 120, created_at: '2026-10-16T01:00:00Z' },
+    { channel: 'direct', landing_path: '/a', last_path: '/a', page_views: 1, duration_s: 0, created_at: '2026-10-17T01:00:00Z' },
+    { channel: 'search', landing_path: '/c', last_path: null, page_views: 2, duration_s: 60, created_at: '2026-10-17T02:00:00Z' },
+  ])
+  check('visitors: counts sessions and page views (page_views per row), not rows as visits', vs.sessions === 3 && vs.total === 3 && vs.pageViews === 6, JSON.stringify([vs.sessions, vs.pageViews]))
+  check('visitors: average time is over sessions that have a time (0 means none recorded)', vs.avgDurationS === 90, String(vs.avgDurationS))
+  check('visitors: landing pages and last pages are separate lists', vs.byPage[0].page === '/a' && vs.byPage[0].visits === 2 && vs.byLastPage.some((p) => p.page === '/b') && vs.byLastPage.some((p) => p.page === '/c'), JSON.stringify(vs.byLastPage))
+  check('visitors: empty shape keeps the new fields', visitorStats([]).sessions === 0 && visitorStats([]).pageViews === 0 && Array.isArray(visitorStats([]).byLastPage))
+  const page = readFileSync(new URL('../app/admin/users/page.tsx', import.meta.url), 'utf8')
+  check('users page labels the landing list and shows sessions', /Top landing pages \(the first page of each session\)/.test(page) && /Sessions, last/.test(page))
+
+  // ---------- M2: organic share uses the real channel names ----------
+  check('organic: site_visits "search" is the organic share', organicShareOfVisits({ search: 60, direct: 30, ai_assistant: 10 }) === 0.6)
+  check('organic: paid_search is NOT organic', organicShareOfVisits({ paid_search: 50, direct: 50 }) === 0)
+  check('organic: no visits at all is null (Not tracked), never 0', organicShareOfVisits({}) === null && organicShareOfVisits({ search: 0 }) === null)
+  check('organic: channel names this site does not write give null, not a made-up 0', organicShareOfVisits({ Organic: 10, weird: 5 }) === null)
+  check('organic: the old key "organic" is not treated as search', organicShareOfVisits({ organic: 90, direct: 10 }) === null)
+  const visitReport = buildValueReport(baseData({ visitsByChannel: { search: 90, direct: 10 } }), NOW)
+  check('organic tile: 90% search from the visit log suggests the negative adjustment', tile(visitReport, 'organic_share').raw === 0.9 && visitReport.estimate.adjustments.find((a) => a.key === 'organic')!.value === -0.4)
+  const lowSearch = buildValueReport(baseData({ visitsByChannel: { search: 20, direct: 50, social: 30 } }), NOW)
+  check('organic tile: 20% search suggests the positive adjustment', lowSearch.estimate.adjustments.find((a) => a.key === 'organic')!.value === 0.2)
+  const unknownChannels = buildValueReport(baseData({ visitsByChannel: { Organic: 90, other_thing: 10 } }), NOW)
+  check('organic tile: unknown channel names are Not tracked, no +0.2 bonus', tile(unknownChannels, 'organic_share').value === null && unknownChannels.estimate.adjustments.find((a) => a.key === 'organic')!.value === 0)
+  check('channels tile: plain-English labels, not raw keys', /Search engines 90%/.test(String(tile(visitReport, 'traffic_channels').value)) && !/search 90%/.test(String(tile(visitReport, 'traffic_channels').value)) && channelLabel('ai_assistant') === 'AI assistants' && channelLabel('Organic Search') === 'Organic Search')
+
+  // ---------- M1: reads past PostgREST's 1000-row cap ----------
+  {
+    const day = (i: number) => new Date(NOW.getTime() - (i % 20) * 86_400_000).toISOString()
+    const calls = Array.from({ length: 2500 }, (_, i) => ({ id: 'c' + i, ts: day(i), est_cost_usd: 0.01 }))
+    const visitsRows = Array.from({ length: 2300 }, (_, i) => ({ id: 'v' + i, channel: i % 2 ? 'search' : 'direct', created_at: day(i) }))
+    const posts = Array.from({ length: 1500 }, (_, i) => ({ id: 'p' + i, status: 'published', created_at: new Date(Date.UTC(2025, 0, 1) + i * 3600_000).toISOString() }))
+    const mkDb = (tracking: boolean) => ({ tables: { app_settings: tracking ? [{ key: VISIT_TRACKING_KEY, value: 'on' }] : [], api_calls: calls, site_visits: visitsRows, posts, orders: [], guides: [], travel_packages: [] } })
+    const full = await collectValueData(fakeAdmin(mkDb(true)), NOW)
+    check('reads: 2500 api_calls are all summed (25.00), not just the first 1000 (10.00)', Math.abs((full.aiCost12mUsd ?? 0) - 25) < 1e-6, String(full.aiCost12mUsd))
+    check('reads: the 30-day cost counts every call inside the window', Math.abs((full.aiCost30dUsd ?? 0) - 25) < 1e-6, String(full.aiCost30dUsd))
+    check('reads: 2300 visits are all counted by channel', full.visitsByChannel?.search === 1150 && full.visitsByChannel?.direct === 1150, JSON.stringify(full.visitsByChannel))
+    check('reads: 1500 published posts are all counted', full.posts?.count === 1500 && full.posts.newest === posts[1499].created_at, JSON.stringify(full.posts))
+    const off = await collectValueData(fakeAdmin(mkDb(false)), NOW)
+    check('visit tracking off: the value page reads no traffic from the visit log', off.visitsByChannel === null)
+
+    // a page that fails part-way means Not tracked, never a partial sum
+    const real = fakeAdmin(mkDb(true))
+    const flaky = {
+      from: (t: string) => {
+        const q = real.from(t) as unknown as Record<string, (...a: unknown[]) => unknown>
+        if (t !== 'api_calls' && t !== 'site_visits' && t !== 'posts') return q
+        const orig = q.range
+        q.range = (from: unknown, to: unknown) => ((from as number) >= 1000 ? Promise.resolve({ data: null, error: { message: 'timeout' } }) : orig(from, to))
+        return q
+      },
+    } as never
+    const partial = await collectValueData(flaky, NOW)
+    check('reads: a failed second page makes AI cost Not tracked (null), not 10.00', partial.aiCost12mUsd === null && partial.aiCost30dUsd === null && partial.aiFirstTs === null)
+    check('reads: a failed second page makes the visit channels null', partial.visitsByChannel === null)
+    check('reads: a failed second page makes the post count null', partial.posts === null)
+    const tiny = await readAllPages<{ id: string }>(async () => ({ data: Array.from({ length: 1000 }, (_, i) => ({ id: String(i) })), error: null }), 2)
+    check('reads: hitting the page ceiling is reported as incomplete', !tiny.ok && tiny.capped === true)
+    const users = readFileSync(new URL('../app/api/admin/users/route.ts', import.meta.url), 'utf8')
+    check('users API: every list is paged and none relies on .limit()', (users.match(/readAllPages/g) ?? []).length >= 4 && !/\.limit\(/.test(users) && /order\('ts', \{ ascending: false \}\)/.test(users))
+    check('users API: the Visitors read is gated on visit tracking', /isVisitTrackingOn/.test(users) && /trackingOn\s*\n?\s*\?/.test(users))
+    const vd = readFileSync(new URL('../lib/value-data.ts', import.meta.url), 'utf8')
+    check('value data: no .limit() on any list that feeds a total, tracking-gated traffic read', !/\.limit\((200000|20000|5000)\)/.test(vd) && /isVisitTrackingOn/.test(vd))
+  }
+
+  // ---------- minors ----------
+  {
+    const login = readFileSync(new URL('../app/api/admin/login/route.ts', import.meta.url), 'utf8')
+    check('login: the sign-in log never makes a sign-in wait more than 1.5 seconds', !/await recordAuthEvent/.test(login) && /Promise\.race/.test(login) && /1500/.test(login))
+    const slow = Promise.race([new Promise<void>(() => undefined), new Promise<void>((r) => setTimeout(r, 20))])
+    check('login: a hung insert loses the race', (await slow) === undefined)
+    const meter = readFileSync(new URL('../lib/ai-meter.ts', import.meta.url), 'utf8')
+    check('ai meter: documents why waitUntil is not used', /@vercel\/functions/.test(meter) && /waitUntil/.test(meter))
+    const callers = ['blog-composer', 'blog-topics', 'carousel', 'destination-blurbs', 'guide-composer', 'keyword-intel', 'package-enrich', 'package-extract', 'package-faqs', 'promotion', 'social-captions', 'video-script', 'ai-verify']
+    const missing = callers.filter((c) => !new RegExp("feature: '" + c).test(readFileSync(new URL('../lib/' + c + '.ts', import.meta.url), 'utf8')))
+    check('ai meter: every direct callAnthropic caller names its feature', missing.length === 0, missing.join(', '))
+    const repair = readFileSync(new URL('../lib/content-repair.ts', import.meta.url), 'utf8')
+    check('ai meter: the shared model call carries a feature, and heal, CTR and content-heal pass their own', /modelCallFor = \(feature: string\)/.test(repair) && /modelCallFor\('ctr-loop'\)/.test(readFileSync(new URL('../lib/ctr-loop.ts', import.meta.url), 'utf8')) && /modelCallFor\('heal-loop'\)/.test(readFileSync(new URL('../lib/heal-loop.ts', import.meta.url), 'utf8')))
+    check('ai meter: an explicit feature wins over the stack guess', /opts\.feature \?\? featureFromStack/.test(readFileSync(new URL('../lib/ai-verify.ts', import.meta.url), 'utf8')))
+  }
 
   console.log(failed ? `\n${failed} FAILED` : '\nAll checks passed')
   if (failed) process.exit(1)

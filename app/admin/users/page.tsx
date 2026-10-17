@@ -13,8 +13,8 @@ function authHeaders(): HeadersInit {
 interface UsersData {
   ai: ReturnType<typeof aiCostByFeatureDay> & { note: string }
   logins: ReturnType<typeof loginStats> & { note: string }
-  leads: ReturnType<typeof leadStats> & { days: number }
-  visitors: ReturnType<typeof visitorStats> & { days: number }
+  leads: ReturnType<typeof leadStats> & { days: number; note: string }
+  visitors: ReturnType<typeof visitorStats> & { days: number; note: string }
 }
 
 const usd = (n: number) => `US$${n.toFixed(n < 1 ? 4 : 2)}`
@@ -144,19 +144,25 @@ export default function UsersPage() {
 
             <TabsContent value="visitors" className="space-y-3">
               {!data.visitors.tracked ? (
-                <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">{data.visitors.message}</div>
+                <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">{data.visitors.note || data.visitors.message}</div>
               ) : (
                 <>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    <Stat label={`Visits, last ${data.visitors.days} days`} value={data.visitors.total} />
+                    <Stat label={`Sessions, last ${data.visitors.days} days`} value={data.visitors.sessions} />
+                    <Stat label="Page views" value={data.visitors.pageViews} />
+                    <Stat label="Average time on site (seconds, timed sessions)" value={data.visitors.avgDurationS} />
                   </div>
                   <Card><CardContent className="p-2">
                     <p className="p-2 text-sm font-medium">By channel</p>
-                    <Table head={["Channel", "Visits"]} rows={data.visitors.byChannel.map((c) => [c.channel, c.visits])} />
+                    <Table head={["Channel", "Sessions"]} rows={data.visitors.byChannel.map((c) => [c.channel, c.visits])} />
                   </CardContent></Card>
                   <Card><CardContent className="p-2">
-                    <p className="p-2 text-sm font-medium">Top landing pages</p>
-                    <Table head={["Page", "Visits"]} rows={data.visitors.byPage.map((c) => [c.page, c.visits])} />
+                    <p className="p-2 text-sm font-medium">Top landing pages (the first page of each session)</p>
+                    <Table head={["Page", "Sessions"]} rows={data.visitors.byPage.map((c) => [c.page, c.visits])} />
+                  </CardContent></Card>
+                  <Card><CardContent className="p-2">
+                    <p className="p-2 text-sm font-medium">Last pages seen (where sessions ended)</p>
+                    <Table head={["Page", "Sessions"]} rows={data.visitors.byLastPage.map((c) => [c.page, c.visits])} />
                   </CardContent></Card>
                 </>
               )}

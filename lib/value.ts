@@ -1,4 +1,5 @@
 import { summarizeOrders } from '@/lib/orders-summary'
+import { CHANNELS, CHANNEL_LABELS, type Channel } from '@/lib/traffic-source'
 
 // Website Value page, pure logic (no database, no network). lib/value-data.ts reads the sources and
 // hands a ValueData bundle to buildValueReport; scripts/check-value.ts proves the rules offline.
@@ -146,6 +147,23 @@ export function latestRow<T extends { day: string }>(rows: T[]): T | null {
 export function latestDayRows<T extends { day: string }>(rows: T[]): T[] {
   const top = latestRow(rows)
   return top ? rows.filter((r) => r.day === top.day) : []
+}
+
+/** Share (0..1) of visits from organic search in a site_visits channel count, or null when it cannot be told.
+ * The visit log's channel for Google and other search engines is exactly "search" (paid search is its own channel
+ * and is NOT organic). With visits recorded but no "search" row the share is a real 0, unless some channel name is
+ * not one this site writes: then the log is not understood and the answer is null, never a made-up 0. Pure. */
+export function organicShareOfVisits(by: Record<string, number>): number | null {
+  const shares = channelShares(by)
+  if (!shares.length) return null
+  const search = shares.find((x) => x.channel === 'search')
+  if (search) return search.share
+  return shares.every((x) => (CHANNELS as readonly string[]).includes(x.channel)) ? 0 : null
+}
+
+/** Plain-English channel name for a site_visits channel key; GA4 names and unknown keys pass through. Pure. */
+export function channelLabel(channel: string): string {
+  return CHANNEL_LABELS[channel as Channel] ?? channel
 }
 
 /** Shares (0..1) per channel, biggest first. Pure. */
@@ -395,10 +413,10 @@ export function buildValueReport(d: ValueData, now: Date = new Date()): ValueRep
   })
   add({
     key: 'traffic_channels', group: 'traffic', label: 'Visits by channel',
-    tracked: shares.length > 0, value: shares.slice(0, 4).map((s) => `${s.channel} ${pct(s.share)}`).join(', '), raw: null,
+    tracked: shares.length > 0, value: shares.slice(0, 4).map((s) => `${channelLabel(s.channel)} ${pct(s.share)}`).join(', '), raw: null,
     source: trafficSource || 'GA4 or the visit log', asOf: trafficAsOf, note: '',
   })
-  const organic = d.ga4 ? (d.ga4.sessions > 0 ? d.ga4.organicSearch / d.ga4.sessions : null) : shares.find((s) => /organic/i.test(s.channel))?.share ?? (shares.length ? 0 : null)
+  const organic = d.ga4 ? (d.ga4.sessions > 0 ? d.ga4.organicSearch / d.ga4.sessions : null) : (channels ? organicShareOfVisits(channels) : null)
   add({
     key: 'organic_share', group: 'traffic', label: 'Organic share of visits',
     tracked: organic != null, value: organic != null ? pct(organic) : null, raw: organic, source: trafficSource || 'GA4 or the visit log', asOf: trafficAsOf,

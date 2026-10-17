@@ -2,11 +2,17 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { isGa4Configured, getGa4Report } from '@/lib/ga4'
 import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { isAutopilotOn } from '@/lib/autopilot'
+import { readAllPages } from '@/lib/paged-read'
+import { isVisitTrackingOn } from '@/lib/visit-tracking'
 import { latestDayRows, type ContentCount, type Inputs, type ValueData } from '@/lib/value'
 
 // Reads every source the Website Value page needs. Read-only. Each source is read on its own and a
 // failed read becomes "no data" for that tile (never a made-up zero), so one missing table, for
 // example before migration 0044 or 0045 is applied, only greys out its own tiles.
+//
+// PostgREST stops any single response at 1000 rows whatever .limit() says, so every list that feeds a
+// total is read page by page (lib/paged-read.ts). If any page fails, or the page ceiling is hit, the
+// source counts as not tracked: a partial sum would overstate profit and get frozen into a snapshot.
 
 const DAY = 86_400_000
 
@@ -28,9 +34,9 @@ export async function readInputs(admin: SupabaseClient): Promise<Inputs> {
 }
 
 async function contentCount(admin: SupabaseClient, table: string, statusCol = 'status'): Promise<ContentCount | null> {
-  const res = await safe(() => admin.from(table).select('created_at').eq(statusCol, 'published').order('created_at', { ascending: true }).limit(5000))
-  if (!res || res.error) return null
-  const rows = (res.data ?? []) as { created_at: string }[]
+  const res = await safe(() => readAllPages<{ created_at: string }>((from, to) => admin.from(table).select('created_at').eq(statusCol, 'published').order('created_at', { ascending: true }).range(from, to), 50))
+  if (!res || !res.ok) return null
+  const rows = res.rows
   return { count: rows.length, oldest: rows[0]?.created_at ?? null, newest: rows[rows.length - 1]?.created_at ?? null }
 }
 
@@ -41,9 +47,10 @@ export async function collectValueData(admin: SupabaseClient, now: Date = new Da
 
   const [inputs, ordersRes, apiRes, visitsRes, gscRes, leadsRes, posts, guides, packages, pipeline, autopilotOn] = await Promise.all([
     readInputs(admin),
-    safe(() => admin.from('orders').select('amount_cents, currency, status, is_test, paid_at, created_at').gte('created_at', since12m).limit(20000)),
-    safe(() => admin.from('api_calls').select('ts, est_cost_usd').gte('ts', since12m).limit(200000)),
-    safe(() => admin.from('site_visits').select('channel').gte('created_at', since28d).limit(20000)),
+    safe(() => readAllPages<NonNullable<ValueData['orders']>[number]>((from, to) => admin.from('orders').select('amount_cents, currency, status, is_test, paid_at, created_at').gte('created_at', since12m).order('created_at', { ascending: false }).range(from, to), 100)),
+    safe(() => readAllPages<{ ts: string; est_cost_usd: number | string }>((from, to) => admin.from('api_calls').select('ts, est_cost_usd').gte('ts', since12m).order('ts', { ascending: false }).range(from, to), 500)),
+    // The visit log is read only while visit tracking is switched on, the same gate the funnel uses.
+    safe(async () => ((await isVisitTrackingOn(admin)) ? readAllPages<{ channel: string }>((from, to) => admin.from('site_visits').select('channel').gte('created_at', since28d).order('created_at', { ascending: false }).range(from, to), 100) : null)),
     safe(() => admin.from('gsc_ranking_days').select('day, clicks, impressions, top10').order('day', { ascending: false }).limit(5)),
     safe(() => admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', since12m)),
     contentCount(admin, 'posts'),
@@ -54,7 +61,8 @@ export async function collectValueData(admin: SupabaseClient, now: Date = new Da
   ])
 
   // AI cost: null (not tracked) unless the meter has recorded at least one call.
-  const apiRows = (apiRes && !apiRes.error ? apiRes.data ?? [] : []) as { ts: string; est_cost_usd: number | string }[]
+  // A read that did not finish (a failed page, or the page ceiling) counts as no data, never a partial total.
+  const apiRows = apiRes && apiRes.ok ? apiRes.rows : []
   const cost = (r: { est_cost_usd: number | string }) => Number(r.est_cost_usd) || 0
   const aiCost12mUsd = apiRows.length ? apiRows.reduce((s, r) => s + cost(r), 0) : null
   const aiCost30dUsd = apiRows.length ? apiRows.filter((r) => r.ts >= since30d).reduce((s, r) => s + cost(r), 0) : null
@@ -69,7 +77,7 @@ export async function collectValueData(admin: SupabaseClient, now: Date = new Da
     }
   }
   let visitsByChannel: Record<string, number> | null = null
-  const visitRows = (visitsRes && !visitsRes.error ? visitsRes.data ?? [] : []) as { channel: string }[]
+  const visitRows = visitsRes && visitsRes.ok ? visitsRes.rows : []
   if (visitRows.length) {
     visitsByChannel = {}
     for (const v of visitRows) visitsByChannel[v.channel || 'unknown'] = (visitsByChannel[v.channel || 'unknown'] ?? 0) + 1
@@ -82,13 +90,13 @@ export async function collectValueData(admin: SupabaseClient, now: Date = new Da
   const latest = await safe(() => admin.from('content_performance').select('day').order('day', { ascending: false }).limit(1))
   const latestDay = (latest?.data as { day: string }[] | null | undefined)?.[0]?.day
   if (latestDay) {
-    const rows = await safe(() => admin.from('content_performance').select('day, path, clicks').eq('day', latestDay).limit(5000))
-    contentPerfLatest = latestDayRows((rows?.data ?? []) as ValueData['contentPerfLatest'])
+    const rows = await safe(() => readAllPages<ValueData['contentPerfLatest'][number]>((from, to) => admin.from('content_performance').select('day, path, clicks').eq('day', latestDay).order('path', { ascending: true }).range(from, to), 50))
+    contentPerfLatest = rows && rows.ok ? latestDayRows(rows.rows) : []
   }
 
   return {
     inputs,
-    orders: ordersRes && !ordersRes.error ? ((ordersRes.data ?? []) as ValueData['orders']) : null,
+    orders: ordersRes && ordersRes.ok ? ordersRes.rows : null,
     aiCost12mUsd,
     aiCost30dUsd,
     aiFirstTs,

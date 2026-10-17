@@ -153,22 +153,36 @@ export interface VisitLite {
   channel: string
   landing_path: string
   created_at: string
+  /** Session columns (migration 0046). Older rows or a plain row may leave them out. */
+  last_path?: string | null
+  page_views?: number | null
+  duration_s?: number | null
 }
 
-/** Visits (one site_visits row per landing), top pages and channels. Needs tracking switched on to have any rows. Pure. */
+/** Sessions (site_visits holds ONE ROW PER SESSION: a landing plus the page views and time that followed), page views, average time,
+ * top landing and exit pages, channels and days. Needs tracking switched on to have any rows. Pure. */
 export function visitorStats(rows: VisitLite[]) {
-  if (!rows.length) return { tracked: false as const, message: 'Needs visit tracking switched on', total: 0, byChannel: [], byPage: [], byDay: [] }
+  if (!rows.length) return { tracked: false as const, message: 'Needs visit tracking switched on', total: 0, sessions: 0, pageViews: 0, avgDurationS: 0, byChannel: [], byPage: [], byLastPage: [], byDay: [] }
   const count = (key: (r: VisitLite) => string) => {
     const m = new Map<string, number>()
     for (const r of rows) m.set(key(r), (m.get(key(r)) ?? 0) + 1)
     return [...m.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
   }
+  const pageViews = rows.reduce((s, r) => s + Math.max(1, Number(r.page_views) || 1), 0)
+  const timed = rows.filter((r) => (Number(r.duration_s) || 0) > 0)
+  const avgDurationS = timed.length ? Math.round(timed.reduce((s, r) => s + (Number(r.duration_s) || 0), 0) / timed.length) : 0
   return {
     tracked: true as const,
     message: '',
     total: rows.length,
+    sessions: rows.length,
+    pageViews,
+    avgDurationS,
     byChannel: count((r) => r.channel || 'unknown').slice(0, 12).map(([channel, visits]) => ({ channel, visits })),
+    /** top LANDING pages: the first page of each session */
     byPage: count((r) => cleanPath(r.landing_path)).slice(0, 20).map(([page, visits]) => ({ page, visits })),
+    /** top last-seen pages: where each session ended */
+    byLastPage: count((r) => cleanPath(r.last_path || r.landing_path)).slice(0, 20).map(([page, visits]) => ({ page, visits })),
     byDay: count((r) => r.created_at.slice(0, 10)).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 30).map(([day, visits]) => ({ day, visits })),
   }
 }
