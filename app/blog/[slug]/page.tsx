@@ -15,6 +15,7 @@ import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { styleById } from "@/lib/content-styles"
 import { PackageCard } from "@/components/package-card"
+import { GuideCta } from "@/components/guide-cta"
 import { listGuidesForPost, guideKinds, guidePath } from "@/lib/guides"
 
 export const revalidate = 300
@@ -66,21 +67,32 @@ export default async function BlogPostPage({ params }: Props) {
     listGuidesForPost(post),
   ])
 
+  // What the call to action names: the destination of the linked package when there is one, else the post primary keyword, else its title.
+  const linkedPackage = post.related_package_id ? relatedPackages.find((p) => p.id === post.related_package_id) : undefined
+  const ctaName = linkedPackage?.destination?.trim() || post.primary_keyword?.trim() || post.title
+  // Show "Updated" only when the post was really edited more than a day after it was published.
+  const publishedMs = post.publish_date ? new Date(post.publish_date).getTime() : NaN
+  const updatedMs = post.updated_at ? new Date(post.updated_at).getTime() : NaN
+  const showUpdated = Number.isFinite(publishedMs) && Number.isFinite(updatedMs) && updatedMs - publishedMs > 24 * 60 * 60 * 1000
+  const dateFmt: Intl.DateTimeFormatOptions = { year: "numeric", month: "long", day: "numeric" }
+
   const speakableSelectors = [hasQuickAnswer ? ".quick-answer" : null, takeaways.length > 0 ? "#key-takeaways" : null].filter((s): s is string => !!s)
 
   const jsonLd = {
     "@context": "https://schema.org",
-    "@type": "Article",
+    "@type": "BlogPosting",
     headline: post.title,
     description: post.meta_description || excerptFromMarkdown(post.body, 160),
-    image,
+    image: [image, DEFAULT_OG_IMAGE],
     url: pageUrl,
     ...(post.publish_date ? { datePublished: post.publish_date } : {}),
     dateModified: post.updated_at,
-    author: { "@type": "Organization", name: SITE_NAME },
-    publisher: { "@type": "Organization", name: SITE_NAME, logo: { "@type": "ImageObject", url: absoluteUrl("/logo.png") } },
+    author: { "@type": "Organization", name: SITE_NAME, url: absoluteUrl("/") },
+    publisher: { "@type": "Organization", name: SITE_NAME, url: absoluteUrl("/"), logo: { "@type": "ImageObject", url: absoluteUrl("/logo.png") } },
     mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
     wordCount,
+    ...(post.primary_keyword ? { about: { "@type": "Thing", name: post.primary_keyword } } : {}),
+    isPartOf: { "@type": "Blog", url: absoluteUrl("/blog") },
     inLanguage: SITE_LOCALE.replace("_", "-"),
     ...(keywords.length > 0 ? { keywords: keywords.join(", ") } : {}),
     ...(section ? { articleSection: section } : {}),
@@ -125,7 +137,10 @@ export default async function BlogPostPage({ params }: Props) {
             <h1 className="text-balance text-3xl font-bold text-foreground sm:text-4xl">{post.title}</h1>
             <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
               {post.publish_date && (
-                <span className="flex items-center gap-1.5"><Calendar className="h-4 w-4" />{new Date(post.publish_date).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</span>
+                <span className="flex items-center gap-1.5"><Calendar className="h-4 w-4" /><time dateTime={post.publish_date}>{new Date(post.publish_date).toLocaleDateString("en-CA", dateFmt)}</time></span>
+              )}
+              {showUpdated && (
+                <span>Updated <time dateTime={post.updated_at}>{new Date(post.updated_at).toLocaleDateString("en-CA", dateFmt)}</time></span>
               )}
               <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" />{readingTimeMinutes(post.body)} min read</span>
             </div>
@@ -133,7 +148,7 @@ export default async function BlogPostPage({ params }: Props) {
 
           {post.cover_image_url && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={post.cover_image_url} alt={post.alt_text || post.title} className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
+            <img src={post.cover_image_url} alt={post.alt_text || post.title} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
           )}
 
           {takeaways.length > 0 && (
@@ -144,6 +159,8 @@ export default async function BlogPostPage({ params }: Props) {
               </ul>
             </aside>
           )}
+
+          <div className="mb-8"><GuideCta name={ctaName} compact /></div>
 
           <div className="markdown-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
 
@@ -184,10 +201,7 @@ export default async function BlogPostPage({ params }: Props) {
               </div>
             </div>
           ) : (
-            <div className="mt-12 rounded-xl border bg-muted/30 p-6 text-center">
-              <p className="text-lg font-semibold text-foreground">Ready for your own trip?</p>
-              <Link href="/#contact" className="mt-3 inline-block rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground">Ask us about your trip</Link>
-            </div>
+            <div className="mt-12"><GuideCta name={ctaName} /></div>
           )}
         </article>
       </main>
