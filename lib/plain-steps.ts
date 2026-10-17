@@ -36,6 +36,13 @@ export const GUIDE_ORPHANS_ISSUE_ID = 'system:guide-orphans'
  * is broken, so it is left out of the alert email like the item above. Same reason as the ids above for living here. */
 export const CANNIBALISATION_ISSUE_ID = 'system:keyword-cannibalisation'
 
+/** The Needs attention item for a travel news feed that failed 3 times in a row (WP20). One item per feed: the id is this prefix
+ * plus the source key. Same reason as the ids above for living here. */
+export const NEWS_SOURCE_ISSUE_PREFIX = 'system:news-source:'
+
+/** The setup item for travel news when its table does not exist yet (migration 0047). Amber setup item, never an alert email. */
+export const NEWS_SETUP_ISSUE_ID = 'setup:news-migration'
+
 /** The page anchor of one issue on the Content Autopilot page, so an email can link straight to it. */
 export const issueAnchor = (id: string) => `issue-${id.replace(/[^a-z0-9]+/gi, '-')}`
 
@@ -173,6 +180,33 @@ export function plainAction(i: Issue): PlainAction {
       url: adminLink('/admin/guides?filter=orphans'),
       urlLabel: 'Open the pages nothing links to',
       paste,
+    }
+  }
+  if (i.id.startsWith(NEWS_SOURCE_ISSUE_PREFIX)) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'The site reads a few news feeds (official storm and travel warning notices, and some travel trade news) so it can write short news posts. This feed has failed three times in a row. Nothing is broken on your site and nothing wrong was posted. The site keeps trying every 30 minutes, and this warning goes away by itself after one good read.',
+      steps: [
+        'Click the link below. It opens the feed in your browser.',
+        'If you see a page of text full of words like "item", "entry" or "title", the feed is fine. Wait one hour. The warning should clear by itself.',
+        'If you see "Not found", an error, or a normal web page instead, the publisher probably moved the feed. Copy the message below and paste it to Claude, who will fix the address.',
+        'If you do not want this feed any more, ask Claude to turn it off. To stop all travel news, open the Content Autopilot page, find the Travel news box, and set Mode to Off.',
+      ],
+      url: i.link?.href ?? adminLink('/admin/autopilot'),
+      urlLabel: i.link ? 'Open the feed' : 'Open the Autopilot page',
+      paste,
+    }
+  }
+  if (i.id === NEWS_SETUP_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'Travel news needs one new table in Supabase to remember which news items it has read. Until it exists, the news step does nothing. This is a one-time step.',
+      steps: ['Open Supabase and sign in.', 'Open your project, then click "SQL Editor" on the left.', 'Ask Claude for the contents of the file supabase/migrations/0047_news_items.sql, paste it in, and click Run.', 'Open the Content Autopilot page and look at the Travel news box. The yellow warning goes away.'],
+      url: 'https://supabase.com/dashboard',
+      urlLabel: 'Open Supabase',
+      paste: 'Please give me the contents of supabase/migrations/0047_news_items.sql so I can run it in the Supabase SQL editor.',
     }
   }
   if (i.id === HEAL_LOOP_ISSUE_ID) {
