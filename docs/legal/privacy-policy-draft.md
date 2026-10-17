@@ -29,6 +29,18 @@ policy, to see or correct your information, or to withdraw a consent.
 | You **accept analytics** in our privacy choices | Which pages you view, your approximate location and device type (Google Analytics), and which ad, social post or search brought you to us (stored in your own browser until you send a form) | To see which trips and articles help people plan, and to improve them |
 | You **visit the site** at all | Your language and display choices, and your privacy choice, are remembered in your browser. Our host also keeps ordinary server logs | To make the site work and keep it secure |
 
+> **[DRAFT PARAGRAPH FOR THE LAWYER TO REVIEW. Not live. Add to the table above only when "visit counting" is switched
+> on in the admin (System health). Do not publish until the cookie banner wording has been approved.]**
+> **Our own visit counting (only if you accept analytics).** If you accept analytics, we also count your visit on
+> our own site, without Google. For each visit we save: the **page address (path) you view**, the **website you
+> came from** (the website name only, not the full address), any **campaign tags** in the link you used (for
+> example which post or email it came from), a **random number** made in your browser that lets us tell visits
+> apart (it is not linked to your name or email), how many pages you viewed, and the **time you spent** on the site.
+> We do **not** save your IP address, your full browser details, or any cookie for this. We do not count you if you
+> choose "Essential only", if your browser sends **Do Not Track** or **Global Privacy Control**, or if you
+> withdraw your choice (your random number is then erased from your browser). We delete these records after
+> **[13 months]**. **[Lawyer: confirm the wording, the retention period, and whether this needs its own line in the banner.]**
+
 We do not collect payment card details on this site.
 
 ## Cookies and similar technologies
@@ -105,6 +117,9 @@ site. Last updated: **[date]**.
 
 ### Notes for the reviewer (not part of the published text)
 
+- First-party visit counting (`components/visit-tracker.tsx`, `app/api/track/visit/route.ts`, table `site_visits`)
+  is built but switched OFF (admin System health, setting `visit_tracking`). It only runs after the visitor
+  accepts analytics. Delete-after-13-months is automatic (`lib/visit-tracking.ts`, daily housekeeping).
 - The banner and the newsletter checkbox wording live in `components/cookie-banner.tsx`,
   `components/newsletter-form.tsx` and (French) `lib/i18n.ts`.
 - The contact form has no marketing consent box on purpose (an enquiry implies consent to reply only).
