@@ -317,7 +317,11 @@ function advisoryDate(o: Json, now: number): { iso: string | null; raw: string }
 
 function advisoryLink(o: Json, hosts: string[]): string {
   const raw = cleanFeedText(scalarText(pickPath(o, 'url', 'eng.url', 'link', 'eng.link')), 600)
-  if (!raw) return ''
+  if (!raw) {
+    // The real feed gives no url, only eng.url-slug. A strictly shaped slug becomes the country page on travel.gc.ca; nothing else does.
+    const slug = scalarText(pickPath(o, 'eng.url-slug', 'url-slug'))
+    return /^[a-z0-9-]{2,60}$/.test(slug) ? `https://${hosts[0]}/destinations/${slug}` : ''
+  }
   try {
     const u = new URL(raw.startsWith('/') && !raw.startsWith('//') ? `https://${hosts[0]}${raw}` : raw)
     if (u.protocol !== 'https:' || u.username || u.password) return ''

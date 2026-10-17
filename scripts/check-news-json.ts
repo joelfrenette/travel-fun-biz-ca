@@ -225,6 +225,67 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------------------------
+  // 5b. The REAL structure (a trimmed copy of the live file: same keys, 5 countries, short text)
+  // ---------------------------------------------------------------------------------------------
+  {
+    const real = (iso: string, id: number, name: string, slug: string, state: number, text: string, ts: number, updates?: string) => ({
+      'country-id': id,
+      'country-iso': iso,
+      'country-eng': name,
+      'country-fra': name,
+      'advisory-state': state,
+      'date-published': { timestamp: ts, date: '2026-10-14 07:01:50', asp: '2026-10-14T07:01:50.7595549-04:00' },
+      'has-advisory-warning': 1,
+      'has-regional-advisory': 0,
+      'has-content': 1,
+      'recent-updates-type': 'Regular text update',
+      eng: { name, 'url-slug': slug, 'friendly-date': 'October 14, 2026 07:01 EDT', 'advisory-text': text, ...(updates ? { 'recent-updates': updates } : {}) },
+      fra: { name, 'url-slug': slug, 'friendly-date': '14 octobre 2026 07:01 HAE', 'advisory-text': 'Texte', 'recent-updates': 'Mise a jour' },
+    })
+    const T0 = 1791975710
+    const fx = (over: Record<string, Record<string, unknown>> = {}) =>
+      JSON.stringify({
+        metadata: { generated: '2026-10-14' },
+        data: {
+          AF: real('AF', 1000, 'Afghanistan', 'afghanistan', 3, 'Avoid all travel', T0, 'Natural disasters and climate section – added information on El Niño'),
+          AL: real('AL', 1001, 'Albania', 'albania', 1, 'Take normal security precautions', T0),
+          DZ: real('DZ', 1002, 'Algeria', 'algeria', 2, 'Exercise a high degree of caution', T0, 'x '.repeat(2000)),
+          MX: real('MX', 1003, 'Mexico', 'mexico', 2, 'Exercise a high degree of caution', T0),
+          EG: real('EG', 1004, 'Egypt', 'egypt', 2, 'Exercise a high degree of caution', T0),
+          ...over,
+        },
+      })
+    const r = parseAdvisoryJson(fx(), { now: NOW })
+    check('real shape: one item per country, each with advisory text and a travel.gc.ca link', r.items.length === 5 && !r.error && r.items.every((i) => i.title.includes(': ') && i.url.startsWith('https://travel.gc.ca/destinations/')), JSON.stringify(r).slice(0, 200))
+    const af = r.items.find((i) => i.stateKey === 'af')!
+    check('real shape: title, link from eng.url-slug and date from date-published.timestamp (seconds)', af.title === 'Canada advisory for Afghanistan: Avoid all travel' && af.url === 'https://travel.gc.ca/destinations/afghanistan' && af.publishedAt === new Date(T0 * 1000).toISOString(), JSON.stringify(af))
+    check('real shape: eng.recent-updates is the short description', af.summary.startsWith('Natural disasters and climate section') && af.summary.includes('El Ni'))
+    check('real shape: a very long recent-updates is capped at 600 characters', r.items.find((i) => i.stateKey === 'dz')!.summary.length <= 600)
+    check('real shape: no recent-updates means an empty summary', r.items.find((i) => i.stateKey === 'al')!.summary === '')
+    const slugOf = (s: string) => parseAdvisoryJson(fx({ AF: real('AF', 1, 'Afghanistan', s, 3, 'Avoid all travel', T0) }), { now: NOW }).items.find((i) => i.stateKey === 'af')!.url
+    check('real shape: a slug that is not plain lower case letters, digits and dashes gives no link', ['../evil', 'a/b', 'x.evil.com', 'A B', 'a', '', 'x'.repeat(61)].every((s) => slugOf(s) === ''))
+    const numeric = parseAdvisoryJson(JSON.stringify({ data: { ZZ: { 'country-iso': 'ZZ', 'country-eng': 'Zedland', 'advisory-state': 3, eng: { name: 'Zedland', 'url-slug': 'zedland' } }, AF: real('AF', 1, 'Afghanistan', 'afghanistan', 3, 'Avoid all travel', T0) } }), { now: NOW })
+    check('real shape: advisory-state alone (a number, no text) is ignored, nothing is made up from it', numeric.items.length === 1 && numeric.items[0].stateKey === 'af')
+    const explicit = parseAdvisoryJson(fx({ AF: { ...real('AF', 1, 'Afghanistan', 'afghanistan', 3, 'Avoid all travel', T0), url: 'https://travel.gc.ca/destinations/afghanistan-special' } }), { now: NOW }).items.find((i) => i.stateKey === 'af')!
+    const evilUrl = parseAdvisoryJson(fx({ AF: { ...real('AF', 1, 'Afghanistan', 'afghanistan', 3, 'Avoid all travel', T0), url: 'https://evil.example.com/x' } }), { now: NOW }).items.find((i) => i.stateKey === 'af')!
+    check('real shape: an explicit travel.gc.ca url is preferred; an off-site url never is (and does not fall back to the slug)', explicit.url.endsWith('/afghanistan-special') && evilUrl.url === '')
+
+    const { db, admin } = world()
+    let clock = NOW
+    const run = (body: string, at: number) => {
+      clock = at
+      return ingestFeeds(admin, { fetchDeps: deps({ [URL_JSON]: { body } }, [], () => clock), now: new Date(at), sources: [gac] })
+    }
+    const b = await run(fx(), NOW)
+    check('real shape: first run is a baseline and creates no items', b.stored === 0 && rows(db, 'news_items').length === 0 && Object.keys(stateOf(db)?.countries ?? {}).length === 5)
+    const tNew = Math.floor(NOW / 1000) - 60
+    const c1 = await run(fx({ MX: real('MX', 1003, 'Mexico', 'mexico', 3, 'Avoid non-essential travel', T0) }), NOW + 40 * 60_000)
+    check('real shape: a changed advisory-text creates exactly one item', c1.stored === 1 && rows(db, 'news_items').length === 1 && String(rows(db, 'news_items')[0].url) === 'https://travel.gc.ca/destinations/mexico', JSON.stringify(c1))
+    const c2 = await run(fx({ MX: real('MX', 1003, 'Mexico', 'mexico', 3, 'Avoid non-essential travel', T0), EG: real('EG', 1004, 'Egypt', 'egypt', 2, 'Exercise a high degree of caution', tNew) }), NOW + 80 * 60_000)
+    check('real shape: a changed date alone creates one item for that country (Mexico is not repeated)', c2.stored === 1 && rows(db, 'news_items').length === 2 && String(rows(db, 'news_items')[1].url).endsWith('/egypt'), JSON.stringify(c2))
+  }
+
+  // ---------------------------------------------------------------------------------------------
   // 6. Injection text in a field
   // ---------------------------------------------------------------------------------------------
   {
