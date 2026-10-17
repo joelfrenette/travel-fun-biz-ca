@@ -1,5 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
-import { ungroundedNumbers, repairDashes } from '@/lib/hook-styles'
+import { ungroundedNumbers, repairDashes, normaliseHashtags } from '@/lib/hook-styles'
 
 // Short-form video script generation (factory item 1/6, video pipeline): one model call produces
 // a hook, a sequence of beats (scene description + on-screen text + the spoken voiceover line for
@@ -133,7 +133,7 @@ async function runScriptStep(postTitle: string, postSummary: string, formulaHint
     beats: beats.map((b) => ({ ...b, onScreenText: noDash(b.onScreenText), voiceover: noDash(b.voiceover) })),
     title: noDash(typeof parsed.title === 'string' ? parsed.title : postTitle),
     description: noDash(typeof parsed.description === 'string' ? parsed.description : ''),
-    hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.filter((h): h is string => typeof h === 'string') : [],
+    hashtags: Array.isArray(parsed.hashtags) ? normaliseHashtags(parsed.hashtags) : [],
   }
 }
 

@@ -75,6 +75,9 @@ export interface GuidePostSource {
   meta_description: string | null
   /** Takeaways and FAQ as plain text, so numbers in them count as real when captions are checked. */
   grounding: string | undefined
+  /** Stored FAQ questions and key takeaways (guides only), used to open the no-AI fallback caption. */
+  faqQuestions?: string[]
+  keyTakeaways?: string[]
 }
 
 /** The published guide at `path`, shaped like the post fields the posting pass reads. Returns null when the
@@ -105,5 +108,7 @@ export async function loadGuidePostSource(admin: SupabaseClient, path: string): 
     cover_image_url: typeof data.hero_image_url === 'string' && data.hero_image_url ? data.hero_image_url : null,
     meta_description: description || null,
     grounding: grounding || undefined,
+    faqQuestions: Array.isArray(data.faq) ? (data.faq as Array<{ q?: unknown }>).map((f) => f.q).filter((q): q is string => typeof q === 'string') : [],
+    keyTakeaways: takeaways,
   }
 }

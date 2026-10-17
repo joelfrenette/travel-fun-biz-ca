@@ -1,5 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
-import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, hashtagCapFor, normaliseHashtags, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
 // Per-platform caption generation + mechanical limit enforcement (factory spec: "one model call
 // writes every network's caption at once, each tailored to that network's actual constraints" +
@@ -137,6 +137,58 @@ export function captionProblems(
   if (ctx.link && networkSupportsLinks(ctx.network) && !caption.includes(ctx.link)) problems.push('link is missing')
   if (caption.includes(EM_DASH)) problems.push('contains an em dash')
   return problems
+}
+
+/** Stored facts the no-AI fallback caption is built from. Nothing here is invented: every field is read from the post or guide. */
+export interface FallbackCaptionFacts {
+  title: string
+  metaDescription: string | null | undefined
+  faqQuestions?: ReadonlyArray<unknown> | null
+  keyTakeaways?: ReadonlyArray<unknown> | null
+  tags?: ReadonlyArray<unknown> | null
+  category?: string | null
+}
+
+/** The fixed plain-words call to action on line 3 of a fallback caption. */
+export const FALLBACK_CTA_LINE = 'Read the full guide:'
+const HOOK_MAX = 140
+
+const cleanLine = (s: unknown): string => (typeof s === 'string' ? repairDashes(s).replace(/\s+/g, ' ').trim() : '')
+
+/** A caption with no AI call: line 1 is the first stored FAQ question (else the first key takeaway) as the hook,
+ * line 2 one short line from the meta description, line 3 a fixed call to action, then the link, then 0 to 3
+ * hashtags from the stored category and tags. Returns null when there is no usable hook, or the result fails
+ * captionProblems, or it cannot fit `limit` with the link intact; the caller then uses its old text. */
+export function buildFallbackCaption(
+  facts: FallbackCaptionFacts,
+  network: string,
+  link: string,
+  opts: { limit?: number; hashtagCap?: number } = {},
+): string | null {
+  const limit = opts.limit ?? PLATFORM_CHAR_LIMITS[network.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
+  const questions = (facts.faqQuestions ?? []).map(cleanLine).filter((q) => q && q.length <= HOOK_MAX)
+  const takeaways = (facts.keyTakeaways ?? []).map(cleanLine).filter((t) => t && t.length <= HOOK_MAX)
+  const hook = questions[0] ?? takeaways[0]
+  const link0 = link.trim()
+  if (!hook || !link0) return null
+
+  const description = cleanLine(facts.metaDescription)
+  const bodyFull = description && description !== hook ? description : ''
+  const cap = Math.min(opts.hashtagCap ?? hashtagCapFor(network), 3)
+  const tags = normaliseHashtags([facts.category, ...(facts.tags ?? [])], cap).join(' ')
+
+  const build = (body: string, hashtags: string) => [[hook, body, FALLBACK_CTA_LINE].filter(Boolean).join('\n'), `${link0}${hashtags ? `\n\n${hashtags}` : ''}`].join('\n\n')
+  let caption = build(bodyFull, tags)
+  if (caption.length > limit) caption = build(bodyFull, '')
+  if (caption.length > limit && bodyFull) {
+    const room = limit - build('', '').length - 1
+    caption = room >= 30 ? build(fitCaption(bodyFull, room), '') : build('', '')
+  }
+  if (caption.length > limit) return null
+
+  const grounding = [facts.faqQuestions?.join(' '), facts.keyTakeaways?.join(' ')].filter(Boolean).join(' ')
+  const problems = captionProblems(caption, { title: facts.title, summary: facts.metaDescription ?? null, network, link: link0, grounding })
+  return problems.length === 0 ? caption : null
 }
 
 /** Cuts a too-long caption down without ever cutting the link (see fitCaptionWithLink). */

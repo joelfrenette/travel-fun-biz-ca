@@ -7,10 +7,10 @@ import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
 import { utmLink } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource } from '@/lib/guide-post-source'
-import { fitCaption, tightestLimit, generatePlatformCaptions, type PlatformCaptions } from '@/lib/social-captions'
+import { fitCaption, tightestLimit, generatePlatformCaptions, buildFallbackCaption, type PlatformCaptions } from '@/lib/social-captions'
 import type { UploadPostSendResult } from '@/lib/upload-post'
 import { tagVariant } from '@/lib/content-variants'
-import { HOOK_STYLES, CTA_STYLES, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { HOOK_STYLES, CTA_STYLES, hashtagCapFor, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
 /** The post's FAQ and key takeaways as plain text, so numbers in them count as real when captions
  * are checked. Those columns arrive with a later migration, so this tolerates them not existing
@@ -296,7 +296,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           .eq('slug', row.slug)
         continue
       }
-      const { data: post } = isGuideRow ? { data: guideSource } : await admin.from('posts').select('title, cover_image_url, meta_description').eq('slug', row.slug).maybeSingle()
+      const { data: post } = isGuideRow ? { data: guideSource } : await admin.from('posts').select('title, cover_image_url, meta_description, faq, key_takeaways, tags').eq('slug', row.slug).maybeSingle()
       const pageUrl = isGuideRow ? absoluteUrl(row.path as string) : `${SITE_URL}/blog/${row.slug}`
       const link = utmLink(pageUrl, { source: 'social', medium: 'social', campaign: row.slug, content: post?.cover_image_url ? 'post-photo' : 'post-text' })
       const title = post?.title || row.title
@@ -319,7 +319,26 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         else failed++
         continue
       }
-      const rawCaption = [title, post?.meta_description, link].filter(Boolean).join('\n\n')
+      // Default text: a hook line (first stored FAQ question, else first key takeaway), one line from the meta
+      // description, a fixed call to action, the link and up to 3 hashtags. Falls back to the old
+      // title + description + link text when there is no hook or the plain-code gate rejects it.
+      const faqRaw: unknown = (post as { faq?: unknown } | null)?.faq
+      const takeawaysRaw: unknown = (post as { key_takeaways?: unknown } | null)?.key_takeaways
+      const tagsRaw: unknown = (post as { tags?: unknown } | null)?.tags
+      const guideFacts = isGuideRow ? guideSource : null
+      const fallbackCaption = buildFallbackCaption(
+        {
+          title,
+          metaDescription: post?.meta_description,
+          faqQuestions: guideFacts?.faqQuestions ?? (Array.isArray(faqRaw) ? (faqRaw as Array<{ q?: unknown }>).map((f) => f?.q) : []),
+          keyTakeaways: guideFacts?.keyTakeaways ?? (Array.isArray(takeawaysRaw) ? takeawaysRaw : []),
+          tags: Array.isArray(tagsRaw) ? tagsRaw : [],
+        },
+        platforms[0],
+        link,
+        { limit: tightestLimit(platforms), hashtagCap: Math.min(...platforms.map(hashtagCapFor)) },
+      )
+      const rawCaption = fallbackCaption ?? [title, post?.meta_description, link].filter(Boolean).join('\n\n')
       // Mechanical limit check against the tightest of the target platforms' real character
       // limits (lib/social-captions.ts) - the fallback/shared-call path sends this same caption to
       // every network that didn't get its own tailored one, so it has to fit all of them.
