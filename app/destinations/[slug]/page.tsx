@@ -5,11 +5,12 @@ import { MapPin, Calendar } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
-import { GuideTakeaways, GuideArticle, GuideFaqList, guideJsonLd, guideMetadata } from "@/components/guide-page"
+import { guideJsonLd, guideMetadata } from "@/components/guide-page"
+import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection } from "@/components/guide-parts"
 import { getDestinationPage } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getPublicBlurb } from "@/lib/destination-blurbs"
-import { getPublishedGuide, listPropertyGuidesForDestination, listPublishedGuideLinks, guideTrail, childGroups, getTripFactsByIds, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
+import { getPublishedGuide, listPropertyGuidesForDestination, listPublishedGuideLinks, guideTrail, childGroups, getTripFactsByIds, listPostsForGuide, pickRelatedGuides, relatedGuideCards, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
 import { scopeOf } from "@/lib/guide-scope"
 import { GuideCta } from "@/components/guide-cta"
 import { GuideFacts } from "@/components/guide-facts"
@@ -17,7 +18,7 @@ import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
 import type { FactsInput } from "@/lib/guide-facts"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
-import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange } from "@/lib/site"
+import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, formatDate } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml } from "@/lib/jsonld"
 
@@ -69,6 +70,9 @@ export default async function DestinationPage({ params }: Props) {
   const allGuides = guide ? await listPublishedGuideLinks() : []
   const trail = guide ? guideTrail(guide, allGuides) : []
   const tripFacts = guide ? await getTripFactsByIds(guide.related_package_ids) : []
+  // Same internal links as every other guide page: up to 6 related guides and up to 3 blog posts about this place.
+  const relatedGuides = guide ? pickRelatedGuides(guide, allGuides, 6) : []
+  const stories = guide ? await listPostsForGuide(guide, 3) : []
   const parentStep = trail.length > 1 ? trail[trail.length - 2] : null
   const factsInput: FactsInput = {
     kindLabel: guideKinds.destinations.label,
@@ -119,8 +123,14 @@ export default async function DestinationPage({ params }: Props) {
           <div className="container mx-auto px-4 py-10">
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Destination</p>
             <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{page ? `${destination} Trips` : `${destination}: Travel Guide`}</h1>
+            {guide && formatDate(guide.updated_at) && (
+              <p className="mt-2 text-sm text-muted-foreground"><time dateTime={guide.updated_at}>Updated {formatDate(guide.updated_at)}</time></p>
+            )}
             {guide ? (
-              <p className="mt-3 max-w-3xl text-pretty text-foreground">{guide.summary}</p>
+              <>
+                <p className="mt-3 max-w-3xl text-pretty text-foreground">{guide.summary}</p>
+                <GuideCta name={destination} compact />
+              </>
             ) : (
               blurb && <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">{blurb.blurb}</p>
             )}
@@ -159,6 +169,8 @@ export default async function DestinationPage({ params }: Props) {
               <GuideArticle guide={guide} />
               <GuideFaqList guide={guide} />
               <GuideCta name={destination} />
+              <RelatedGuidesSection guides={relatedGuideCards(relatedGuides)} />
+              <BlogStoriesSection stories={stories} />
             </div>
           )}
 

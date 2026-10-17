@@ -4,7 +4,7 @@ import { notFound } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
-import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, oneLineSummary, getPublishedPackagesByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
+import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, relatedGuideCards, getPublishedPackagesByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
 import { GuideCta } from "@/components/guide-cta"
 import { GuideFacts } from "@/components/guide-facts"
@@ -14,9 +14,9 @@ import { getDestinationSlugs } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
-import { GuideTakeaways, GuideArticle, GuideFaqList } from "@/components/guide-parts"
+import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection } from "@/components/guide-parts"
 import { jsonLdHtml } from "@/lib/jsonld"
-import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
+import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
 
 // ONE shared page for every guide kind (destinations, hotels, resorts, cruise lines, ships, river cruises,
@@ -37,9 +37,15 @@ export function guideJsonLd(guide: PublicGuide, trail?: TrailStep[]): object[] {
   const image = guide.hero_image_url || DEFAULT_OG_IMAGE
   // A destination page IS the destination. A page about a named hotel, resort, ship or line is an article ABOUT
   // it: it must not claim to be the business itself (that would read as the business's own listing).
+  // One organization object for author and publisher. Dates come only from stored columns and are left out when empty.
+  const organization = { "@type": "Organization", name: SITE_NAME, url: absoluteUrl("/"), logo: { "@type": "ImageObject", url: absoluteUrl("/logo.png") } }
+  const dates = {
+    ...(guide.created_at ? { datePublished: guide.created_at } : {}),
+    ...(guide.updated_at ? { dateModified: guide.updated_at } : {}),
+  }
   const main: object =
     guide.kind === "destinations"
-      ? { "@context": "https://schema.org", "@type": info.schemaType, name: guide.name, description, url, image }
+      ? { "@context": "https://schema.org", "@type": info.schemaType, name: guide.name, description, url, image, ...(guide.updated_at ? { dateModified: guide.updated_at } : {}) }
       : {
           "@context": "https://schema.org",
           "@type": "Article",
@@ -47,9 +53,9 @@ export function guideJsonLd(guide: PublicGuide, trail?: TrailStep[]): object[] {
           description,
           url,
           image,
-          dateModified: guide.updated_at,
-          author: { "@type": "Organization", name: SITE_NAME },
-          publisher: { "@type": "Organization", name: SITE_NAME },
+          ...dates,
+          author: organization,
+          publisher: organization,
           mainEntityOfPage: { "@type": "WebPage", "@id": url },
           about: { "@type": info.schemaType, name: guide.name },
         }
@@ -162,6 +168,9 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
             </nav>
             <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{scope ? `${SCOPE_LABEL[scope]} guide` : `${info.label} guide`}</p>
             <h1 className="mt-1 text-balance text-3xl font-bold text-foreground sm:text-4xl">{guide.name}: {info.guideLabel}</h1>
+            {formatDate(guide.updated_at) && (
+              <p className="mt-2 text-sm text-muted-foreground"><time dateTime={guide.updated_at}>Updated {formatDate(guide.updated_at)}</time></p>
+            )}
             <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground">{guide.summary}</p>
             <GuideCta name={guide.name} compact />
           </div>
@@ -218,33 +227,8 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
 
           <GuideCta name={guide.name} />
 
-          {relatedGuides.length > 0 && (
-            <section aria-labelledby="related-guides-heading">
-              <h2 id="related-guides-heading" className="mb-3 text-xl font-bold text-foreground">Related guides</h2>
-              <ul className="grid gap-3 sm:grid-cols-2">
-                {relatedGuides.map((g) => (
-                  <li key={g.id}>
-                    <Link href={guidePath(g.kind, g.slug)} className="block h-full rounded-lg border bg-card p-4 transition-shadow hover:shadow-md">
-                      <span className="text-xs uppercase text-muted-foreground">{guideKinds[g.kind].label}</span>
-                      <span className="mt-0.5 block font-semibold text-foreground">{g.name}</span>
-                      <span className="mt-1 block text-sm text-muted-foreground">{oneLineSummary(g.summary)}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {stories.length > 0 && (
-            <section aria-labelledby="stories-heading">
-              <h2 id="stories-heading" className="mb-3 text-xl font-bold text-foreground">From the blog</h2>
-              <ul className="space-y-1.5">
-                {stories.map((p) => (
-                  <li key={p.id}><Link href={`/blog/${p.slug}`} className="font-medium text-foreground hover:underline">{p.title}</Link></li>
-                ))}
-              </ul>
-            </section>
-          )}
+          <RelatedGuidesSection guides={relatedGuideCards(relatedGuides)} />
+          <BlogStoriesSection stories={stories} />
 
           {(parentName || (bestTime && bestTimeSlug)) && (
             <nav aria-label="Related pages" className="space-y-2 text-sm">

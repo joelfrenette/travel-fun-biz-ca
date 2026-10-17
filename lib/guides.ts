@@ -662,3 +662,8 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
   }
   return out
 }
+
+/** Related guides as plain card strings for the shared RelatedGuidesSection (components/guide-parts.tsx). */
+export function relatedGuideCards(guides: GuideLink[]): { id: string; href: string; label: string; name: string; summary: string }[] {
+  return guides.map((g) => ({ id: g.id, href: guidePath(g.kind, g.slug), label: guideKinds[g.kind].label, name: g.name, summary: oneLineSummary(g.summary ?? '') }))
+}

@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { renderMarkdown } from "@/lib/markdown"
 
 // The presentational pieces of a guide (key takeaways, article body, FAQ). No data fetching and no server-only
@@ -45,6 +46,50 @@ export function GuideFaqList({ guide }: { guide: GuideParts }) {
           </details>
         ))}
       </div>
+    </section>
+  )
+}
+
+/** One related-guide card, already resolved to plain strings (see relatedGuideCards in lib/guides.ts), so this file
+ * stays free of data-layer imports. */
+export interface RelatedGuideCard {
+  id: string
+  href: string
+  label: string
+  name: string
+  summary: string
+}
+
+export function RelatedGuidesSection({ guides }: { guides: RelatedGuideCard[] }) {
+  if (guides.length === 0) return null
+  return (
+    <section aria-labelledby="related-guides-heading">
+      <h2 id="related-guides-heading" className="mb-3 text-xl font-bold text-foreground">Related guides</h2>
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {guides.map((g) => (
+          <li key={g.id}>
+            <Link href={g.href} className="block h-full rounded-lg border bg-card p-4 transition-shadow hover:shadow-md">
+              <span className="text-xs uppercase text-muted-foreground">{g.label}</span>
+              <span className="mt-0.5 block font-semibold text-foreground">{g.name}</span>
+              <span className="mt-1 block text-sm text-muted-foreground">{g.summary}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+export function BlogStoriesSection({ stories }: { stories: { id: string; slug: string; title: string }[] }) {
+  if (stories.length === 0) return null
+  return (
+    <section aria-labelledby="stories-heading">
+      <h2 id="stories-heading" className="mb-3 text-xl font-bold text-foreground">From the blog</h2>
+      <ul className="space-y-1.5">
+        {stories.map((p) => (
+          <li key={p.id}><Link href={`/blog/${p.slug}`} className="font-medium text-foreground hover:underline">{p.title}</Link></li>
+        ))}
+      </ul>
     </section>
   )
 }
