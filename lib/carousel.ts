@@ -64,7 +64,7 @@ type DeckAttempt = { slides: CarouselSlide[] } | 'gate' | null
 
 async function attemptDeck(postTitle: string, postBody: string, styles: CarouselStyles): Promise<DeckAttempt> {
   try {
-    const r = await callAnthropic({ max_tokens: 2000, messages: [{ role: 'user', content: carouselPrompt(postTitle, postBody, styles) }] }, { timeoutMs: 40_000 })
+    const r = await callAnthropic({ max_tokens: 2000, messages: [{ role: 'user', content: carouselPrompt(postTitle, postBody, styles) }] }, { timeoutMs: 40_000, feature: 'carousel' })
     if (!r || !r.res.ok) return null
     const parsed = parseModelJson<{ slides?: CarouselSlide[] }>(anthropicText(await r.res.json()))
     const slides = parsed?.slides

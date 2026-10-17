@@ -32,6 +32,10 @@ export const PROMOTION_ISSUE_ID = 'system:promotion-failing'
 /** The Needs attention item for live guide pages that no other page links to (WP16). Same reason as above. */
 export const GUIDE_ORPHANS_ISSUE_ID = 'system:guide-orphans'
 
+/** The Needs attention item that lists search phrases where two of our pages compete (hub row 2). INFORMATIONAL: nothing
+ * is broken, so it is left out of the alert email like the item above. Same reason as the ids above for living here. */
+export const CANNIBALISATION_ISSUE_ID = 'system:keyword-cannibalisation'
+
 /** The page anchor of one issue on the Content Autopilot page, so an email can link straight to it. */
 export const issueAnchor = (id: string) => `issue-${id.replace(/[^a-z0-9]+/gi, '-')}`
 
@@ -209,6 +213,39 @@ export function plainAction(i: Issue): PlainAction {
       url: 'https://supabase.com/dashboard',
       urlLabel: 'Open Supabase',
       paste: 'Please give me the contents of supabase/migrations/0033_content_edits.sql so I can run it in the Supabase SQL editor.',
+    }
+  }
+  if (i.id === CANNIBALISATION_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'For your information, nothing is broken. When two of your pages show up in Google for the same search words, they can share the clicks and neither wins. The page marked "stronger" is the one Google already prefers for that phrase.',
+      steps: ['Open the Content Autopilot page with the link below and read each phrase and its two pages.', 'Pick the page you want to win. Usually it is the stronger one.', 'Open the other page. In its text, add a link to the stronger page, using the search words as the link words.', 'Change the weaker page so it is about something a little different (another city, another kind of trip, or another question).', 'You can ignore this if both pages are meant to be there. The list updates by itself every day.'],
+      url: autopilot(i.id),
+      urlLabel: 'Open the Autopilot page',
+      paste,
+    }
+  }
+  if (i.id === 'system:step-heal-content' && /click-rate test/i.test(text)) {
+    return {
+      id: i.id,
+      title: 'The search title test had a problem',
+      why: 'Once a day the site looks for pages that Google shows but few people click, tries a clearer search title, and puts the old one back by itself if it does not help. This time part of that did not work. Your pages are fine: every title change can be undone on the Content edits page.',
+      steps: ['Open the Content Autopilot page with the link below and read the red line. It says which part failed.', 'If it says it could not read something, open Supabase, then the app_settings table, and look for rows that start with ctr_. Ask Claude before you delete any.', 'If it says a change could not be undone, open the Content edits page, find the page, and click Undo yourself.', 'The test tries again tomorrow. If the same line shows for three days, copy the message below and paste it to Claude.'],
+      url: autopilot(i.id),
+      urlLabel: 'Open the Autopilot page',
+      paste,
+    }
+  }
+  if (i.id === 'system:step-indexnow') {
+    return {
+      id: i.id,
+      title: 'Bing could not be told about your newest pages',
+      why: 'Once a day the site tells Bing (and a few smaller search engines) which pages are new or changed, so they show up sooner. Today that message did not go through. Your pages are fine and Google is not affected. The site tries again tomorrow.',
+      steps: ['Open the Content Autopilot page with the link below and read the red line. It says what went wrong.', 'If it says "not readable" or "could not read", open Supabase, then the app_settings table, and check that the row named indexnow_ledger is empty or looks like {"/blog/example":"2026-10-01T10:00:00.000Z"}. Delete the row if you are unsure; it is rebuilt by itself.', 'If it says Bing did not take the pages, open Vercel, then your project, then Settings, then Environment Variables, and check that INDEXNOW_KEY is set. Then open travelfunbiz.ca/indexnow-key.txt in your browser: it must show that same key.', 'If it keeps failing for three days, copy the message below and paste it to Claude.'],
+      url: autopilot(i.id),
+      urlLabel: 'Open the Autopilot page',
+      paste,
     }
   }
   if (i.id === 'system:keyword-engine') {

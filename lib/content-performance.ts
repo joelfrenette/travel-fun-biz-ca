@@ -3,6 +3,7 @@ import { isSearchConsoleConfigured, getPageMetrics } from '@/lib/search-console'
 import { listSitePages } from '@/lib/site-pages'
 import { getGa4LandingPageSessions, isGa4Configured } from '@/lib/ga4'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { isVisitTrackingOn } from '@/lib/visit-tracking'
 import { blogSlugFromPath, rankScores, MIN_POSTS_FOR_CONFIDENCE, MIN_POST_AGE_DAYS, type StyleScore } from '@/lib/style-choice'
 
 export { SCORE_BASIS, NO_CLICKS_TEXT, chooseWeighted, rankScores, blogSlugFromPath, MIN_POSTS_FOR_CONFIDENCE, MIN_POST_AGE_DAYS, EXPLOIT_SHARE, type StyleScore } from '@/lib/style-choice'
@@ -132,13 +133,19 @@ export async function snapshotContentPerformance(admin: SupabaseClient): Promise
     // Visits: site_visits grouped by landing path. Null everywhere when nothing is recorded at all.
     const sinceVisits = new Date(Date.now() - VISIT_WINDOW_DAYS * 864e5).toISOString()
     // site_visits has no internal or test flag today, so only /admin and /api landings are left out.
-    const visits = await fetchAll<{ landing_path: string | null }>((from, to) =>
-      admin.from('site_visits').select('landing_path').gte('created_at', sinceVisits).order('created_at', { ascending: false }).range(from, to),
-    )
+    // Own rows are read only while the admin switch visit_tracking is on (off by default); GA4 below is the fallback.
+    const trackingOn = await isVisitTrackingOn(admin)
+    let firstPartyVisits = false
+    const visits = trackingOn
+      ? await fetchAll<{ landing_path: string | null }>((from, to) =>
+          admin.from('site_visits').select('landing_path').gte('created_at', sinceVisits).order('created_at', { ascending: false }).range(from, to),
+        )
+      : { rows: [] as { landing_path: string | null }[], error: undefined as string | undefined, capped: false }
     if (visits.capped) notes.push(`visits capped at ${MAX_PAGES * PAGE} rows`)
     if (visits.error) {
       notes.push('visits could not be read')
     } else if (visits.rows.length) {
+      firstPartyVisits = true
       const counts = new Map<string, number>()
       for (const v of visits.rows) {
         if (!v.landing_path) continue
@@ -149,13 +156,15 @@ export async function snapshotContentPerformance(admin: SupabaseClient): Promise
       for (const r of rows.values()) r.visits = counts.get(r.path) ?? 0
       for (const [p, n] of counts) if (!rows.has(p)) row(p).visits = n
     } else {
-      notes.push('no visits recorded yet')
+      notes.push(trackingOn ? 'no visits recorded yet' : 'visit tracking is off')
     }
 
     // GA4 sessions per landing page (WP18-F): ONE read-only request a day (at most 2 tries), only when GA4 is
-    // connected. When it answers, it is the better visit number (site_visits has no writer yet) and fills `visits`.
+    // connected, and only when our own visit rows did not fill `visits` (visit tracking off, or no rows yet): the fallback.
     // When it is not connected, or it fails, visits stay as they were (null if nothing else recorded them): never invented.
-    if (isGa4Configured()) {
+    if (firstPartyVisits) {
+      notes.push('visits are this site\'s own recorded visits')
+    } else if (isGa4Configured()) {
       const tryKey = `content_performance_ga4_try:${day}`
       const tries = Number(await getSetting(admin, tryKey)) || 0
       if (tries >= MAX_GA4_ATTEMPTS) {

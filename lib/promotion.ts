@@ -612,7 +612,7 @@ async function stepKeywords(phrases: string[]): Promise<{ tracked: string[]; err
 async function stepIdeas(admin: SupabaseClient, pkg: PromotionPackage, phrases: string[]): Promise<{ ideas: PlanIdea[]; notes: string[]; error?: string }> {
   const notes: string[] = []
   if (!isAiConfigured()) return { ideas: [], notes, error: 'the AI key is not set (ANTHROPIC_API_KEY in Vercel), so no blog ideas were written' }
-  const r = await callAnthropic({ max_tokens: IDEAS_MAX_TOKENS, messages: [{ role: 'user', content: buildIdeasPrompt(pkg, phrases) }] }, { timeoutMs: 60_000 })
+  const r = await callAnthropic({ max_tokens: IDEAS_MAX_TOKENS, messages: [{ role: 'user', content: buildIdeasPrompt(pkg, phrases) }] }, { timeoutMs: 60_000, feature: 'promotion' })
   if (!r || !r.res.ok) return { ideas: [], notes, error: `the AI call failed${r ? ` (status ${r.res.status})` : ' (no answer)'}` }
   const data = await r.res.json()
   if ((data as { stop_reason?: string })?.stop_reason === 'max_tokens') return { ideas: [], notes, error: 'the AI answer was cut off' }

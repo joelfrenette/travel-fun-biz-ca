@@ -32,6 +32,8 @@ export default function SystemHealthPage() {
   const [crons, setCrons] = useState<CronStatus[]>([])
   const [paused, setPaused] = useState(false)
   const [pauseBusy, setPauseBusy] = useState(false)
+  const [visitsOn, setVisitsOn] = useState(false)
+  const [visitsBusy, setVisitsBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -40,11 +42,13 @@ export default function SystemHealthPage() {
     Promise.all([
       fetch("/api/admin/cron-health", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
       fetch("/api/admin/automation-kill-switch", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
+      fetch("/api/admin/visit-tracking", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
     ])
-      .then(([cronRes, pauseRes]) => {
+      .then(([cronRes, pauseRes, visitsRes]) => {
         if (!cronRes.ok) throw new Error(cronRes.data.error || "Could not load")
         setCrons(cronRes.data.crons || [])
         if (pauseRes.ok) setPaused(!!pauseRes.data.paused)
+        if (visitsRes.ok) setVisitsOn(!!visitsRes.data.on)
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -65,6 +69,22 @@ export default function SystemHealthPage() {
       setError(e instanceof Error ? e.message : "Could not update")
     } finally {
       setPauseBusy(false)
+    }
+  }
+
+  async function toggleVisits() {
+    const next = !visitsOn
+    if (next && !confirm("Turn visit counting on? Do this only after your lawyer has approved the cookie wording. Only people who click Accept on the cookie banner are counted.")) return
+    setVisitsBusy(true)
+    try {
+      const res = await fetch("/api/admin/visit-tracking", { method: "POST", headers: authHeaders(), body: JSON.stringify({ on: next }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Could not update")
+      setVisitsOn(next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update")
+    } finally {
+      setVisitsBusy(false)
     }
   }
 
@@ -93,6 +113,21 @@ export default function SystemHealthPage() {
             <Button variant={paused ? "default" : "destructive"} onClick={toggleAutomation} disabled={loading || pauseBusy}>
               {pauseBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : paused ? <Play className="mr-1.5 h-4 w-4" /> : <Pause className="mr-1.5 h-4 w-4" />}
               {paused ? "Resume automation" : "Pause all automation"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div className="min-w-[220px] flex-1">
+              <p className="font-medium">{visitsOn ? "Visit counting is ON" : "Visit counting is OFF"}</p>
+              <p className="text-sm text-muted-foreground">
+                When on, this site counts visits itself, but only for people who click Accept on the cookie banner. It saves the page, the website they came from, the campaign tag, a random number and the time spent. It never saves an IP address. Turn this on only after your lawyer has approved the cookie wording. Records are deleted after 13 months.
+              </p>
+            </div>
+            <Button variant={visitsOn ? "outline" : "default"} onClick={toggleVisits} disabled={loading || visitsBusy}>
+              {visitsBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {visitsOn ? "Turn visit counting off" : "Turn visit counting on"}
             </Button>
           </CardContent>
         </Card>

@@ -351,7 +351,7 @@ export async function generatePackageFaqsDetailed(pkg: FaqInput): Promise<FaqRes
   if (!text(pkg.name) && !text(pkg.destination)) return { faqs: [], discarded: 0, called: false, status: 400, error: 'Fill in at least the package name or destination first, so the FAQ has something real to answer about.' }
   if (!isAiConfigured()) return { faqs: [], discarded: 0, called: false, status: 503, error: 'AI writing is not configured: set ANTHROPIC_API_KEY.' }
   try {
-    const r = await callAnthropic({ max_tokens: 2500, messages: [{ role: 'user', content: prompt(context) }] }, { timeoutMs: 50_000 })
+    const r = await callAnthropic({ max_tokens: 2500, messages: [{ role: 'user', content: prompt(context) }] }, { timeoutMs: 50_000, feature: 'package-faqs' })
     if (!r) return { faqs: [], discarded: 0, called: true, status: 504, error: 'The AI did not answer in time. Try again.' }
     if (!r.res.ok) return { faqs: [], discarded: 0, called: true, model: r.model, status: 502, error: `AI request failed (HTTP ${r.res.status}).` }
     const payload = await r.res.json().catch(() => null)

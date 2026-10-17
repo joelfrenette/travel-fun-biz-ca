@@ -296,7 +296,7 @@ Structure of every caption: a hook line first (in the hook style named for that 
 Never use an em dash (the long dash character); use a comma or a full stop instead. Never write a number that is not in the post title, summary or facts above. Never invent a claim, price, date or detail not given above, and never claim to have visited, tried or booked anything - these captions only ever describe a real blog post, nothing more. Return ONLY minified JSON of this exact shape: {"captions":{"<platform>":"<caption text>", ...}} with exactly one entry per platform listed above, using the same platform name as given.`
 
   try {
-    const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000 })
+    const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000, feature: 'social-captions' })
     if (!r || !r.res.ok) return null
     const parsed = parseModelJson<{ captions?: Record<string, string> }>(anthropicText(await r.res.json()))
     const captions = parsed?.captions

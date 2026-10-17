@@ -62,7 +62,7 @@ Rules: no specific numbers (no populations, distances, years, prices, or dates),
 
 export async function generateBlurb(destination: string): Promise<{ blurb: string; error: null } | { blurb: null; error: string }> {
   if (!isAiConfigured()) return { blurb: null, error: 'AI writing is not configured: set ANTHROPIC_API_KEY.' }
-  const r = await callAnthropic({ max_tokens: 1000, messages: [{ role: 'user', content: BLURB_PROMPT(destination) }] }, { timeoutMs: 40_000 })
+  const r = await callAnthropic({ max_tokens: 1000, messages: [{ role: 'user', content: BLURB_PROMPT(destination) }] }, { timeoutMs: 40_000, feature: 'destination-blurbs' })
   if (!r) return { blurb: null, error: 'The AI did not answer in time. Try again.' }
   if (!r.res.ok) {
     const t = await r.res.text().catch(() => '')

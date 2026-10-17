@@ -236,7 +236,7 @@ async function writePlan(chosen: KeywordCluster[], volumes: Map<string, number |
     notes.push('the AI key is not set, so the ideas were written without the AI')
   } else {
     try {
-      const r = await callAnthropic({ max_tokens: PLAN_MAX_TOKENS, messages: [{ role: 'user', content: planPrompt(chosen, volumes, packages) }] }, { timeoutMs: 60_000 })
+      const r = await callAnthropic({ max_tokens: PLAN_MAX_TOKENS, messages: [{ role: 'user', content: planPrompt(chosen, volumes, packages) }] }, { timeoutMs: 60_000, feature: 'keyword-intel' })
       if (!r || !r.res.ok) {
         notes.push(`the AI call failed${r ? ` (status ${r.res.status})` : ''}, so the ideas were written without the AI`)
       } else {

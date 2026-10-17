@@ -61,3 +61,12 @@ The roadmap is in the admin at `/admin/tracker` (Supabase-backed). Use cases Joe
 admin land with `epic_id = null`; at the start of a session, query
 `roadmap_usecases where epic_id is null`, file each under the right epic/feature with a priority,
 and mark shipped work `done`. Add roadmap rows for any new work you take on.
+
+
+## Cross-site hub
+
+This site is one of several run off a shared playbook kept in the owner's private cross-site hub repo (not linked here).
+
+- Run `/autoblogging` (user-level skill) to pull suggested improvements into this project.
+- Run `/contribute` to push portable findings back to the hub as a PR.
+- Never put secrets, customer data, pricing or brand voice in the hub.

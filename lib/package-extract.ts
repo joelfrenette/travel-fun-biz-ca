@@ -492,7 +492,7 @@ async function callExtraction(
   maxTokens: number,
   cutOffAdvice: string,
 ): Promise<{ error: ExtractError; parsed?: undefined } | { error: null; parsed: RawExtraction; model: string; usage: ModelUsage }> {
-  const r = await callAnthropic({ max_tokens: maxTokens, messages: [{ role: 'user', content }] }, { timeoutMs: 120_000 })
+  const r = await callAnthropic({ max_tokens: maxTokens, messages: [{ role: 'user', content }] }, { timeoutMs: 120_000, feature: 'package-extract' })
   if (!r) return { error: { status: 504, message: 'The AI did not answer in time. Try again.' } }
   if (!r.res.ok) {
     const body = await r.res.text().catch(() => '')

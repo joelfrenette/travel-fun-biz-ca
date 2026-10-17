@@ -18,7 +18,7 @@ import {
   sameFields,
   serializeField,
   stripDeadLinks,
-  callModelText,
+  modelCallFor,
   Tracker,
   EST_COST_USD_PER_CALL,
   type ContentEdit,
@@ -47,6 +47,7 @@ import { pingIndexNow } from '@/lib/indexnow'
 import { rehealStuckDrafts, rejectedPostSlugs } from '@/lib/blog-reheal'
 import { healHeldCopy, healHeldGuides } from '@/lib/heal-drafts'
 import { healLoopCard, type HealLoopCard } from '@/lib/heal-loop'
+import { runCtrLoop } from '@/lib/ctr-loop'
 import type { DbPackage } from '@/lib/packages'
 import { completenessScore } from '@/lib/package-completeness'
 import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
@@ -674,7 +675,7 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
       usedCall = true
       calls++
       // Three FAQ questions are enough for the score, even where the write-time gate wants four.
-      const { got, answered } = await generateExtras(callModelText, fields, keys, { ...item.limits, faqMin: Math.min(3, item.limits.faqMin) }, item.keyword, bodyCtx)
+      const { got, answered } = await generateExtras(modelCallFor('content-heal'), fields, keys, { ...item.limits, faqMin: Math.min(3, item.limits.faqMin) }, item.keyword, bodyCtx)
       const next = cloneFields(fields)
       // Only when the model answered and nothing was accepted; a failed or empty call is retried tomorrow.
       if (answered && Object.keys(got).length === 0) await setSetting(admin, `${NOGEN_PREFIX}:${itemKey}`, new Date().toISOString())
@@ -745,6 +746,13 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
     problems.push(...r.problems)
     healedPages += r.published + r.healedDraft
   }
+  // 2e. The click-rate loop (hub row 2): at most 2 pages a day get a re-worded search title and description (suggester, gate,
+  // independent judge; every call comes out of the same heal budget), tests that are 30 days old are compared and undone by
+  // themselves if the click rate fell, and search phrases where two of our pages compete are listed. Never throws.
+  const ctr = await runCtrLoop(admin, { deadlineMs: opts.deadlineMs })
+  calls += ctr.calls
+  problems.push(...ctr.problems)
+  changedPaths.push(...ctr.changedPaths)
   if (changedPaths.length) await pingIndexNow(changedPaths).catch(() => undefined)
 
   // 3. The numbers for the card, the brief and Needs attention (pages and trips together).
@@ -757,7 +765,7 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
   const lowest = [...everyone].sort((a, b) => a.score - b.score).slice(0, 5).map((s) => ({ type: s.type, path: s.path, score: s.score, reasons: s.reasons.slice(0, 3) }))
   const belowAll = queue.length + trips.scored.filter((t) => t.result.score < HEAL_BELOW).length
   const hardWaiting = await countHardWaiting(admin)
-  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
+  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${ctr.active ? `; ${ctr.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
   const summary: HealSummary = { at: new Date().toISOString(), scored: everyone.length, avg, below: belowAll, lowest, healedPages, edits: editCount, hardWaiting, calls, trips: trips.scored.length, tripsFixed: trips.fixed, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }

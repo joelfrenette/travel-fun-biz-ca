@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers, Gem, ChartPie,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -106,6 +106,20 @@ const unsortedTools: AdminNavItem[] = [
     icon: Share2,
     status: "Active",
     href: "/admin/distribution",
+  },
+  {
+    title: "Website Value",
+    description: "What the site is worth to a buyer: profit, traffic, search and content tiles with their source and freshness, a rough low/base/high estimate you can edit, and a CSV for a buyer's data room.",
+    icon: Gem,
+    status: "Active",
+    href: "/admin/value",
+  },
+  {
+    title: "Users and Analytics",
+    description: "AI cost per feature per day, admin sign-ins, lead volume and what leads ask about (counts only), and visitors once visit tracking is on.",
+    icon: ChartPie,
+    status: "Active",
+    href: "/admin/users",
   },
   {
     title: "Affiliate Links",
