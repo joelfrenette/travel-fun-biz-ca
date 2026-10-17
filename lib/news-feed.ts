@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import {
@@ -32,10 +33,13 @@ export interface RawFeedItem {
   title: string
   summary: string
   publishedAt: string | null
+  /** JSON advisory snapshots only: the country id and a short hash of its advisory text and date (used to find what changed). */
+  stateKey?: string
+  stateHash?: string
 }
 
 export interface ParsedFeed {
-  format: 'rss' | 'atom' | 'rdf' | 'unknown'
+  format: 'rss' | 'atom' | 'rdf' | 'json' | 'unknown'
   items: RawFeedItem[]
   /** Items that had no usable title or link and were skipped. */
   skipped: number
@@ -268,6 +272,118 @@ export function parseFeed(xmlRaw: string, opts: { maxItems?: number; now?: numbe
 }
 
 // ---------------------------------------------------------------------------------------------------
+// JSON advisory snapshot (Government of Canada open data)
+// ---------------------------------------------------------------------------------------------------
+// The file lists EVERY country. The exact shape was not available offline, so this reader looks for each field under a few
+// likely names and never trusts the structure: an unknown shape is an error result (a Needs attention note after repeated
+// failures), never an exception. Only the feed's own fields are used, every text goes through cleanFeedText, and a link is kept
+// only when the feed itself gives an https address on travel.gc.ca (a path starting with "/" is read as a travel.gc.ca path).
+
+/** More entries than this means the file is not the advisory list we know: it is not read. */
+export const MAX_ADVISORY_ENTRIES = 600
+export const ADVISORY_LINK_HOSTS = ['travel.gc.ca']
+
+type Json = Record<string, unknown>
+const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** The value at the first path that exists, where a path is dotted keys ("eng.advisory-text"). Only plain objects are walked. */
+function pickPath(o: Json, ...paths: string[]): unknown {
+  for (const p of paths) {
+    let cur: unknown = o
+    for (const k of p.split('.')) {
+      if (!isObj(cur) || !Object.prototype.hasOwnProperty.call(cur, k)) {
+        cur = undefined
+        break
+      }
+      cur = cur[k]
+    }
+    if (cur !== undefined && cur !== null && cur !== '') return cur
+  }
+  return undefined
+}
+
+/** Strings and finite numbers only; everything else (objects, arrays, booleans) is "no value". */
+const scalarText = (v: unknown): string => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : '')
+
+function advisoryDate(o: Json, now: number): { iso: string | null; raw: string } {
+  const ts = pickPath(o, 'date-published.timestamp', 'date_published.timestamp', 'timestamp')
+  if (typeof ts === 'number' && Number.isFinite(ts)) {
+    const ms = ts < 1e11 ? ts * 1000 : ts
+    if (ms <= now + 86_400_000 && ms >= Date.UTC(2000, 0, 1)) return { iso: new Date(ms).toISOString(), raw: String(ts) }
+  }
+  const raw = scalarText(pickPath(o, 'date-published.date', 'date-published', 'date_published', 'updated', 'date', 'eng.friendly-date', 'friendly-date'))
+  return { iso: raw ? toIso(raw, now) : null, raw: cleanFeedText(raw, 60) }
+}
+
+function advisoryLink(o: Json, hosts: string[]): string {
+  const raw = cleanFeedText(scalarText(pickPath(o, 'url', 'eng.url', 'link', 'eng.link')), 600)
+  if (!raw) return ''
+  try {
+    const u = new URL(raw.startsWith('/') && !raw.startsWith('//') ? `https://${hosts[0]}${raw}` : raw)
+    if (u.protocol !== 'https:' || u.username || u.password) return ''
+    const h = u.hostname.toLowerCase()
+    return hosts.some((x) => h === x || h.endsWith(`.${x}`)) ? u.toString().slice(0, 600) : ''
+  } catch {
+    return ''
+  }
+}
+
+/** Parses the Canadian advisory snapshot into one RawFeedItem per country (ALL of them: the caller keeps only what changed).
+ * Never throws. A country with no name or no advisory text is skipped. Items without a travel.gc.ca link keep url '' and are
+ * dropped later by the link check; if NO country has a link the whole file is reported as an unknown shape. */
+export function parseAdvisoryJson(textRaw: string, opts: { now?: number; linkHosts?: string[] } = {}): ParsedFeed {
+  const now = opts.now ?? Date.now()
+  const hosts = opts.linkHosts ?? ADVISORY_LINK_HOSTS
+  const fail = (error: string): ParsedFeed => ({ format: 'unknown', items: [], skipped: 0, error })
+  if (typeof textRaw !== 'string' || textRaw.trim().length === 0) return fail('the advisory data was empty')
+  if (textRaw.length > MAX_FEED_BYTES) return fail('the advisory data was larger than the size limit')
+  const text = textRaw.replace(/^﻿/, '').trimStart()
+  if (text[0] !== '{' && text[0] !== '[') return fail('this is not JSON (a web page or an error page was returned)')
+  try {
+    const root: unknown = JSON.parse(text)
+    const data = isObj(root) && 'data' in root ? root.data : root
+    const entries: unknown[] = Array.isArray(data) ? data : isObj(data) ? Object.values(data) : []
+    if (entries.length === 0 || entries.length > MAX_ADVISORY_ENTRIES) return fail('the advisory data is not in the expected shape (a list of countries)')
+    const items: RawFeedItem[] = []
+    const seen = new Set<string>()
+    let skipped = 0
+    let linked = 0
+    for (const e of entries) {
+      if (!isObj(e)) {
+        skipped++
+        continue
+      }
+      const name = cleanFeedText(scalarText(pickPath(e, 'country-eng', 'eng.name', 'name', 'country')), 80)
+      const advisory = cleanFeedText(scalarText(pickPath(e, 'advisory-text', 'eng.advisory-text', 'advisory_text', 'advisory.text', 'eng.advisory-state-text')), 160)
+      const id = cleanFeedText(scalarText(pickPath(e, 'country-iso', 'country-id', 'iso', 'id')) || name, 40).toLowerCase()
+      if (!name || !advisory || !id || seen.has(id)) {
+        skipped++
+        continue
+      }
+      seen.add(id)
+      const date = advisoryDate(e, now)
+      const url = advisoryLink(e, hosts)
+      if (url) linked++
+      const stateHash = createHash('sha1').update(`${advisory}\n${date.raw}`).digest('hex').slice(0, 12)
+      items.push({
+        guid: `gac:${id}:${stateHash}`,
+        url,
+        title: cleanFeedText(`Canada advisory for ${name}: ${advisory}`, TITLE_MAX_CHARS),
+        summary: cleanFeedText(scalarText(pickPath(e, 'description', 'eng.description', 'summary', 'eng.summary', 'recent-updates', 'eng.recent-updates')), SUMMARY_MAX_CHARS),
+        publishedAt: date.iso,
+        stateKey: id,
+        stateHash,
+      })
+    }
+    if (items.length === 0) return fail('no country in the advisory data had a name and advisory text')
+    if (linked === 0) return fail('no country in the advisory data gave a travel.gc.ca page address')
+    return { format: 'json', items, skipped }
+  } catch {
+    return fail('the advisory data could not be read as JSON')
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
 // robots.txt
 // ---------------------------------------------------------------------------------------------------
 
@@ -458,7 +574,7 @@ export async function fetchFeed(source: NewsSource, state: FeedState, deps: Fetc
     if (!allowed) return { kind: 'error', error: 'the publisher robots.txt does not allow this feed to be read', robots }
   }
 
-  const headers: Record<string, string> = { Accept: 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8' }
+  const headers: Record<string, string> = { Accept: source.kind === 'json' ? 'application/json, text/json;q=0.9' : 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8' }
   if (state.etag) headers['If-None-Match'] = state.etag
   if (state.lastModified) headers['If-Modified-Since'] = state.lastModified
   const r = await guardedGet(source, source.feedUrl, headers, deps, MAX_FEED_BYTES)

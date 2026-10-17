@@ -20,6 +20,8 @@ export type NewsCategory = 'storm' | 'disaster' | 'advisory' | 'entry' | 'disrup
 
 export interface NewsSource {
   key: string
+  /** 'feed' (default) = RSS or Atom. 'json' = the Canadian advisory snapshot, read by parseAdvisoryJson. */
+  kind?: 'feed' | 'json'
   /** The name shown to readers in "Reported by". */
   name: string
   feedUrl: string
@@ -77,18 +79,19 @@ export const NEWS_SOURCES: readonly NewsSource[] = [
     confidence: 'documented',
     docs: 'https://www.gov.uk/foreign-travel-advice (every GOV.UK finder offers an Atom feed)',
   },
-  // Follow-up, not now: Canada's advisories are a JSON open-data feed (data.international.gc.ca/travel-voyage), not RSS, so this
-  // entry stays disabled until a small JSON reader is written. The feedUrl below is a placeholder and is never fetched.
+  // Canada's advisories are a JSON open-data snapshot of ALL countries (not RSS), read by the defensive JSON reader in
+  // lib/news-feed.ts (parseAdvisoryJson). Only countries whose advisory text or date CHANGED since the saved state become items.
   {
     key: 'gac-advisories',
     name: 'the Government of Canada',
-    feedUrl: 'https://travel.gc.ca/travelling/advisories/rss',
+    kind: 'json',
+    feedUrl: 'https://data.international.gc.ca/travel-voyage/index-alpha-eng.json',
     tier: 1,
     defaultCategory: 'advisory',
     linkHosts: ['travel.gc.ca'],
-    enabled: false,
-    confidence: 'unverified',
-    docs: 'Open travel.gc.ca, find the RSS or "get updates" link for travel advisories, confirm the exact URL, fix feedUrl here, then set enabled to true.',
+    enabled: true,
+    confidence: 'documented',
+    docs: 'Government of Canada open data, travel advisories (data.international.gc.ca/travel-voyage). Read only after the offline JSON checks (scripts/check-news-json.ts); an unknown shape is skipped with a Needs attention note.',
   },
   {
     key: 'skift',
