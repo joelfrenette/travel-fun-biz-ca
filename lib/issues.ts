@@ -294,7 +294,7 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
         title: `${f.platform[0].toUpperCase()}${f.platform.slice(1)} rejected a post from GoHighLevel`,
         detail: f.error,
         fix: /verified domain/i.test(f.error)
-          ? 'TikTok only takes videos hosted on a domain it trusts. The video is now hosted on GoHighLevel first (needs the media library permission on your GHL token), so a new video should go through.'
+          ? 'TikTok only takes a video from a web address it has checked belongs to you. The site already copies the video onto GoHighLevel first, but TikTok still said no. Do these in order: 1) In GoHighLevel open Marketing, then Social Planner, then Settings, and check your TikTok account says Connected (if it says Expired, press Reconnect). 2) In GoHighLevel open Settings, then Private Integrations, open the token this site uses, and make sure Media Library (medias.write) is ticked. 3) Press Dismiss here, then wait for the next video. If TikTok says no again, tell Claude: the fix is to serve the video from travelfunbiz.ca and verify that address in TikTok.'
           : adviceFor(f.error),
         // Dismiss only: a one-click re-send of a single network was built and then removed (2026-10-09),
         // because the QA review found it could double-post and every fix made it more complex.

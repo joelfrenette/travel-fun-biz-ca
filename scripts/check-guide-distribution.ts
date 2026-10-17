@@ -180,7 +180,7 @@ async function main() {
   check('related: same parent first, then the parent destination', related[0].id === '2' && related[1].id === '4')
   check('related: then the same kind', related[2].id === '3')
   check('related: respects the limit', pickRelatedGuides(all[0], all, 2).length === 2)
-  check('related: a guide sharing a package comes after parent and kind', pickRelatedGuides(all[5], all, 6).map((x) => x.id).join(',') === '5')
+  check('related: a guide sharing a package comes after parent and kind (other kinds only after that)', pickRelatedGuides(all[5], all, 6).map((x) => x.id)[0] === '5')
   check('related: destination lists the properties under it first', pickRelatedGuides(all[3], all, 6).slice(0, 2).map((x) => x.id).sort().join(',') === '1,2')
   check('related: no duplicates', new Set(pickRelatedGuides(all[4], all, 6).map((x) => x.id)).size === pickRelatedGuides(all[4], all, 6).length)
   check('related: empty when nothing matches', pickRelatedGuides(all[6], [all[6]], 6).length === 0)

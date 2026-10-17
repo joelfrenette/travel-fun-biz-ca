@@ -280,11 +280,15 @@ const auditPosts: AuditPost[] = [
 const auditTrips: AuditTrip[] = []
 const orphans = findOrphans(auditGuides, auditPosts, auditTrips)
 const orphanSlugs = orphans.map((o) => o.slug)
-check('orphan: exactly the page nothing links to is found', orphanSlugs.join() === 'lonely-ship')
+check('orphan: with other pages around, every page gets a link (related guides now cross kinds)', orphanSlugs.length === 0)
+const soloOrphans = findOrphans([ag('ships', 'only-ship', null, 'text', [], 'Only Ship')], [], [])
+check('orphan: a page with no other page anywhere to link it is found', soloOrphans.map((o) => o.slug).join() === 'only-ship')
+const propOnly = [ag('ships', 's1', null, 'text', [], 'S1'), ag('hotels', 'h1', null, 'text', [], 'H1'), ag('resorts', 'r1', null, 'text', [], 'R1'), ag('cruise-lines', 'c1', null, 'text', [], 'C1'), ag('river-cruises', 'v1', null, 'text', [], 'V1')]
+check('orphan: five stand-alone property pages (nothing else) all link to each other, none is an orphan', findOrphans(propOnly, [], []).length === 0)
 check('orphan: a markdown link from a post counts', !orphanSlugs.includes('linked-hotel'))
 check('orphan: a post whose title names the page counts', !orphanSlugs.includes('story-yacht'))
 const counts = inboundCounts(auditGuides, auditPosts, auditTrips)
-check('inbound counts: the unlinked page has 0, the linked ones at least 1', counts.get('ships:lonely-ship') === 0 && (counts.get('hotels:linked-hotel') ?? 0) >= 1 && (counts.get('yachts:story-yacht') ?? 0) >= 1)
+check('inbound counts: every page has at least 1, a lone page has 0', (counts.get('ships:lonely-ship') ?? 0) >= 1 && (counts.get('hotels:linked-hotel') ?? 0) >= 1 && (counts.get('yachts:story-yacht') ?? 0) >= 1 && inboundCounts([ag('ships', 'only-ship', null, 'text', [], 'Only Ship')], [], []).get('ships:only-ship') === 0)
 const pairSources = inboundSources([ag('cruise-lines', 'line-x', null), ag('ships', 'ship-y', 'line-x')], [], [])
 check('orphan: a parent lists its child and a child links up to its parent', (pairSources.get('ships:ship-y') ?? []).some((s) => s.startsWith('parent:')) && (pairSources.get('cruise-lines:line-x') ?? []).some((s) => s.startsWith('child:')))
 check('orphan: a markdown link in another guide counts as a guide source', (inboundSources(auditGuides, [], []).get('destinations:rome') ?? []).includes('guide:destinations:italy'))

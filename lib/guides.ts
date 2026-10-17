@@ -234,7 +234,13 @@ export function pickRelatedGuides(current: Pick<GuideLink, 'kind' | 'slug' | 'pa
   const sharesPackage = mine.size > 0 ? others.filter((g) => (g.related_package_ids ?? []).some((id) => mine.has(id))) : []
   const seen = new Set<string>()
   const out: GuideLink[] = []
-  for (const g of [...sameParent, ...sameKind, ...sharesPackage]) {
+  // Last, pages of other kinds, named properties (hotel, resort, ship, cruise line...) before destinations. A property
+  // page that is the only one of its kind has no same-kind or same-parent pages, so without this it would show no
+  // related guides and nothing would ever link to the other properties (they all became orphans).
+  const crossKind = others
+    .filter((g) => g.kind !== current.kind)
+    .sort((a, b) => Number(a.kind === 'destinations') - Number(b.kind === 'destinations'))
+  for (const g of [...sameParent, ...sameKind, ...sharesPackage, ...crossKind]) {
     if (seen.has(g.id)) continue
     seen.add(g.id)
     out.push(g)
