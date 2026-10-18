@@ -122,6 +122,10 @@ site. Last updated: **[date]**.
   accepts analytics. Delete-after-13-months is automatic (`lib/visit-tracking.ts`, daily housekeeping).
 - The banner and the newsletter checkbox wording live in `components/cookie-banner.tsx`,
   `components/newsletter-form.tsx` and (French) `lib/i18n.ts`.
+- **[Spanish wording: the Spanish cookie banner, "Cookie settings" link and newsletter consent text in `lib/i18n.ts`
+  are a machine-assisted translation of the English draft (neutral Latin American Spanish). The lawyer must review
+  them together with the French before they are relied on; `scripts/check-consent-i18n.ts` only checks that the
+  strings exist and keep the same placeholders, not that the legal meaning is right.]**
 - The contact form has no marketing consent box on purpose (an enquiry implies consent to reply only).
 - Newsletter signups are backed up in our own database table `leads` with a consent line, and tagged
   `email-consent` in GoHighLevel.

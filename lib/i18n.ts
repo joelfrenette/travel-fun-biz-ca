@@ -308,7 +308,17 @@ const translations: Record<Language, Record<string, string>> = {
     'Newsletter Sign Up': 'Registro al boletín',
     'Which Deals you like? (multi-select) *': '¿Qué ofertas te gustan? (selección múltiple) *',
     // Footer: the "Explore" and "Trips by destination" columns, the shared Explore menu names and the cookie settings link.
+    // Privacy choices (cookie banner) and the email/text consent box. Neutral Latin American Spanish, a
+    // machine-assisted translation of the English draft: the lawyer must review it together with the French.
+    'Your privacy choices': 'Tus opciones de privacidad',
+    'We use cookies that are essential to make this site work. With your permission we would also use Google Analytics, and remember which ad, post or search brought you here. This shows us which trips and articles are helpful so we can improve them. Nothing optional runs unless you say yes, and you can change your mind any time with "Cookie settings" at the bottom of every page.':
+      'Usamos cookies que son esenciales para que este sitio funcione. Con tu permiso, también usaríamos Google Analytics y recordaríamos qué anuncio, publicación o búsqueda te trajo aquí. Esto nos muestra qué viajes y artículos son útiles para poder mejorarlos. Nada opcional se activa a menos que digas que sí, y puedes cambiar de opinión en cualquier momento con "Configuración de cookies" al final de cada página.',
+    'Read our Privacy Policy': 'Lee nuestra política de privacidad',
+    'Essential only': 'Solo las esenciales',
+    'Accept analytics': 'Aceptar analítica',
     'Cookie settings': 'Configuración de cookies',
+    'Yes, I agree to receive travel deals and updates from': 'Sí, acepto recibir ofertas de viaje y novedades de',
+    'by email and text message. I can unsubscribe at any time.': 'por correo electrónico y mensaje de texto. Puedo darme de baja en cualquier momento.',
     Explore: 'Explorar',
     'Trips by destination': 'Viajes por destino',
     Destinations: 'Destinos',
