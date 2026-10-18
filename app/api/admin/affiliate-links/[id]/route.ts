@@ -3,7 +3,7 @@ import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { normalizeAffiliateLinkInput } from '@/lib/affiliate-links-admin'
 
-const LINK_COLUMNS = 'id, slug, status, url, merchant, title, sort_order, created_at, updated_at'
+const LINK_COLUMNS = 'id, slug, status, url, merchant, title, sort_order, created_at, updated_at, partner_id, guide_kind, guide_slug, image_url, note'
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

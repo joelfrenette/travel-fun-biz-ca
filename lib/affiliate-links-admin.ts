@@ -1,4 +1,8 @@
 import { isValidSlug, isRealLink, slugify } from '@/lib/affiliate-go'
+import { cleanHttpsUrl, GUIDE_SLUG_PATTERN, MAX_NOTE_LENGTH } from '@/lib/affiliate-partners'
+import { isGuideKind, type GuideKind } from '@/lib/guides'
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Factory Phase 11: the admin CRUD that Phase 6 (affiliate-go.ts, migration 0007) shipped
 // without — that phase deliberately left affiliate_links empty since no admin screen could
@@ -16,6 +20,12 @@ export interface AffiliateLinkInput {
   title: string | null
   status: AffiliateLinkStatus
   sort_order: number
+  // WP21: pin the card to one guide page, with a partner, a photo and a short admin-written note.
+  partner_id: string | null
+  guide_kind: GuideKind | null
+  guide_slug: string | null
+  image_url: string | null
+  note: string | null
 }
 
 export type AffiliateLinkValidation = { ok: true; value: AffiliateLinkInput } | { ok: false; error: string }
@@ -30,6 +40,11 @@ export function normalizeAffiliateLinkInput(raw: {
   title?: unknown
   status?: unknown
   sort_order?: unknown
+  partner_id?: unknown
+  guide_kind?: unknown
+  guide_slug?: unknown
+  image_url?: unknown
+  note?: unknown
 }): AffiliateLinkValidation {
   const url = String(raw.url ?? '').trim()
   if (!url) return { ok: false, error: 'A URL is required.' }
@@ -47,7 +62,37 @@ export function normalizeAffiliateLinkInput(raw: {
   const sortNum = Number(raw.sort_order)
   const sort_order = Number.isFinite(sortNum) ? Math.trunc(sortNum) : 0
 
-  return { ok: true, value: { slug, url, merchant, title, status, sort_order } }
+  // The merchant URL stays as before (isRealLink). The new link must still be https only, with no
+  // javascript:/data: scheme and no user name or password in it.
+  if (/^\s*(javascript|data|vbscript):/i.test(url)) return { ok: false, error: 'That link type is not allowed.' }
+  if (/^https?:\/\/[^/?#]*@/i.test(url)) return { ok: false, error: 'The link must not contain a user name or password.' }
+  if (!/^https:\/\//i.test(url)) return { ok: false, error: 'The link must start with https://' }
+
+  const partnerRaw = String(raw.partner_id ?? '').trim()
+  if (partnerRaw && !UUID.test(partnerRaw)) return { ok: false, error: 'Pick a partner from the list.' }
+  const partner_id = partnerRaw || null
+
+  const kindRaw = String(raw.guide_kind ?? '').trim()
+  const slugRaw = String(raw.guide_slug ?? '').trim().toLowerCase()
+  let guide_kind: GuideKind | null = null
+  let guide_slug: string | null = null
+  if (kindRaw || slugRaw) {
+    if (!isGuideKind(kindRaw) || !GUIDE_SLUG_PATTERN.test(slugRaw)) return { ok: false, error: 'Pick the page this link belongs to from the list (or leave it empty).' }
+    guide_kind = kindRaw
+    guide_slug = slugRaw
+  }
+
+  const imageRaw = String(raw.image_url ?? '').trim()
+  let image_url: string | null = null
+  if (imageRaw) {
+    image_url = cleanHttpsUrl(imageRaw)
+    if (!image_url) return { ok: false, error: 'The photo link must be a plain https:// web address with no user name or password.' }
+  }
+
+  const note = String(raw.note ?? '').replace(/\s+/g, ' ').trim()
+  if (note.length > MAX_NOTE_LENGTH) return { ok: false, error: `The note is too long (${MAX_NOTE_LENGTH} characters at most).` }
+
+  return { ok: true, value: { slug, url, merchant, title, status, sort_order, partner_id, guide_kind, guide_slug, image_url, note: note || null } }
 }
 
 export interface AffiliateClickCounts {

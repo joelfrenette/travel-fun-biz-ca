@@ -11,7 +11,7 @@ import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { healLoopCard } from '@/lib/heal-loop'
-import { CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
 import { failingSources, newsTableReady } from '@/lib/news-ingest'
 import { getNewsMode } from '@/lib/news-settings'
 import { sourceByKey } from '@/lib/news-sources'
@@ -462,6 +462,26 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     }
   } catch {
     // the weekly check's note is optional
+  }
+
+  // Guides are live but no affiliate partner is active, so the "Fun things to do" box is hidden everywhere (WP21).
+  // Informational: area 'setup' never triggers an alert email. Silent when either table cannot be read
+  // (for example before migration 0048).
+  try {
+    const guidesRes = await admin.from('guides').select('id', { count: 'exact', head: true }).eq('status', 'published')
+    const partnersRes = await admin.from('affiliate_partners').select('id', { count: 'exact', head: true }).eq('status', 'active')
+    if (!guidesRes.error && !partnersRes.error && (guidesRes.count ?? 0) > 0 && (partnersRes.count ?? 0) === 0) {
+      issues.push({
+        id: AFFILIATE_PARTNER_ISSUE_ID,
+        area: 'setup',
+        title: 'Add your first affiliate partner',
+        detail: `${guidesRes.count} guide page${guidesRes.count === 1 ? ' is' : 's are'} live, but no affiliate partner is active, so the "Fun things to do" box is hidden on all of them.`,
+        fix: 'Open Affiliate Links in the admin, add a partner (name, partner ID and the search link from its dashboard), and set it to Active.',
+        link: { label: 'Open Affiliate Links', href: '/admin/affiliate-links' },
+      })
+    }
+  } catch {
+    // an optional nudge is never worth failing the list
   }
 
   // Setup that is still missing.

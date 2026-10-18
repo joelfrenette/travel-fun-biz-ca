@@ -45,7 +45,7 @@ export async function collectValueData(admin: SupabaseClient, now: Date = new Da
   const since30d = new Date(now.getTime() - 30 * DAY).toISOString()
   const since28d = new Date(now.getTime() - 28 * DAY).toISOString()
 
-  const [inputs, ordersRes, apiRes, visitsRes, gscRes, leadsRes, posts, guides, packages, pipeline, autopilotOn] = await Promise.all([
+  const [inputs, ordersRes, apiRes, visitsRes, gscRes, leadsRes, posts, guides, packages, pipeline, autopilotOn, affiliateRes] = await Promise.all([
     readInputs(admin),
     safe(() => readAllPages<NonNullable<ValueData['orders']>[number]>((from, to) => admin.from('orders').select('amount_cents, currency, status, is_test, paid_at, created_at').gte('created_at', since12m).order('created_at', { ascending: false }).range(from, to), 100)),
     safe(() => readAllPages<{ ts: string; est_cost_usd: number | string }>((from, to) => admin.from('api_calls').select('ts, est_cost_usd').gte('ts', since12m).order('ts', { ascending: false }).range(from, to), 500)),
@@ -58,7 +58,10 @@ export async function collectValueData(admin: SupabaseClient, now: Date = new Da
     contentCount(admin, 'travel_packages'),
     safe(() => readLastPipelineRun(admin)),
     safe(() => isAutopilotOn(admin)),
+    // Partner search clicks (migration 0048 adds partner_id). A failed read is "not tracked", never a zero.
+    safe(() => readAllPages<{ created_at: string }>((from, to) => admin.from('affiliate_clicks').select('created_at').not('partner_id', 'is', null).gte('created_at', since12m).order('created_at', { ascending: false }).range(from, to), 50)),
   ])
+  const affiliateClicks = affiliateRes && affiliateRes.ok ? { total: affiliateRes.rows.length, last30: affiliateRes.rows.filter((r) => r.created_at >= since30d).length } : null
 
   // AI cost: null (not tracked) unless the meter has recorded at least one call.
   // A read that did not finish (a failed page, or the page ceiling) counts as no data, never a partial total.
@@ -112,5 +115,6 @@ export async function collectValueData(admin: SupabaseClient, now: Date = new Da
       ? { at: pipeline.at, stepsTotal: pipeline.steps.length, stepsOk: pipeline.steps.filter((s) => s.ok).length }
       : null,
     autopilotOn,
+    affiliateClicks,
   }
 }

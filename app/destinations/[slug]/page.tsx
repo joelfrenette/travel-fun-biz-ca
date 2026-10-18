@@ -17,6 +17,8 @@ import { getPublicBlurb } from "@/lib/destination-blurbs"
 import { getPublishedGuide, listPropertyGuidesForDestination, listPublishedGuideLinks, guideTrail, childGroups, getTripFactsByIds, listPostsForGuide, pickRelatedGuides, relatedGuideCards, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
 import { scopeOf } from "@/lib/guide-scope"
 import { GuideCta } from "@/components/guide-cta"
+import { GuideThingsToDo } from "@/components/guide-things-to-do"
+import { loadThingsToDo } from "@/lib/things-to-do"
 import { GuideFacts } from "@/components/guide-facts"
 import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
 import type { FactsInput } from "@/lib/guide-facts"
@@ -72,6 +74,8 @@ export default async function DestinationPage({ params }: Props) {
   const usdToTargetRate = await getUsdToRate(currency)
   const pageUrl = absoluteUrl(`/destinations/${params.slug}`)
   const blurb = await getPublicBlurb(params.slug)
+  // "Fun things to do": curated cards and partner search buttons; empty (nothing rendered) when there are none.
+  const things = await loadThingsToDo("destinations", params.slug)
   // Reuses the same grounding check best-time-to-visit's own page already applies (a real dated
   // published package must exist) rather than re-deriving it from page.upcoming, whose
   // TravelPackage items don't carry available_from/available_to at all.
@@ -175,6 +179,7 @@ export default async function DestinationPage({ params }: Props) {
               <GuideFacts input={factsInput} />
               <GuideArticle guide={guide} />
               <GuideFaqList guide={guide} />
+              <GuideThingsToDo things={things} name={destination} language={language} />
               <GuideCta name={destination} packageName={upcoming[0]?.name} />
               <RelatedGuidesSection guides={relatedGuideCards(relatedGuides)} />
               <BlogStoriesSection stories={stories} />
@@ -194,6 +199,13 @@ export default async function DestinationPage({ params }: Props) {
                 ))}
               </div>
             </section>
+          )}
+
+          {/* A destination without a guide gets the block here, after its trips (with a guide it sits in the guide block above). */}
+          {!guide && (
+            <div className="mx-auto max-w-3xl">
+              <GuideThingsToDo things={things} name={destination} language={language} />
+            </div>
           )}
 
           {childBlocks.length > 0 && (
