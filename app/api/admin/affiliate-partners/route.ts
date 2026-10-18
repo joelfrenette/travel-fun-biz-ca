@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { dedupeSlug } from '@/lib/affiliate-go'
+import { refreshAfterChange } from '@/lib/affiliate-refresh'
 import { isMissingPartnersTable, normalizePartnerInput, PARTNERS_MIGRATION_MESSAGE } from '@/lib/affiliate-partners'
 
 const PARTNER_COLUMNS = 'id, slug, name, logo_url, partner_id, search_template, disclosure, status, sort_order, created_at'
@@ -27,7 +28,8 @@ export async function POST(request: Request) {
       if (isMissingPartnersTable(error.message)) return NextResponse.json({ error: PARTNERS_MIGRATION_MESSAGE }, { status: 409 })
       throw new Error(error.message)
     }
-    return NextResponse.json({ partner: data }, { status: 201 })
+    const refreshed = await refreshAfterChange(admin)
+    return NextResponse.json({ partner: data, refreshed }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
