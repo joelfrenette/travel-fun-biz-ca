@@ -22,7 +22,9 @@ import { getDestinationSlugs } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
-import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection } from "@/components/guide-parts"
+import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection, linkedGuideContent } from "@/components/guide-parts"
+import { AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
@@ -146,7 +148,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const info = guideKinds[kind]
   const { language, currency } = getVisitorPreferences()
   const bestTimeSlug = kind === "destinations" ? slug : guide.parent_slug
-  const [usdToTargetRate, tripRows, allGuides, destinations, bestTime, stories, tripFacts, things] = await Promise.all([
+  const [usdToTargetRate, tripRows, allGuides, destinations, bestTime, stories, tripFacts, things, affiliateRules] = await Promise.all([
     getUsdToRate(currency),
     getPublishedTripRowsByIds(guide.related_package_ids),
     // Every published guide as a link row: related guides, the parent chain and the pages under this one all come from it.
@@ -160,7 +162,10 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
     getTripFactsByIds(guide.related_package_ids),
     // "Fun things to do": curated cards and partner search buttons. Empty (the block is not rendered) when there are none.
     loadThingsToDo(kind, slug),
+    // Word links (WP22): ON rules whose link is ON, read once with the rest of the page data. Fails open (no rules).
+    loadAffiliateRules(),
   ])
+  const linked = linkedGuideContent(guide, affiliateRules, kind === "destinations" ? "destinations" : "guides")
   // Upcoming versus past by the one shared rule (lib/past-trip.ts). The header card shows the nearest upcoming trip
   // (else the latest past one, else the photo and quick facts); the trips section lists only the REST, so a single
   // trip is never shown twice, and a past trip is never offered as bookable.
@@ -243,8 +248,9 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
 
           <GuideTakeaways guide={guide} />
           <GuideFacts input={factsInput} />
-          <GuideArticle guide={guide} />
-          <GuideFaqList guide={guide} />
+          <GuideArticle guide={guide} html={linked.bodyHtml} />
+          <GuideFaqList guide={guide} answers={linked.answers} />
+          <AffiliateAutoDisclosure count={linked.count} language={language} />
 
           {children.length > 0 && (
             <section aria-labelledby="inside-heading">

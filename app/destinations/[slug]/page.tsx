@@ -10,7 +10,9 @@ import { GuideHeaderActions } from "@/components/guide-header-actions"
 import { pickHeaderFeature, type HeaderPastTrip } from "@/lib/guide-header"
 import type { TravelPackage } from "@/types/travel"
 import { guideJsonLd, guideMetadata } from "@/components/guide-page"
-import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection } from "@/components/guide-parts"
+import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection, linkedGuideContent } from "@/components/guide-parts"
+import { AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { getDestinationPage } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getPublicBlurb } from "@/lib/destination-blurbs"
@@ -55,7 +57,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function DestinationPage({ params }: Props) {
   // "Fun things to do": curated cards and partner search buttons; empty (nothing rendered) when there are none.
-  const [page, guide, things] = await Promise.all([getDestinationPage(params.slug), getPublishedGuide("destinations", params.slug), loadThingsToDo("destinations", params.slug)])
+  // Word links (WP22) are read in the same batch and fail open (no rules).
+  const [page, guide, things, affiliateRules] = await Promise.all([getDestinationPage(params.slug), getPublishedGuide("destinations", params.slug), loadThingsToDo("destinations", params.slug), loadAffiliateRules()])
   // A destination with a guide but no published trip yet still has a page (the guide). With neither, it is not found.
   if (!page && !guide) notFound()
   const destination = page?.destination ?? guide!.name
@@ -72,6 +75,7 @@ export default async function DestinationPage({ params }: Props) {
   const heroInHeader = feature.kind === "facts" && !!feature.image
 
   const { language, currency } = getVisitorPreferences()
+  const linked = guide ? linkedGuideContent(guide, affiliateRules, "destinations") : null
   const usdToTargetRate = await getUsdToRate(currency)
   const pageUrl = absoluteUrl(`/destinations/${params.slug}`)
   const blurb = await getPublicBlurb(params.slug)  // Reuses the same grounding check best-time-to-visit's own page already applies (a real dated
@@ -175,8 +179,9 @@ export default async function DestinationPage({ params }: Props) {
               )}
               <GuideTakeaways guide={guide} />
               <GuideFacts input={factsInput} />
-              <GuideArticle guide={guide} />
-              <GuideFaqList guide={guide} />
+              <GuideArticle guide={guide} html={linked?.bodyHtml} />
+              <GuideFaqList guide={guide} answers={linked?.answers} />
+              <AffiliateAutoDisclosure count={linked?.count ?? 0} language={language} />
               <GuideThingsToDo things={things} name={destination} language={language} />
               <GuideCta name={destination} packageName={upcoming[0]?.name} />
               <RelatedGuidesSection guides={relatedGuideCards(relatedGuides)} />
