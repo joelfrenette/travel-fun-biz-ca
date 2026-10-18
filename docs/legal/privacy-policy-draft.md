@@ -126,6 +126,7 @@ site. Last updated: **[date]**.
   are a machine-assisted translation of the English draft (neutral Latin American Spanish). The lawyer must review
   them together with the French before they are relied on; `scripts/check-consent-i18n.ts` only checks that the
   strings exist and keep the same placeholders, not that the legal meaning is right.]**
+- [The trip-alert consent wording and error messages in French and Spanish (`components/trip-alert-form.tsx`, `lib/i18n.ts`) are a machine-assisted translation of the English draft for the lawyer to review.]
 - The contact form has no marketing consent box on purpose (an enquiry implies consent to reply only).
 - Newsletter signups are backed up in our own database table `leads` with a consent line, and tagged
   `email-consent` in GoHighLevel.
