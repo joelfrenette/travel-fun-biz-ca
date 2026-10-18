@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { dedupeSlug } from '@/lib/affiliate-go'
-import { normalizeAffiliateLinkInput, summarizeClicksByLink, clicksFor, saveLink, LINK_COLUMNS, LINK_COLUMNS_OLD } from '@/lib/affiliate-links-admin'
+import { normalizeAffiliateLinkInput, summarizeClicksByLink, clicksFor, saveLink, LINK_COLUMNS, LINK_COLUMNS_0048, LINK_COLUMNS_OLD } from '@/lib/affiliate-links-admin'
 import { summarizePartnerClicks, type PartnerClickRow } from '@/lib/affiliate-partners'
 
 const PARTNER_COLUMNS = 'id, slug, name, logo_url, partner_id, search_template, disclosure, status, sort_order, created_at'
@@ -21,8 +21,10 @@ export async function GET(request: Request) {
       admin.from('affiliate_partners').select(PARTNER_COLUMNS).order('sort_order').order('created_at'),
       admin.from('guides').select('kind, slug, name').eq('status', 'published').order('name').limit(2000),
     ])
-    const migrated = !linksNew.error && !partnerClicksRes.error && !partnersRes.error
-    const linksRes = linksNew.error ? await admin.from('affiliate_links').select(LINK_COLUMNS_OLD).order('sort_order').order('created_at', { ascending: false }) : linksNew
+    // Migration 0049 adds category. Reads fall back one step at a time: with category, without it (0048 only), then the old columns.
+    const linksMid = linksNew.error ? await admin.from('affiliate_links').select(LINK_COLUMNS_0048).order('sort_order').order('created_at', { ascending: false }) : linksNew
+    const migrated = !linksMid.error && !partnerClicksRes.error && !partnersRes.error
+    const linksRes = linksMid.error ? await admin.from('affiliate_links').select(LINK_COLUMNS_OLD).order('sort_order').order('created_at', { ascending: false }) : linksMid
     if (linksRes.error) throw new Error(linksRes.error.message)
     if (cardClicksRes.error) throw new Error(cardClicksRes.error.message)
 

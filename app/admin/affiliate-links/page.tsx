@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Loader2, Link2, Pencil, Trash2, X } from "lucide-react"
 import { GO_PREFIX } from "@/lib/affiliate-go"
 import { DEFAULT_DISCLOSURE, MAX_NOTE_LENGTH, TEMPLATE_HELP } from "@/lib/affiliate-partners"
+import { LINK_CATEGORIES, LINK_CATEGORY_LABELS, isLinkCategory } from "@/lib/link-categories"
 
 type Status = "draft" | "active" | "hidden"
 interface Counts { total: number; last7: number; last30: number }
@@ -28,6 +29,7 @@ interface AffiliateLinkRow {
   guide_slug?: string | null
   image_url?: string | null
   note?: string | null
+  category?: string | null
   clicks: Counts
 }
 
@@ -59,6 +61,7 @@ interface AffiliateLinkForm {
   page: string // "<kind>/<slug>" or ""
   image_url: string
   note: string
+  category: string // one of LINK_CATEGORIES or ""
 }
 
 interface PartnerForm {
@@ -73,7 +76,7 @@ interface PartnerForm {
   sort_order: number
 }
 
-const EMPTY_FORM: AffiliateLinkForm = { id: "", slug: "", url: "", merchant: "", title: "", status: "draft", sort_order: 0, partner_id: "", page: "", image_url: "", note: "" }
+const EMPTY_FORM: AffiliateLinkForm = { id: "", slug: "", url: "", merchant: "", title: "", status: "draft", sort_order: 0, partner_id: "", page: "", image_url: "", note: "", category: "" }
 const EMPTY_PARTNER: PartnerForm = { id: "", name: "", slug: "", logo_url: "", partner_id: "", search_template: "", disclosure: "", status: "draft", sort_order: 0 }
 
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -121,7 +124,7 @@ export default function AffiliateLinksPage() {
   function editRow(row: AffiliateLinkRow) {
     setForm({
       id: row.id, slug: row.slug, url: row.url, merchant: row.merchant ?? "", title: row.title ?? "", status: row.status, sort_order: row.sort_order,
-      partner_id: row.partner_id ?? "", page: row.guide_kind && row.guide_slug ? `${row.guide_kind}/${row.guide_slug}` : "", image_url: row.image_url ?? "", note: row.note ?? "",
+      partner_id: row.partner_id ?? "", page: row.guide_kind && row.guide_slug ? `${row.guide_kind}/${row.guide_slug}` : "", image_url: row.image_url ?? "", note: row.note ?? "", category: row.category ?? "",
     })
   }
 
@@ -382,6 +385,14 @@ export default function AffiliateLinksPage() {
                   <p className="text-xs text-muted-foreground">Pick a page to show this link as a card in its &ldquo;Fun things to do&rdquo; block.</p>
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="category">Category</Label>
+                  <select id="category" className={selectClass} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                    <option value="">No category</option>
+                    {LINK_CATEGORIES.map((c) => <option key={c} value={c}>{LINK_CATEGORY_LABELS[c]}</option>)}
+                  </select>
+                  <p className="text-xs text-muted-foreground">Active links in transport, stays, luggage, connectivity and insurance can appear in &ldquo;Plan the extras for your trip&rdquo; on upcoming trip pages. Needs migration 0049.</p>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="image_url">Photo link</Label>
                   <Input id="image_url" placeholder="https://... (optional)" value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
                 </div>
@@ -427,7 +438,10 @@ export default function AffiliateLinksPage() {
               {links.map((l) => (
                 <div key={l.id} className="flex flex-wrap items-center justify-between gap-3 border-t p-4 first:border-t-0">
                   <div className="min-w-[220px] flex-1">
-                    <p className="font-medium">{l.title || l.merchant || l.url}</p>
+                    <p className="font-medium">
+                      {l.title || l.merchant || l.url}
+                      {isLinkCategory(l.category) && <Badge variant="outline" className="ml-2 align-middle text-[10px]" data-category={l.category}>{LINK_CATEGORY_LABELS[l.category]}</Badge>}
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">
                       <code className="rounded bg-muted px-1">{GO_PREFIX}/{l.slug}</code> &middot; {l.url}
                     </p>
