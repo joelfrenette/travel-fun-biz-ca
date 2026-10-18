@@ -39,7 +39,15 @@ const RULES: { category: NewsCategory; patterns: RegExp[] }[] = [
 
 /** NHC feeds also carry "no storms" notices, outlooks and graphics pages that say nothing happened. */
 const NHC_NOT_AN_EVENT = /\b(no (active )?tropical cyclones?|no tropical|outlook|graphical|archive|tropical weather discussion)\b/i
-const NHC_EVENT = /\b(hurricane|tropical storm|tropical depression|potential tropical cyclone|post-tropical|tropical cyclone)\b/i
+/** The hurricane centre publishes SIX items per active storm. Only the Public Advisory (plain language) and the "Summary for"
+ * item are traveller news; the forecast advisory, the forecast discussion, the wind speed probabilities and the graphics page
+ * are meteorology products. A small title denylist (rather than an allowlist) keeps older plain "Advisory Number" titles working.
+ * Dropped items are NOT stored (like every other not-relevant item): nothing is re-read or re-judged on later runs, and the same
+ * rule re-checks stored rows (see reevaluateItems in lib/news-ingest.ts), so a row stored under older rules still expires. */
+const NHC_TECHNICAL = /\b(forecast advisory|forecast discussion|wind speed probabilit\w*|graphics|storm surge probabilit\w*|key messages)\b/i
+export const NHC_TECHNICAL_REASON = 'technical product, not traveller news'
+
+const NHC_EVENT =/\b(hurricane|tropical storm|tropical depression|potential tropical cyclone|post-tropical|tropical cyclone)\b/i
 
 const BREAKING = /\b(hurricane (warning|watch)|tropical storm (warning|watch)|major hurricane|category [3-5]|do not travel|level 4|level 3|reconsider travel|state of emergency|evacuat|avoid all travel|advise against all travel|advises against all travel)\b/i
 
@@ -57,6 +65,7 @@ export function classifyItem(source: Pick<NewsSource, 'key' | 'tier' | 'defaultC
 
   if (source.key.startsWith('nhc-')) {
     if (NHC_NOT_AN_EVENT.test(item.title)) return none('the hurricane centre posted an outlook or a no-storms notice, not an event')
+    if (NHC_TECHNICAL.test(item.title)) return none(NHC_TECHNICAL_REASON)
     if (!NHC_EVENT.test(text)) return none('not about a named storm or a tropical cyclone')
     return { relevant: true, category: 'storm', reason: 'a tropical cyclone bulletin', breaking }
   }
@@ -130,6 +139,52 @@ export function isNearDuplicate(title: string, others: string[]): boolean {
   const key = titleKey(title)
   if (!key) return false
   return others.some((o) => titleKey(o) === key || titleSimilarity(title, o) >= SIMILAR_TITLE_THRESHOLD)
+}
+
+// ---------------------------------------------------------------------------------------------------
+// One post per storm per 12 hours (hurricane centre feeds only)
+// ---------------------------------------------------------------------------------------------------
+
+/** One news post per storm key in this long; a later advisory may then produce an UPDATE post. */
+export const STORM_POST_WINDOW_MS = 12 * 3_600_000
+
+export const isNhcSource = (key: string): boolean => key.startsWith('nhc-')
+
+const STORM_NAME = /\b(?:post-tropical cyclone|potential tropical cyclone|tropical cyclone|tropical depression|tropical storm|hurricane|typhoon|remnants of)\s+([A-Za-z][A-Za-z-]{1,24})\b/gi
+const NOT_A_NAME = new Set(['advisory', 'number', 'warning', 'watch', 'public', 'forecast', 'discussion', 'wind', 'graphics', 'summary', 'outlook', 'center', 'centre', 'season', 'conditions'])
+const ATCF_ID = /\b((?:AL|EP|CP)\d{6})\b/i
+
+/** A storm key from an NHC title: the storm name plus the ATCF id when the title has it, e.g. "trudy|ep212026". The Public
+ * Advisory title has only the name, the "Summary for" title has both. Null when no storm name is found. Pure. */
+export function stormKey(title: string): string | null {
+  // The name must be written with a capital letter ("Hurricane Trudy"), never a plain word ("hurricane warning").
+  const name = [...title.matchAll(STORM_NAME)].map((m) => m[1]).find((n) => /^[A-Z]/.test(n) && !NOT_A_NAME.has(n.toLowerCase()))?.toLowerCase()
+  if (!name) return null
+  const id = ATCF_ID.exec(title)?.[1]?.toLowerCase()
+  return id ? `${name}|${id}` : name
+}
+
+/** Two keys name the same storm when the names match and, if BOTH carry an id, the ids match too. Pure. */
+export function stormKeysMatch(a: string | null, b: string | null): boolean {
+  if (!a || !b) return false
+  const [an, ai] = a.split('|')
+  const [bn, bi] = b.split('|')
+  return an === bn && (!ai || !bi || ai === bi)
+}
+
+/** Print order inside one NHC read: the Public Advisory first, so it (and not the "Summary for" item) is the one written. */
+export const nhcProductRank = (title: string): number => (/public advisory/i.test(title) ? 0 : /^summary for/i.test(title) ? 2 : 1)
+
+/** True when an earlier item (new, queued or published) for the same storm lies within 12 hours of this one: that earlier post
+ * already covers it. Both sides must be hurricane centre items. Pure. */
+export function coveredByEarlierStormPost(
+  item: { sourceKey: string; title: string; whenMs: number },
+  others: { sourceKey: string; title: string; whenMs: number; status: string }[],
+): boolean {
+  if (!isNhcSource(item.sourceKey)) return false
+  const key = stormKey(item.title)
+  if (!key) return false
+  return others.some((o) => isNhcSource(o.sourceKey) && ['new', 'queued', 'published'].includes(o.status) && Math.abs(item.whenMs - o.whenMs) < STORM_POST_WINDOW_MS && stormKeysMatch(key, stormKey(o.title)))
 }
 
 /** Sort order for picking what to write about: breaking tier 1 first, then tier 1, then tier 2; newest first inside a group. */

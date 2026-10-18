@@ -9,10 +9,10 @@ import { pingIndexNow } from '@/lib/indexnow'
 import { briefProblems, isAttributed, lexicalProblems, writeNewsBrief, type NewsBrief, type NewsFacts } from '@/lib/news-brief'
 import { SOCIAL_ENROLMENTS_PER_DAY_CEILING, enrollNewsIfDue } from '@/lib/news-distribution'
 import type { FetchDeps } from '@/lib/news-feed'
-import { expireOldItems, ingestFeeds, newsTableReady, type IngestResult, type NewsItemRow } from '@/lib/news-ingest'
+import { NO_LONGER_QUALIFIES_REASON, expireOldItems, ingestFeeds, newsTableReady, reevaluateItems, type IngestResult, type NewsItemRow } from '@/lib/news-ingest'
 import { createNewsPost, markSuperseded, publishQueuedDraft } from '@/lib/news-publish'
 import { newsTitle, parseNewsBody } from '@/lib/news-post'
-import { isBreaking, priorityOf, stormSignature, titleKey, titleSimilarity, SIMILAR_TITLE_THRESHOLD } from '@/lib/news-relevance'
+import { classifyItem, isBreaking, isNhcSource, priorityOf, stormKey, stormKeysMatch, stormSignature, titleKey, titleSimilarity, SIMILAR_TITLE_THRESHOLD } from '@/lib/news-relevance'
 import { getNewsMode, getNewsPerDay, type NewsMode } from '@/lib/news-settings'
 import { maxAgeMs, sourceByKey, type NewsSource } from '@/lib/news-sources'
 
@@ -122,8 +122,14 @@ export async function olderStormItems(admin: SupabaseClient, item: NewsItemRow):
   if (item.category !== 'storm') return []
   const { data } = await admin.from('news_items').select('*').eq('category', 'storm').in('status', ['queued', 'published']).not('post_slug', 'is', null).limit(100)
   const sig = stormSignature(item.title, item.summary_raw)
+  // Hurricane centre items also match by storm key (name, and the ATCF id when both have one), so a "Summary for" item and a
+  // Public Advisory of the same storm are recognised as the same storm even though their titles share few words.
+  const sameStorm = (r: NewsItemRow) =>
+    titleKey(r.title) === titleKey(item.title) ||
+    titleSimilarity(r.title, item.title) >= SIMILAR_TITLE_THRESHOLD ||
+    (isNhcSource(r.source_key) && isNhcSource(item.source_key) && stormKeysMatch(stormKey(r.title), stormKey(item.title)))
   return ((data ?? []) as NewsItemRow[])
-    .filter((r) => r.id !== item.id && itemMs(r) < itemMs(item) && (titleKey(r.title) === titleKey(item.title) || titleSimilarity(r.title, item.title) >= SIMILAR_TITLE_THRESHOLD) && stormSignature(r.title, r.summary_raw) !== sig)
+    .filter((r) => r.id !== item.id && itemMs(r) < itemMs(item) && sameStorm(r) && stormSignature(r.title, r.summary_raw) !== sig)
     .sort((a, b) => itemMs(b) - itemMs(a))
 }
 
@@ -152,12 +158,16 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
     const ready = await newsTableReady(admin)
     if (!ready.ok) return { ...result, note: 'travel news needs one database update: run migration 0047 (supabase/migrations/0047_news_items.sql) in the Supabase SQL editor' }
 
+    // 0: the CURRENT relevance rules over what is waiting (draft or publish mode alike), BEFORE the read, so an item that no
+    // longer qualifies (a forecast discussion queued under older rules) neither becomes a candidate nor "covers" a storm.
+    const requalified = await reevaluateItems(admin)
+
     // 1 + 2: read, filter, store, expire.
     const ingest = await ingestFeeds(admin, { fetchDeps: deps.fetchDeps, now, sources: deps.sources, deadlineMs: deps.deadlineMs })
     if (ingest.tableProblem) return { ...result, ok: false, note: `could not store news items (${ingest.tableProblem})` }
     result.stored = ingest.stored
     const expired = await expireOldItems(admin, now)
-    const head = [ingestNote(ingest), expired ? `${expired} expired` : ''].filter(Boolean).join(', ')
+    const head = [ingestNote(ingest), expired ? `${expired} expired` : '', requalified ? `${requalified} no longer qualified` : ''].filter(Boolean).join(', ')
     const lead = head ? `${head}; ` : ''
 
     // 3 + 4: write.
@@ -197,6 +207,11 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
         if (!source || !source.enabled) {
           await setItem(admin, item.id, { status: 'rejected', reject_reason: 'the source is no longer on the allowlist', decided_at: now.toISOString() })
           result.rejected++
+          continue
+        }
+        // Checked again right before going live (a rule may have changed since step 0, or the item was queued in between).
+        if (!classifyItem(source, { title: item.title, summary: item.summary_raw }).relevant) {
+          await setItem(admin, item.id, { status: 'expired', reject_reason: NO_LONGER_QUALIFIES_REASON })
           continue
         }
         if (itemStale(item, nowMs)) {

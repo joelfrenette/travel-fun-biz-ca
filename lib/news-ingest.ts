@@ -15,8 +15,8 @@ import {
   type FetchDeps,
   type RawFeedItem,
 } from '@/lib/news-feed'
-import { classifyItem, isBreaking, isRepeatOf } from '@/lib/news-relevance'
-import { NEWS_MAX_AGE_DAYS, SUMMARY_MAX_CHARS, enabledSources, maxAgeMs, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
+import { classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
+import { NEWS_MAX_AGE_DAYS, SUMMARY_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
 
 // Growth loop WP20: step one of the news pipeline. Read the allowlisted feeds (each at most once in 30 minutes), keep
 // only the items that change a traveller's plans, drop repeats, store what is left in news_items, and expire what has
@@ -42,6 +42,9 @@ export interface NewsItemRow {
   created_at: string
 }
 
+export const STORM_COVERED_REASON = 'covered by an earlier post'
+export const NO_LONGER_QUALIFIES_REASON = 'no longer qualifies'
+
 /** Per source, per read: the most new items stored (a feed that suddenly lists everything cannot flood the table). */
 export const MAX_NEW_PER_SOURCE = 10
 const DAY_MS = 86_400_000
@@ -54,6 +57,8 @@ export interface IngestResult {
   stored: number
   rejected: number
   duplicates: number
+  /** Storm bulletins stored as rejected because an earlier post about the same storm is less than 12 hours away. */
+  covered: number
   notRelevant: number
   tooOld: number
   offSite: number
@@ -64,7 +69,7 @@ export interface IngestResult {
   tableProblem?: string
 }
 
-export const emptyIngest = (): IngestResult => ({ fetched: [], waiting: [], stored: 0, rejected: 0, duplicates: 0, notRelevant: 0, tooOld: 0, offSite: 0, failed: [], skippedForTime: [] })
+export const emptyIngest = (): IngestResult => ({ fetched: [], waiting: [], stored: 0, rejected: 0, duplicates: 0, covered: 0, notRelevant: 0, tooOld: 0, offSite: 0, failed: [], skippedForTime: [] })
 
 // ---------------------------------------------------------------------------------------------------
 // Canadian advisory snapshot: what changed since the last read
@@ -159,9 +164,19 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
   const sources = [...(deps.sources ?? enabledSources())].sort((a, b) => a.tier - b.tier)
   try {
     const recentSince = new Date(nowMs - NEWS_MAX_AGE_DAYS * DAY_MS).toISOString()
-    const recent = await admin.from('news_items').select('title, summary_raw, category').gte('created_at', recentSince).limit(1000)
+    const recent = await admin.from('news_items').select('title, summary_raw, category, source_key, status, published_at, fetched_at, reject_reason').gte('created_at', recentSince).limit(1000)
     if (recent.error) return { ...result, tableProblem: recent.error.message }
-    const known = ((recent.data ?? []) as { title: string; summary_raw: string | null; category: string | null }[]).map((r) => ({ title: r.title, summary: r.summary_raw ?? '', category: r.category ?? '' }))
+    // Bulletins stored as "covered by an earlier post" never made a post, so they must not make a later bulletin look like a repeat.
+    const known = ((recent.data ?? []) as { title: string; summary_raw: string | null; category: string | null; source_key?: string | null; status?: string | null; published_at?: string | null; fetched_at?: string | null; reject_reason?: string | null }[])
+      .filter((r) => r.reject_reason !== STORM_COVERED_REASON)
+      .map((r) => ({
+      title: r.title,
+      summary: r.summary_raw ?? '',
+      category: r.category ?? '',
+      sourceKey: r.source_key ?? '',
+      status: r.status ?? '',
+      whenMs: Date.parse(r.published_at ?? r.fetched_at ?? '') || 0,
+    }))
 
     for (const source of sources) {
       if (deps.deadlineMs !== undefined && deps.deadlineMs - Date.now() < FEED_START_MARGIN_MS) {
@@ -238,6 +253,9 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         for (const r of (data ?? []) as { guid: string }[]) seen.add(r.guid)
       }
 
+      // Hurricane centre feeds: the plain-language Public Advisory is looked at before the "Summary for" item of the same storm.
+      if (isNhcSource(source.key)) readItems = [...readItems].sort((a, b) => nhcProductRank(a.title) - nhcProductRank(b.title))
+
       let storedHere = 0
       for (const item of readItems) {
         if (storedHere >= MAX_NEW_PER_SOURCE) break
@@ -283,6 +301,16 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
           result.tooOld++
           continue
         }
+        // One post per storm per 12 hours: a later bulletin inside that window is stored as rejected ("covered by an earlier post",
+        // no decided_at, so it does not count as a write attempt) so its guid is remembered and it is not re-judged every run.
+        // Past 12 hours a new bulletin is a candidate again and follows the normal update logic below and in lib/news-run.ts.
+        if (verdict.category === 'storm' && coveredByEarlierStormPost({ sourceKey: source.key, title: item.title, whenMs: when }, known)) {
+          const r = await storeItem(admin, { ...base, category: verdict.category, status: 'rejected', reject_reason: STORM_COVERED_REASON })
+          if (r === 'stored') result.covered++
+          else if (r === 'duplicate') result.duplicates++
+          else return { ...result, tableProblem: 'could not save a news item' }
+          continue
+        }
         // A repeat of a stored item is dropped. For a storm the figures count: the same storm with a new warning, a higher
         // category or different winds is an UPDATE and is kept (the older brief is marked superseded when the update goes live).
         // Canadian advisories are NOT compared by title words: many countries share the same advisory wording, and the guid
@@ -295,7 +323,7 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         if (r === 'stored') {
           result.stored++
           storedHere++
-          known.push({ title: item.title, summary: item.summary, category: verdict.category })
+          known.push({ title: item.title, summary: item.summary, category: verdict.category, sourceKey: source.key, status: 'new', whenMs: when })
         } else if (r === 'duplicate') result.duplicates++
         else return { ...result, tableProblem: 'could not save a news item' }
       }
@@ -321,6 +349,22 @@ export async function expireOldItems(admin: SupabaseClient, now: Date = new Date
   if (stale.length === 0) return 0
   const { error: upErr } = await admin.from('news_items').update({ status: 'expired', reject_reason: 'too old to be news any more (36 hours for storms and breaking notices, 7 days for the rest) before it was written about' }).in('id', stale.map((r) => r.id))
   return upErr ? null : stale.length
+}
+
+/** Runs the CURRENT relevance rules over items still waiting ('new' or 'queued'). One that no longer qualifies (for example a
+ * hurricane centre forecast discussion stored before that product was dropped) is marked 'expired' with the reason
+ * "no longer qualifies". Nothing is deleted and a queued item's draft post is left exactly as it is. Items of a source that is
+ * gone are left to the allowlist checks in lib/news-run.ts. Returns how many were expired, or null when the table could not be read. */
+export async function reevaluateItems(admin: SupabaseClient): Promise<number | null> {
+  const { data, error } = await admin.from('news_items').select('id, source_key, title, summary_raw').in('status', ['new', 'queued']).limit(500)
+  if (error) return null
+  const out = ((data ?? []) as { id: string; source_key: string; title: string | null; summary_raw: string | null }[]).filter((r) => {
+    const source = sourceByKey(r.source_key)
+    return source ? !classifyItem(source, { title: r.title ?? '', summary: r.summary_raw ?? '' }).relevant : false
+  })
+  if (out.length === 0) return 0
+  const { error: upErr } = await admin.from('news_items').update({ status: 'expired', reject_reason: NO_LONGER_QUALIFIES_REASON }).in('id', out.map((r) => r.id))
+  return upErr ? null : out.length
 }
 
 /** Sources whose last FEED_FAIL_LIMIT fetches in a row all failed (for Needs attention). */
