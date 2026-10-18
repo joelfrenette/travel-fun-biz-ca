@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { cardHref, isRealLink, isValidSlug, usesGoLink } from '@/lib/affiliate-go'
-import { DEFAULT_DISCLOSURE, GUIDE_SLUG_PATTERN, fillSearchTemplate, guideKey, partnerGoPath, type PartnerRow } from '@/lib/affiliate-partners'
+import { cardHref, isValidSlug, usesGoLink } from '@/lib/affiliate-go'
+import { DEFAULT_DISCLOSURE, GUIDE_SLUG_PATTERN, cleanHttpsUrl, fillSearchTemplate, guideKey, partnerGoPath, type PartnerRow } from '@/lib/affiliate-partners'
 import { guidePath, isGuideKind, type GuideKind } from '@/lib/guides'
 
 // WP21: the data behind the "Fun things to do in <place>" block, and the lookup behind
@@ -75,7 +75,7 @@ export function buildThingsToDo(input: { links: LinkRow[]; partners: PartnerRow[
       title,
       partnerName,
       note: l.note?.trim() || null,
-      imageUrl: l.image_url && isRealLink(l.image_url) ? l.image_url : null,
+      imageUrl: cleanHttpsUrl(l.image_url),
       href: cardHref({ url: l.url, slug: l.slug }),
     })
     shownPartners.add(partner?.id ?? null)

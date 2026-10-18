@@ -182,6 +182,19 @@ export function normalizePartnerInput(raw: Record<string, unknown>): PartnerVali
   return { ok: true, value: { slug, name, logo_url, partner_id, search_template, disclosure, status, sort_order } }
 }
 
+/** A partner's slug is part of every /go/p link already on pages and in emails, so it is fixed after creation. */
+export function lockedPartnerSlug(currentSlug: string, requested: unknown): { ok: true; slug: string } | { ok: false; error: string } {
+  const asked = String(requested ?? '').trim().toLowerCase()
+  if (asked && asked !== currentSlug) return { ok: false, error: 'The short name of a partner cannot be changed after it is created, because existing page links use it. Leave it as it is, or create a new partner.' }
+  return { ok: true, slug: currentSlug }
+}
+
+/** True when a database error only means the partners table is not there yet (migration 0048 not applied). */
+export const isMissingPartnersTable = (message: string | null | undefined): boolean =>
+  !!message && /affiliate_partners/i.test(message) && /does not exist|schema cache|could not find|relation/i.test(message)
+
+export const PARTNERS_MIGRATION_MESSAGE = 'Run migration 0048 first (supabase/migrations/0048_things_to_do.sql in the Supabase SQL editor), then save again.'
+
 // ---------- click counts ----------
 
 export interface ClickCounts {

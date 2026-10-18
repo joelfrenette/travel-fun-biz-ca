@@ -54,7 +54,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function DestinationPage({ params }: Props) {
-  const [page, guide] = await Promise.all([getDestinationPage(params.slug), getPublishedGuide("destinations", params.slug)])
+  // "Fun things to do": curated cards and partner search buttons; empty (nothing rendered) when there are none.
+  const [page, guide, things] = await Promise.all([getDestinationPage(params.slug), getPublishedGuide("destinations", params.slug), loadThingsToDo("destinations", params.slug)])
   // A destination with a guide but no published trip yet still has a page (the guide). With neither, it is not found.
   if (!page && !guide) notFound()
   const destination = page?.destination ?? guide!.name
@@ -73,10 +74,7 @@ export default async function DestinationPage({ params }: Props) {
   const { language, currency } = getVisitorPreferences()
   const usdToTargetRate = await getUsdToRate(currency)
   const pageUrl = absoluteUrl(`/destinations/${params.slug}`)
-  const blurb = await getPublicBlurb(params.slug)
-  // "Fun things to do": curated cards and partner search buttons; empty (nothing rendered) when there are none.
-  const things = await loadThingsToDo("destinations", params.slug)
-  // Reuses the same grounding check best-time-to-visit's own page already applies (a real dated
+  const blurb = await getPublicBlurb(params.slug)  // Reuses the same grounding check best-time-to-visit's own page already applies (a real dated
   // published package must exist) rather than re-deriving it from page.upcoming, whose
   // TravelPackage items don't carry available_from/available_to at all.
   const bestTimeToVisit = await getBestTimeToVisitPage(params.slug)

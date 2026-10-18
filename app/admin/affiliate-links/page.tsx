@@ -266,7 +266,7 @@ export default function AffiliateLinksPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="p-slug">Short name for web addresses</Label>
-                  <Input id="p-slug" placeholder="leave blank to auto-generate" value={partnerForm.slug} onChange={(e) => setPartnerForm({ ...partnerForm, slug: e.target.value })} />
+                  <Input id="p-slug" placeholder="leave blank to auto-generate" disabled={!!partnerForm.id} title={partnerForm.id ? "Fixed after creation, because page links use it" : undefined} value={partnerForm.slug} onChange={(e) => setPartnerForm({ ...partnerForm, slug: e.target.value })} />
                 </div>
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="p-disclosure">Commission wording</Label>

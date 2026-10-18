@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { dedupeSlug } from '@/lib/affiliate-go'
-import { normalizePartnerInput } from '@/lib/affiliate-partners'
+import { isMissingPartnersTable, normalizePartnerInput, PARTNERS_MIGRATION_MESSAGE } from '@/lib/affiliate-partners'
 
 const PARTNER_COLUMNS = 'id, slug, name, logo_url, partner_id, search_template, disclosure, status, sort_order, created_at'
 
@@ -16,11 +16,17 @@ export async function POST(request: Request) {
 
     const admin = getSupabaseAdmin()
     const { data: existing, error: existingError } = await admin.from('affiliate_partners').select('slug')
-    if (existingError) throw new Error(existingError.message)
+    if (existingError) {
+      if (isMissingPartnersTable(existingError.message)) return NextResponse.json({ error: PARTNERS_MIGRATION_MESSAGE }, { status: 409 })
+      throw new Error(existingError.message)
+    }
     const slug = dedupeSlug(parsed.value.slug, (existing ?? []).map((r) => r.slug))
 
     const { data, error } = await admin.from('affiliate_partners').insert({ ...parsed.value, slug }).select(PARTNER_COLUMNS).single()
-    if (error) throw new Error(error.message)
+    if (error) {
+      if (isMissingPartnersTable(error.message)) return NextResponse.json({ error: PARTNERS_MIGRATION_MESSAGE }, { status: 409 })
+      throw new Error(error.message)
+    }
     return NextResponse.json({ partner: data }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })

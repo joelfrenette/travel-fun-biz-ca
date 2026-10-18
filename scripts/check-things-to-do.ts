@@ -11,12 +11,14 @@ import {
   DEFAULT_DISCLOSURE,
   fillSearchTemplate,
   normalizePartnerInput,
+  lockedPartnerSlug,
+  isMissingPartnersTable,
   summarizePartnerClicks,
   validateSearchTemplate,
   partnerGoPath,
   type PartnerRow,
 } from '../lib/affiliate-partners'
-import { normalizeAffiliateLinkInput } from '../lib/affiliate-links-admin'
+import { normalizeAffiliateLinkInput, saveLink, isMissingMigration } from '../lib/affiliate-links-admin'
 import { buildThingsToDo, disclosureTexts, loadThingsToDo, logPartnerClick, resolvePartnerGo, type LinkRow } from '../lib/things-to-do'
 import { translate } from '../lib/i18n'
 import robots from '../app/robots'
@@ -264,6 +266,38 @@ const rowsOf = (): Db => ({
   const { plainAction, AFFILIATE_PARTNER_ISSUE_ID } = await import('../lib/plain-steps')
   const plain = plainAction({ id: AFFILIATE_PARTNER_ISSUE_ID, area: 'setup', title: 'Add your first affiliate partner', detail: 'x' })
   expect('needs attention: has grade-5 steps and an admin link', plain.steps.length >= 4 && /affiliate-links/.test(plain.url) && !/—/.test(plain.steps.join(' ')))
+
+  // ---------- 11. before migration 0048: writes degrade, legacy http stays editable ----------
+  const noCol = (o: Record<string, unknown>) => (['partner_id', 'guide_kind', 'guide_slug', 'image_url', 'note'].some((k) => k in o) ? 'column "note" of relation "affiliate_links" does not exist' : null)
+  const pre = (): Db => ({ tables: { affiliate_links: [{ id: 'old1', slug: 'old-one', url: 'http://legacy-shop.com/a', status: 'draft', sort_order: 0 }] }, rejectInsert: (t, r) => (t === 'affiliate_links' ? noCol(r) : null), rejectUpdate: (t, p) => (t === 'affiliate_links' ? noCol(p) : null) })
+  const plainIn = normalizeAffiliateLinkInput({ url: 'https://shop.shopco.com/a', title: 'Plain', status: 'draft' })
+  const withNew = normalizeAffiliateLinkInput({ url: 'https://shop.shopco.com/a', title: 'Fancy', note: 'hello' })
+  if (plainIn.ok && withNew.ok) {
+    const d1 = pre()
+    const created = await saveLink(fakeAdmin(d1), plainIn.value)
+    expect('before 0048: creating a card without new fields still works (retried without the new keys)', created.ok && (d1.tables.affiliate_links ?? []).length === 2 && !('note' in (d1.tables.affiliate_links![1] as object)))
+    const d2 = pre()
+    const edited = await saveLink(fakeAdmin(d2), { ...plainIn.value, slug: 'old-one', status: 'active' }, 'old1')
+    expect('before 0048: editing an existing card (status change) works', edited.ok && (d2.tables.affiliate_links![0] as { status: string }).status === 'active')
+    const blocked = await saveLink(fakeAdmin(pre()), withNew.value)
+    expect('before 0048: setting a new field is refused with a clear 409, not silently dropped', !blocked.ok && blocked.status === 409 && /migration 0048/.test(blocked.error))
+    const blockedEdit = await saveLink(fakeAdmin(pre()), withNew.value, 'old1')
+    expect('before 0048: editing with a new field is also a 409', !blockedEdit.ok && blockedEdit.status === 409)
+    const other = await saveLink(fakeAdmin({ tables: {}, failWrites: { affiliate_links: 'connection reset' } }), plainIn.value)
+    expect('an unrelated database error is still a 500', !other.ok && other.status === 500)
+  }
+  expect('missing-migration detector matches column and table errors only', isMissingMigration('column "note" of relation "affiliate_links" does not exist') && isMissingMigration('Could not find the \'guide_kind\' column of \'affiliate_links\' in the schema cache') && !isMissingMigration('duplicate key value violates unique constraint') && isMissingPartnersTable('relation "affiliate_partners" does not exist') && !isMissingPartnersTable('duplicate key'))
+  const legacy = { url: 'http://legacy-shop.com/a', title: 'Old', status: 'hidden', sort_order: 3 }
+  expect('legacy http card: unchanged URL can be edited (status, sort order)', normalizeAffiliateLinkInput(legacy, { previousUrl: 'http://legacy-shop.com/a' }).ok)
+  expect('legacy http card: changing the URL to another http one is refused', !normalizeAffiliateLinkInput({ ...legacy, url: 'http://other-shop.com/a' }, { previousUrl: 'http://legacy-shop.com/a' }).ok)
+  expect('http is refused on create', !normalizeAffiliateLinkInput(legacy).ok)
+  expect('legacy http card: credentials and javascript: still refused', !normalizeAffiliateLinkInput({ ...legacy, url: 'http://u:p@legacy-shop.com/a' }, { previousUrl: 'http://u:p@legacy-shop.com/a' }).ok)
+  expect('legacy http card: an http photo is still refused', !normalizeAffiliateLinkInput({ ...legacy, image_url: 'http://x.shopco.com/a.jpg' }, { previousUrl: legacy.url }).ok)
+  expect('partner slug is locked after creation (a changed slug is refused, blank keeps it)', (() => { const a = lockedPartnerSlug('alpha', 'beta'); const b = lockedPartnerSlug('alpha', ''); const c = lockedPartnerSlug('alpha', 'alpha'); return !a.ok && b.ok && b.slug === 'alpha' && c.ok })())
+  expect('card images use cleanHttpsUrl and have no-referrer', buildThingsToDo({ links: [link({ id: 'q', image_url: 'http://img.shopco.com/a.jpg' })], partners: [], kind: 'destinations', slug: 'croatia' }).cards[0]?.imageUrl === null && (compSrc.match(/referrerPolicy="no-referrer"/g) ?? []).length === 2)
+  const listSrc = read('app/api/admin/affiliate-links/route.ts')
+  expect('admin list reads card clicks and partner clicks in separate queries', /not\('link_id', 'is', null\)/.test(listSrc) && /not\('partner_id', 'is', null\)/.test(listSrc))
+  expect('destination page loads the block data in its parallel fetch', /Promise\.all\(\[getDestinationPage\(params\.slug\), getPublishedGuide\("destinations", params\.slug\), loadThingsToDo\(/.test(read('app/destinations/[slug]/page.tsx')))
 
   console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
   process.exit(failures === 0 ? 0 : 1)

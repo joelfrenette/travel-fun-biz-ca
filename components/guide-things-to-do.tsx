@@ -30,7 +30,7 @@ export function GuideThingsToDo({ things, name, language }: { things: ThingsToDo
             <li key={c.id} className="flex flex-col overflow-hidden rounded-xl border bg-card">
               {c.imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={c.imageUrl} alt={c.title} loading="lazy" className="aspect-[16/9] w-full object-cover" />
+                <img src={c.imageUrl} alt={c.title} loading="lazy" referrerPolicy="no-referrer" className="aspect-[16/9] w-full object-cover" />
               )}
               <div className="flex flex-1 flex-col gap-2 p-4">
                 {c.partnerName && <span className="w-fit rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{c.partnerName}</span>}
@@ -63,7 +63,7 @@ export function GuideThingsToDo({ things, name, language }: { things: ThingsToDo
               >
                 {s.logoUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={s.logoUrl} alt="" loading="lazy" className="h-5 w-auto max-w-[5rem] object-contain" />
+                  <img src={s.logoUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-5 w-auto max-w-[5rem] object-contain" />
                 )}
                 <span>{fill("Find {name} tours and activities on {partner}", { name, partner: s.partnerName })}</span>
                 <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />

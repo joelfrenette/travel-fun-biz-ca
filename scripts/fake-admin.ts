@@ -10,6 +10,8 @@ export interface Db {
   failWrites?: Record<string, string>
   /** a function that may veto an insert with an error (for example a missing check constraint). */
   rejectInsert?: (table: string, row: Row) => string | null
+  /** like rejectInsert, for an update patch. */
+  rejectUpdate?: (table: string, patch: Row) => string | null
 }
 
 let counter = 0
@@ -66,6 +68,8 @@ export function fakeAdmin(db: Db): SupabaseClient {
       }
       const hit = rows().filter((r) => filters.every((f) => f(r)))
       if (mode === 'update') {
+        const veto = db.rejectUpdate?.(table, patch)
+        if (veto) return { data: null, error: { message: veto }, count: null }
         for (const r of hit) Object.assign(r, patch)
         return { data: wantRows ? hit : null, error: null, count: hit.length }
       }
