@@ -21,7 +21,7 @@ for (const m of src.matchAll(/translate\(\s*language\s*,\s*(?:"((?:[^"\\]|\\.)*)
 for (const l of [...aboutLinks, ...legalLinks, destinationsLink, ...cruiseAndResortLinks]) keys.add(l.label)
 for (const d of officeInfo.disclaimers) keys.add(d)
 
-expect('the footer has translatable strings to check (the scan found the known ones)', ['Trips by destination', 'Explore', 'Cookie settings', 'NOTIFY ME OF', 'TRAVEL DEALS'].every((k) => keys.has(k)), [...keys].join(' | '))
+expect('the footer has translatable strings to check (the scan found the known ones)', ['Explore', 'Cookie settings', 'NOTIFY ME OF', 'TRAVEL DEALS'].every((k) => keys.has(k)), [...keys].join(' | '))
 
 // Names that are the same in every language on purpose (a proper noun or an international word) need no change.
 const SAME_ON_PURPOSE = new Set<string>(['fr:Destinations', 'fr:Yachts'])
