@@ -175,8 +175,12 @@ export function stormKeysMatch(a: string | null, b: string | null): boolean {
 /** Print order inside one NHC read: the Public Advisory first, so it (and not the "Summary for" item) is the one written. */
 export const nhcProductRank = (title: string): number => (/public advisory/i.test(title) ? 0 : /^summary for/i.test(title) ? 2 : 1)
 
-/** True when an earlier item (new, queued or published) for the same storm lies within 12 hours of this one: that earlier post
- * already covers it. Both sides must be hurricane centre items. Pure. */
+/** Statuses that count as "an earlier post covers this storm": a brief was written (queued draft or live). An item that is merely
+ * 'new' was never decided, so it covers nothing (a later advisory of the same storm must still get its turn). */
+const COVERING_STATUSES = ['queued', 'published']
+
+/** True when an earlier WRITTEN item (queued or published) for the same storm lies within 12 hours of this one: that earlier post
+ * already covers it. Both sides must be hurricane centre items. A 'new', rejected or expired item covers nothing. Pure. */
 export function coveredByEarlierStormPost(
   item: { sourceKey: string; title: string; whenMs: number },
   others: { sourceKey: string; title: string; whenMs: number; status: string }[],
@@ -184,7 +188,7 @@ export function coveredByEarlierStormPost(
   if (!isNhcSource(item.sourceKey)) return false
   const key = stormKey(item.title)
   if (!key) return false
-  return others.some((o) => isNhcSource(o.sourceKey) && ['new', 'queued', 'published'].includes(o.status) && Math.abs(item.whenMs - o.whenMs) < STORM_POST_WINDOW_MS && stormKeysMatch(key, stormKey(o.title)))
+  return others.some((o) => isNhcSource(o.sourceKey) && COVERING_STATUSES.includes(o.status) && Math.abs(item.whenMs - o.whenMs) < STORM_POST_WINDOW_MS && stormKeysMatch(key, stormKey(o.title)))
 }
 
 /** Sort order for picking what to write about: breaking tier 1 first, then tier 1, then tier 2; newest first inside a group. */
