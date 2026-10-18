@@ -8,6 +8,8 @@
 //   4. else nothing: the header stays one column.
 // No imports from the app and no network, so scripts/check-guide-header.ts runs offline.
 
+import { telHref, enquiryHref } from './guide-facts'
+
 export interface HeaderGuide {
   name: string
   hero_image_url?: string | null
@@ -61,7 +63,39 @@ export function quickFacts(takeaways: string[] | null | undefined): string[] {
   return out
 }
 
-const byDateAsc = (a: string | null, b: string | null): number => {
+/** Most quick facts the LEFT column shows next to a trip card (the photo card on the right can hold five). */
+export const MAX_LEFT_FACTS = 4
+
+/** Quick facts for the LEFT column of the header. Shown whenever the stored takeaways give any, also beside a trip
+ * card. The one exception: the photo-and-facts card on the right already lists them, so they are not repeated. */
+export function leftQuickFacts(guide: HeaderGuide | null, feature: { kind: string }): string[] {
+  if (feature.kind === 'facts') return []
+  return quickFacts(guide?.key_takeaways).slice(0, MAX_LEFT_FACTS)
+}
+
+/** The call-to-action panel in the header. Claims come ONLY from site.tagline (hosted group trips, river and ocean
+ * cruises, singles getaways, real travel advisors). `title` is a template with {name}; `callHref` is null when the
+ * site has no usable number (the panel then shows the enquiry button only). */
+export interface HeaderCta {
+  titleTemplate: string
+  name: string
+  phone: string
+  callHref: string | null
+  enquiryHref: string
+}
+
+export function headerCta(name: string, packageName: string | null | undefined, phone: string | null | undefined): HeaderCta {
+  const p = (phone ?? '').trim()
+  return {
+    titleTemplate: 'Plan your {name} trip with a real travel advisor',
+    name,
+    phone: p,
+    callHref: p ? telHref(p) : null,
+    enquiryHref: enquiryHref(packageName),
+  }
+}
+
+const byDateAsc =(a: string | null, b: string | null): number => {
   if (a && b) return a < b ? -1 : a > b ? 1 : 0
   if (a) return -1
   if (b) return 1

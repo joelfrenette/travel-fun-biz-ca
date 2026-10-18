@@ -2,8 +2,9 @@
 // Run: pnpm dlx tsx scripts/check-guide-header.ts   (exit 1 on a failure)
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { pickHeaderFeature, quickFacts, firstSentence, type HeaderPastTrip } from '../lib/guide-header'
-import { priceOnRequestLine } from '../lib/site'
+import { pickHeaderFeature, quickFacts, firstSentence, leftQuickFacts, headerCta, type HeaderPastTrip } from '../lib/guide-header'
+import { priceOnRequestLine, site } from '../lib/site'
+import { telHref, enquiryHref } from '../lib/guide-facts'
 
 let failures = 0
 function expect(name: string, ok: boolean, detail = '') {
@@ -88,7 +89,8 @@ expect('photo card uses the srcset helper', feat.includes('heroSrcSet(') && feat
 for (const [name, src] of [['destination page', dest], ['guide page', gp]] as const) {
   expect(`${name} picks the feature with the pure function`, src.includes('pickHeaderFeature<TravelPackage, HeaderPastTrip>('))
   expect(`${name} renders the header feature`, src.includes('<GuideHeaderFeature feature={feature}'))
-  expect(`${name} header is two columns only when there is a feature`, /feature\.kind !== "none" \? "grid items-start gap-8 lg:grid-cols-\[minmax\(0,1fr\)_22rem\]"/.test(src))
+  expect(`${name} header is two columns only when there is a feature`, /feature\.kind !== "none" \? "grid items-stretch gap-8 lg:grid-cols-\[minmax\(0,1fr\)_22rem\]"/.test(src))
+  expect(`${name} left column is a flex column with the actions panel`, src.includes('className="flex min-w-0 flex-col"') && src.includes('<GuideHeaderActions'))
   expect(`${name} drops the body photo only when the header shows it`, src.includes('!heroInHeader'))
   expect(`${name} lists only the REST below (no duplicate of the header trip)`, src.includes('feature.rest') || src.includes('restTrips'))
   expect(`${name} centres the rest grid`, src.includes('justify-center') && src.includes('text-center'))
@@ -96,6 +98,35 @@ for (const [name, src] of [['destination page', dest], ['guide page', gp]] as co
 }
 expect('old left-aligned three-column trip grid is gone from the destination page', !dest.includes('lg:grid-cols-3">\n                {upcoming.map'))
 expect('guide page no longer lists past trips as bookable cards', !gp.includes('packages.map((pkg)'))
+
+// 5. left column: quick facts beside a trip card, and the call-to-action panel
+const withTrip = leftQuickFacts(guide, many)
+expect('quick facts shown in the left column beside an upcoming trip card', withTrip.length === 4 && withTrip[0] === 'Best in May.', withTrip.join('|'))
+expect('quick facts shown beside a past trip card', leftQuickFacts(guide, pf).length === 4)
+expect('left facts are capped at four, from stored takeaways only', withTrip.every((f) => guide.key_takeaways.some((t) => t.startsWith(f.replace(/\.$/, '')))))
+expect('photo-and-facts card already lists them: not repeated on the left', leftQuickFacts(guide, ff).length === 0)
+expect('no takeaways: no left facts', leftQuickFacts({ ...guide, key_takeaways: [] }, many).length === 0 && leftQuickFacts(null, many).length === 0)
+expect('overlong takeaway lines are dropped on the left too', leftQuickFacts({ ...guide, key_takeaways: ['y'.repeat(300), 'Short one.'] }, many).join('|') === 'Short one.')
+const cta = headerCta('Tahiti', 'Tahiti Escape', site.phone)
+expect('CTA is always present, with a title template naming the page', cta.titleTemplate === 'Plan your {name} trip with a real travel advisor' && cta.name === 'Tahiti')
+expect('CTA call link uses site.phone', cta.phone === site.phone.trim() && cta.callHref === telHref(site.phone) && (cta.callHref?.startsWith('tel:+1') ?? false), String(cta.callHref))
+expect('CTA enquiry link is the trip-prefilled enquiry', cta.enquiryHref === enquiryHref('Tahiti Escape') && cta.enquiryHref.includes('Tahiti%20Escape'))
+expect('CTA with no named trip falls back to Custom Package', headerCta('Tahiti', null, site.phone).enquiryHref.includes('Custom%20Package'))
+expect('CTA with no phone has no call link (enquiry still offered)', headerCta('Tahiti', null, '').callHref === null && headerCta('Tahiti', null, '').enquiryHref.length > 0)
+const actions = read('components/guide-header-actions.tsx')
+expect('CTA copy carries no invented claims (tagline from site.tagline)', actions.includes('{site.tagline}') && !/award|best price|guarantee|cheapest|%\s*off/i.test(actions))
+expect('CTA panel sits at the bottom of the column', actions.includes('mt-auto'))
+expect('CTA call button labelled with the AI agent line', actions.includes('our AI agent answers'))
+expect('actions component is a server component', !actions.includes('"use client"') && !/\bon[A-Z][A-Za-z]*=\{/.test(actions))
+expect('no em dash in the new UI copy', !actions.includes('—'))
+const i18n = read('lib/i18n.ts')
+for (const k of ['Quick facts', 'our AI agent answers', 'Send an enquiry', 'Plan your {name} trip with a real travel advisor']) {
+  expect(`fr and es strings exist for "${k}"`, i18n.split(`'${k}':`).length === 3, String(i18n.split(`'${k}':`).length))
+}
+for (const f of ['components/language-toggle.tsx', 'components/currency-toggle.tsx']) {
+  const s = read(f)
+  expect(`${f} renders its label as SelectValue children (server-rendered)`, /<SelectValue placeholder="[A-Za-z]+">\{/.test(s) && s.includes('aria-label="Select '))
+}
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed')
 process.exit(failures ? 1 : 0)

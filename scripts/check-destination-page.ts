@@ -23,7 +23,8 @@ expect('the Trips H1 is only in the no-guide branch', !/guide \? `\$\{destinatio
 expect('guideLabel for destinations is still "Travel Guide"', /destinations: \{[^}]*guideLabel: 'Travel Guide'/.test(guides))
 expect('guide-page.tsx H1 uses the same label shape', guidePage.includes('{guide.name}: {info.guideLabel}</h1>'))
 
-const iCompact = dest.indexOf('<GuideCta name={destination} packageName={upcoming[0]?.name} compact />')
+// The header call to action is now the GuideHeaderActions panel (components/guide-header-actions.tsx).
+const iCompact = dest.indexOf('<GuideHeaderActions name={destination} packageName={upcoming[0]?.name}')
 const iTake = dest.indexOf('<GuideTakeaways guide={guide} />')
 const iArticle = dest.indexOf('<GuideArticle guide={guide} />')
 const iFaq = dest.indexOf('<GuideFaqList guide={guide} />')
@@ -39,7 +40,7 @@ expect('upcoming trips heading appears once', (dest.match(/upcoming trips to/gi)
 expect('grid is gated on the rest of the trips', /\{restTrips\.length > 0 && \(\s*<section>\s*<h2[^>]*>More upcoming trips to/.test(dest))
 expect('guide block is gated on guide so no-guide order is just the grid', /\{guide && \(\s*<div className="mx-auto max-w-3xl space-y-10">/.test(dest))
 expect('grid comes before the child, property and recap sections', iGrid < dest.indexOf('inside-heading') && iGrid < dest.indexOf('property-guides-heading') && iGrid < dest.indexOf('Past trips to'))
-expect('header still has the Send an enquiry path via GuideCta (compact)', read('components/guide-cta.tsx').includes('compact'))
+expect('header still has the Send an enquiry path via GuideHeaderActions', read('components/guide-header-actions.tsx').includes('cta.enquiryHref'))
 
 if (failures) { console.log(`\n${failures} check(s) failed`); process.exit(1) }
 console.log('\nAll destination page checks passed')

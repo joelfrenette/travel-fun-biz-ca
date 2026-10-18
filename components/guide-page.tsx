@@ -5,6 +5,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
 import { GuideHeaderFeature } from "@/components/guide-header-feature"
+import { GuideHeaderActions } from "@/components/guide-header-actions"
 import { pickHeaderFeature, type HeaderPastTrip } from "@/lib/guide-header"
 import { isPastTrip } from "@/lib/past-trip"
 import { dbPackageToTravelPackage } from "@/lib/packages"
@@ -196,8 +197,8 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(guideJsonLd(guide, trail)) }} />
 
         <div className="border-b bg-muted/30">
-          <div className={`container mx-auto max-w-4xl px-4 py-10 ${feature.kind !== "none" ? "grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]" : ""}`}>
-            <div className="min-w-0">
+          <div className={`container mx-auto max-w-4xl px-4 py-10 ${feature.kind !== "none" ? "grid items-stretch gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]" : ""}`}>
+            <div className="flex min-w-0 flex-col">
             <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
               <Link href="/" className="hover:underline">Home</Link>
               <span className="mx-1.5">/</span>
@@ -215,7 +216,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
               <p className="mt-2 text-sm text-muted-foreground"><time dateTime={guide.updated_at}>Updated {formatDate(guide.updated_at)}</time></p>
             )}
             <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground">{guide.summary}</p>
-            <GuideCta name={guide.name} packageName={packages[0]?.name} compact />
+            <GuideHeaderActions name={guide.name} packageName={packages[0]?.name} guide={guide} feature={feature} language={language} />
             </div>
             <GuideHeaderFeature feature={feature} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
           </div>
