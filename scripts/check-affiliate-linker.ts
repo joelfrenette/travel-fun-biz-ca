@@ -14,6 +14,9 @@ import {
 import { loadAffiliateRules, clearAffiliateRulesCache, rowsToRules, normalizeKeywordInput, isMissingKeywordsTable, KEYWORDS_MIGRATION_MESSAGE, RULES_TTL_MS } from '../lib/affiliate-rules'
 import { AffiliateParts, AffiliateAutoDisclosure } from '../components/affiliate-text'
 import { linkedGuideContent, GuideArticle, GuideFaqList } from '../components/guide-parts'
+import { buildUsageReport, fitReport, previewRule, rescanSite, loadStoredReport, USAGE_SETTING_KEY, MAX_USAGE_DOCS, MAX_REPORT_BYTES, type UsageDoc } from '../lib/affiliate-usage'
+import { refreshAfterChange } from '../lib/affiliate-refresh'
+import { fakeAdmin, type Db } from './fake-admin'
 import { DEFAULT_DISCLOSURE } from '../lib/affiliate-partners'
 import { translate } from '../lib/i18n'
 
@@ -227,6 +230,111 @@ async function main() {
   expect('migration 0050: table, unique (lower(phrase), link_id), cascade, scope/status/max checks, RLS on with no policy', /create table if not exists affiliate_keywords/.test(mig) && /unique index if not exists[\s\S]*\(lower\(phrase\), link_id\)/.test(mig) && /on delete cascade/.test(mig) && /scope in \('all', 'guides', 'blog', 'destinations'\)/.test(mig) && /status in \('on', 'off'\)/.test(mig) && /between 1 and 3/.test(mig) && /enable row level security/.test(mig) && !/create policy/i.test(mig))
   expect('migration 0050 is additive and idempotent', !/drop |delete |truncate |alter column/i.test(mig.replace(/on delete cascade/g, '')) && !/--.*—/.test(mig))
   expect('missing-table detector matches only the keywords table errors', isMissingKeywordsTable('relation "public.affiliate_keywords" does not exist') && isMissingKeywordsTable("Could not find the table 'public.affiliate_keywords' in the schema cache") && !isMissingKeywordsTable('duplicate key value') && /migration 0050/.test(KEYWORDS_MIGRATION_MESSAGE))
+
+  // ---------- 10. usage report (part 4) ----------
+  const doc = (context: PageContext, path: string, markdown: string, faqAnswers: string[] = [], title = path): UsageDoc => ({ context, path, title, markdown, faqAnswers })
+  const kws = [
+    { id: 'k1', phrase: 'Croatia tours', scope: 'all' as const, status: 'on' as const },
+    { id: 'k2', phrase: 'Temptations', scope: 'all' as const, status: 'off' as const },
+    { id: 'k3', phrase: 'Split hotels', scope: 'blog' as const, status: 'on' as const },
+  ]
+  const docs: UsageDoc[] = [
+    doc('destinations', '/destinations/croatia', 'Plan Croatia tours early. More Croatia tours later.\n\n## Croatia tours\n\nText.', ['Do Croatia tours run in winter?']),
+    doc('blog', '/blog/a', 'We love [Croatia tours](/x) and Split hotels.'),
+    doc('blog', '/blog/b', 'Croatia tours are great. Split hotels too.'),
+    doc('guides', '/hotels/h', 'Split hotels are nice.'),
+  ]
+  const rep = buildUsageReport(docs, kws, { now: new Date('2026-10-18T00:00:00Z') })
+  const u1 = rep.phrases.find((p) => p.keywordId === 'k1')!
+  const u2 = rep.phrases.find((p) => p.keywordId === 'k2')!
+  const u3 = rep.phrases.find((p) => p.keywordId === 'k3')!
+  expect('usage: per phrase, pages and occurrences count plain text only (not headings, not inside links)', u1.pages === 2 && u1.occurrences === 4, JSON.stringify(u1))
+  expect('usage: a phrase found nowhere is flagged not found', u2.notFound && u2.pages === 0 && u2.occurrences === 0 && !u1.notFound)
+  expect('usage: scope is respected (a blog-only phrase is not counted on a guide)', u3.pages === 2 && u3.occurrences === 2, JSON.stringify(u3))
+  expect('usage: examples carry the page, a title and a snippet with the match', u1.examples[0].path === '/destinations/croatia' && u1.examples[0].snippet.match.toLowerCase() === 'croatia tours' && u1.examples[0].snippet.before.includes('Plan'))
+  const many2 = Array.from({ length: 15 }, (_, i) => doc('blog', `/blog/p${i}`, 'We sell Croatia tours.'))
+  const rep15 = buildUsageReport(many2, kws)
+  expect('usage: up to 10 example pages are listed, the page count is the true 15', rep15.phrases[0].examples.length === 10 && rep15.phrases[0].pages === 15)
+  const trunc = buildUsageReport(many2, kws, { totalDocs: 700 })
+  expect('usage: when the site has more than 500 documents the report says so', trunc.truncated && trunc.totalDocs === 700 && trunc.scanned === 15 && !rep15.truncated)
+  const hugeKw = Array.from({ length: 200 }, (_, i) => ({ id: `k${i}`, phrase: `phrase number ${i}`, scope: 'all' as const, status: 'on' as const }))
+  const hugeDocs = Array.from({ length: 400 }, (_, i) => doc('blog', `/blog/long-page-name-${i}`, hugeKw.map((k) => `${k.phrase} ${'filler words '.repeat(5)}`).join(' '), [], `A long title for page number ${i} of the site`))
+  const bigRep = buildUsageReport(hugeDocs, hugeKw)
+  const fitted = fitReport(bigRep)
+  expect('usage: a big report is shrunk to fit 100 KB, counts kept', JSON.stringify(bigRep).length > 100_000 && JSON.stringify(fitted).length <= 100_000 && fitted.phrases[0].pages === 400)
+  expect('usage: scan caps at 500 documents in the loader constant', MAX_USAGE_DOCS === 500 && MAX_REPORT_BYTES === 100_000)
+
+  // preview
+  const pv = previewRule(docs, { phrase: 'Croatia tours', scope: 'all', max_per_page: 2 })
+  expect('preview: lists the pages where it would link, with counts, willLink and a snippet to highlight', pv.pageCount === 2 && pv.pages[0].path === '/destinations/croatia' && pv.pages[0].count === 3 && pv.pages[0].willLink === 2 && pv.pages[0].snippet.match.length > 0)
+  expect('preview: warns about a heading and about a phrase already inside another link', pv.pages[0].warnings.some((w) => /heading/.test(w)) && pv.warnings.some((w) => /heading/.test(w)) && pv.warnings.some((w) => /already inside another link/.test(w)))
+  expect('preview: scope guides leaves blog pages out; scope blog leaves guides out', previewRule(docs, { phrase: 'Split hotels', scope: 'guides', max_per_page: 1 }).pageCount === 1 && previewRule(docs, { phrase: 'Split hotels', scope: 'blog', max_per_page: 1 }).pageCount === 2)
+  expect('preview: not found anywhere is said plainly', previewRule(docs, { phrase: 'Temptations', scope: 'all', max_per_page: 1 }).warnings.some((w) => /Not found anywhere/.test(w)))
+  expect('preview: a very short phrase is flagged', previewRule(docs, { phrase: 'is', scope: 'all', max_per_page: 1 }).warnings.some((w) => /very short/.test(w)))
+  const common = previewRule(Array.from({ length: 45 }, (_, i) => doc('blog', `/blog/c${i}`, 'We love the beach here.')), { phrase: 'beach', scope: 'all', max_per_page: 1 })
+  expect('preview: found on more than 40 pages warns "this may look spammy"', common.pageCount === 45 && common.warnings.some((w) => /this may look spammy/.test(w)) && common.shown === 50 - 5)
+  expect('preview: 40 pages or fewer does not warn', !previewRule(Array.from({ length: 40 }, (_, i) => doc('blog', `/blog/c${i}`, 'We love the beach here.')), { phrase: 'beach', scope: 'all', max_per_page: 1 }).warnings.some((w) => /spammy/.test(w)))
+  expect('preview: a bad phrase gives a warning, not a crash', previewRule(docs, { phrase: '<b>', scope: 'all', max_per_page: 1 }).pageCount === 0)
+
+  // reading the site and storing the report
+  const siteDb: Db = {
+    tables: {
+      affiliate_keywords: [{ id: 'k1', phrase: 'Croatia tours', link_id: 'L1', scope: 'all', max_per_page: 1, status: 'on', created_at: '2026-01-01' }],
+      guides: [
+        { kind: 'destinations', slug: 'croatia', name: 'Croatia', body: 'Plan Croatia tours.', faq: [{ q: 'q', a: 'Croatia tours run daily.' }], status: 'published' },
+        { kind: 'destinations', slug: 'draftland', name: 'Draftland', body: 'Croatia tours', faq: [], status: 'draft' },
+        { kind: 'weird', slug: 'x', name: 'X', body: 'Croatia tours', faq: [], status: 'published' },
+      ],
+      posts: [
+        { title: 'Live', slug: 'live', body: 'Croatia tours again.', faq: null, status: 'published', publish_date: '2026-01-01T00:00:00Z' },
+        { title: 'Future', slug: 'future', body: 'Croatia tours', faq: null, status: 'published', publish_date: '2027-01-01T00:00:00Z' },
+        { title: 'Draft', slug: 'dr', body: 'Croatia tours', faq: null, status: 'draft', publish_date: null },
+      ],
+    },
+  }
+  const scanned = await rescanSite(fakeAdmin(siteDb), new Date('2026-10-18T00:00:00Z'))
+  const storedRaw = (siteDb.tables.app_settings ?? []).find((r) => r.key === USAGE_SETTING_KEY)?.value as string | undefined
+  expect('rescan: reads published guides and live posts only, counts them, and stores a compact report in app_settings', scanned.ok && scanned.report.scanned === 2 && scanned.report.phrases[0].pages === 2 && scanned.report.phrases[0].occurrences === 3 && !!storedRaw && storedRaw.length <= 100_000 && !/\n/.test(storedRaw), JSON.stringify(scanned))
+  expect('rescan: the stored report can be read back', (await loadStoredReport(fakeAdmin(siteDb)))?.phrases[0].keywordId === 'k1' && (await loadStoredReport(fakeAdmin({ tables: {} }))) === null)
+  const missing = await rescanSite({ from: () => ({ select: () => ({ order: () => ({ limit: () => Promise.resolve({ data: null, error: { message: 'relation "affiliate_keywords" does not exist' } }) }) }) }) } as never)
+  expect('rescan before migration 0050 says so and does not throw', !missing.ok && missing.migrationMissing === true)
+  const emptyScan = await rescanSite(fakeAdmin({ tables: { affiliate_keywords: [], guides: [], posts: [] } }))
+  expect('rescan with no rules and no content gives an empty report', emptyScan.ok && emptyScan.report.phrases.length === 0 && emptyScan.report.scanned === 0)
+
+  // refresh after every change
+  let revalidated = 0
+  let rescans = 0
+  const calls2: string[] = []
+  clearAffiliateRulesCache()
+  await loadAffiliateRules({ client: stub({ data: goodRows, error: null }) as never, now: 5 })
+  const callsBefore = calls
+  const rf = await refreshAfterChange(fakeAdmin({ tables: {} }), { revalidate: () => { revalidated++; calls2.push('pages') }, rescan: async () => { rescans++; calls2.push('usage'); return { ok: true } } })
+  await loadAffiliateRules({ client: stub({ data: [], error: null }) as never, now: 6 })
+  expect('a change clears the rules cache, refreshes cached pages, then recomputes the usage report', rf.rules && rf.pages && rf.usage && revalidated === 1 && rescans === 1 && calls2.join(',') === 'pages,usage' && calls === callsBefore + 1)
+  const bad = await refreshAfterChange(fakeAdmin({ tables: {} }), { revalidate: () => { throw new Error('no next here') }, rescan: async () => { throw new Error('db down') } })
+  expect('a failed refresh never throws; the result says what did not work', !bad.pages && !bad.usage && bad.rules)
+  const defaultRefresh = await refreshAfterChange(fakeAdmin({ tables: { affiliate_keywords: [], guides: [], posts: [] } }))
+  expect('the default refresh path does not throw outside Next either', typeof defaultRefresh.pages === 'boolean')
+  clearAffiliateRulesCache()
+
+  // admin routes
+  const kwRoutes = ['app/api/admin/affiliate-keywords/route.ts', 'app/api/admin/affiliate-keywords/[id]/route.ts', 'app/api/admin/affiliate-keywords/preview/route.ts', 'app/api/admin/affiliate-keywords/rescan/route.ts']
+  for (const f of kwRoutes) {
+    const src = read(f)
+    const handlers = [...src.matchAll(/export async function (GET|POST|PATCH|DELETE)\(request: Request[^)]*\) \{\n  if \(!isAuthorized\(request\)\)/g)].length
+    const declared = [...src.matchAll(/export async function (GET|POST|PATCH|DELETE)\(/g)].length
+    expect(`${f}: every handler checks isAuthorized first`, handlers === declared && declared > 0)
+  }
+  expect('keyword create, edit and delete refresh the whole site', /refreshAfterChange/.test(read('app/api/admin/affiliate-keywords/route.ts')) && (read('app/api/admin/affiliate-keywords/[id]/route.ts').match(/refreshAfterChange\(admin\)/g) ?? []).length === 2)
+  expect('writes answer 409 with the migration message while the table is missing', (read('app/api/admin/affiliate-keywords/route.ts').match(/KEYWORDS_MIGRATION_MESSAGE \}, \{ status: 409 \}/g) ?? []).length >= 2 && (read('app/api/admin/affiliate-keywords/[id]/route.ts').match(/KEYWORDS_MIGRATION_MESSAGE \}, \{ status: 409 \}/g) ?? []).length >= 3)
+  const { POST: kwPost } = await import('../app/api/admin/affiliate-keywords/route')
+  const { GET: kwGet } = await import('../app/api/admin/affiliate-keywords/route')
+  const { PATCH: kwPatch, DELETE: kwDelete } = await import('../app/api/admin/affiliate-keywords/[id]/route')
+  const { POST: kwPreview } = await import('../app/api/admin/affiliate-keywords/preview/route')
+  const { POST: kwRescan } = await import('../app/api/admin/affiliate-keywords/rescan/route')
+  const anon = () => new Request('http://localhost/api/admin/affiliate-keywords', { method: 'POST', body: '{}' })
+  const statuses = await Promise.all([kwGet(anon()), kwPost(anon()), kwPatch(anon(), { params: { id: 'x' } }), kwDelete(anon(), { params: { id: 'x' } }), kwPreview(anon()), kwRescan(anon())].map((p) => p.then((r) => r.status)))
+  expect('without an admin token every keyword route answers 401', statuses.every((s) => s === 401), statuses.join(','))
 
   console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
   process.exit(failures === 0 ? 0 : 1)

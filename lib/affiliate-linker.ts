@@ -339,6 +339,55 @@ function linkHtml(html: string, c: CompiledRules, state: LinkerState, capN: numb
   })
 }
 
+// ---------- finding (for the usage report and the preview; nothing is rendered) ----------
+
+export interface FoundMatch {
+  key: string
+  /** The text as written on the page. */
+  text: string
+  before: string
+  after: string
+  /** null: the linker could link this one. Otherwise why it would not (inside a link, a heading, a FAQ question, other). */
+  zone: Zone | null
+}
+
+const SNIPPET_SIDE = 50
+
+/** Every place a compiled phrase appears in this HTML, with a little text each side, in document order. Ignores the page
+ * limits (so it counts what the site WRITES, not what it links). At most `limit` matches. Never throws. */
+export function findMatches(html: string, rules: AffiliateRule[] | CompiledRules | null | undefined, context: PageContext, limit = 2000): FoundMatch[] {
+  const found: FoundMatch[] = []
+  try {
+    const c = Array.isArray(rules) || rules == null ? compileRules(rules as AffiliateRule[] | null, context) : rules
+    const re = c.re
+    if (!re || typeof html !== 'string' || html.length > MAX_INPUT_LENGTH) return found
+    mapHtmlText(html, (text, zone) => {
+      if (found.length >= limit || !/[\p{L}\p{N}]/u.test(text)) return null
+      mapPlainPieces(text, (plain) => {
+        re.lastIndex = 0
+        let m: RegExpExecArray | null
+        while ((m = re.exec(plain)) !== null && found.length < limit) {
+          const hit = c.byKey.get(phraseKey(m[0]))
+          if (!hit) continue
+          found.push({
+            key: hit.key,
+            text: m[0],
+            before: plain.slice(Math.max(0, m.index - SNIPPET_SIDE), m.index),
+            after: plain.slice(m.index + m[0].length, m.index + m[0].length + SNIPPET_SIDE),
+            zone,
+          })
+        }
+        re.lastIndex = 0
+        return plain
+      })
+      return null
+    })
+  } catch {
+    return found
+  }
+  return found
+}
+
 // ---------- markdown ----------
 
 const MD_PROTECTED = /(`[^`\n]*`|!?\[[^\]\n]*\]\([^)\n]*\)|<[^>\n]*>|https?:\/\/\S+)/
