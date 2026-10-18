@@ -11,10 +11,11 @@ import { SOCIAL_ENROLMENTS_PER_DAY_CEILING, enrollNewsIfDue } from '@/lib/news-d
 import type { FetchDeps } from '@/lib/news-feed'
 import { NO_LONGER_QUALIFIES_REASON, STORM_COVERED_REASON, expireOldItems, ingestFeeds, newsTableReady, reevaluateItems, type IngestResult, type NewsItemRow } from '@/lib/news-ingest'
 import { buildNhcBrief, isNhcPublicAdvisory, isTemplateBrief } from '@/lib/news-nhc'
+import { buildUkBrief, isUkFcdoSource, isUkTemplateBrief } from '@/lib/news-uk'
 import { createNewsPost, markSuperseded, publishQueuedDraft } from '@/lib/news-publish'
 import { newsTitle, parseNewsBody } from '@/lib/news-post'
 import { STORM_POST_WINDOW_MS, classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, priorityOf, stormKey, stormKeysMatch, stormSignature, titleKey, titleSimilarity, SIMILAR_TITLE_THRESHOLD } from '@/lib/news-relevance'
-import { getNewsMode, getNewsPerDay, type NewsMode } from '@/lib/news-settings'
+import { getNewsMode, getNewsPerDay, getNewsUkPerDay, type NewsMode } from '@/lib/news-settings'
 import { maxAgeMs, sourceByKey, type NewsSource } from '@/lib/news-sources'
 
 // Growth loop WP20: the news step inside the existing pipeline (lib/pipeline.ts). No new cron. One pass:
@@ -239,7 +240,7 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
         }
         // A hurricane centre draft that is exactly what the plain-code template builds from the item needs no model review: the gate
         // above already passed it and a template cannot paraphrase. Anything else (a model brief, or an edited draft) is reviewed.
-        const templated = isNhcSource(item.source_key) && isTemplateBrief(facts, item.source_key, brief)
+        const templated = (isNhcSource(item.source_key) && isTemplateBrief(facts, item.source_key, brief)) || (isUkFcdoSource(item.source_key) && isUkTemplateBrief(facts, item.source_key, brief))
         if (!templated && !model) {
           notes.push('AI review is not configured, so queued drafts stay drafts')
           break
@@ -278,9 +279,22 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
       const { data: newRows, error: newErr } = await admin.from('news_items').select('*').eq('status', 'new').limit(200)
       if (newErr) return { ...result, ok: false, note: `${lead}could not read the news items (${newErr.message})` }
       const candidates = ((newRows ?? []) as NewsItemRow[]).filter((r) => !itemStale(r, nowMs)).sort((a, b) => rank(a) - rank(b))
-      // Hurricane centre Public Advisories are written by plain code (lib/news-nhc.ts) and need no model; everything else does.
-      const needsModel = (c: NewsItemRow) => !(isNhcSource(c.source_key) && isNhcPublicAdvisory(c.source_key, c.title))
+      // Hurricane centre Public Advisories (lib/news-nhc.ts) and UK travel advice updates (lib/news-uk.ts) are written by plain code and
+      // need no model; everything else does.
+      const needsModel = (c: NewsItemRow) => !(isNhcSource(c.source_key) && isNhcPublicAdvisory(c.source_key, c.title)) && !isUkFcdoSource(c.source_key)
       let aiNoteGiven = false
+      // UK daily cap (travel_news_uk_per_day, default 2, max 6): the UK feed lists about 200 countries and must not flood the blog.
+      // Read lazily and fail closed: if the number or today's UK count cannot be read, no UK brief is written this pass.
+      const uks = { v: undefined as { cap: number; written: number } | null | undefined }
+      const ukRoom = async (): Promise<boolean> => {
+        if (uks.v === undefined) {
+          const cap = await getNewsUkPerDay(admin)
+          const { data, error } = await admin.from('news_items').select('status').eq('source_key', 'uk-fcdo').in('status', ['queued', 'published']).gte('decided_at', startOfSiteDayIso(now)).limit(100)
+          uks.v = cap === null || error ? null : { cap, written: ((data ?? []) as unknown[]).length }
+          if (!uks.v) notes.push('could not read the UK daily number or count, so no UK travel advice brief was written')
+        }
+        return !!uks.v && uks.v.written < uks.v.cap
+      }
       if (candidates.length && !model && candidates.every(needsModel)) notes.push('AI writing is not configured, so no brief was written')
       else if (candidates.length) {
         // Storm briefs already written (queued or live): a later bulletin of the same storm inside 12 hours is covered by them.
@@ -315,7 +329,19 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
           }
           const facts = factsOf(item, source)
           // Plain-code template first (no model call, no spend); if it cannot be built or does not pass the gate, the model path below.
-          const template = isNhcSource(item.source_key) ? buildNhcBrief(facts, item.source_key) : null
+          // UK travel advice: the daily UK cap first (an item over the cap waits as "new" for a later day), then the plain-code template.
+          // No model, no heal budget, and a brief that is too short is rejected with a plain reason (stored with no decided_at, like a
+          // covered storm bulletin, so it is remembered but does not use up a write attempt).
+          if (isUkFcdoSource(item.source_key)) {
+            if (!(await ukRoom())) continue
+            const uk = buildUkBrief(facts, item.source_key)
+            if (!uk.ok) {
+              await setItem(admin, item.id, { status: 'rejected', reject_reason: uk.reason.slice(0, 300) })
+              result.rejected++
+              continue
+            }
+          }
+          const template = isNhcSource(item.source_key) ? buildNhcBrief(facts, item.source_key) : isUkFcdoSource(item.source_key) ? buildUkBrief(facts, item.source_key) : null
           if (!template?.ok && !model) {
             if (!aiNoteGiven) notes.push(`AI writing is not configured, so ${item.title.slice(0, 50)} was left for later`)
             aiNoteGiven = true
@@ -349,6 +375,8 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
             counts.attempts++
             continue
           }
+          // A UK brief also takes one of today's atomic UK slots, so two overlapping runs cannot both take the last one.
+          if (isUkFcdoSource(item.source_key) && uks.v && (await claimNewsSlot(admin, 'uk', uks.v.cap, now)) !== 'ok') continue
           const writeSlot = await claimNewsSlot(admin, 'write', perDay, now)
           if (writeSlot !== 'ok') break
           // Going live needs a live slot too; without one the brief is kept as a queued draft for tomorrow.
@@ -372,6 +400,7 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
           counts.written++
           counts.attempts++
           result.wrote++
+          if (isUkFcdoSource(item.source_key) && uks.v) uks.v.written++
           if (item.category === 'storm') writtenStorms.push({ sourceKey: item.source_key, title: item.title, whenMs: whenOf(item), status: live ? 'published' : 'queued' })
           if (live) {
             counts.published++

@@ -40,6 +40,23 @@ export async function getNewsPerDay(admin: SupabaseClient): Promise<number | nul
   return r.error ? null : parseNewsPerDay(r.value)
 }
 
+/** UK travel advice briefs per day (the UK feed covers about 200 countries, so it gets its own small cap on top of the daily number).
+ * Unset or not a whole number means 2; above 6 is cut to 6; 0 stops UK briefs. Pure. */
+export const NEWS_UK_PER_DAY_KEY = 'travel_news_uk_per_day'
+export const NEWS_UK_PER_DAY_DEFAULT = 2
+export function parseNewsUkPerDay(raw: string | null | undefined): number {
+  if (raw === null || raw === undefined || raw.trim() === '') return NEWS_UK_PER_DAY_DEFAULT
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 0) return NEWS_UK_PER_DAY_DEFAULT
+  return Math.min(NEWS_PER_DAY_HARD_MAX, n)
+}
+
+/** The UK daily number, or null when it could not be read (callers then write no UK brief: fail closed). */
+export async function getNewsUkPerDay(admin: SupabaseClient): Promise<number | null> {
+  const r = await getSettingStrict(admin, NEWS_UK_PER_DAY_KEY)
+  return r.error ? null : parseNewsUkPerDay(r.value)
+}
+
 export async function setNewsPerDay(admin: SupabaseClient, n: number): Promise<{ error?: string }> {
   if (!Number.isInteger(n) || n < 0 || n > NEWS_PER_DAY_HARD_MAX) return { error: `the daily number must be a whole number from 0 to ${NEWS_PER_DAY_HARD_MAX}` }
   return setSetting(admin, NEWS_PER_DAY_KEY, String(n))
