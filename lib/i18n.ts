@@ -174,6 +174,11 @@ const translations: Record<Language, Record<string, string>> = {
     'Something went wrong. Please try again in a moment.': 'Un problème est survenu. Veuillez réessayer dans un instant.',
     'Your name (optional)': 'Votre nom (facultatif)',
     'Tell me about the next one': 'Parlez-moi du prochain',
+    'Fun things to do in {name}': 'Choses amusantes à faire à {name}',
+    'View on {partner}': 'Voir sur {partner}',
+    'View details': 'Voir les détails',
+    'Find {name} tours and activities on {partner}': 'Trouver des visites et des activités à {name} sur {partner}',
+    'We may earn a commission if you book through our links, at no extra cost to you.': 'Nous pouvons toucher une commission si vous réservez par l\'entremise de nos liens, sans frais supplémentaires pour vous.',
   },
   es: {
     'Travel Agents': 'Agentes de viaje',
@@ -346,6 +351,11 @@ const translations: Record<Language, Record<string, string>> = {
     Yachts: 'Yates',
     Resorts: 'Complejos turísticos',
     Hotels: 'Hoteles',
+    'Fun things to do in {name}': 'Cosas divertidas para hacer en {name}',
+    'View on {partner}': 'Ver en {partner}',
+    'View details': 'Ver detalles',
+    'Find {name} tours and activities on {partner}': 'Encuentra tours y actividades en {name} en {partner}',
+    'We may earn a commission if you book through our links, at no extra cost to you.': 'Podemos recibir una comisión si reservas a través de nuestros enlaces, sin costo adicional para ti.',
   },
 }
 

@@ -78,6 +78,8 @@ export interface ValueData {
   /** Last pipeline pass, from the heartbeat. */
   pipeline: { at: string; stepsOk: number; stepsTotal: number } | null
   autopilotOn: boolean | null
+  /** Partner search clicks from the affiliate click ledger (WP21). Clicks only, never money. null/undefined = not tracked. */
+  affiliateClicks?: { total: number; last30: number } | null
 }
 
 export interface Adjustment {
@@ -421,6 +423,14 @@ export function buildValueReport(d: ValueData, now: Date = new Date()): ValueRep
     key: 'organic_share', group: 'traffic', label: 'Organic share of visits',
     tracked: organic != null, value: organic != null ? pct(organic) : null, raw: organic, source: trafficSource || 'GA4 or the visit log', asOf: trafficAsOf,
     note: 'A high share means the site leans on Google.',
+  })
+
+  // Affiliate activity: clicks on the partner search buttons, as a count. Never converted to money; revenue is a manual input.
+  add({
+    key: 'affiliate_clicks', group: 'traffic', label: 'Affiliate activity (partner clicks, last 30 days)',
+    tracked: d.affiliateClicks != null, value: d.affiliateClicks ? String(d.affiliateClicks.last30) : null, raw: d.affiliateClicks?.last30 ?? null,
+    source: 'Affiliate click ledger (affiliate_clicks)', asOf: today,
+    note: d.affiliateClicks ? `${d.affiliateClicks.total} partner clicks in total. Clicks only: commissions are in each partner's dashboard.` : 'Not tracked yet: needs migration 0048 and at least one active partner.',
   })
 
   // ----- search -----

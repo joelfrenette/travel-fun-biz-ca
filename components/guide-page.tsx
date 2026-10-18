@@ -13,6 +13,8 @@ import type { TravelPackage } from "@/types/travel"
 import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, relatedGuideCards, getPublishedTripRowsByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
 import { GuideCta } from "@/components/guide-cta"
+import { GuideThingsToDo } from "@/components/guide-things-to-do"
+import { loadThingsToDo } from "@/lib/things-to-do"
 import { GuideFacts } from "@/components/guide-facts"
 import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
 import type { FactsInput } from "@/lib/guide-facts"
@@ -144,7 +146,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const info = guideKinds[kind]
   const { language, currency } = getVisitorPreferences()
   const bestTimeSlug = kind === "destinations" ? slug : guide.parent_slug
-  const [usdToTargetRate, tripRows, allGuides, destinations, bestTime, stories, tripFacts] = await Promise.all([
+  const [usdToTargetRate, tripRows, allGuides, destinations, bestTime, stories, tripFacts, things] = await Promise.all([
     getUsdToRate(currency),
     getPublishedTripRowsByIds(guide.related_package_ids),
     // Every published guide as a link row: related guides, the parent chain and the pages under this one all come from it.
@@ -156,6 +158,8 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
     listPostsForGuide(guide, 3),
     // The stored facts of this page's published trips (dates, length, itinerary stops) for the facts block.
     getTripFactsByIds(guide.related_package_ids),
+    // "Fun things to do": curated cards and partner search buttons. Empty (the block is not rendered) when there are none.
+    loadThingsToDo(kind, slug),
   ])
   // Upcoming versus past by the one shared rule (lib/past-trip.ts). The header card shows the nearest upcoming trip
   // (else the latest past one, else the photo and quick facts); the trips section lists only the REST, so a single
@@ -281,6 +285,8 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
               </ul>
             </section>
           )}
+
+          <GuideThingsToDo things={things} name={guide.name} language={language} />
 
           <GuideCta name={guide.name} packageName={packages[0]?.name} />
 

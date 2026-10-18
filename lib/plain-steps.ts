@@ -43,6 +43,9 @@ export const NEWS_SOURCE_ISSUE_PREFIX = 'system:news-source:'
 /** The setup item for travel news when its table does not exist yet (migration 0047). Amber setup item, never an alert email. */
 export const NEWS_SETUP_ISSUE_ID = 'setup:news-migration'
 
+/** The informational setup item shown while guides are published but no affiliate partner is active (WP21). Amber, never an alert email. */
+export const AFFILIATE_PARTNER_ISSUE_ID = 'setup:affiliate-partner'
+
 /** The page anchor of one issue on the Content Autopilot page, so an email can link straight to it. */
 export const issueAnchor = (id: string) => `issue-${id.replace(/[^a-z0-9]+/gi, '-')}`
 
@@ -196,6 +199,23 @@ export function plainAction(i: Issue): PlainAction {
       url: i.link?.href ?? adminLink('/admin/autopilot'),
       urlLabel: i.link ? 'Open the feed' : 'Open the Autopilot page',
       paste,
+    }
+  }
+  if (i.id === AFFILIATE_PARTNER_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'Every guide page has room for a "Fun things to do" box with tour and activity links. It stays hidden until you add a partner, so right now it earns nothing. Nothing is broken.',
+      steps: [
+        'Sign up with a tours partner you like, using their affiliate or partner program. Their dashboard has a search link and your partner ID.',
+        'Open the Affiliate Links page in the admin, then find the Partners box at the top.',
+        'Type the partner name and your partner ID. Paste the search link from their dashboard, and put {query} where the place name goes and {partner_id} where your ID goes.',
+        'Set Status to Active and click Create partner.',
+        'Open any guide page on the site. The Fun things to do box now shows a button for that partner.',
+      ],
+      url: adminLink('/admin/affiliate-links'),
+      urlLabel: 'Open Affiliate Links',
+      paste: 'Please help me add my first affiliate partner on the Affiliate Links admin page. I will paste the search link from the partner dashboard.',
     }
   }
   if (i.id === NEWS_SETUP_ISSUE_ID) {
