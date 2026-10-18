@@ -7,6 +7,8 @@ import {
   fetchFeed,
   itemLinkOk,
   looksLikeInjection,
+  cleanFeedText,
+  shapeFeedItem,
   parseAdvisoryJson,
   parseFeed,
   readFeedState,
@@ -16,7 +18,7 @@ import {
   type RawFeedItem,
 } from '@/lib/news-feed'
 import { classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
-import { NEWS_MAX_AGE_DAYS, SUMMARY_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
+import { NEWS_MAX_AGE_DAYS, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
 
 // Growth loop WP20: step one of the news pipeline. Read the allowlisted feeds (each at most once in 30 minutes), keep
 // only the items that change a traveller's plans, drop repeats, store what is left in news_items, and expire what has
@@ -84,30 +86,62 @@ export interface GacState {
   at: string
   /** country id -> short hash of its advisory text and date. Only countries in the latest snapshot are kept. */
   countries: Record<string, string>
+  /** country id -> the advisory LEVEL text (eng.advisory-text, e.g. "Avoid all travel"). Added later than `countries`, so a saved
+   * state from before may not have it (or may lack some countries); it is filled in on the next read. */
+  levels?: Record<string, string>
 }
 
 export type AdvisorySelection = { ok: true; items: RawFeedItem[]; baseline: boolean; held: number; next: GacState } | { ok: false; error: string }
 
-/** Pure. Compares the snapshot with the saved state. No saved state = a BASELINE: everything is remembered, nothing is created.
- * Otherwise only a country already in the state whose hash differs is a change (a country new to the list is just remembered).
- * At most MAX_GAC_PER_RUN changes are returned, newest date first; the others keep their OLD hash so a later read picks them up.
+/** The level text the Government of Canada uses when nothing special is going on. Not news by itself. */
+const NORMAL_LEVEL = /\bnormal\s+(?:security\s+)?precautions\b/i
+export const isElevatedLevel = (level: string | undefined): boolean => !!level && !NORMAL_LEVEL.test(level)
+const sameLevel = (a: string, b: string): boolean => a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase()
+
+/** Pure. Compares the snapshot with the saved state. No saved state = a BASELINE: everything (hashes and levels) is remembered,
+ * nothing is created. Otherwise a country already in the state whose hash differs is a candidate, and it becomes an item only when
+ *   (a) its advisory LEVEL text changed versus the stored level (the item is then titled "Canada changes its advisory for X: old to new"), or
+ *   (b) its level is elevated (anything but normal security precautions) and its text or date changed.
+ * "Exercise normal security precautions" with the same level is not news. A saved state without levels is upgraded in place: the levels
+ * are stored, and a country with no stored level yet can only become an item through (b). A country new to the list is just remembered.
+ * At most MAX_GAC_PER_RUN items are returned, newest date first; the others keep their OLD hash and level so a later read picks them up.
  * A snapshot far smaller than the saved state is refused (a truncated file must not wipe the state and cause a flood later). */
 export function selectChangedAdvisories(snapshot: RawFeedItem[], prev: GacState | null, now: Date): AdvisorySelection {
   const current: Record<string, string> = {}
-  for (const i of snapshot) if (i.stateKey && i.stateHash) current[i.stateKey] = i.stateHash
+  const currentLevels: Record<string, string> = {}
+  for (const i of snapshot) {
+    if (!i.stateKey || !i.stateHash) continue
+    current[i.stateKey] = i.stateHash
+    if (i.stateLevel) currentLevels[i.stateKey] = i.stateLevel.slice(0, 160)
+  }
   const keys = Object.keys(current)
   if (keys.length === 0 || keys.length > MAX_ADVISORY_ENTRIES) return { ok: false, error: 'the advisory snapshot had no usable countries' }
-  const stamp = (countries: Record<string, string>): GacState => ({ v: 1, at: now.toISOString(), countries })
-  if (!prev) return { ok: true, items: [], baseline: true, held: 0, next: stamp(current) }
+  const stamp = (countries: Record<string, string>, levels: Record<string, string>): GacState => ({ v: 1, at: now.toISOString(), countries, levels })
+  if (!prev) return { ok: true, items: [], baseline: true, held: 0, next: stamp(current, currentLevels) }
   const prevCount = Object.keys(prev.countries).length
   if (prevCount >= 20 && keys.length < prevCount * 0.5) return { ok: false, error: 'the advisory snapshot is much smaller than the last one, so it was not used' }
-  const changed = snapshot
-    .filter((i) => i.stateKey && i.stateHash && Object.prototype.hasOwnProperty.call(prev.countries, i.stateKey) && prev.countries[i.stateKey] !== i.stateHash)
-    .sort((a, b) => (Date.parse(b.publishedAt ?? '') || 0) - (Date.parse(a.publishedAt ?? '') || 0))
-  const emit = changed.slice(0, MAX_GAC_PER_RUN)
+  const has = (o: Record<string, string> | undefined, k: string) => !!o && Object.prototype.hasOwnProperty.call(o, k)
+  const levelChange = (i: RawFeedItem): { from: string; to: string } | null => {
+    const from = has(prev.levels, i.stateKey as string) ? (prev.levels as Record<string, string>)[i.stateKey as string] : ''
+    return from && i.stateLevel && !sameLevel(from, i.stateLevel) ? { from, to: i.stateLevel } : null
+  }
+  const newsworthy = snapshot
+    .filter((i) => i.stateKey && i.stateHash && has(prev.countries, i.stateKey) && prev.countries[i.stateKey] !== i.stateHash)
+    .map((i) => ({ i, lc: levelChange(i) }))
+    .filter((x) => x.lc !== null || isElevatedLevel(x.i.stateLevel))
+    .sort((a, b) => (Date.parse(b.i.publishedAt ?? '') || 0) - (Date.parse(a.i.publishedAt ?? '') || 0))
+  const emit = newsworthy.slice(0, MAX_GAC_PER_RUN)
+  const items = emit.map(({ i, lc }) => (lc && i.stateName ? { ...i, title: cleanFeedText(`Canada changes its advisory for ${i.stateName}: ${lc.from} to ${lc.to}`, TITLE_MAX_CHARS) } : i))
   const next = { ...current }
-  for (const i of changed.slice(MAX_GAC_PER_RUN)) next[i.stateKey as string] = prev.countries[i.stateKey as string]
-  return { ok: true, items: emit, baseline: false, held: changed.length - emit.length, next: stamp(next) }
+  const nextLevels = { ...currentLevels }
+  // Held back (over the cap): keep the OLD hash and the OLD level, so the same change is found again on a later read.
+  for (const { i } of newsworthy.slice(MAX_GAC_PER_RUN)) {
+    const k = i.stateKey as string
+    next[k] = prev.countries[k]
+    if (has(prev.levels, k)) nextLevels[k] = (prev.levels as Record<string, string>)[k]
+    else delete nextLevels[k]
+  }
+  return { ok: true, items, baseline: false, held: newsworthy.length - emit.length, next: stamp(next, nextLevels) }
 }
 
 /** The saved state: null = none yet or unusable text (a baseline, which creates nothing); error = the database could not be read. */
@@ -120,7 +154,12 @@ export async function readGacState(admin: SupabaseClient): Promise<{ state: GacS
     if (!p || p.v !== 1 || typeof p.countries !== 'object' || p.countries === null || Array.isArray(p.countries)) return { state: null }
     const countries: Record<string, string> = {}
     for (const [k, v] of Object.entries(p.countries)) if (typeof v === 'string' && v.length <= 40) countries[k.slice(0, 40)] = v
-    return { state: { v: 1, at: typeof p.at === 'string' ? p.at : '', countries } }
+    // The levels are optional (a state saved before they existed has none): read what is there, ignore anything malformed.
+    const lv = (p as { levels?: unknown }).levels
+    if (typeof lv !== 'object' || lv === null || Array.isArray(lv)) return { state: { v: 1, at: typeof p.at === 'string' ? p.at : '', countries } }
+    const levels: Record<string, string> = {}
+    for (const [k, v] of Object.entries(lv)) if (typeof v === 'string' && v.length > 0 && v.length <= 160) levels[k.slice(0, 40)] = v
+    return { state: { v: 1, at: typeof p.at === 'string' ? p.at : '', countries, levels } }
   } catch {
     return { state: null }
   }
@@ -257,7 +296,9 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
       if (isNhcSource(source.key)) readItems = [...readItems].sort((a, b) => nhcProductRank(a.title) - nhcProductRank(b.title))
 
       let storedHere = 0
-      for (const item of readItems) {
+      for (const rawItem of readItems) {
+        // The UK feed titles each entry with the bare country name; the stored title says what the item is.
+        const item = shapeFeedItem(source.key, rawItem)
         if (storedHere >= MAX_NEW_PER_SOURCE) break
         if (seen.has(item.guid)) {
           result.duplicates++
@@ -315,7 +356,11 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         // category or different winds is an UPDATE and is kept (the older brief is marked superseded when the update goes live).
         // Canadian advisories are NOT compared by title words: many countries share the same advisory wording, and the guid
         // (country + hash of text and date) above already drops the exact repeat.
-        if (!isJson && isRepeatOf({ title: item.title, summary: item.summary, category: verdict.category }, known)) {
+        // The UK titles share one long prefix, so word overlap would make "Papua New Guinea" look like "Guinea": for that source a
+        // repeat is the same title (the same country) from the same source.
+        const shaped = item !== rawItem
+        const isRepeat = shaped ? known.some((k) => k.sourceKey === source.key && k.title.trim().toLowerCase() === item.title.trim().toLowerCase()) : !isJson && isRepeatOf({ title: item.title, summary: item.summary, category: verdict.category }, known)
+        if (isRepeat) {
           result.duplicates++
           continue
         }

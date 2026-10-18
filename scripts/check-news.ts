@@ -3,7 +3,7 @@
 // Run: pnpm dlx tsx scripts/check-news.ts
 import { fakeAdmin, type Db } from './fake-admin'
 import { NEWS_SOURCES, enabledSources, isAllowedFeedUrl, linkAllowedFor, NEWS_USER_AGENT, MAX_FEED_BYTES, sourceByKey } from '../lib/news-sources'
-import { parseFeed, cleanFeedText, looksLikeInjection, robotsAllows, fetchFeed, fetchDue, readFeedState, type FetchDeps } from '../lib/news-feed'
+import { parseFeed, cleanFeedText, looksLikeInjection, robotsAllows, fetchFeed, fetchDue, readFeedState, shapeFeedItem, type FetchDeps } from '../lib/news-feed'
 import { classifyItem, isNearDuplicate, titleKey, isBreaking } from '../lib/news-relevance'
 import { briefProblems, lexicalProblems, normalizeBrief, writeNewsBrief, wordRange, type NewsFacts, type NewsBrief } from '../lib/news-brief'
 import { openBudget } from '../lib/heal-loop'
@@ -930,8 +930,67 @@ async function part3() {
   }
 }
 
+// ================================================================================================
+// PART 4: UK FCDO titles and text (real Atom entry shape: title is the bare country name)
+// ================================================================================================
+async function partUk() {
+  const uk = sourceByKey('uk-fcdo')!
+  const REAL_ENTRY = (title: string, slug: string, summary: string, id = `https://www.gov.uk/foreign-travel-advice/${slug}`) =>
+    `<entry><title>${title}</title><id>${id}</id><link href="https://www.gov.uk/foreign-travel-advice/${slug}" rel="alternate"/><updated>2026-10-13T10:00:00Z</updated><summary type="html">${summary}</summary><content type="html">WHOLE PAGE TEXT NEVER READ</content></entry>`
+  const REAL_SUMMARY = '&lt;div&gt;&lt;p&gt;Additional information on demonstrations and strikes (Safety and security).&lt;/p&gt;&lt;/div&gt;'
+  const atom = (...entries: string[]) => `<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Foreign travel advice</title>${entries.join('')}</feed>`
+
+  const parsed = parseFeed(atom(REAL_ENTRY('Belgium', 'belgium', REAL_SUMMARY)), { now: NOW })
+  const raw = parsed.items[0]
+  check('uk: the real entry parses (bare country title, gov.uk link, HTML-stripped summary)', parsed.items.length === 1 && raw.title === 'Belgium' && raw.url === 'https://www.gov.uk/foreign-travel-advice/belgium' && raw.summary === 'Additional information on demonstrations and strikes (Safety and security).', JSON.stringify(raw))
+  const shaped = shapeFeedItem('uk-fcdo', raw)
+  check('uk: the item title becomes "UK travel advice update for <Country>"', shaped.title === 'UK travel advice update for Belgium' && shaped.summary === raw.summary && shaped.guid === raw.guid, shaped.title)
+  check('uk: shaping is idempotent, leaves other sources alone, and does not wrap a long or odd title', shapeFeedItem('uk-fcdo', shaped).title === shaped.title && shapeFeedItem('skift', raw).title === 'Belgium' && shapeFeedItem('uk-fcdo', { ...raw, title: 'Belgium: <script>x' }).title === 'Belgium: <script>x' && shapeFeedItem('uk-fcdo', { ...raw, title: 'x'.repeat(90) }).title === 'x'.repeat(90))
+
+  // The brief: the real item through the gate, attributed to the UK FCDO.
+  const facts: NewsFacts = { sourceName: uk.name, tier: 1, title: shaped.title, summary: shaped.summary, url: shaped.url, publishedAt: shaped.publishedAt, category: 'advisory' }
+  const classified = classifyItem(uk, { title: shaped.title, summary: shaped.summary })
+  check('uk: relevance rules unchanged (an official advisory feed item is relevant, category advisory)', classified.relevant && classified.category === 'advisory' && !classified.breaking)
+  const GOOD: NewsBrief = {
+    headline: 'UK travel advice update for Belgium',
+    happened: 'The UK Foreign, Commonwealth and Development Office has a travel advice update for Belgium.',
+    means: ['The UK Foreign, Commonwealth and Development Office says the update is additional information on demonstrations and strikes (Safety and security).', 'According to the source, this travel advice update is for Belgium, as reported by the UK Foreign, Commonwealth and Development Office.'],
+  }
+  const good = briefProblems(GOOD, facts)
+  check('uk: the attributed brief ("The UK Foreign, Commonwealth and Development Office says ...") passes the gate', good.length === 0, good.join(' | '))
+  check('uk: the attribution counts as attributed', isAttributed(GOOD.means[0], facts))
+  check('uk: advice wording is still refused (the rule against advice stays)', briefProblems({ ...GOOD, means: ['The UK Foreign, Commonwealth and Development Office says travellers should avoid demonstrations and strikes in Belgium.'] }, facts).some((p) => /advice/.test(p)))
+  check('uk: a name that is not in the entry is refused (no invented country)', briefProblems({ ...GOOD, happened: 'The UK Foreign, Commonwealth and Development Office has a travel advice update for France.' }, facts).some((p) => /name/.test(p)))
+  const prompt = (await import('../lib/news-brief')).writerPrompt(facts)
+  check('uk: the writer prompt asks to attribute the update text to the source by name', prompt.includes('The UK Foreign, Commonwealth and Development Office says ...') && prompt.includes('Title: UK travel advice update for Belgium'))
+
+  // End to end: ingest stores the shaped title, the original title is not needed for dedupe.
+  const stubs = newStubs()
+  const { db, admin } = world()
+  const feed1 = atom(REAL_ENTRY('Belgium', 'belgium', REAL_SUMMARY), REAL_ENTRY('Guinea', 'guinea', '&lt;p&gt;Entry requirements updated for Guinea.&lt;/p&gt;'), REAL_ENTRY('Papua New Guinea', 'papua-new-guinea', '&lt;p&gt;Information about local travel restrictions.&lt;/p&gt;'))
+  const r1 = await ingestFeeds(admin, { fetchDeps: feedDeps(stubs, { [UK_URL]: feed1 }, () => NOW), now: new Date(NOW), sources: [uk] })
+  const rows = rowsOf(db, 'news_items')
+  check('uk ingest: three countries give three items with shaped titles', r1.stored === 3 && rows.length === 3 && rows.every((x) => String(x.title).startsWith('UK travel advice update for ')) && rows.some((x) => x.title === 'UK travel advice update for Belgium'), JSON.stringify(rows.map((x) => x.title)))
+  check('uk ingest: "Guinea" and "Papua New Guinea" are not mistaken for repeats of each other', rows.some((x) => x.title === 'UK travel advice update for Guinea') && rows.some((x) => x.title === 'UK travel advice update for Papua New Guinea'))
+  check('uk ingest: the stored summary is the entry text with the HTML stripped, the link is the gov.uk page', rows.find((x) => String(x.title).endsWith('Belgium'))?.summary_raw === 'Additional information on demonstrations and strikes (Safety and security).' && rows.find((x) => String(x.title).endsWith('Belgium'))?.url === 'https://www.gov.uk/foreign-travel-advice/belgium')
+  const later = NOW + 40 * 60_000
+  const r2 = await ingestFeeds(admin, { fetchDeps: feedDeps(stubs, { [UK_URL]: atom(REAL_ENTRY('Belgium', 'belgium', REAL_SUMMARY, 'tag:gov.uk,2026:belgium-2')) }, () => later), now: new Date(later), sources: [uk] })
+  check('uk ingest: the same country again with a new entry id is a repeat (same shaped title), not a second item', r2.stored === 0 && r2.duplicates === 1 && rowsOf(db, 'news_items').length === 3)
+  check('uk ingest: nothing was stored under the bare country title', rowsOf(db, 'news_items').every((x) => x.title !== 'Belgium'))
+
+  // The whole step: the model sees the shaped title and the update text, and the post is attributed.
+  const w = world({ travel_news_mode: 'draft' })
+  const s2 = newStubs()
+  const model = modelFor(s2, { briefs: { Belgium: GOOD } })
+  const res = await runNewsStep(w.admin, { fetchDeps: feedDeps(s2, { [UK_URL]: atom(REAL_ENTRY('Belgium', 'belgium', REAL_SUMMARY)) }, () => NOW), model, now: new Date(NOW), sources: [uk], ping: async () => undefined })
+  const posts = rowsOf(w.db, 'posts')
+  check('uk step: a draft is written; the writer prompt carried the shaped title and the HTML-stripped update text', posts.length === 1 && posts[0].status === 'draft' && s2.prompts.some((p) => p.includes('Title: UK travel advice update for Belgium') && p.includes('Description: Additional information on demonstrations and strikes (Safety and security).')), `${res?.note} | ${s2.prompts[0]?.slice(0, 300)}`)
+  check('uk step: the post text is attributed to the UK FCDO and links the gov.uk page', String(posts[0]?.body).includes('The UK Foreign, Commonwealth and Development Office says') && String(posts[0]?.body).includes('https://www.gov.uk/foreign-travel-advice/belgium') && String(posts[0]?.title) === 'News: UK travel advice update for Belgium')
+}
+
   await part2()
   await part3()
+  await partUk()
   console.log(failed === 0 ? '\nAll news checks passed.' : `\n${failed} news check(s) FAILED.`)
 }
 

@@ -340,7 +340,7 @@ async function main() {
     check('changed countries: one item for the text change and one for the date change, none for the rest', third.stored === 2 && items.length === 2, JSON.stringify(third))
     const eg = items.find((i) => String(i.title).includes('Egypt'))
     check('changed countries: tier 1, category advisory, status new, official link, feed date', !!eg && eg.tier === 1 && eg.category === 'advisory' && eg.status === 'new' && eg.url === 'https://travel.gc.ca/destinations/egypt' && eg.source_key === 'gac-advisories', JSON.stringify(eg))
-    check('changed countries: the title carries the new advisory text from the feed', String(eg?.title) === 'Canada advisory for Egypt: Avoid non-essential travel', String(eg?.title))
+    check('changed countries: a level change is titled "Canada changes its advisory for X: old to new" with the stored and feed words only', String(eg?.title) === 'Canada changes its advisory for Egypt: Exercise a high degree of caution to Avoid non-essential travel', String(eg?.title))
     const fr = items.find((i) => String(i.title).includes('France'))
     check('changed countries: countries sharing the same advisory wording are not dropped as near duplicates', !!fr && items.length === 2)
 
@@ -392,6 +392,145 @@ async function main() {
     const trunc = selectChangedAdvisories(snap, big, new Date(NOW))
     check('state: a snapshot far smaller than the saved state is refused (fail closed, state untouched)', !trunc.ok)
     check('state: an empty snapshot is refused', !selectChangedAdvisories([], null, new Date(NOW)).ok)
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // 9b. Levels: only a LEVEL change, or a change in an ELEVATED country, is news (real field names: eng.advisory-text)
+  // ---------------------------------------------------------------------------------------------
+  {
+    const NORMAL = 'Exercise normal security precautions'
+    const HIGH = 'Exercise a high degree of caution'
+    const NONESS = 'Avoid non-essential travel'
+    const ALL = 'Avoid all travel'
+    const T0 = 1791975710
+    const real = (iso: string, name: string, text: string, ts = T0) => ({
+      'country-id': 1,
+      'country-iso': iso,
+      'country-eng': name,
+      'advisory-state': 1,
+      'date-published': { timestamp: ts, date: '2026-10-14 07:01:50' },
+      eng: { name, 'url-slug': name.toLowerCase().replace(/\s+/g, '-'), 'friendly-date': 'October 14, 2026', 'advisory-text': text },
+    })
+    const snapOf = (rowsIn: Record<string, ReturnType<typeof real>>) => JSON.stringify({ metadata: { generated: '2026-10-14' }, data: rowsIn })
+    // 22 countries so the "much smaller snapshot" guard (20+) is also in play; a handful are the interesting ones.
+    const filler = Object.fromEntries(Array.from({ length: 18 }, (_v, i) => [`Z${i}`, real(`Z${i}`, `Zedland${String.fromCharCode(65 + i)}`, NORMAL)]))
+    const base = (over: Record<string, ReturnType<typeof real>> = {}) =>
+      snapOf({
+        ...filler,
+        NZ: real('NZ', 'New Zealand', NORMAL),
+        JP: real('JP', 'Japan', NORMAL),
+        MX: real('MX', 'Mexico', HIGH),
+        EG: real('EG', 'Egypt', HIGH),
+        ...over,
+      })
+    const mk = async () => {
+      const { db, admin } = world()
+      let clock = NOW
+      const run = (body: string) => {
+        clock += 40 * 60_000
+        return ingestFeeds(admin, { fetchDeps: deps({ [URL_JSON]: { body } }, [], () => clock), now: new Date(clock), sources: [gac] })
+      }
+      const first = await run(base())
+      return { db, admin, run, first }
+    }
+
+    // baseline stores levels
+    {
+      const { db, first } = await mk()
+      const st = stateOf(db)
+      check('levels: the baseline stores the hashes AND the level text per country, and creates no item', first.stored === 0 && rows(db, 'news_items').length === 0 && st?.levels?.mx === HIGH && st?.levels?.nz === NORMAL && Object.keys(st?.levels ?? {}).length === Object.keys(st?.countries ?? {}).length, JSON.stringify(st?.levels).slice(0, 120))
+    }
+    // normal precautions, nothing but the date changes: not news
+    {
+      const { db, run } = await mk()
+      const r = await run(base({ JP: real('JP', 'Japan', NORMAL, T0 + 86_400) }))
+      check('levels: "Exercise normal security precautions" with no level change is not news (date change only)', r.stored === 0 && rows(db, 'news_items').length === 0, JSON.stringify(r))
+      const st = stateOf(db)
+      check('levels: the new hash is still remembered for that country, so it is not seen as changed again', Object.keys(st?.countries ?? {}).length === 22 && st?.countries.jp !== undefined)
+    }
+    // elevated, same level, date changed: news, titled as today
+    {
+      const { db, run } = await mk()
+      const r = await run(base({ MX: real('MX', 'Mexico', HIGH, T0 + 86_400) }))
+      const items = rows(db, 'news_items')
+      check('levels: an elevated country whose date changed (same level) is news, titled "Canada advisory for X: level"', r.stored === 1 && items.length === 1 && String(items[0].title) === `Canada advisory for Mexico: ${HIGH}` && items[0].status === 'new', JSON.stringify(items.map((i) => i.title)))
+    }
+    // level changes: up, down, normal to elevated, elevated to normal
+    {
+      const { db, run } = await mk()
+      const r = await run(base({ MX: real('MX', 'Mexico', NONESS, T0 + 100), EG: real('EG', 'Egypt', NORMAL, T0 + 100), JP: real('JP', 'Japan', ALL, T0 + 100) }))
+      const titles = rows(db, 'news_items').map((i) => String(i.title)).sort()
+      check('levels: an upgrade, a downgrade to normal and normal to elevated each make one item with the old and new level words', r.stored === 3 && titles.includes(`Canada changes its advisory for Mexico: ${HIGH} to ${NONESS}`) && titles.includes(`Canada changes its advisory for Egypt: ${HIGH} to ${NORMAL}`) && titles.includes(`Canada changes its advisory for Japan: ${NORMAL} to ${ALL}`), titles.join(' | '))
+      check('levels: those items keep the country page link, tier 1 and category advisory', rows(db, 'news_items').every((i) => String(i.url).startsWith('https://travel.gc.ca/destinations/') && i.tier === 1 && i.category === 'advisory'))
+      const st = stateOf(db)
+      check('levels: the stored levels move to the new level text', st?.levels?.mx === NONESS && st?.levels?.eg === NORMAL && st?.levels?.jp === ALL)
+      const again = await run(base({ MX: real('MX', 'Mexico', NONESS, T0 + 100), EG: real('EG', 'Egypt', NORMAL, T0 + 100), JP: real('JP', 'Japan', ALL, T0 + 100) }))
+      check('levels: an unchanged read afterwards creates nothing', again.stored === 0 && rows(db, 'news_items').length === 3)
+    }
+    // a different spelling/case/space of the same level is not a change
+    {
+      const { db, run } = await mk()
+      const r = await run(base({ MX: real('MX', 'Mexico', 'exercise  a high degree of caution', T0) }))
+      check('levels: the same level in another case or spacing is not a level change (and the text change of an elevated country is still news by rule b)', r.stored === 1 && String(rows(db, 'news_items')[0].title) === 'Canada advisory for Mexico: exercise a high degree of caution', JSON.stringify(rows(db, 'news_items').map((i) => i.title)))
+    }
+    // existing state without levels is upgraded in place
+    {
+      const { db, admin, run } = await mk()
+      const cur = stateOf(db)!
+      const legacy: GacState = { v: 1, at: cur.at, countries: { ...cur.countries } }
+      const row = rows(db, 'app_settings').find((x) => x.key === GAC_STATE_KEY)!
+      row.value = JSON.stringify(legacy)
+      const rd = await readGacState(admin)
+      check('upgrade: a saved state with no levels is read fine (levels simply absent)', !!rd.state && rd.state.levels === undefined && Object.keys(rd.state.countries).length === 22)
+      // Japan (normal) and Egypt (elevated) both change their date; nothing is known about their previous level
+      const r = await run(base({ JP: real('JP', 'Japan', NORMAL, T0 + 5), EG: real('EG', 'Egypt', HIGH, T0 + 5) }))
+      const items = rows(db, 'news_items')
+      check('upgrade: no item for the non-elevated country; the elevated country with a changed date is still news', r.stored === 1 && items.length === 1 && String(items[0].title) === `Canada advisory for Egypt: ${HIGH}`, JSON.stringify(items.map((i) => i.title)))
+      const st = stateOf(db)
+      check('upgrade: the levels are filled in for every country on that read', Object.keys(st?.levels ?? {}).length === 22 && st?.levels?.jp === NORMAL && st?.levels?.eg === HIGH)
+      const next = await run(base({ JP: real('JP', 'Japan', NONESS, T0 + 9), EG: real('EG', 'Egypt', HIGH, T0 + 5) }))
+      check('upgrade: after the upgrade a level change is detected normally', next.stored === 1 && String(rows(db, 'news_items')[1].title) === `Canada changes its advisory for Japan: ${NORMAL} to ${NONESS}`)
+    }
+    // upgrade read where a non-elevated country has changed AND a legacy state: first-ever run with state but zero levels and all normal -> nothing
+    {
+      const { db, admin, run } = await mk()
+      const cur = stateOf(db)!
+      rows(db, 'app_settings').find((x) => x.key === GAC_STATE_KEY)!.value = JSON.stringify({ v: 1, at: cur.at, countries: cur.countries })
+      const allDates = base(Object.fromEntries(['NZ', 'JP'].map((k) => [k, real(k, k === 'NZ' ? 'New Zealand' : 'Japan', NORMAL, T0 + 7)])))
+      const r = await run(allDates)
+      check('upgrade: only non-elevated countries changed means no items at all', r.stored === 0 && rows(db, 'news_items').length === 0 && !!(await readGacState(admin)).state?.levels?.nz)
+    }
+    // the cap holds back the OLD level too, so a held change is found again
+    {
+      const many = Array.from({ length: 12 }, (_v, i) => [`K${i}`, real(`K${i}`, `Kingdom${String.fromCharCode(65 + i)}`, HIGH, T0 + i)] as const)
+      const snap = (text: string, ts: number) => snapOf({ ...filler, ...Object.fromEntries(many.map(([k, v]) => [k, real(k, v['country-eng'], text, ts + 1)])) })
+      const { db, admin } = world()
+      let clock = NOW
+      const run = (body: string) => {
+        clock += 40 * 60_000
+        return ingestFeeds(admin, { fetchDeps: deps({ [URL_JSON]: { body } }, [], () => clock), now: new Date(clock), sources: [gac] })
+      }
+      await run(snapOf({ ...filler, ...Object.fromEntries(many.map(([k, v]) => [k, v])) }))
+      const r1 = await run(snap(NONESS, T0))
+      const st1 = stateOf(db)!
+      const heldKeys = Object.keys(st1.levels ?? {}).filter((k) => st1.levels?.[k] === HIGH)
+      check(`levels: 12 level changes at once make at most ${MAX_GAC_PER_RUN} items; the rest keep their OLD hash and OLD level`, r1.stored === MAX_GAC_PER_RUN && heldKeys.length === 12 - MAX_GAC_PER_RUN, `${r1.stored} stored, ${heldKeys.length} held`)
+      const r2 = await run(snap(NONESS, T0))
+      const r3 = await run(snap(NONESS, T0))
+      check('levels: the held level changes are reported on the next reads, then nothing more', r2.stored === MAX_GAC_PER_RUN && r3.stored === 2 && rows(db, 'news_items').length === 12)
+    }
+    // pure rule
+    {
+      const snap = parseAdvisoryJson(base(), { now: NOW }).items
+      const hashes = Object.fromEntries(snap.map((i) => [i.stateKey as string, i.stateHash as string]))
+      const levels = Object.fromEntries(snap.map((i) => [i.stateKey as string, i.stateLevel as string]))
+      const moved = parseAdvisoryJson(base({ NZ: real('NZ', 'New Zealand', NORMAL, T0 + 3), MX: real('MX', 'Mexico', ALL, T0 + 3) }), { now: NOW }).items
+      const sel = selectChangedAdvisories(moved, { v: 1, at: '', countries: hashes, levels }, new Date(NOW))
+      check('pure: stateLevel and stateName come from eng.advisory-text and the country name', moved.find((i) => i.stateKey === 'mx')?.stateLevel === ALL && moved.find((i) => i.stateKey === 'mx')?.stateName === 'Mexico')
+      check('pure: of two changed countries only the level change is selected', sel.ok && sel.items.length === 1 && sel.items[0].stateKey === 'mx' && sel.items[0].title === `Canada changes its advisory for Mexico: ${HIGH} to ${ALL}`)
+      const base0 = selectChangedAdvisories(snap, null, new Date(NOW))
+      check('pure: a baseline records levels and creates nothing', base0.ok && base0.baseline && base0.items.length === 0 && base0.next.levels?.mx === HIGH)
+    }
   }
 
   // ---------------------------------------------------------------------------------------------

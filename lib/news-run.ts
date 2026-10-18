@@ -6,13 +6,14 @@ import { repairDay, startOfSiteDayIso } from '@/lib/content-edits'
 import { modelCallFor, type ModelCall } from '@/lib/content-repair'
 import { openBudget, type HealBudget } from '@/lib/heal-loop'
 import { pingIndexNow } from '@/lib/indexnow'
-import { briefProblems, isAttributed, lexicalProblems, writeNewsBrief, type NewsBrief, type NewsFacts } from '@/lib/news-brief'
+import { briefProblems, isAttributed, lexicalProblems, writeNewsBrief, type BriefOutcome, type NewsBrief, type NewsFacts } from '@/lib/news-brief'
 import { SOCIAL_ENROLMENTS_PER_DAY_CEILING, enrollNewsIfDue } from '@/lib/news-distribution'
 import type { FetchDeps } from '@/lib/news-feed'
-import { NO_LONGER_QUALIFIES_REASON, expireOldItems, ingestFeeds, newsTableReady, reevaluateItems, type IngestResult, type NewsItemRow } from '@/lib/news-ingest'
+import { NO_LONGER_QUALIFIES_REASON, STORM_COVERED_REASON, expireOldItems, ingestFeeds, newsTableReady, reevaluateItems, type IngestResult, type NewsItemRow } from '@/lib/news-ingest'
+import { buildNhcBrief, isNhcPublicAdvisory, isTemplateBrief } from '@/lib/news-nhc'
 import { createNewsPost, markSuperseded, publishQueuedDraft } from '@/lib/news-publish'
 import { newsTitle, parseNewsBody } from '@/lib/news-post'
-import { classifyItem, isBreaking, isNhcSource, priorityOf, stormKey, stormKeysMatch, stormSignature, titleKey, titleSimilarity, SIMILAR_TITLE_THRESHOLD } from '@/lib/news-relevance'
+import { STORM_POST_WINDOW_MS, classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, priorityOf, stormKey, stormKeysMatch, stormSignature, titleKey, titleSimilarity, SIMILAR_TITLE_THRESHOLD } from '@/lib/news-relevance'
 import { getNewsMode, getNewsPerDay, type NewsMode } from '@/lib/news-settings'
 import { maxAgeMs, sourceByKey, type NewsSource } from '@/lib/news-sources'
 
@@ -236,12 +237,19 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
           result.rejected++
           continue
         }
-        if (!model) {
+        // A hurricane centre draft that is exactly what the plain-code template builds from the item needs no model review: the gate
+        // above already passed it and a template cannot paraphrase. Anything else (a model brief, or an edited draft) is reviewed.
+        const templated = isNhcSource(item.source_key) && isTemplateBrief(facts, item.source_key, brief)
+        if (!templated && !model) {
           notes.push('AI review is not configured, so queued drafts stay drafts')
           break
         }
-        budget = budget ?? (await openBudget(admin, now))
-        const review = await writeNewsBrief(facts, { model, budget, deadlineMs: deps.deadlineMs, claimCall, existing: brief })
+        let review: { status: 'ok' | 'rejected' | 'deferred'; reasons: string[]; calls: number }
+        if (templated) review = { status: 'ok', reasons: [], calls: 0 }
+        else {
+          budget = budget ?? (await openBudget(admin, now))
+          review = await writeNewsBrief(facts, { model: model as ModelCall, budget, deadlineMs: deps.deadlineMs, claimCall, existing: brief })
+        }
         if (review.status === 'deferred') {
           notes.push(`waiting: ${review.reasons[0] ?? 'the review is not available'}`)
           break
@@ -270,9 +278,16 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
       const { data: newRows, error: newErr } = await admin.from('news_items').select('*').eq('status', 'new').limit(200)
       if (newErr) return { ...result, ok: false, note: `${lead}could not read the news items (${newErr.message})` }
       const candidates = ((newRows ?? []) as NewsItemRow[]).filter((r) => !itemStale(r, nowMs)).sort((a, b) => rank(a) - rank(b))
-      if (candidates.length && !model) notes.push('AI writing is not configured, so no brief was written')
-      else if (candidates.length && model) {
-        budget = budget ?? (await openBudget(admin, now))
+      // Hurricane centre Public Advisories are written by plain code (lib/news-nhc.ts) and need no model; everything else does.
+      const needsModel = (c: NewsItemRow) => !(isNhcSource(c.source_key) && isNhcPublicAdvisory(c.source_key, c.title))
+      let aiNoteGiven = false
+      if (candidates.length && !model && candidates.every(needsModel)) notes.push('AI writing is not configured, so no brief was written')
+      else if (candidates.length) {
+        // Storm briefs already written (queued or live): a later bulletin of the same storm inside 12 hours is covered by them.
+        const writtenStorms: { sourceKey: string; title: string; whenMs: number; status: string }[] = []
+        const written = await admin.from('news_items').select('source_key, title, published_at, fetched_at, status').eq('category', 'storm').in('status', ['queued', 'published']).limit(200)
+        if (!written.error) for (const r of (written.data ?? []) as { source_key: string; title: string; published_at: string | null; fetched_at: string; status: string }[]) writtenStorms.push({ sourceKey: r.source_key, title: r.title, whenMs: itemMs(r), status: r.status })
+        const whenOf = (c: NewsItemRow) => itemMs(c)
         for (const item of candidates) {
           if (counts.written >= perDay || counts.attempts >= attemptsCap || (publishing && counts.published >= perDay)) break
           if (deps.deadlineMs !== undefined && deps.deadlineMs - Date.now() < 30_000) {
@@ -286,14 +301,38 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
             counts.attempts++
             continue
           }
+          // Hurricane centre items: a later bulletin of a storm that already has a written brief inside 12 hours is covered, and a
+          // "Summary for" item gives way to the Public Advisory of the same storm that is waiting in the same window. Stored as
+          // rejected with no decided_at (like the ingest step does), so it is remembered but is not a write attempt.
+          if (isNhcSource(item.source_key) && item.category === 'storm') {
+            const me = { sourceKey: item.source_key, title: item.title, whenMs: whenOf(item) }
+            const myKey = stormKey(item.title)
+            const summaryYields = !isNhcPublicAdvisory(item.source_key, item.title) && candidates.some((c) => c.id !== item.id && isNhcPublicAdvisory(c.source_key, c.title) && stormKeysMatch(myKey, stormKey(c.title)) && Math.abs(whenOf(c) - me.whenMs) < STORM_POST_WINDOW_MS)
+            if (summaryYields || coveredByEarlierStormPost(me, writtenStorms)) {
+              await setItem(admin, item.id, { status: 'rejected', reject_reason: STORM_COVERED_REASON })
+              continue
+            }
+          }
+          const facts = factsOf(item, source)
+          // Plain-code template first (no model call, no spend); if it cannot be built or does not pass the gate, the model path below.
+          const template = isNhcSource(item.source_key) ? buildNhcBrief(facts, item.source_key) : null
+          if (!template?.ok && !model) {
+            if (!aiNoteGiven) notes.push(`AI writing is not configured, so ${item.title.slice(0, 50)} was left for later`)
+            aiNoteGiven = true
+            continue
+          }
           // Atomic attempt slot (2 x the daily number): rejected briefs cost spend too, so they are capped as well.
           const attemptSlot = await claimNewsSlot(admin, 'attempt', attemptsCap, now)
           if (attemptSlot !== 'ok') {
             if (attemptSlot === 'error') notes.push('could not take a daily attempt slot, so nothing more was written')
             break
           }
-          const facts = factsOf(item, source)
-          const outcome = await writeNewsBrief(facts, { model, budget, deadlineMs: deps.deadlineMs, claimCall })
+          let outcome: BriefOutcome
+          if (template?.ok) outcome = { status: 'ok', brief: template.brief, reasons: [], calls: 0, judgeRuns: 0, rounds: 0, stripped: false }
+          else {
+            budget = budget ?? (await openBudget(admin, now))
+            outcome = await writeNewsBrief(facts, { model: model as ModelCall, budget, deadlineMs: deps.deadlineMs, claimCall })
+          }
           if (outcome.status === 'deferred') {
             const n = (Number(await getSetting(admin, `${DEFER_PREFIX}${item.id}`)) || 0) + 1
             await setSetting(admin, `${DEFER_PREFIX}${item.id}`, String(n))
@@ -333,6 +372,7 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
           counts.written++
           counts.attempts++
           result.wrote++
+          if (item.category === 'storm') writtenStorms.push({ sourceKey: item.source_key, title: item.title, whenMs: whenOf(item), status: live ? 'published' : 'queued' })
           if (live) {
             counts.published++
             result.published++

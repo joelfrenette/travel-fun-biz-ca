@@ -162,7 +162,7 @@ const ONLY_IF_IN_SOURCE: [RegExp, string][] = [
 
 const COMMON_STARTERS = new Set(
   (
-    'the a an this that these those it its they their there here when while after before as if in on at by for from with without during under over about according because since although however also but and or so then once ' +
+    'the a an this that these those it its they their there here when while after before as if in on at by for from with without during under over about according because since although however also but and or so then once of to ' +
     'travellers travelers travelling traveling travel trip trips passengers visitors residents tourists people officials authorities government governments agency agencies ministry department service services office centre center ' +
     'flights flight airlines airline airports airport cruise cruises ships ship ports port sailings sailing passports passport visas visa rules rule requirements requirement entry border borders advisory advisories alert alerts warning warnings ' +
     'storm storms hurricane hurricanes weather forecast forecasts area areas region regions country countries city cities island islands coast update updates notice notices report reports information details level levels risk risks ' +
@@ -365,7 +365,8 @@ const RULES = [
 export function writerPrompt(f: NewsFacts, previous?: NewsBrief | null, problems: string[] = []): string {
   const range = wordRange(f.tier)
   const storm = f.category === 'storm' ? ' For a storm, say where it is or what coast or place it is near ONLY in the feed item\'s own words (a latitude and longitude or a named coast or place that is in the item), attributed to the source. Never add a list of affected areas from your own knowledge.' : ''
-  const official = f.tier === 1 ? ' This is an official government notice: copy only the advisory level text and the country, area or storm names that are in the feed item, and keep the wording close to it.' : ''
+  const officialName = f.sourceName.replace(/^the\b/, 'The')
+  const official = f.tier === 1 ? ` This is an official government notice: copy only the advisory level text and the country, area or storm names that are in the feed item, and keep the wording close to it. Attribute the update text to the source by its name (for example "${officialName} says ...").` : ''
   const again =
     previous && problems.length
       ? `\n\nYOUR PREVIOUS ATTEMPT WAS REFUSED. Previous attempt:\n${JSON.stringify(previous)}\nProblems found (fix every one, do not repeat them):\n${problems.slice(0, 10).map((p) => `- ${p}`).join('\n')}`
