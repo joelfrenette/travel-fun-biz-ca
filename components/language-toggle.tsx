@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useRouter } from "next/navigation"
 import type { Language } from "@/lib/preferences"
@@ -13,6 +13,8 @@ export function LanguageToggle({ language }: LanguageToggleProps) {
   const router = useRouter()
   const [value, setValue] = useState<Language>(language)
   const [pending, setPending] = useState(false)
+  // The header mounts two toggles (desktop and mobile); after router.refresh() the server sends the new value, so follow it.
+  useEffect(() => setValue(language), [language])
 
   async function handleChange(nextValue: string) {
     const normalized = nextValue === "fr" ? "fr" : nextValue === "es" ? "es" : "en"
@@ -33,8 +35,9 @@ export function LanguageToggle({ language }: LanguageToggleProps) {
 
   return (
     <Select value={value} onValueChange={handleChange} disabled={pending}>
-      <SelectTrigger className="w-[90px]" aria-label="Select language">
-        <SelectValue placeholder="Lang" />
+      <SelectTrigger className="w-[90px] text-foreground" aria-label="Select language">
+        {/* Label passed as children so it renders on the server and shows before hydration. */}
+        <SelectValue placeholder="Lang">{value === "fr" ? "FR" : value === "es" ? "SP" : "EN"}</SelectValue>
       </SelectTrigger>
 
       <SelectContent>

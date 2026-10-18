@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useRouter } from "next/navigation"
 import type { Currency } from "@/lib/currency"
@@ -13,6 +13,8 @@ export function CurrencyToggle({ currency }: CurrencyToggleProps) {
   const router = useRouter()
   const [value, setValue] = useState<Currency>(currency)
   const [pending, setPending] = useState(false)
+  // The header mounts two toggles (desktop and mobile); after router.refresh() the server sends the new value, so follow it.
+  useEffect(() => setValue(currency), [currency])
 
   async function handleChange(next: string) {
     const normalized = next === "cad" ? "cad" : next === "aud" ? "aud" : next === "eur" ? "eur" : "usd"
@@ -33,8 +35,9 @@ export function CurrencyToggle({ currency }: CurrencyToggleProps) {
 
   return (
     <Select value={value} onValueChange={handleChange} disabled={pending}>
-      <SelectTrigger className="w-[90px]" aria-label="Select currency">
-        <SelectValue placeholder="Currency" />
+      <SelectTrigger className="w-[90px] text-foreground" aria-label="Select currency">
+        {/* Label passed as children so it renders on the server and shows before hydration. */}
+        <SelectValue placeholder="Currency">{value.toUpperCase()}</SelectValue>
       </SelectTrigger>
 
       <SelectContent>

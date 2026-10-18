@@ -49,6 +49,11 @@ const translations: Record<Language, Record<string, string>> = {
     'Prefer to talk? Call or text': 'Vous préférez parler? Appelez ou textez le',
     'Call or text {phone} for pricing': 'Appelez ou textez le {phone} pour connaître le prix',
     'Contact us for pricing': 'Contactez-nous pour connaître le prix',
+    'Quick facts': 'En bref',
+    'Call or text': 'Appelez ou textez le',
+    'our AI agent answers': 'notre agent IA répond',
+    'Send an enquiry': 'Envoyer une demande',
+    'Plan your {name} trip with a real travel advisor': 'Planifiez votre voyage à {name} avec un vrai conseiller en voyages',
     'Browse more trips': 'Voir d\'autres voyages',
     'Get Your Free Travel Concierge': 'Obtenez votre concierge voyage gratuit',
     'Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.':
@@ -207,6 +212,11 @@ const translations: Record<Language, Record<string, string>> = {
     'Prefer to talk? Call or text': '¿Prefieres hablar? Llama o envía un mensaje al',
     'Call or text {phone} for pricing': 'Llama o envía un mensaje al {phone} para conocer el precio',
     'Contact us for pricing': 'Contáctanos para conocer el precio',
+    'Quick facts': 'Datos rápidos',
+    'Call or text': 'Llama o envía un mensaje al',
+    'our AI agent answers': 'nuestro agente de IA responde',
+    'Send an enquiry': 'Enviar una consulta',
+    'Plan your {name} trip with a real travel advisor': 'Planifica tu viaje a {name} con un asesor de viajes real',
     'Browse more trips': 'Ver más viajes',
     'Get Your Free Travel Concierge': 'Obtén tu conserje de viajes gratis',
     'Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.':
