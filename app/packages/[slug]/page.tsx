@@ -28,6 +28,8 @@ import { TripGallery } from "@/components/trip-gallery"
 import { TripVideo } from "@/components/trip-video"
 import { TripJournal } from "@/components/trip-journal"
 import { LinkifiedText } from "@/components/linkified-text"
+import { TripExtras } from "@/components/trip-extras"
+import { loadTripExtras } from "@/lib/trip-extras"
 
 export const revalidate = 300
 
@@ -68,12 +70,13 @@ export default async function PackagePage({ params }: Props) {
   const { language, currency } = getVisitorPreferences()
   // One rule for "past trip" (lib/past-trip.ts): recap_mode auto / recap / live. A past trip is never unpublished.
   const isPastTrip = isPastTripRow(pkg)
-  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip] = await Promise.all([
+  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip, tripExtras] = await Promise.all([
     getPackages(),
     getUsdToRate(currency),
     getPublishedTestimonialsForPackage(pkg.id),
     listGuidesForPackage({ id: pkg.id, destination: pkg.destination }),
     isPastTrip ? getNextTripForRecap(pkg) : Promise.resolve(null),
+    loadTripExtras(isPastTrip),
   ])
   const happened = isPastTrip ? happenedLabel(pkg.available_from, pkg.available_to) : null
   const recapText = isPastTrip && hasRecap(pkg) ? (pkg.recap_summary as string).trim() : ""
@@ -365,6 +368,8 @@ export default async function PackagePage({ params }: Props) {
             </aside>
           </section>
         )}
+
+        {!isPastTrip && <TripExtras extras={tripExtras} language={language} />}
 
         {isPastTrip && pkg.video_url && (
           <section className="container mx-auto px-4 pb-12">
