@@ -36,6 +36,21 @@ export interface RawFeedItem {
   /** JSON advisory snapshots only: the country id and a short hash of its advisory text and date (used to find what changed). */
   stateKey?: string
   stateHash?: string
+  /** JSON advisory snapshots only: the country name and its advisory LEVEL text (eng.advisory-text, e.g. "Avoid all travel"). */
+  stateName?: string
+  stateLevel?: string
+}
+
+/** UK FCDO Atom entries are titled with the bare country name ("Belgium"); the item title says what the item is. */
+export const UK_FCDO_TITLE_PREFIX = 'UK travel advice update for '
+
+/** Pure. Shapes a parsed feed item for storage and writing. Only the UK FCDO feed is changed: "Belgium" becomes "UK travel advice
+ * update for Belgium". A title that is not a bare country name (long, or with punctuation that a country name never has) is left
+ * alone so nothing odd is ever wrapped. Other sources are returned unchanged. */
+export function shapeFeedItem(sourceKey: string, item: RawFeedItem): RawFeedItem {
+  if (sourceKey !== 'uk-fcdo' || item.title.startsWith(UK_FCDO_TITLE_PREFIX)) return item
+  if (!/^[A-Za-z][A-Za-z .,'()&-]{1,70}$/.test(item.title)) return item
+  return { ...item, title: `${UK_FCDO_TITLE_PREFIX}${item.title.trim()}` }
 }
 
 export interface ParsedFeed {
@@ -377,6 +392,8 @@ export function parseAdvisoryJson(textRaw: string, opts: { now?: number; linkHos
         publishedAt: date.iso,
         stateKey: id,
         stateHash,
+        stateName: name,
+        stateLevel: advisory,
       })
     }
     if (items.length === 0) return fail('no country in the advisory data had a name and advisory text')
