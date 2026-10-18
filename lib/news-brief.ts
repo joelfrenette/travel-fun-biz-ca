@@ -297,7 +297,7 @@ export function meansSentenceProblems(m: string, f: NewsFacts): string[] {
 /** Words an official-notice relay may use without the notice containing them: plain linking and reporting words, never a fact. */
 const NEUTRAL_WORDS = new Set([
   ...RELAY_WORDS,
-  ...'cites citing cited reasons reason source sources says said stays stay remains remain unchanged same following reissued reissue notice notices update updates updated includes include including because causes cause listed lists list wording text statement'.split(' '),
+  ...'cites citing cited reasons reason source sources says said stays stay remains remain unchanged same following reissued reissue notice notices update updates updated includes include including because causes cause listed lists list wording text statement section sections'.split(' '),
 ])
 
 /** The whole-brief gate. An empty list means clean. Pure. */

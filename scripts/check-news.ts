@@ -978,14 +978,14 @@ async function partUk() {
   check('uk ingest: the same country again with a new entry id is a repeat (same shaped title), not a second item', r2.stored === 0 && r2.duplicates === 1 && rowsOf(db, 'news_items').length === 3)
   check('uk ingest: nothing was stored under the bare country title', rowsOf(db, 'news_items').every((x) => x.title !== 'Belgium'))
 
-  // The whole step: the model sees the shaped title and the update text, and the post is attributed.
+  // The whole step: UK items are written by plain code (lib/news-uk.ts, see scripts/check-news-uk.ts), so the model is never called.
   const w = world({ travel_news_mode: 'draft' })
   const s2 = newStubs()
   const model = modelFor(s2, { briefs: { Belgium: GOOD } })
   const res = await runNewsStep(w.admin, { fetchDeps: feedDeps(s2, { [UK_URL]: atom(REAL_ENTRY('Belgium', 'belgium', REAL_SUMMARY)) }, () => NOW), model, now: new Date(NOW), sources: [uk], ping: async () => undefined })
   const posts = rowsOf(w.db, 'posts')
-  check('uk step: a draft is written; the writer prompt carried the shaped title and the HTML-stripped update text', posts.length === 1 && posts[0].status === 'draft' && s2.prompts.some((p) => p.includes('Title: UK travel advice update for Belgium') && p.includes('Description: Additional information on demonstrations and strikes (Safety and security).')), `${res?.note} | ${s2.prompts[0]?.slice(0, 300)}`)
-  check('uk step: the post text is attributed to the UK FCDO and links the gov.uk page', String(posts[0]?.body).includes('The UK Foreign, Commonwealth and Development Office says') && String(posts[0]?.body).includes('https://www.gov.uk/foreign-travel-advice/belgium') && String(posts[0]?.title) === 'News: UK travel advice update for Belgium')
+  check('uk step: a draft is written by the plain-code template with ZERO model calls (no writer or judge prompt was sent)', posts.length === 1 && posts[0].status === 'draft' && s2.prompts.length === 0, `${res?.note} | ${s2.prompts[0]?.slice(0, 300)}`)
+  check('uk step: the post text is attributed to the UK FCDO and links the gov.uk page', String(posts[0]?.body).includes('The UK Foreign, Commonwealth and Development Office updated its travel advice for Belgium.') && String(posts[0]?.body).includes('https://www.gov.uk/foreign-travel-advice/belgium') && String(posts[0]?.title) === 'News: UK travel advice update for Belgium')
 }
 
   await part2()
