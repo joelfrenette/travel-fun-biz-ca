@@ -1,12 +1,11 @@
 import Link from "next/link"
 import Image from "next/image"
-import { aboutLinks, legalLinks, officeInfo, recognitionBadges, socialPromos } from "@/content/footer"
+import { aboutLinks, legalLinks, officeInfo, recognitionBadges, reviewsBadge, socialPromos } from "@/content/footer"
 import { cruiseAndResortLinks, destinationsLink } from "@/content/navigation"
 import { NewsletterForm } from "@/components/newsletter-form"
 import { CookieSettingsLink } from "@/components/cookie-settings-link"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
-import { listTopDestinationGuides } from "@/lib/guides"
 
 interface FooterProps {
   language: Language
@@ -29,22 +28,6 @@ function FooterTile({ href, src, alt, fit }: { href: string; src: string; alt: s
         unoptimized
       />
     </Link>
-  )
-}
-
-/** Compact "Trips by destination" list from the published destination guides. Renders nothing when there are none. */
-async function FooterDestinations({ language }: { language: Language }) {
-  const guides = await listTopDestinationGuides(6)
-  if (guides.length === 0) return null
-  return (
-    <nav aria-label="Trips by destination" className="space-y-2 text-xs text-gray-400">
-      <p className="font-semibold uppercase text-white">{translate(language, "Trips by destination")}</p>
-      {guides.map((g) => (
-        <Link key={g.id} href={`/destinations/${g.slug}`} className="block hover:text-white">
-          {g.name}
-        </Link>
-      ))}
-    </nav>
   )
 }
 
@@ -90,9 +73,6 @@ export function Footer({ language }: FooterProps) {
               ))}
             </nav>
 
-            {/* @ts-expect-error async server component: this repo's React types predate async JSX */}
-            <FooterDestinations language={language} />
-
             <div className="space-y-1 text-xs text-gray-400">
               {officeInfo.registrations.map((item) => (
                 <p key={item} className="font-semibold text-white">
@@ -119,6 +99,7 @@ export function Footer({ language }: FooterProps) {
           </div>
 
           <div className="space-y-4">
+            <FooterTile href={reviewsBadge.href} src={reviewsBadge.src} alt={reviewsBadge.alt} fit="contain" />
             {socialPromos.map((promo) => (
               <FooterTile key={promo.href} href={promo.href} src={promo.src} alt={promo.alt} fit="cover" />
             ))}

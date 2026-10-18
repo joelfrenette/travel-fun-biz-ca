@@ -28,13 +28,15 @@ export const legalLinks = [
 
 // Pictures are copied into public/assets/footer so the footer does not depend on travelfunbiz.com.
 // The original URL of each is kept in a comment above its entry as provenance.
+/** The Google and Facebook reviews tile heads the third footer column (above the social promos). */
+export const reviewsBadge = {
+  href: 'https://travelfunbiz.com/reviews/',
+  // https://travelfunbiz.com/wp-content/uploads/2024/01/300xReviews.jpg
+  src: '/assets/footer/reviews.jpg',
+  alt: 'Google and Facebook Reviews',
+}
+
 export const recognitionBadges = [
-  {
-    href: 'https://travelfunbiz.com/reviews/',
-    // https://travelfunbiz.com/wp-content/uploads/2024/01/300xReviews.jpg
-    src: '/assets/footer/reviews.jpg',
-    alt: 'Google and Facebook Reviews',
-  },
   {
     href: 'https://web.bocaratonchamber.com/TRAVEL-AGENCIES/TravelFunbiz-15987',
     // https://travelfunbiz.com/wp-content/uploads/2024/01/300xChamber.png
