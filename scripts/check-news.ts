@@ -763,12 +763,13 @@ async function part3() {
   {
     // a later storm bulletin with new figures is an update: it links the older post and marks it superseded
     const feed1 = `<?xml version="1.0"?><rss version="2.0"><channel><item><title>Hurricane Milton Advisory Number 12</title><link>https://www.nhc.noaa.gov/text/a12.shtml</link><guid>A12</guid><pubDate>${new Date(NOW - 3 * 3_600_000).toUTCString()}</pubDate><description>Hurricane Milton has maximum sustained winds near 120 mph. A hurricane warning is in effect for the Florida west coast.</description></item></channel></rss>`
-    const feed2 = `<?xml version="1.0"?><rss version="2.0"><channel><item><title>Hurricane Milton Advisory Number 13</title><link>https://www.nhc.noaa.gov/text/a13.shtml</link><guid>A13</guid><pubDate>${new Date(NOW + 30 * 60_000).toUTCString()}</pubDate><description>Hurricane Milton has maximum sustained winds near 125 mph.</description></item></channel></rss>`
+    const feed2 = `<?xml version="1.0"?><rss version="2.0"><channel><item><title>Hurricane Milton Advisory Number 13</title><link>https://www.nhc.noaa.gov/text/a13.shtml</link><guid>A13</guid><pubDate>${new Date(NOW + 10 * 3_600_000).toUTCString()}</pubDate><description>Hurricane Milton has maximum sustained winds near 125 mph.</description></item></channel></rss>`
     const nhc = sourceByKey('nhc-atlantic')!
     const s = newStubs()
     const { db, admin } = world({ travel_news_mode: 'publish' })
     const t1 = NOW
-    const t2 = NOW + 40 * 60_000
+    // 13 hours after the first bulletin (it is dated NOW - 3 hours): past the one-post-per-storm-per-12-hours window.
+    const t2 = NOW + 10 * 3_600_000 + 30 * 60_000
     await runNewsStep(admin, { fetchDeps: feedDeps(s, { [nhc.feedUrl]: feed1 }, () => t1), model: modelFor(s), now: new Date(t1), sources: [nhc], ping: async () => undefined })
     const r2 = await runNewsStep(admin, { fetchDeps: feedDeps(s, { [nhc.feedUrl]: feed2 }, () => t2), model: modelFor(s), now: new Date(t2), sources: [nhc], ping: async () => undefined })
     const posts = rowsOf(db, 'posts')
