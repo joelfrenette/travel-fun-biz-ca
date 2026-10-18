@@ -49,7 +49,14 @@ expect('the newsletter consent keys are present', ['Yes, I agree to receive trav
 // The other newsletter form labels (field names, toasts) are covered by the footer and general copy work,
 // so here only the consent sentence keys are required for the newsletter form.
 const consentKeys = newsletterKeys.filter((k) => /agree to receive|unsubscribe at any time/.test(k))
-const all = [...new Set([...bannerKeys, ...linkKeys, ...consentKeys])]
+// The trip alert form (WP14) has its own consent sentence and error messages: every translate() key it uses is required.
+const tripAlertKeys = keysOf('components/trip-alert-form.tsx')
+expect(
+  'the trip alert form keys include the consent sentence and the tick-the-box message',
+  ['Yes, I agree to receive travel deals and updates from', 'by email. I can unsubscribe at any time.', 'Please tick the box so we are allowed to email you'].every((k) => tripAlertKeys.includes(k)),
+  tripAlertKeys.join(' | '),
+)
+const all = [...new Set([...bannerKeys, ...linkKeys, ...consentKeys, ...tripAlertKeys])]
 
 const placeholders = (s: string) => (s.match(/\{[A-Za-z0-9_]+\}/g) ?? []).sort().join(',')
 
