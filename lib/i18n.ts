@@ -179,6 +179,8 @@ const translations: Record<Language, Record<string, string>> = {
     'View details': 'Voir les détails',
     'Find {name} tours and activities on {partner}': 'Trouver des visites et des activités à {name} sur {partner}',
     'We may earn a commission if you book through our links, at no extra cost to you.': 'Nous pouvons toucher une commission si vous réservez par l\'entremise de nos liens, sans frais supplémentaires pour vous.',
+    'Plan the extras for your trip': 'Planifiez les extras de votre voyage',
+    'Travellers often add these. Booking through our links costs you nothing extra.': 'Les voyageurs ajoutent souvent ces options. Réserver par l\'entremise de nos liens ne vous coûte rien de plus.',
   },
   es: {
     'Travel Agents': 'Agentes de viaje',
@@ -356,6 +358,8 @@ const translations: Record<Language, Record<string, string>> = {
     'View details': 'Ver detalles',
     'Find {name} tours and activities on {partner}': 'Encuentra tours y actividades en {name} en {partner}',
     'We may earn a commission if you book through our links, at no extra cost to you.': 'Podemos recibir una comisión si reservas a través de nuestros enlaces, sin costo adicional para ti.',
+    'Plan the extras for your trip': 'Planifica los extras de tu viaje',
+    'Travellers often add these. Booking through our links costs you nothing extra.': 'Los viajeros suelen añadir estas opciones. Reservar a través de nuestros enlaces no te cuesta nada extra.',
   },
 }
 

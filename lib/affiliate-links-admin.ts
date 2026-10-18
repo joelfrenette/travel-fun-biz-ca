@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { isValidSlug, isRealLink, slugify } from '@/lib/affiliate-go'
 import { cleanHttpsUrl, GUIDE_SLUG_PATTERN, MAX_NOTE_LENGTH } from '@/lib/affiliate-partners'
 import { isGuideKind, type GuideKind } from '@/lib/guides'
+import { isLinkCategory, type LinkCategory } from '@/lib/link-categories'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -27,6 +28,8 @@ export interface AffiliateLinkInput {
   guide_slug: string | null
   image_url: string | null
   note: string | null
+  // Migration 0049: what kind of link this is (null = not categorised).
+  category: LinkCategory | null
 }
 
 export type AffiliateLinkValidation = { ok: true; value: AffiliateLinkInput } | { ok: false; error: string }
@@ -46,6 +49,7 @@ export function normalizeAffiliateLinkInput(raw: {
   guide_slug?: unknown
   image_url?: unknown
   note?: unknown
+  category?: unknown
 }, opts?: { previousUrl?: string | null }): AffiliateLinkValidation {
   const url = String(raw.url ?? '').trim()
   if (!url) return { ok: false, error: 'A URL is required.' }
@@ -95,7 +99,11 @@ export function normalizeAffiliateLinkInput(raw: {
   const note = String(raw.note ?? '').replace(/\s+/g, ' ').trim()
   if (note.length > MAX_NOTE_LENGTH) return { ok: false, error: `The note is too long (${MAX_NOTE_LENGTH} characters at most).` }
 
-  return { ok: true, value: { slug, url, merchant, title, status, sort_order, partner_id, guide_kind, guide_slug, image_url, note: note || null } }
+  const categoryRaw = String(raw.category ?? '').trim().toLowerCase()
+  if (categoryRaw && !isLinkCategory(categoryRaw)) return { ok: false, error: 'Pick a category from the list (or leave it empty).' }
+  const category: LinkCategory | null = categoryRaw ? (categoryRaw as LinkCategory) : null
+
+  return { ok: true, value: { slug, url, merchant, title, status, sort_order, partner_id, guide_kind, guide_slug, image_url, note: note || null, category } }
 }
 
 /** The columns migration 0048 added to affiliate_links. */
@@ -108,34 +116,64 @@ export const isMissingMigration = (message: string | null | undefined): boolean 
 /** True when the form actually set one of the new fields. */
 export const setsNewFields = (v: AffiliateLinkInput): boolean => NEW_LINK_KEYS.some((k) => v[k] != null)
 
-/** The input without the 0048 columns, for a database that does not have them yet. */
-export function withoutNewFields(v: AffiliateLinkInput): Omit<AffiliateLinkInput, (typeof NEW_LINK_KEYS)[number]> {
-  const { partner_id: _a, guide_kind: _b, guide_slug: _c, image_url: _d, note: _e, ...old } = v
-  void [_a, _b, _c, _d, _e]
+/** True when a database error only means "migration 0049 is not applied" (the category column is missing). */
+export const isMissingCategory = (message: string | null | undefined): boolean =>
+  !!message && /\bcategory\b/i.test(message) && /column|schema cache|does not exist|could not find/i.test(message)
+
+/** The input without the 0049 category column, for a database that does not have it yet. */
+export function withoutCategory(v: AffiliateLinkInput): Omit<AffiliateLinkInput, 'category'> {
+  const { category: _c, ...rest } = v
+  void _c
+  return rest
+}
+
+/** The input without the 0048 columns (and without category, which came after them), for a database that has neither. */
+export function withoutNewFields(v: AffiliateLinkInput): Omit<AffiliateLinkInput, (typeof NEW_LINK_KEYS)[number] | 'category'> {
+  const { partner_id: _a, guide_kind: _b, guide_slug: _c, image_url: _d, note: _e, category: _f, ...old } = v
+  void [_a, _b, _c, _d, _e, _f]
   return old
 }
 
 export const MIGRATION_0048_MESSAGE = 'Run migration 0048 first (supabase/migrations/0048_things_to_do.sql in the Supabase SQL editor), then save again.'
+export const MIGRATION_0049_MESSAGE = 'Run migration 0049 first (supabase/migrations/0049_affiliate_category.sql in the Supabase SQL editor), then save again.'
 
 export const LINK_COLUMNS_OLD = 'id, slug, status, url, merchant, title, sort_order, created_at, updated_at'
-export const LINK_COLUMNS = `${LINK_COLUMNS_OLD}, partner_id, guide_kind, guide_slug, image_url, note`
+/** Columns once migration 0048 is applied (before 0049). */
+export const LINK_COLUMNS_0048 = `${LINK_COLUMNS_OLD}, partner_id, guide_kind, guide_slug, image_url, note`
+/** Columns once migrations 0048 and 0049 are applied. */
+export const LINK_COLUMNS = `${LINK_COLUMNS_0048}, category`
 
 export type SaveLinkResult = { ok: true; data: Record<string, unknown> } | { ok: false; status: number; error: string }
 
-/** Inserts (no id) or updates (id) one card. Before migration 0048 a write that sets none of the new fields still
- * works (retried without them); one that sets a new field is refused with a clear 409 instead of dropping it. */
+/** Inserts (no id) or updates (id) one card. Before migration 0049 a write that sets no category still works (retried
+ * without it); one that sets a category is refused with a clear 409 instead of dropping it. Same for 0048 and its fields. */
 export async function saveLink(admin: SupabaseClient, value: AffiliateLinkInput, id?: string): Promise<SaveLinkResult> {
   const attempt = async (payload: Record<string, unknown>, columns: string) => {
     const q = id ? admin.from('affiliate_links').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', id) : admin.from('affiliate_links').insert(payload)
     return q.select(columns).single()
   }
+  const ok = (data: unknown): SaveLinkResult => ({ ok: true, data: data as Record<string, unknown> })
+  let failure: string | null | undefined
+
   const first = await attempt(value as unknown as Record<string, unknown>, LINK_COLUMNS)
-  if (!first.error) return { ok: true, data: first.data as unknown as Record<string, unknown> }
-  if (!isMissingMigration(first.error.message)) return { ok: false, status: 500, error: first.error.message }
+  if (!first.error) return ok(first.data)
+  failure = first.error.message
+
+  // Step 1: 0049 missing (category column). Retry without it when the form did not set one.
+  if (isMissingCategory(failure)) {
+    if (value.category) return { ok: false, status: 409, error: MIGRATION_0049_MESSAGE }
+    const second = await attempt(withoutCategory(value) as unknown as Record<string, unknown>, LINK_COLUMNS_0048)
+    if (!second.error) return ok(second.data)
+    failure = second.error.message
+  }
+
+  // Step 2: 0048 missing (partner, page, photo, note). Retry without all the newer columns when the form set none.
+  if (!isMissingMigration(failure)) return { ok: false, status: 500, error: failure ?? 'Could not save' }
   if (setsNewFields(value)) return { ok: false, status: 409, error: MIGRATION_0048_MESSAGE }
-  const second = await attempt(withoutNewFields(value) as unknown as Record<string, unknown>, LINK_COLUMNS_OLD)
-  if (second.error) return { ok: false, status: 500, error: second.error.message }
-  return { ok: true, data: second.data as unknown as Record<string, unknown> }
+  if (value.category) return { ok: false, status: 409, error: MIGRATION_0049_MESSAGE }
+  const third = await attempt(withoutNewFields(value) as unknown as Record<string, unknown>, LINK_COLUMNS_OLD)
+  if (third.error) return { ok: false, status: 500, error: third.error.message }
+  return ok(third.data)
 }
 
 export interface AffiliateClickCounts {
