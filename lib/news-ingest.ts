@@ -193,6 +193,33 @@ export interface IngestDeps {
 /** A feed read can take up to about 20 seconds (robots.txt, then the feed), so none is started with less than this left. */
 export const FEED_START_MARGIN_MS = 25_000
 
+/** Setting that turns feeds off WITHOUT a deploy: a comma list of source keys (for example "us-state-dept,cruise-industry-news").
+ * Used when a site blocks our servers (HTTP 403): we do not work around a block, we switch that feed off. Empty or unset =
+ * every source that is enabled in lib/news-sources.ts is read. */
+export const NEWS_SOURCES_OFF_KEY = 'news_sources_off'
+
+/** Pure: "a, b ,c" -> Set(a, b, c), lower-cased, junk ignored. */
+export function parseSourcesOff(value: string | null | undefined): Set<string> {
+  return new Set(
+    String(value ?? '')
+      .split(',')
+      .map((k) => k.trim().toLowerCase())
+      .filter((k) => /^[a-z0-9-]{2,40}$/.test(k)),
+  )
+}
+
+/** The enabled sources minus the ones switched off in settings. An unreadable setting turns nothing off (the per-source
+ * failure counter and the 30-minute limit still apply), so a settings glitch never silences the official feeds. */
+export async function activeSources(admin: SupabaseClient): Promise<NewsSource[]> {
+  try {
+    const r = await getSettingStrict(admin, NEWS_SOURCES_OFF_KEY)
+    const off = r.error ? new Set<string>() : parseSourcesOff(r.value)
+    return enabledSources().filter((s) => !off.has(s.key))
+  } catch {
+    return enabledSources()
+  }
+}
+
 /** Reads every due, enabled source. Never throws. */
 export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}): Promise<IngestResult> {
   const result = emptyIngest()
@@ -200,7 +227,7 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
   const now = deps.now ?? new Date(fetchDeps.now())
   const nowMs = now.getTime()
   // Official feeds first (tier 1), so a deadline that cuts the pass short never costs the storm and advisory notices.
-  const sources = [...(deps.sources ?? enabledSources())].sort((a, b) => a.tier - b.tier)
+  const sources = [...(deps.sources ?? (await activeSources(admin)))].sort((a, b) => a.tier - b.tier)
   try {
     const recentSince = new Date(nowMs - NEWS_MAX_AGE_DAYS * DAY_MS).toISOString()
     const recent = await admin.from('news_items').select('title, summary_raw, category, source_key, status, published_at, fetched_at, reject_reason').gte('created_at', recentSince).limit(1000)
@@ -413,9 +440,10 @@ export async function reevaluateItems(admin: SupabaseClient): Promise<number | n
 }
 
 /** Sources whose last FEED_FAIL_LIMIT fetches in a row all failed (for Needs attention). */
-export async function failingSources(admin: SupabaseClient, sources: NewsSource[] = enabledSources()): Promise<{ key: string; name: string; fails: number; lastError: string }[]> {
+export async function failingSources(admin: SupabaseClient, sources?: NewsSource[]): Promise<{ key: string; name: string; fails: number; lastError: string }[]> {
   const out: { key: string; name: string; fails: number; lastError: string }[] = []
-  for (const s of sources) {
+  // A feed switched off in settings is not "failing": it is off on purpose, so it raises no Needs attention item.
+  for (const s of sources ?? (await activeSources(admin))) {
     const st = await readFeedState(admin, s.key)
     if (st.fails >= FEED_FAIL_LIMIT) out.push({ key: s.key, name: s.name.replace(/^the /i, ''), fails: st.fails, lastError: st.lastError ?? 'unknown error' })
   }

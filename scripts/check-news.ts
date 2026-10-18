@@ -933,6 +933,22 @@ async function part3() {
 // ================================================================================================
 // PART 4: UK FCDO titles and text (real Atom entry shape: title is the bare country name)
 // ================================================================================================
+// The settings-level off switch for feeds that block our servers (news_sources_off).
+async function partSourcesOff() {
+  console.log('--- sources off switch')
+  const { parseSourcesOff, activeSources } = await import('../lib/news-ingest')
+  const keys = new Set(enabledSources().map((s) => s.key))
+  check('off switch: a comma list is parsed, trimmed and lower-cased', [...parseSourcesOff(' US-State-Dept , cruise-industry-news ,, ')].sort().join() === 'cruise-industry-news,us-state-dept')
+  check('off switch: junk entries (spaces, symbols, too long) are ignored', parseSourcesOff('a b;c,<script>,x'.padEnd(80, 'y')).size === 0 || [...parseSourcesOff('ok-key,bad key,<x>')].join() === 'ok-key')
+  check('off switch: unset or empty turns nothing off', parseSourcesOff(null).size === 0 && parseSourcesOff('').size === 0)
+  const none = await activeSources(fakeAdmin({ tables: { app_settings: [] } }))
+  check('off switch: with no setting every enabled source is read', none.length === keys.size)
+  const two = await activeSources(fakeAdmin({ tables: { app_settings: [{ key: 'news_sources_off', value: 'us-state-dept,cruise-industry-news' }] } }))
+  check('off switch: the two named feeds are skipped, the rest still read', two.length === keys.size - 2 && !two.some((s) => s.key === 'us-state-dept' || s.key === 'cruise-industry-news') && two.some((s) => s.key === 'nhc-pacific'))
+  const unknown = await activeSources(fakeAdmin({ tables: { app_settings: [{ key: 'news_sources_off', value: 'no-such-feed' }] } }))
+  check('off switch: an unknown key turns nothing off', unknown.length === keys.size)
+}
+
 async function partUk() {
   const uk = sourceByKey('uk-fcdo')!
   const REAL_ENTRY = (title: string, slug: string, summary: string, id = `https://www.gov.uk/foreign-travel-advice/${slug}`) =>
@@ -991,6 +1007,7 @@ async function partUk() {
   await part2()
   await part3()
   await partUk()
+  await partSourcesOff()
   console.log(failed === 0 ? '\nAll news checks passed.' : `\n${failed} news check(s) FAILED.`)
 }
 
