@@ -95,7 +95,7 @@ export function AffiliateWordLinker({
     setError("")
     setBusy("preview")
     try {
-      const data = await call("/api/admin/affiliate-keywords/preview", { method: "POST", body: JSON.stringify({ phrase, scope, max_per_page: max }) })
+      const data = await call("/api/admin/affiliate-keywords/preview", { method: "POST", body: JSON.stringify({ phrase, scope, max_per_page: max, link_id: linkId }) })
       setPreview(data as PreviewResult)
       setPreviewKey(formKey)
     } catch (e) {
@@ -110,8 +110,9 @@ export function AffiliateWordLinker({
     setError("")
     setBusy("save")
     try {
-      await call("/api/admin/affiliate-keywords", { method: "POST", body: JSON.stringify({ phrase, link_id: linkId, scope, max_per_page: max }) })
-      toast({ title: "Saved and turned on", description: "The whole site is updated." })
+      const saved = await call("/api/admin/affiliate-keywords", { method: "POST", body: JSON.stringify({ phrase, link_id: linkId, scope, max_per_page: max }) })
+      const warned: string[] = Array.isArray(saved.warnings) ? saved.warnings : []
+      toast({ title: "Saved and turned on", description: warned.length ? `The whole site is updated. Note: ${warned[0]}` : "The whole site is updated." })
       setPhrase("")
       setPreview(null)
       onChanged()

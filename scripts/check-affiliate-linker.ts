@@ -15,7 +15,8 @@ import { loadAffiliateRules, clearAffiliateRulesCache, rowsToRules, normalizeKey
 import { AffiliateParts, AffiliateAutoDisclosure } from '../components/affiliate-text'
 import { linkedGuideContent, GuideArticle, GuideFaqList } from '../components/guide-parts'
 import { buildUsageReport, fitReport, previewRule, rescanSite, loadStoredReport, USAGE_SETTING_KEY, MAX_USAGE_DOCS, MAX_REPORT_BYTES, type UsageDoc } from '../lib/affiliate-usage'
-import { refreshAfterChange } from '../lib/affiliate-refresh'
+import { refreshAfterChange, resetUsageDebounce, flushPendingUsage, usageRefreshPending, USAGE_MIN_GAP_MS } from '../lib/affiliate-refresh'
+import { createKeyword, updateKeyword, deleteKeyword, previewKeyword, listKeywords, phraseConflict } from '../lib/affiliate-keyword-actions'
 import { fakeAdmin, type Db } from './fake-admin'
 import { DEFAULT_DISCLOSURE } from '../lib/affiliate-partners'
 import { translate } from '../lib/i18n'
@@ -349,6 +350,7 @@ async function main() {
   clearAffiliateRulesCache()
   await loadAffiliateRules({ client: stub({ data: goodRows, error: null }) as never, now: 5 })
   const callsBefore = calls
+  resetUsageDebounce()
   const rf = await refreshAfterChange(fakeAdmin({ tables: {} }), { revalidate: () => { revalidated++; calls2.push('pages') }, rescan: async () => { rescans++; calls2.push('usage'); return { ok: true } } })
   await loadAffiliateRules({ client: stub({ data: [], error: null }) as never, now: 6 })
   expect('a change clears the rules cache, refreshes cached pages, then recomputes the usage report', rf.rules && rf.pages && rf.usage && revalidated === 1 && rescans === 1 && calls2.join(',') === 'pages,usage' && calls === callsBefore + 1)
@@ -366,8 +368,72 @@ async function main() {
     const declared = [...src.matchAll(/export async function (GET|POST|PATCH|DELETE)\(/g)].length
     expect(`${f}: every handler checks isAuthorized first`, handlers === declared && declared > 0)
   }
-  expect('keyword create, edit and delete refresh the whole site', /refreshAfterChange/.test(read('app/api/admin/affiliate-keywords/route.ts')) && (read('app/api/admin/affiliate-keywords/[id]/route.ts').match(/refreshAfterChange\(admin\)/g) ?? []).length === 2)
-  expect('writes answer 409 with the migration message while the table is missing', (read('app/api/admin/affiliate-keywords/route.ts').match(/KEYWORDS_MIGRATION_MESSAGE \}, \{ status: 409 \}/g) ?? []).length >= 2 && (read('app/api/admin/affiliate-keywords/[id]/route.ts').match(/KEYWORDS_MIGRATION_MESSAGE \}, \{ status: 409 \}/g) ?? []).length >= 3)
+  // ---------- 11. keyword actions, behaviourally ----------
+  const LA = '11111111-1111-4111-8111-111111111111'
+  const LB = '22222222-2222-4222-8222-222222222222'
+  const kwDb = (): Db => ({
+    tables: {
+      affiliate_links: [{ id: LA, slug: 'viator', title: 'Viator', merchant: 'Viator', status: 'active', url: 'https://viator.shopco.com/a' }, { id: LB, slug: 'gyg', title: 'GetYourGuide', merchant: null, status: 'active', url: 'https://gyg.shopco.com/a' }],
+      affiliate_keywords: [],
+      guides: [{ kind: 'destinations', slug: 'croatia', name: 'Croatia', body: 'Plan Croatia tours here. Croatia tours rock.', faq: [], status: 'published' }],
+      posts: [],
+    },
+  })
+  let kwRefresh = 0
+  const kd = { revalidate: () => { kwRefresh++ }, rescan: async () => ({ ok: true }), now: () => 10_000_000 }
+  resetUsageDebounce()
+  const d0 = kwDb()
+  const c1 = await createKeyword(fakeAdmin(d0), { phrase: 'Croatia tours', link_id: LA }, kd)
+  expect('creating a phrase: 201, ON, refreshed, and the server itself reports where it would link', c1.status === 201 && (d0.tables.affiliate_keywords![0] as { status: string }).status === 'on' && kwRefresh === 1 && c1.body.pageCount === 1 && Array.isArray(c1.body.warnings))
+  const c2 = await createKeyword(fakeAdmin(d0), { phrase: 'croatia TOURS', link_id: LB }, kd)
+  expect('the same phrase on a DIFFERENT link is refused (409) and says which link owns it', c2.status === 409 && /Viator/.test(String(c2.body.error)) && d0.tables.affiliate_keywords!.length === 1)
+  const c3 = await createKeyword(fakeAdmin(d0), { phrase: 'Croatia tours', link_id: LA }, kd)
+  expect('the same phrase on the same link is refused too', c3.status === 409 && d0.tables.affiliate_keywords!.length === 1)
+  const pv2 = await previewKeyword(fakeAdmin(d0), { phrase: 'Croatia tours', link_id: LB })
+  expect('Preview warns that the phrase already goes to another link', pv2.status === 200 && (pv2.body.warnings as string[]).some((w) => /already goes to Viator/.test(w)) && !String((await previewKeyword(fakeAdmin(d0), { phrase: 'Croatia tours', link_id: LA })).body.warnings).includes('already goes'))
+  expect('Preview reports the pages and the highlighted match', (pv2.body.pageCount as number) === 1)
+  expect('server-side phrase checks: too many words, repeated tokens, missing link, bad scope', (await createKeyword(fakeAdmin(kwDb()), { phrase: 'one two three four five six seven eight nine', link_id: LA }, kd)).status === 400 && (await createKeyword(fakeAdmin(kwDb()), { phrase: 'a a a a b', link_id: LA }, kd)).status === 400 && (await createKeyword(fakeAdmin(kwDb()), { phrase: 'Fine phrase', link_id: '33333333-3333-4333-8333-333333333333' }, kd)).status === 400 && (await createKeyword(fakeAdmin(kwDb()), { phrase: 'Fine phrase', link_id: LA, scope: 'x' }, kd)).status === 400)
+  const kid = (d0.tables.affiliate_keywords![0] as { id: string }).id
+  const ku1 = await updateKeyword(fakeAdmin(d0), kid, { link_id: '44444444-4444-4444-8444-444444444444' }, kd)
+  expect('moving a phrase to a link that does not exist is a 400, not a 500', ku1.status === 400 && /no longer exists/.test(String(ku1.body.error)) && (d0.tables.affiliate_keywords![0] as { link_id: string }).link_id === LA)
+  const ku2 = await updateKeyword(fakeAdmin(d0), kid, { link_id: LB }, kd)
+  expect('moving a phrase to a real link works', ku2.status === 200 && (d0.tables.affiliate_keywords![0] as { link_id: string }).link_id === LB)
+  await createKeyword(fakeAdmin(d0), { phrase: 'Split hotels', link_id: LA }, kd)
+  const splitId = (d0.tables.affiliate_keywords![1] as { id: string }).id
+  const ku3 = await updateKeyword(fakeAdmin(d0), splitId, { phrase: 'Croatia tours' }, kd)
+  expect('renaming a phrase onto one that another link owns is a 409', ku3.status === 409)
+  expect('turning a phrase OFF and ON, and deleting it, each refresh the site', (await updateKeyword(fakeAdmin(d0), kid, { status: 'off' }, kd)).status === 200 && (d0.tables.affiliate_keywords![0] as { status: string }).status === 'off' && (await deleteKeyword(fakeAdmin(d0), kid, kd)).status === 200 && d0.tables.affiliate_keywords!.length === 1)
+  expect('a body that is not an object is a 400 for create, update and preview', (await createKeyword(fakeAdmin(d0), null)).status === 400 && (await updateKeyword(fakeAdmin(d0), kid, null)).status === 400 && (await previewKeyword(fakeAdmin(d0), null)).status === 400)
+  expect('an unknown phrase is a 404; nothing to change is a 400', (await updateKeyword(fakeAdmin(d0), 'nope', { status: 'on' }, kd)).status === 404 && (await updateKeyword(fakeAdmin(d0), splitId, {}, kd)).status === 400)
+  const noTable = { from: (t: string) => { const q: Record<string, unknown> = { select: () => q, order: () => q, eq: () => q, limit: () => Promise.resolve({ data: null, error: { message: `relation "${t}" does not exist` } }), delete: () => q, then: (r: (v: unknown) => unknown) => r({ data: null, error: { message: 'relation "affiliate_keywords" does not exist' } }) }; return q } } as never
+  expect('before migration 0050 every write answers 409 "Run migration 0050 first" and the list says not migrated', (await createKeyword(noTable, { phrase: 'Croatia tours', link_id: LA }, kd)).status === 409 && (await updateKeyword(noTable, kid, { status: 'on' }, kd)).status === 409 && (await deleteKeyword(noTable, kid, kd)).status === 409 && (await listKeywords(noTable)).body.migrated === false)
+  expect('phraseConflict ignores the rule being edited and the same link', phraseConflict([{ id: 'a', phrase: 'X y', link_id: LA }], 'x  Y', LA) === null && phraseConflict([{ id: 'a', phrase: 'X y', link_id: LA }], 'x y', LB)?.id === 'a' && phraseConflict([{ id: 'a', phrase: 'X y', link_id: LA }], 'x y', LB, 'a') === null)
+
+  // ---------- 12. the usage scan after changes happens at most once a minute ----------
+  resetUsageDebounce()
+  let clock = 50_000_000
+  let scans2 = 0
+  const timers: (() => void)[] = []
+  const deb = { revalidate: () => {}, rescan: async () => { scans2++; return { ok: true } }, now: () => clock, schedule: (run: () => void) => { timers.push(run) } }
+  const adm = fakeAdmin({ tables: {} })
+  const g1 = await refreshAfterChange(adm, deb)
+  clock += 5_000
+  const g2 = await refreshAfterChange(adm, deb)
+  clock += 5_000
+  const g3 = await refreshAfterChange(adm, deb)
+  expect('the first change scans at once; changes inside the next minute only raise a pending flag (one timer, no extra scans)', g1.usage && !g1.deferred && !g2.usage && g2.deferred && g3.deferred && scans2 === 1 && usageRefreshPending() && timers.length === 1)
+  expect('pages and rules are still refreshed on every change, even when the scan is put off', g2.pages && g3.pages && g2.rules)
+  expect('the pending flag does nothing before the minute is over', (await flushPendingUsage(adm, deb)) === false && scans2 === 1)
+  clock += USAGE_MIN_GAP_MS
+  timers[0]()
+  await new Promise((r) => setTimeout(r, 10))
+  expect('after the minute ONE deferred scan runs and clears the flag', scans2 === 2 && !usageRefreshPending())
+  const g4 = await refreshAfterChange(adm, deb)
+  expect('and a change right after it is put off again', g4.deferred && scans2 === 2)
+  clock += USAGE_MIN_GAP_MS
+  expect('opening the admin list flushes a pending scan once the minute is over', (await listKeywords(fakeAdmin({ tables: { affiliate_keywords: [] } }), deb)).status === 200 && scans2 === 3 && !usageRefreshPending())
+  resetUsageDebounce()
+
   const { POST: kwPost } = await import('../app/api/admin/affiliate-keywords/route')
   const { GET: kwGet } = await import('../app/api/admin/affiliate-keywords/route')
   const { PATCH: kwPatch, DELETE: kwDelete } = await import('../app/api/admin/affiliate-keywords/[id]/route')

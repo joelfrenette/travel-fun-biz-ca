@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { BAD_BODY_MESSAGE, readJsonObject } from '@/lib/admin-body'
 import { refreshAfterChange } from '@/lib/affiliate-refresh'
 import { isMissingPartnersTable, lockedPartnerSlug, normalizePartnerInput, PARTNERS_MIGRATION_MESSAGE } from '@/lib/affiliate-partners'
 
@@ -11,7 +12,8 @@ const PARTNER_COLUMNS = 'id, slug, name, logo_url, partner_id, search_template, 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+    const body = await readJsonObject(request)
+    if (!body) return NextResponse.json({ error: BAD_BODY_MESSAGE }, { status: 400 })
     const admin = getSupabaseAdmin()
     // ON or OFF for a search button that has no link in the list: a body that is only a status.
     const keys = Object.keys(body)

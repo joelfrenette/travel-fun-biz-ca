@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { dedupeSlug } from '@/lib/affiliate-go'
+import { BAD_BODY_MESSAGE, readJsonObject } from '@/lib/admin-body'
 import { refreshAfterChange } from '@/lib/affiliate-refresh'
 import { isMissingPartnersTable, normalizePartnerInput, PARTNERS_MIGRATION_MESSAGE } from '@/lib/affiliate-partners'
 
@@ -11,8 +12,9 @@ const PARTNER_COLUMNS = 'id, slug, name, logo_url, partner_id, search_template, 
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
-    const body = await request.json().catch(() => ({}))
-    const parsed = normalizePartnerInput(body as Record<string, unknown>)
+    const body = await readJsonObject(request)
+    if (!body) return NextResponse.json({ error: BAD_BODY_MESSAGE }, { status: 400 })
+    const parsed = normalizePartnerInput(body)
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
 
     const admin = getSupabaseAdmin()
