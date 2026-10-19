@@ -21,6 +21,8 @@ import {
   guideKinds,
   guidePath,
   getGuideAdmin,
+  isRetryableRejected,
+  rejectionCountFor,
   guidesCreatedSince,
   listGuideCandidates,
   listPublishedGuides,
@@ -294,8 +296,16 @@ export async function writeGuide(
   let publishing!: boolean
   let blockers!: string[]
   let rejectedByHeal = false
+  let replacingRejected = false
   try {
-    if (await getGuideAdmin(admin, cand.kind, cand.slug)) return { ok: false, note: `a ${guideKinds[cand.kind].label.toLowerCase()} guide for "${cand.name}" already exists` }
+    const existingRow = await getGuideAdmin(admin, cand.kind, cand.slug)
+    if (existingRow) {
+      // A draft rejected over 2 days ago may be written again (replacing it), at most twice in all; anything else stays.
+      if (!isRetryableRejected(existingRow, Date.now(), rejectionCountFor(earlier?.n))) {
+        return { ok: false, note: `a ${guideKinds[cand.kind].label.toLowerCase()} guide for "${cand.name}" already exists` }
+      }
+      replacingRejected = true
+    }
 
     const { brief, relatedPackageIds, allowedPaths } = await buildBrief(admin, cand)
     const composed = await composeGuide(brief)
@@ -372,7 +382,7 @@ export async function writeGuide(
       status: publishing ? 'published' : 'draft',
       source: 'ai',
       quality_notes: decision.note,
-      ...(rejectedByHeal ? { review_state: 'rejected' as const } : {}),
+      ...(rejectedByHeal ? { review_state: 'rejected' as const } : replacingRejected ? { review_state: null } : {}),
     })
   } catch (e) {
     const reason = e instanceof Error ? e.message : 'unknown error'
@@ -387,7 +397,10 @@ export async function writeGuide(
   // The guide is saved. Nothing below may turn that into a "could not write".
   const info = guideKinds[cand.kind]
   try {
-    await clearGuideFailure(admin, failureKey)
+    // Replacing a rejected draft counts as one rejection in the failure store (so a slug is retried at most once more);
+    // the count must survive the save, so it is recorded instead of cleared.
+    if (replacingRejected) await recordGuideFailure(admin, failureKey, { name: cand.name, kind: cand.kind, reason: 'an earlier draft was rejected and was written again' })
+    else await clearGuideFailure(admin, failureKey)
     await finalizeEdits(admin, repairLogIds, { id: saved.id, path: guidePath(saved.kind, saved.slug), published: publishing })
     // A published guide is enrolled for social posting (one guide a day, mode-gated; never throws).
     if (publishing) await enrollGuideIfDue(admin, saved)

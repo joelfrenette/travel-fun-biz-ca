@@ -32,3 +32,10 @@
 - Why it helps: a guide reader can leave their details in place, in two fields, instead of going to another page first, so more guide traffic becomes leads.
 - UAT: `pnpm dlx tsx scripts/check-guide-lead-form.ts`. Live: open a guide page, tap Request Info (scrolls to the form), submit a test lead and land on /thank-you; the lead row carries the guide page path in attribution.
 - Migration: none.
+
+## Rejected guide drafts can be retried, bounded
+- What changed: `isRetryableRejected(row, now, rejectionCount)` (pure) and `rejectionCountFor` in `lib/guides.ts`. `listGuideCandidates` no longer treats a draft with review_state 'rejected', untouched for over 2 days and with fewer than 2 rejections, as taken, so it is offered again; published and non-rejected drafts still block. `writeGuide` in `lib/guide-run.ts` replaces such a row by upsert (kind + slug) instead of refusing with "already exists" and clears review_state. Each replacement is recorded in the existing guide-failures store (not cleared on save), so after the second rejection the slug is no longer offered. Quality gates, judge, weekly cap and heal caps untouched; `lib/issues.ts` untouched.
+- Why it helps: a guide the heal or a person turned down is not stuck forever; the pipeline writes it again once, so more pages reach the site (more organic traffic) with no manual work, and spend stays capped.
+- Note: a replacement counts as one entry in the guide failure log, so it also counts toward the existing 24h breaker and shows in Needs attention as a plain-English reason.
+- UAT: `pnpm dlx tsx scripts/check-guide-retry.ts`. Live: reject a draft in the review queue, wait 2 days (or backdate in a test), run the guides step and see it rewritten; reject again and see it no longer offered.
+- Migration: none (degrades to old behaviour before 0041, where there is no review_state column).
