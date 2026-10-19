@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { site } from "@/lib/site"
 import { telHref, enquiryHref } from "@/lib/guide-facts"
+import { PhoneLink } from "@/components/phone-link"
 
 export { enquiryHref }
 
@@ -18,7 +19,7 @@ export function GuideCta({ name, compact = false, packageName }: { name: string;
         {phone && (
           <span className="text-muted-foreground">
             Call or text our AI agent:{" "}
-            {tel ? <a href={tel} className="font-semibold text-foreground hover:underline">{phone}</a> : <span className="font-semibold text-foreground">{phone}</span>}
+            {tel ? <PhoneLink href={tel} method="guide_cta_compact" className="font-semibold text-foreground hover:underline">{phone}</PhoneLink> : <span className="font-semibold text-foreground">{phone}</span>}
           </span>
         )}
         <Link href={enquiry} className="font-semibold text-primary hover:underline">Send an enquiry</Link>
@@ -26,13 +27,13 @@ export function GuideCta({ name, compact = false, packageName }: { name: string;
     )
   }
   return (
-    <section aria-labelledby="guide-cta-heading" className="rounded-xl border bg-muted/30 p-6 text-center">
+    <section id="guide-cta" aria-labelledby="guide-cta-heading" className="rounded-xl border bg-muted/30 p-6 text-center">
       <h2 id="guide-cta-heading" className="text-lg font-semibold text-foreground">Thinking about {name}?</h2>
       <p className="mt-1 text-sm text-muted-foreground">Tell us who is travelling and roughly when, and our team will help you work out the right trip.</p>
       <div className="mt-4 flex flex-wrap justify-center gap-3">
         {phone && (
           tel ? (
-            <a href={tel} className="inline-block rounded-md border border-primary px-6 py-3 text-sm font-bold text-primary hover:bg-primary/10">Call or text our AI agent: {phone}</a>
+            <PhoneLink href={tel} method="guide_cta" className="inline-block rounded-md border border-primary px-6 py-3 text-sm font-bold text-primary hover:bg-primary/10">Call or text our AI agent: {phone}</PhoneLink>
           ) : (
             <span className="inline-block rounded-md border border-primary px-6 py-3 text-sm font-bold text-primary">Call or text our AI agent: {phone}</span>
           )

@@ -13,3 +13,10 @@
 - Note: newsletter and trip-alert signups also use `saveLeadFirst`, so they trigger the same notice (the package field says which).
 - UAT: `pnpm dlx tsx scripts/check-new-lead-alert.ts`. Live: submit a non-test contact form with RESEND_API_KEY set and see one short email; resubmitting does not repeat the same row's notice.
 - Migration: none (uses existing `app_settings`).
+
+## One-tap call or text on trip, guide, blog and destination pages, with click tracking
+- What changed: new `components/phone-link.tsx` (`PhoneLink`): a tel:/sms: anchor that calls `track()` with `phone_click` or `sms_click` ({page_path, method}); renders nothing for an empty address. `StickyCta` gets optional `phone`, `callLabel`, `requestHref` props and a third "Call or text now" button (hidden on lg and up, bar slides away while #enquire, #contact or the new #guide-cta section is on screen). `components/guide-page.tsx` now mounts `StickyCta` with `site.phone`, so every guide kind gets it. The plain tel anchors in `app/packages/[slug]/page.tsx`, `components/package-card.tsx`, `components/guide-cta.tsx` and `app/thank-you/page.tsx` became `PhoneLink`. fr and es strings added for the new labels. `lib/site.ts` untouched.
+- Why it helps: a phone visitor can call or text our AI agent in one tap from the page they are reading, and every tap is counted by page, so leads from calls become visible.
+- Note: the guide page's request button points at the existing enquiry link (`enquiryHref`), since guides have no #enquire form.
+- UAT: `pnpm dlx tsx scripts/check-phone-link.ts`. Live: on a phone, open a guide or trip page, see the bar with Call or text now, tap it, and see `phone_click` in GA4 with page_path and method.
+- Migration: none.

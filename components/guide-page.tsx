@@ -12,7 +12,9 @@ import { dbPackageToTravelPackage } from "@/lib/packages"
 import type { TravelPackage } from "@/types/travel"
 import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, relatedGuideCards, getPublishedTripRowsByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
-import { GuideCta } from "@/components/guide-cta"
+import { GuideCta, enquiryHref } from "@/components/guide-cta"
+import { StickyCta } from "@/components/sticky-cta"
+import { translate } from "@/lib/i18n"
 import { GuideThingsToDo } from "@/components/guide-things-to-do"
 import { loadThingsToDo } from "@/lib/things-to-do"
 import { GuideFacts } from "@/components/guide-facts"
@@ -26,7 +28,7 @@ import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogS
 import { AffiliateAutoDisclosure } from "@/components/affiliate-text"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { jsonLdHtml } from "@/lib/jsonld"
-import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
+import { site, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
 
 // ONE shared page for every guide kind (destinations, hotels, resorts, cruise lines, ships, river cruises,
@@ -315,6 +317,13 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
           )}
         </article>
       </main>
+      <StickyCta
+        packageName={packages[0]?.name || guide.name}
+        requestLabel={translate(language, "Request Info")}
+        requestHref={enquiryHref(packages[0]?.name)}
+        phone={site.phone}
+        callLabel={translate(language, "Call or text now")}
+      />
       <Footer language={language} />
     </div>
   )
