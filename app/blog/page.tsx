@@ -8,6 +8,9 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { excerptFromMarkdown } from "@/lib/markdown"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 import { jsonLdHtml } from "@/lib/jsonld"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
+import { blogIndexFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
+import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 
 export const revalidate = 300
 
@@ -18,7 +21,11 @@ export const metadata: Metadata = {
 }
 
 export default async function BlogIndexPage() {
-  const [posts, { language, currency }] = await Promise.all([getPublishedPosts(), Promise.resolve(getVisitorPreferences())])
+  const [posts, { language, currency }, affiliateRules] = await Promise.all([getPublishedPosts(), Promise.resolve(getVisitorPreferences()), loadAffiliateRules()])
+  // Word links (WP23): the sentence under the title is the only running text here. The post cards are wholly one link each
+  // (title, excerpt and tags), so they are never linked. Fails open (no rules, no links).
+  const intro = blogIndexFieldSet()
+  const linked = linkPageFields(intro.fields, affiliateRules, "pages")
 
   // The audit script (scripts/audit-live-seo.mjs) flagged /blog as having no structured data.
   // A Blog listing its real published posts - no invented dates or authors, only what each post
@@ -53,7 +60,8 @@ export default async function BlogIndexPage() {
         <section className="container mx-auto px-4 py-16">
           <div className="mb-10 text-center">
             <h1 className="text-balance text-4xl font-bold text-foreground">Travel Stories &amp; Trip Recaps</h1>
-            <p className="mx-auto mt-3 max-w-2xl text-pretty text-muted-foreground">Real departures, real tips, and what actually happens on our group trips.</p>
+            <p className="mx-auto mt-3 max-w-2xl text-pretty text-muted-foreground"><AffiliateParts parts={linked.parts(intro.intro)} /></p>
+            <AffiliateAutoDisclosure count={linked.count} language={language} />
           </div>
 
           {posts.length === 0 ? (

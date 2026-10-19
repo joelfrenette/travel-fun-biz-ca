@@ -11,8 +11,8 @@ import { BookNowButton } from "@/components/book-now-button"
 import { StickyCta } from "@/components/sticky-cta"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { getPackages, getPublishedPackageBySlug, getNextTripForRecap, type DbPackage } from "@/lib/packages"
-import { isPastTrip as isPastTripRow, happenedLabel, hasRecap } from "@/lib/past-trip"
+import { getPackages, getPublishedPackageBySlug, getNextTripForRecap } from "@/lib/packages"
+import { isPastTrip as isPastTripRow, happenedLabel } from "@/lib/past-trip"
 import { TripAlertForm } from "@/components/trip-alert-form"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
@@ -27,22 +27,15 @@ import { listGuidesForPackage, guideKinds, guidePath } from "@/lib/guides"
 import { TripGallery } from "@/components/trip-gallery"
 import { TripVideo } from "@/components/trip-video"
 import { TripJournal } from "@/components/trip-journal"
-import { LinkifiedText } from "@/components/linkified-text"
+import { AffiliateParts, AffiliateLinkified, AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
+import { tripFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { TripExtras } from "@/components/trip-extras"
 import { loadTripExtras } from "@/lib/trip-extras"
 
 export const revalidate = 300
 
 type Props = { params: { slug: string } }
-
-function splitLines(value: string | null | undefined): string[] {
-  return (value || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
-}
-
-function faqsOf(pkg: DbPackage): { question: string; answer: string }[] {
-  if (!Array.isArray(pkg.ai_faqs)) return []
-  return pkg.ai_faqs.filter((f: any) => f && typeof f.question === "string" && typeof f.answer === "string" && f.question.trim() && f.answer.trim())
-}
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const pkg = await getPublishedPackageBySlug(params.slug)
@@ -70,33 +63,37 @@ export default async function PackagePage({ params }: Props) {
   const { language, currency } = getVisitorPreferences()
   // One rule for "past trip" (lib/past-trip.ts): recap_mode auto / recap / live. A past trip is never unpublished.
   const isPastTrip = isPastTripRow(pkg)
-  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip, tripExtras] = await Promise.all([
+  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip, tripExtras, affiliateRules] = await Promise.all([
     getPackages(),
     getUsdToRate(currency),
     getPublishedTestimonialsForPackage(pkg.id),
     listGuidesForPackage({ id: pkg.id, destination: pkg.destination }),
     isPastTrip ? getNextTripForRecap(pkg) : Promise.resolve(null),
     loadTripExtras(isPastTrip),
+    // Word links (WP23): ON rules whose link is ON. Fails open (no rules, no links, never an error page).
+    loadAffiliateRules(),
   ])
   const happened = isPastTrip ? happenedLabel(pkg.available_from, pkg.available_to) : null
-  const recapText = isPastTrip && hasRecap(pkg) ? (pkg.recap_summary as string).trim() : ""
-  const recapHighlights = isPastTrip && recapText ? (pkg.recap_highlights ?? []).filter((h) => typeof h === "string" && h.trim()) : []
+  // Every linkable text of the page in reading order (lib/affiliate-text-sources.ts): the recap, the journal of a past trip,
+  // the description (the full one, else the short one), highlights, itinerary day text, what is included and not, the FAQ
+  // answers, and the journal of a trip that has not happened. One shared limit: 3 per phrase and 6 per page.
+  const fieldSet = tripFieldSet(pkg)
+  const linked = linkPageFields(fieldSet.fields, affiliateRules, "trips")
+  const recapText = fieldSet.recap.length > 0
+  const recapHighlights = fieldSet.recapHighlights
+  const journalBodies = fieldSet.journal.map((f) => linked.parts(f))
 
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
   const priceDisplay = displayPackagePrice(pkg, currency, usdToTargetRate)
   // Price on request: only when the trip has no price of its own; the number is the site's, never a host's.
   const onRequest = pkg.price_on_request === true && pkg.price_value == null && !(pkg.price_display ?? "").trim()
   const request = priceOnRequestLine()
-  const highlights = pkg.highlights?.length ? pkg.highlights : []
+  const highlights = fieldSet.highlights
   // Itinerary stops stored by the Add details intake: [{day, title, description}]. Anything else is ignored.
-  const itinerary: { day: number | null; title: string; description: string }[] = Array.isArray(pkg.itinerary)
-    ? pkg.itinerary
-        .filter((d: any) => d && typeof d.title === "string" && d.title.trim())
-        .map((d: any) => ({ day: typeof d.day === "number" ? d.day : null, title: d.title.trim(), description: typeof d.description === "string" ? d.description.trim() : "" }))
-    : []
-  const included = splitLines(pkg.price_includes)
-  const notIncluded = splitLines(pkg.not_included)
-  const faqs = faqsOf(pkg)
+  const itinerary = fieldSet.itinerary
+  const included = fieldSet.included
+  const notIncluded = fieldSet.notIncluded
+  const faqs = fieldSet.faqs
   const description = pkg.full_description || pkg.short_description || ""
   // Structured data gets the description without the site-link markdown the heal may add ("[text](/path)" -> "text").
   const plainDescription = description.replace(/\[([^\]\n]+)\]\(\/[^)\s]*\)/g, "$1")
@@ -255,7 +252,7 @@ export default async function PackagePage({ params }: Props) {
                   <div>
                     <h2 className="mb-3 text-2xl font-bold">{translate(language, "How the trip went")}</h2>
                     <div className="space-y-4 text-pretty leading-relaxed text-muted-foreground">
-                      {recapText.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
+                      {fieldSet.recap.map((f) => <p key={f.id}><AffiliateParts parts={linked.parts(f)} /></p>)}
                     </div>
                   </div>
                 )}
@@ -263,7 +260,7 @@ export default async function PackagePage({ params }: Props) {
                   <div>
                     <h2 className="mb-3 text-xl font-bold">{translate(language, "Recap highlights")}</h2>
                     <ul className="grid gap-2 sm:grid-cols-2">
-                      {recapHighlights.map((h) => <li key={h} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />{h}</li>)}
+                      {recapHighlights.map((h) => <li key={h.id} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" /><AffiliateParts parts={linked.parts(h)} /></li>)}
                     </ul>
                   </div>
                 )}
@@ -275,12 +272,12 @@ export default async function PackagePage({ params }: Props) {
                 <TripGallery images={pkg.gallery_urls} alt={pkg.name} />
               </div>
             )}
-            {isPastTrip && pkg.journal_entries?.length > 0 && <TripJournal entries={pkg.journal_entries} language={language} />}
+            {isPastTrip && pkg.journal_entries?.length > 0 && <TripJournal entries={pkg.journal_entries} language={language} bodies={journalBodies} />}
             {description && (
               <div>
                 <h2 className="mb-3 text-2xl font-bold">{translate(language, "About this trip")}</h2>
                 <div className="space-y-4 text-pretty leading-relaxed text-muted-foreground">
-                  {description.split(/\n{2,}/).map((para, i) => <p key={i}><LinkifiedText text={para} /></p>)}
+                  {fieldSet.description.map((f) => <p key={f.id}><AffiliateLinkified parts={linked.linkified(f)} /></p>)}
                 </div>
               </div>
             )}
@@ -288,7 +285,7 @@ export default async function PackagePage({ params }: Props) {
               <div>
                 <h2 className="mb-3 text-2xl font-bold">{translate(language, "Highlights")}</h2>
                 <ul className="grid gap-2 sm:grid-cols-2">
-                  {highlights.map((h) => <li key={h} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />{h}</li>)}
+                  {highlights.map((h) => <li key={h.id} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" /><AffiliateParts parts={linked.parts(h)} /></li>)}
                 </ul>
               </div>
             )}
@@ -299,7 +296,7 @@ export default async function PackagePage({ params }: Props) {
                   {itinerary.map((d, i) => (
                     <li key={i} className="rounded-lg border p-4">
                       <p className="font-semibold">{d.day != null ? `${translate(language, "Day")} ${d.day}: ` : ""}{d.title}</p>
-                      {d.description && <p className="mt-1 text-muted-foreground">{d.description}</p>}
+                      {d.field && <p className="mt-1 text-muted-foreground"><AffiliateParts parts={linked.parts(d.field)} /></p>}
                     </li>
                   ))}
                 </ol>
@@ -310,13 +307,13 @@ export default async function PackagePage({ params }: Props) {
                 {included.length > 0 && (
                   <div>
                     <h2 className="mb-3 text-xl font-bold">{translate(language, "What's included")}</h2>
-                    <ul className="space-y-1.5 text-muted-foreground">{included.map((i) => <li key={i}>✓ {i}</li>)}</ul>
+                    <ul className="space-y-1.5 text-muted-foreground">{included.map((f) => <li key={f.id}>✓ <AffiliateParts parts={linked.parts(f)} /></li>)}</ul>
                   </div>
                 )}
                 {notIncluded.length > 0 && (
                   <div>
                     <h2 className="mb-3 text-xl font-bold">{translate(language, "Not included")}</h2>
-                    <ul className="space-y-1.5 text-muted-foreground">{notIncluded.map((i) => <li key={i}>– {i}</li>)}</ul>
+                    <ul className="space-y-1.5 text-muted-foreground">{notIncluded.map((f) => <li key={f.id}>– <AffiliateParts parts={linked.parts(f)} /></li>)}</ul>
                   </div>
                 )}
               </div>
@@ -328,12 +325,13 @@ export default async function PackagePage({ params }: Props) {
                   {faqs.map((f) => (
                     <details key={f.question} className="group p-4">
                       <summary className="cursor-pointer list-none font-medium">{f.question}</summary>
-                      <p className="mt-2 text-muted-foreground">{f.answer}</p>
+                      <p className="mt-2 text-muted-foreground"><AffiliateParts parts={linked.parts(f.field)} /></p>
                     </details>
                   ))}
                 </div>
               </div>
             )}
+            <AffiliateAutoDisclosure count={linked.count} language={language} />
           </div>
 
           <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
@@ -387,7 +385,7 @@ export default async function PackagePage({ params }: Props) {
 
         {!isPastTrip && pkg.journal_entries?.length > 0 && (
           <section className="container mx-auto px-4 pb-12">
-            <TripJournal entries={pkg.journal_entries} language={language} />
+            <TripJournal entries={pkg.journal_entries} language={language} bodies={journalBodies} />
           </section>
         )}
 

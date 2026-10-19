@@ -1,7 +1,8 @@
 import Link from "next/link"
-import { renderMarkdown } from "@/lib/markdown"
+import { articleHtml } from "@/lib/markdown"
 import { linkPage, type AffiliateRule, type PageContext, type Part } from "@/lib/affiliate-linker"
 import { AffiliateParts } from "@/components/affiliate-text"
+import { guideFieldSet, linkPageFields, type FactsMode, type GuideFieldSet, type GuideLike, type LinkedFields } from "@/lib/affiliate-text-sources"
 
 // The presentational pieces of a guide (key takeaways, article body, FAQ). No data fetching and no server-only
 // imports, so the public pages (components/guide-page.tsx, the destination page) and the admin draft preview
@@ -14,25 +15,53 @@ export interface GuideParts {
   key_takeaways: string[]
 }
 
-/** Markdown to HTML, with links to pages of this site opening in the same tab (the markdown renderer opens every link in a new tab). */
-export function articleHtml(markdown: string): string {
-  return renderMarkdown(markdown).replace(/<a href="(\/[^"]*)" target="_blank" rel="noopener noreferrer">/g, '<a href="$1">')
-}
+export { articleHtml }
 
 /** The guide's article and FAQ answers with the word linker applied (WP22), plus how many automatic links were added.
- * Nothing stored is changed. With no rules the HTML is the same as articleHtml() and every answer is plain text. */
+ * Nothing stored is changed. With no rules the HTML is the same as articleHtml() and every answer is plain text.
+ * (The whole page, summary and facts and takeaways included, is linkedGuidePage below.) */
 export function linkedGuideContent(guide: Pick<GuideParts, "body" | "faq">, rules: AffiliateRule[] | null | undefined, context: PageContext): { bodyHtml: string; answers: Part[][]; count: number } {
   const linked = linkPage({ bodyHtml: articleHtml(guide.body), faqAnswers: guide.faq.map((f) => f.a) }, rules, context)
   return { bodyHtml: linked.bodyHtml, answers: linked.faq, count: linked.count }
 }
 
-export function GuideTakeaways({ guide }: { guide: GuideParts }) {
+/** Every linkable text of a guide or destination page (WP23: the summary under the title, the quick facts, the key
+ * takeaways, the article and the FAQ answers), linked in reading order with ONE shared state: 3 per phrase and 6 per page
+ * across all of them. `factsMode` says where the quick facts are shown (see lib/affiliate-text-sources.ts). */
+export interface LinkedGuide {
+  set: GuideFieldSet
+  linked: LinkedFields
+  summary: Part[]
+  facts: Part[][]
+  takeaways: Part[][]
+  bodyHtml: string
+  answers: Part[][]
+  count: number
+}
+
+export function linkedGuidePage(guide: GuideLike, rules: AffiliateRule[] | null | undefined, context: PageContext, factsMode: FactsMode = "left"): LinkedGuide {
+  const set = guideFieldSet(guide, context === "destinations" ? "destination" : "guide", factsMode)
+  const linked = linkPageFields(set.fields, rules, context)
+  return {
+    set,
+    linked,
+    summary: linked.parts(set.summary),
+    facts: set.facts.map((f) => linked.parts(f)),
+    takeaways: set.takeaways.map((f) => linked.parts(f)),
+    bodyHtml: linked.html(set.body),
+    answers: set.faq.map((f) => linked.parts(f)),
+    count: linked.count,
+  }
+}
+
+/** `parts` are the takeaways already processed by linkedGuidePage() (one entry per takeaway). */
+export function GuideTakeaways({ guide, parts }: { guide: GuideParts; parts?: Part[][] }) {
   if (guide.key_takeaways.length === 0) return null
   return (
     <aside id="key-takeaways" className="rounded-xl border bg-muted/30 p-5" aria-label="Key takeaways">
       <h2 className="mb-2 text-base font-bold uppercase text-foreground">Key takeaways</h2>
       <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
-        {guide.key_takeaways.map((t) => <li key={t}>{t}</li>)}
+        {guide.key_takeaways.map((t, i) => <li key={t}>{parts?.[i] ? <AffiliateParts parts={parts[i]} /> : t}</li>)}
       </ul>
     </aside>
   )

@@ -16,6 +16,9 @@ import { getUsdToRate } from "@/lib/fx"
 import { officeInfo, socialPromos } from "@/content/footer"
 import { SITE_NAME, absoluteUrl, site } from "@/lib/site"
 import { jsonLdHtml } from "@/lib/jsonld"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
+import { homeFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
+import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 
 const organizationJsonLd = {
   "@context": "https://schema.org",
@@ -38,15 +41,19 @@ const organizationJsonLd = {
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
   const { language, currency } = preferences
-  const [packages, usdToTargetRate, testimonials, topDestinations] = await Promise.all([getPackages(), getUsdToRate(currency), getPublishedTestimonials(), listTopDestinationGuides(6)])
+  const [packages, usdToTargetRate, testimonials, topDestinations, affiliateRules] = await Promise.all([getPackages(), getUsdToRate(currency), getPublishedTestimonials(), listTopDestinationGuides(6), loadAffiliateRules()])
   const packageNames = packages.map((pkg) => pkg.name)
+  // Word links (WP23): the home page's own sentences (hero, why choose us, the four benefits, the line above the contact
+  // form), in reading order, one shared limit. Fails open (no rules, no links).
+  const copy = homeFieldSet(language)
+  const linked = linkPageFields(copy.fields, affiliateRules, "pages")
 
   return (
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(organizationJsonLd) }} />
-        <HeroSection language={language} />
+        <HeroSection language={language} descriptionParts={linked.parts(copy.hero)} />
         <PackagesSection
           packages={packages}
           language={language}
@@ -54,7 +61,7 @@ export default async function HomePage() {
           usdToTargetRate={usdToTargetRate}
         />
         <TopDestinations items={topDestinations} />
-        <FeaturesSection language={language} />
+        <FeaturesSection language={language} introParts={linked.parts(copy.featuresIntro)} featureParts={copy.features.map((f) => linked.parts(f))} />
 
         <TestimonialsSection language={language} testimonials={testimonials} />
 
@@ -65,15 +72,13 @@ export default async function HomePage() {
                 {translate(language, 'Get Your Free Travel Concierge')}
               </h2>
               <p className="mx-auto mt-4 max-w-2xl text-pretty text-muted-foreground">
-                {translate(
-                  language,
-                  'Ready to explore the world? Fill out the form below and let us help you plan your dream vacation.',
-                )}
+                <AffiliateParts parts={linked.parts(copy.contact)} />
               </p>
             </div>
             <Suspense fallback={null}>
               <ContactForm packageOptions={packageNames} language={language} />
             </Suspense>
+            <AffiliateAutoDisclosure count={linked.count} language={language} wrapperClassName="mx-auto mt-6 max-w-2xl text-center" />
           </div>
         </section>
       </main>

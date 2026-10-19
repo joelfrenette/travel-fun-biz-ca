@@ -15,6 +15,9 @@ import { bestTimePath } from "@/lib/page-copy"
 import { getUsablePageCopy } from "@/lib/page-copy-render"
 import { GuideCta } from "@/components/guide-cta"
 import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
+import { AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
+import { pageCopyFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 
 export const revalidate = 300
 
@@ -62,6 +65,10 @@ export default async function BestTimeToVisitPage({ params }: Props) {
   )
   // Written copy, when a published row exists. Adds FAQPage and BreadcrumbList next to the CollectionPage above.
   const copy = await getUsablePageCopy(bestTimePath(params.destination), page.packages.map((p) => p.slug), true)
+  // Word links (WP23): the copy's intro, takeaways and FAQ answers, in reading order, one shared limit. Fails open (no rules).
+  const affiliateRules = await loadAffiliateRules()
+  const copySet = pageCopyFieldSet(copy, "best-time")
+  const linked = linkPageFields(copySet.fields, affiliateRules, "pages")
   const structuredData: object[] = [...jsonLd]
   if (copy) {
     structuredData.push(buildBreadcrumbJsonLd([
@@ -91,8 +98,8 @@ export default async function BestTimeToVisitPage({ params }: Props) {
         <div className="container mx-auto space-y-6 px-4 py-10">
           {copy && (
             <div className="space-y-6">
-              <PageCopyIntro copy={copy} />
-              <PageCopyTakeaways copy={copy} />
+              <PageCopyIntro copy={copy} html={copySet.intro ? linked.html(copySet.intro) : undefined} />
+              <PageCopyTakeaways copy={copy} parts={copySet.takeaways.map((f) => linked.parts(f))} />
             </div>
           )}
           <section>
@@ -137,7 +144,8 @@ export default async function BestTimeToVisitPage({ params }: Props) {
             </p>
           </section>
 
-          {copy && copy.faq.length > 0 && <PageCopyFaq copy={copy} />}
+          {copy && copy.faq.length > 0 && <PageCopyFaq copy={copy} answers={copySet.faq.map((f) => linked.parts(f))} />}
+          <AffiliateAutoDisclosure count={linked.count} language={language} />
           <GuideCta name={page.destination} packageName={page.packages[0]?.name} />
         </div>
       </main>

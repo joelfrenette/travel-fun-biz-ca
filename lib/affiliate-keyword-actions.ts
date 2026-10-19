@@ -49,7 +49,7 @@ async function runFinder(admin: SupabaseClient, v: { phrase: string; scope: stri
   try {
     const site = await loadUsageDocs(admin)
     if (site.error || !isLinkScope(v.scope)) return null
-    return previewRule(site.docs, { phrase: v.phrase, scope: v.scope, max_per_page: v.max_per_page }, { totalDocs: site.totalDocs })
+    return previewRule(site.docs, { phrase: v.phrase, scope: v.scope, max_per_page: v.max_per_page }, { totalDocs: site.totalDocs, notes: site.notes, dropped: site.dropped })
   } catch {
     return null
   }
@@ -79,7 +79,9 @@ export async function createKeyword(admin: SupabaseClient, body: Record<string, 
     return fail(500, error.message)
   }
   const refreshed = await refreshAfterChange(admin, deps)
-  return { status: 201, body: { keyword: data, refreshed, warnings: found?.warnings ?? [], pageCount: found?.pageCount ?? null } }
+  // A phrase no page uses yet is still saved (it links wherever it appears from now on); the answer says so plainly.
+  const warnings = found ? [...found.warnings, ...(found.emptyNotice ? [found.emptyNotice] : [])] : []
+  return { status: 201, body: { keyword: data, refreshed, warnings, pageCount: found?.pageCount ?? null } }
 }
 
 export async function updateKeyword(admin: SupabaseClient, id: string, body: Record<string, unknown> | null, deps?: RefreshDeps): Promise<ActionResult> {
@@ -140,7 +142,7 @@ export async function previewKeyword(admin: SupabaseClient, body: Record<string,
 
   const site = await loadUsageDocs(admin)
   if (site.error) return fail(500, site.error)
-  const result = previewRule(site.docs, { phrase, scope, max_per_page: max }, { totalDocs: site.totalDocs })
+  const result = previewRule(site.docs, { phrase, scope, max_per_page: max }, { totalDocs: site.totalDocs, notes: site.notes, dropped: site.dropped })
   const warnings = [...result.warnings]
   const rows = await allRows(admin)
   if (!('error' in rows)) {

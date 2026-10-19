@@ -10,8 +10,10 @@ import { goPath, isValidSlug } from '@/lib/affiliate-go'
 
 export type LinkScope = 'all' | 'guides' | 'blog' | 'destinations'
 export const LINK_SCOPES: readonly LinkScope[] = ['all', 'guides', 'blog', 'destinations']
-/** What kind of page is being rendered. */
-export type PageContext = 'guides' | 'destinations' | 'blog'
+/** What kind of page is being rendered. 'trips' is a trip (package) page; 'pages' is every other public page (best-time and
+ * compare copy, home, who we are, the index pages). Only a rule whose scope is "all" applies on 'trips' and 'pages'. */
+export type PageContext = 'guides' | 'destinations' | 'blog' | 'trips' | 'pages'
+export const PAGE_CONTEXTS: readonly PageContext[] = ['guides', 'destinations', 'blog', 'trips', 'pages']
 
 export const MIN_PHRASE_LENGTH = 2
 export const MAX_PHRASE_LENGTH = 80
@@ -38,7 +40,8 @@ export interface AffiliateRule {
 
 export const isLinkScope = (v: unknown): v is LinkScope => typeof v === 'string' && (LINK_SCOPES as readonly string[]).includes(v)
 
-/** Does a rule with this scope apply on this kind of page? "guides" covers guide pages and destination pages. */
+/** Does a rule with this scope apply on this kind of page? "guides" covers guide pages and destination pages. Trip pages
+ * and the other public pages ('trips', 'pages') take only rules with scope "all". */
 export function scopeMatches(scope: LinkScope, ctx: PageContext): boolean {
   if (scope === 'all') return true
   if (scope === 'blog') return ctx === 'blog'
@@ -57,8 +60,11 @@ export function cleanPhrase(raw: unknown): string | null {
   if (t.length < MIN_PHRASE_LENGTH || t.length > MAX_PHRASE_LENGTH) return null
   if (/[<>]/.test(t) || CONTROL.test(t)) return null
   if (tooManyWords(t) || mostlyRepeated(t)) return null
+  if (!hasWord(t)) return null
   return t
 }
+/** A phrase made only of spaces, hyphens and apostrophes has no word to find. */
+const hasWord = (t: string): boolean => t.split(WORD_SPLIT).some((w) => w.split(APOSTROPHES).some(Boolean))
 
 /** A phrase of more than 8 words is not a phrase a writer repeats; it only slows matching down. */
 export const MAX_PHRASE_WORDS = 8
@@ -79,14 +85,70 @@ export function phraseProblem(raw: unknown): string | null {
   if (CONTROL.test(t)) return 'The phrase cannot contain line breaks or control characters.'
   if (tooManyWords(t)) return `The phrase has too many words (${MAX_PHRASE_WORDS} at most).`
   if (mostlyRepeated(t)) return 'The phrase repeats the same words too much. Use a normal phrase.'
+  if (!hasWord(t)) return 'The phrase needs at least one word.'
   return null
 }
 
-export const phraseKey = (phrase: string): string => phrase.replace(/\s+/g, ' ').trim().toLowerCase()
+// How a phrase is matched (the same on the pages and in the admin Preview, because both use this file):
+//  - upper and lower case do not matter;
+//  - whole words only (a letter, digit or underscore may not touch either end of the match);
+//  - between two words of the phrase, any run of spaces, line breaks, non-breaking spaces, hyphens, en dashes and
+//    apostrophes matches, so "croatia tours" also finds "Croatia-tours", "Croatia  tours" and "Croatia&nbsp;tours";
+//  - an apostrophe INSIDE a word of the phrase is optional ("children's tours" finds "childrens tours" too);
+//  - the LAST word may carry a plural ending: the phrase as typed, plus an optional "s" or "es" ("croatia tour" also finds
+//    "Croatia tours"). Not for a phrase of 3 characters or fewer ("us" never finds "uses"). Nothing else is guessed: no other word forms, no synonyms.
+const SEPARATORS = "\\s\\u00a0\\u2010-\\u2013\\-'\\u2018\\u2019\\u02bc\\u00b4`"
+const SEPARATOR_RUN = `[${SEPARATORS}]+`
+// The words of a phrase are split at spaces, hyphens and dashes. An apostrophe stays INSIDE its word (and is optional there).
+const WORD_SPLIT = new RegExp('[\\s\\u00a0\\u2010-\\u2013\\-]+', 'u')
+const APOSTROPHES = new RegExp("['\\u2018\\u2019\\u02bc\\u00b4`]", 'u')
+const INNER_APOSTROPHE = `(?:['\\u2018\\u2019\\u02bc\\u00b4\`]|[\\s\\u00a0\\u2010-\\u2013\\-])?`
+const KEY_STRIP = new RegExp(`[${SEPARATORS}]+`, 'gu')
+
+/** The comparison key of a phrase or of the text found on a page: lower case with every separator and apostrophe removed.
+ * "Croatia tours", "croatia-tours" and "Croatia (no-break space) tours" all have the key "croatiatours". */
+export const phraseKey = (phrase: string): string => phrase.toLowerCase().replace(KEY_STRIP, '')
 
 const BEFORE = '(?<![\\p{L}\\p{N}_])'
 const AFTER = '(?![\\p{L}\\p{N}_])'
 const escapeRegex =(s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+
+/** The plural "s" or "es" rule is switched off for a phrase of 3 characters or fewer ("us" must not find "uses", "bus" finds
+ * only "bus"): such short words change meaning when an ending is added. */
+export const PLURAL_MIN_LENGTH = 4
+
+/** The regex source for one phrase (see the matching rules above). */
+function phraseSource(phrase: string): string {
+  const words = phrase.split(WORD_SPLIT).map((w) => w.split(APOSTROPHES).filter(Boolean)).filter((pieces) => pieces.length > 0)
+  return words
+    .map((pieces, i) => {
+      const body = pieces.map(escapeRegex).join(INNER_APOSTROPHE)
+      return i === words.length - 1 && phrase.length >= PLURAL_MIN_LENGTH ? `${body}(?:e?s)?` : body
+    })
+    .join(SEPARATOR_RUN)
+}
+
+/** Which rule a piece of matched text belongs to: its own key, else the key without a plural "s" or "es". */
+function ruleOfMatch(byKey: Map<string, CompiledRule>, matched: string): CompiledRule | undefined {
+  const k = phraseKey(matched)
+  return byKey.get(k) ?? (k.endsWith('s') ? byKey.get(k.slice(0, -1)) : undefined) ?? (k.endsWith('es') ? byKey.get(k.slice(0, -2)) : undefined)
+}
+
+const ENTITY_CHARS: Record<string, string> = {
+  nbsp: String.fromCharCode(0xa0), ndash: String.fromCharCode(0x2013), hyphen: String.fromCharCode(0x2010), apos: "'", rsquo: String.fromCharCode(0x2019), lsquo: String.fromCharCode(0x2018),
+}
+/** Turns the few entities that only mean "a space, a dash or an apostrophe" into their characters, so a phrase can match
+ * across them. Every other entity (&amp;, &lt; ...) is left alone. */
+export function normalizeSeparatorEntities(text: string): string {
+  if (!text.includes('&')) return text
+  return text.replace(/&(?:(nbsp|ndash|hyphen|apos|rsquo|lsquo)|#(\d{1,5})|#[xX]([0-9a-fA-F]{1,4}));/g, (whole, name?: string, dec?: string, hex?: string) => {
+    if (name) return ENTITY_CHARS[name]
+    const code = dec !== undefined ? Number(dec) : parseInt(hex as string, 16)
+    return code === 160 || code === 39 || code === 45 || (code >= 0x2010 && code <= 0x2013) || code === 0x2018 || code === 0x2019 || code === 0x2bc || code === 0xb4
+      ? String.fromCharCode(code)
+      : whole
+  })
+}
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
 export interface CompiledRule {
@@ -127,7 +189,7 @@ export function compileRules(rules: AffiliateRule[] | null | undefined, ctx: Pag
     const key = phraseKey(phrase)
     if (byKey.has(key)) continue
     const max = Math.min(MAX_PER_PHRASE, Math.max(1, Math.trunc(Number(rule.max_per_page)) || 1))
-    byKey.set(key, { rule: { ...rule, phrase }, key, max, source: phrase.split(' ').map(escapeRegex).join('\\s+') })
+    byKey.set(key, { rule: { ...rule, phrase }, key, max, source: phraseSource(phrase) })
   }
   let out: CompiledRules = EMPTY_COMPILED
   if (byKey.size > 0) {
@@ -235,7 +297,7 @@ function linkChunk(text: string, c: CompiledRules, state: LinkerState, cap: numb
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     if (state.total >= cap) break
-    let hit = c.byKey.get(phraseKey(m[0]))
+    let hit = ruleOfMatch(c.byKey, m[0])
     let matched = m[0]
     if (!hit) continue
     if ((state.perKey.get(hit.key) ?? 0) >= hit.max) {
@@ -438,12 +500,15 @@ function partsToHtml(parts: Part[], raw: boolean): string {
 function linkHtml(html: string, c: CompiledRules, state: LinkerState, capN: number): string {
   return mapHtmlText(html, (text, zone) => {
     if (zone !== null || state.total >= capN || !/[\p{L}\p{N}]/u.test(text)) return null
-    return mapPlainPieces(text, (plain) => {
+    const before = state.total
+    const out = mapPlainPieces(normalizeSeparatorEntities(text), (plain) => {
       const parts: Part[] = []
       linkPlain(plain, c, state, capN, parts)
       // The text of an HTML text node is already escaped markup, so it goes back out as it came in.
       return partsToHtml(parts, true)
     })
+    // A text node with no link in it is left exactly as written (&nbsp; stays &nbsp;).
+    return state.total === before ? null : out
   })
 }
 
@@ -471,11 +536,11 @@ export function findMatches(html: string, rules: AffiliateRule[] | CompiledRules
     if (!re || typeof html !== 'string' || html.length > MAX_INPUT_LENGTH) return found
     mapHtmlText(html, (text, zone) => {
       if (found.length >= limit || !/[\p{L}\p{N}]/u.test(text)) return null
-      mapPlainPieces(text, (plain) => {
+      mapPlainPieces(normalizeSeparatorEntities(text), (plain) => {
         re.lastIndex = 0
         let m: RegExpExecArray | null
         while ((m = re.exec(plain)) !== null && found.length < limit) {
-          const hit = c.byKey.get(phraseKey(m[0]))
+          const hit = ruleOfMatch(c.byKey, m[0])
           if (!hit) continue
           found.push({
             key: hit.key,

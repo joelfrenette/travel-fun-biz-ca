@@ -6,14 +6,19 @@ import { ArrowRight } from "lucide-react"
 import { useState, useEffect } from "react"
 import Image from "next/image"
 import { heroSlides } from "@/content/hero"
+import { HERO_DESCRIPTION } from "@/content/home-copy"
+import { AffiliateParts, partsHaveLink } from "@/components/affiliate-text"
+import type { Part } from "@/lib/affiliate-linker"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 
 interface HeroSectionProps {
   language: Language
+  /** The sentence under the big title, already processed by the word linker (WP23). Plain text when absent. */
+  descriptionParts?: Part[]
 }
 
-export function HeroSection({ language }: HeroSectionProps) {
+export function HeroSection({ language, descriptionParts }: HeroSectionProps) {
   const [currentSlide, setCurrentSlide] = useState(0)
 
   useEffect(() => {
@@ -24,10 +29,7 @@ export function HeroSection({ language }: HeroSectionProps) {
   }, [])
 
   const headline = translate(language, heroSlides[currentSlide].title)
-  const description = translate(
-    language,
-    'Specializing in luxury travel, group adventures, and singles vacations. From tropical paradises to cultural expeditions, your perfect journey awaits.',
-  )
+  const description = translate(language, HERO_DESCRIPTION)
 
   return (
     <section className="relative overflow-hidden bg-background py-20 md:py-32">
@@ -56,7 +58,7 @@ export function HeroSection({ language }: HeroSectionProps) {
           <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
             {headline}
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-gray-200 md:text-xl">{description}</p>
+          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-gray-200 md:text-xl">{descriptionParts && partsHaveLink(descriptionParts) ? <span className="[&_a]:text-white [&_a]:underline"><AffiliateParts parts={descriptionParts} /></span> : description}</p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Button asChild size="lg" className="w-full bg-primary text-white hover:bg-primary/90 sm:w-auto">
               <Link href="/#packages">

@@ -7,6 +7,8 @@ import type { HeaderFeature, HeaderPastTrip } from "@/lib/guide-header"
 import type { TravelPackage } from "@/types/travel"
 import type { Language } from "@/lib/preferences"
 import type { Currency } from "@/lib/currency"
+import type { Part } from "@/lib/affiliate-linker"
+import { AffiliateParts } from "@/components/affiliate-text"
 
 // The right-hand card of a guide page header (see lib/guide-header.ts for the rule). A server component: no
 // event handlers here. The upcoming case reuses PackageCard as it is, so price, price-on-request line and the
@@ -17,11 +19,14 @@ export function GuideHeaderFeature({
   language,
   currency,
   usdToTargetRate,
+  factParts,
 }: {
   feature: HeaderFeature<TravelPackage, HeaderPastTrip>
   language: Language
   currency: Currency
   usdToTargetRate: number
+  /** The quick facts already processed by the word linker (one entry per fact, same order). Plain text when absent. */
+  factParts?: Part[][]
 }) {
   if (feature.kind === "none") return null
 
@@ -77,8 +82,8 @@ export function GuideHeaderFeature({
           <aside aria-label="Quick facts" className="p-4">
             <h2 className="text-sm font-bold uppercase text-foreground">Quick facts</h2>
             <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-foreground">
-              {feature.facts.map((f) => (
-                <li key={f}>{f}</li>
+              {feature.facts.map((f, i) => (
+                <li key={f}>{factParts?.[i] ? <AffiliateParts parts={factParts[i]} /> : f}</li>
               ))}
             </ul>
           </aside>

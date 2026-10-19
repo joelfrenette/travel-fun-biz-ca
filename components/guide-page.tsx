@@ -22,8 +22,8 @@ import { getDestinationSlugs } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
-import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection, linkedGuideContent } from "@/components/guide-parts"
-import { AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection, linkedGuidePage } from "@/components/guide-parts"
+import { AffiliateAutoDisclosure, AffiliateParts } from "@/components/affiliate-text"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
@@ -165,7 +165,6 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
     // Word links (WP22): ON rules whose link is ON, read once with the rest of the page data. Fails open (no rules).
     loadAffiliateRules(),
   ])
-  const linked = linkedGuideContent(guide, affiliateRules, kind === "destinations" ? "destinations" : "guides")
   // Upcoming versus past by the one shared rule (lib/past-trip.ts). The header card shows the nearest upcoming trip
   // (else the latest past one, else the photo and quick facts); the trips section lists only the REST, so a single
   // trip is never shown twice, and a past trip is never offered as bookable.
@@ -176,6 +175,10 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
     upcomingRows.map((r) => ({ item: dbPackageToTravelPackage(r), from: r.available_from ?? null })),
     pastRows,
   )
+  // Word links (WP23): every linkable text of the page, in reading order, sharing one limit (3 per phrase, 6 per page): the
+  // summary, the quick facts (under the title, or in the photo card when there is no trip card), the key takeaways, the
+  // article and the FAQ answers. Nothing stored is changed.
+  const linked = linkedGuidePage(guide, affiliateRules, kind === "destinations" ? "destinations" : "guides", feature.kind === "facts" ? "right" : "left")
   const packages: TravelPackage[] = feature.kind === "upcoming" ? [feature.trip, ...feature.rest] : []
   const heroInHeader = feature.kind === "facts" && !!feature.image
   const otherPast = pastRows.filter((r) => !!r.slug && !(feature.kind === "past" && feature.trip.id === r.id))
@@ -224,10 +227,10 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
             {formatDate(guide.updated_at) && (
               <p className="mt-2 text-sm text-muted-foreground"><time dateTime={guide.updated_at}>Updated {formatDate(guide.updated_at)}</time></p>
             )}
-            <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground">{guide.summary}</p>
-            <GuideHeaderActions name={guide.name} packageName={packages[0]?.name} guide={guide} feature={feature} language={language} />
+            <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground"><AffiliateParts parts={linked.summary} /></p>
+            <GuideHeaderActions name={guide.name} packageName={packages[0]?.name} guide={guide} feature={feature} language={language} factParts={linked.facts} />
             </div>
-            <GuideHeaderFeature feature={feature} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
+            <GuideHeaderFeature feature={feature} language={language} currency={currency} usdToTargetRate={usdToTargetRate} factParts={linked.facts} />
           </div>
         </div>
 
@@ -246,7 +249,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
             </figure>
           )}
 
-          <GuideTakeaways guide={guide} />
+          <GuideTakeaways guide={guide} parts={linked.takeaways} />
           <GuideFacts input={factsInput} />
           <GuideArticle guide={guide} html={linked.bodyHtml} />
           <GuideFaqList guide={guide} answers={linked.answers} />

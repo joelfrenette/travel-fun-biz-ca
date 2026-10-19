@@ -16,6 +16,9 @@ import { comparePath } from "@/lib/page-copy"
 import { getUsablePageCopy } from "@/lib/page-copy-render"
 import { GuideCta } from "@/components/guide-cta"
 import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
+import { AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
+import { pageCopyFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 
 export const revalidate = 300
 
@@ -63,6 +66,10 @@ export default async function ComparePage({ params }: Props) {
   )
   // Written copy, when a published row exists. Adds FAQPage and BreadcrumbList next to the CollectionPage above.
   const copy = await getUsablePageCopy(comparePath(params.pair), [...page.a.packages, ...page.b.packages].map((p) => p.slug), true)
+  // Word links (WP23): the copy's intro, takeaways and FAQ answers, in reading order, one shared limit. Fails open (no rules).
+  const affiliateRules = await loadAffiliateRules()
+  const copySet = pageCopyFieldSet(copy, "compare")
+  const linked = linkPageFields(copySet.fields, affiliateRules, "pages")
   const structuredData: object[] = [...jsonLd]
   if (copy) {
     structuredData.push(buildBreadcrumbJsonLd([
@@ -92,8 +99,8 @@ export default async function ComparePage({ params }: Props) {
 
         {copy && (
           <div className="container mx-auto space-y-6 px-4 pt-10">
-            <PageCopyIntro copy={copy} />
-            <PageCopyTakeaways copy={copy} />
+            <PageCopyIntro copy={copy} html={copySet.intro ? linked.html(copySet.intro) : undefined} />
+            <PageCopyTakeaways copy={copy} parts={copySet.takeaways.map((f) => linked.parts(f))} />
           </div>
         )}
 
@@ -104,9 +111,11 @@ export default async function ComparePage({ params }: Props) {
 
         {copy && copy.faq.length > 0 && (
           <div className="container mx-auto px-4 pb-10">
-            <PageCopyFaq copy={copy} />
+            <PageCopyFaq copy={copy} answers={copySet.faq.map((f) => linked.parts(f))} />
           </div>
         )}
+
+        <AffiliateAutoDisclosure count={linked.count} language={language} wrapperClassName="container mx-auto px-4" />
 
         <div className="container mx-auto px-4 pb-10">
           <GuideCta name={`${page.a.destination} vs ${page.b.destination}`} packageName={page.a.packages[0]?.name ?? page.b.packages[0]?.name} />
