@@ -59,3 +59,9 @@
 - Why it helps: one fewer required field means fewer abandoned enquiries, and a throttled or offline visitor is told what to do (wait or call) instead of leaving.
 - UAT: `pnpm dlx tsx scripts/check-contact-form.ts`. Live: submit the home form with only name and email, it reaches /thank-you with package Custom Package.
 - Migration: none.
+
+## Orders inherit the buyer's first-touch channel by email
+- What changed: `lib/purchase-ledger.ts` has a pure helper `pickLeadAttribution(lead, ghlAttribution)` and a read-only `firstTouchLead` lookup. When GoHighLevel sent no utm, `recordOrder` reads the earliest non-test lead with the buyer's email (service role, select only), copies its utm_source, utm_medium, utm_campaign, utm_content, classifies the channel with `classifyVisit`, and stores attribution_basis 'lead_email_match'. The lead's page_path fills utm_content only when it is empty. GHL utm still wins; no lead, no utm on the lead, or any read error keeps today's result (basis 'none'). The email is never logged.
+- Why it helps: sales that arrive without utm tags were unattributed, so revenue per channel was blank. Now bookings are credited to the channel that first brought the lead, with no manual work.
+- UAT: `pnpm dlx tsx scripts/check-order-attribution.ts`. Live: record a test order for an email that has a lead with utm_source, and see attribution_basis 'lead_email_match' on the orders row.
+- Migration: none.
