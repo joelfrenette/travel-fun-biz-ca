@@ -72,7 +72,7 @@ export default async function HomePage() {
               </p>
             </div>
             <Suspense fallback={null}>
-              <ContactForm packageOptions={packageNames} language={language} />
+              <ContactForm packageOptions={packageNames} language={language} phone={site.phone} />
             </Suspense>
           </div>
         </section>

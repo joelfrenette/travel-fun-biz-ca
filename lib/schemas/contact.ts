@@ -5,7 +5,7 @@ export const contactFormSchema = z.object({
   name: z.string().trim().min(1, 'Full name is required'),
   email: z.string().email('Please enter a valid email address'),
   phone: z.string().optional(),
-  package: z.string().min(1, 'Please select a package'),
+  package: z.string().optional(),
   travelDate: z.string().optional(),
   travelers: z.string().optional(),
   message: z.string().optional(),
@@ -21,4 +21,5 @@ export const contactSubmissionSchema = contactFormSchema.extend({
   attribution: attributionSchema.optional(),
 })
 
-export type ContactSubmission = z.infer<typeof contactSubmissionSchema>
+// package is optional on the form, but the API route fills in 'Custom Package' before anything downstream sees it.
+export type ContactSubmission = Omit<z.infer<typeof contactSubmissionSchema>, 'package'> & { package: string }

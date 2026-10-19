@@ -420,7 +420,7 @@ export default async function PackagePage({ params }: Props) {
               <p className="mx-auto mt-3 max-w-2xl text-pretty text-muted-foreground">{translate(language, "No obligation. We reply within one business day.")}</p>
             </div>
             <Suspense fallback={null}>
-              <ContactForm preselectedPackage={pkg.name} packageOptions={Array.from(new Set([pkg.name, ...allPackages.map((p) => p.name)]))} language={language} />
+              <ContactForm preselectedPackage={pkg.name} packageOptions={Array.from(new Set([pkg.name, ...allPackages.map((p) => p.name)]))} language={language} phone={request.phone} />
             </Suspense>
           </div>
         </section>

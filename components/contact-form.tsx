@@ -16,6 +16,7 @@ import { contactFormSchema, type ContactFormValues } from "@/lib/schemas/contact
 import { samplePackages } from "@/content/packages"
 import { getAttribution } from "@/lib/attribution"
 import { track } from "@/lib/analytics-client"
+import { formErrorMessage, submitPackage } from "@/lib/form-errors"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 
@@ -23,6 +24,8 @@ interface ContactFormProps {
   preselectedPackage?: string
   packageOptions?: string[]
   language: Language
+  /** The site phone (site.phone), shown in the rate-limit and network error messages. */
+  phone?: string | null
 }
 
 const travelerOptions = [
@@ -33,7 +36,7 @@ const travelerOptions = [
   { value: "9+", label: "9+ People" },
 ]
 
-export function ContactForm({ preselectedPackage, packageOptions, language }: ContactFormProps) {
+export function ContactForm({ preselectedPackage, packageOptions, language, phone }: ContactFormProps) {
   const { toast } = useToast()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -82,25 +85,28 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
   }, [baseDefaultValues, reset])
 
   async function onSubmit(values: ContactFormValues) {
+    const packageName = submitPackage(values.package)
+    let failureStatus: number | null = null
     try {
       const response = await fetch("/api/submit-lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
+        body: JSON.stringify({ ...values, package: packageName, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
       })
 
       if (!response.ok) {
+        failureStatus = response.status
         throw new Error("Failed to submit form")
       }
 
-      track("generate_lead", { package_name: values.package, page_path: window.location.pathname, method: "contact_form" })
+      track("generate_lead", { package_name: packageName, page_path: window.location.pathname, method: "contact_form" })
       reset(baseDefaultValues)
       // One URL for every conversion, so GA4 and ad platforms can count it without custom events.
-      router.push(`/thank-you?package=${encodeURIComponent(values.package)}`)
+      router.push(`/thank-you?package=${encodeURIComponent(packageName)}`)
     } catch (error) {
       toast({
         title: translate(language, "Error"),
-        description: translate(language, "Something went wrong. Please try again."),
+        description: formErrorMessage(failureStatus, phone),
         variant: "destructive",
       })
     }
@@ -167,7 +173,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language }: Co
 
             <div className="space-y-2">
               <Label htmlFor="package">
-                {translate(language, 'Interested Package')} <span className="text-destructive">*</span>
+                {translate(language, 'Interested Package')}
               </Label>
               <Controller
                 control={control}

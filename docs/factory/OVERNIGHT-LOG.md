@@ -53,3 +53,9 @@
 - UAT: `pnpm dlx tsx scripts/check-page-copy-index.ts`. Live: view /sitemap.xml and see only compare and best-time URLs that have published copy; view source of one without copy and see robots noindex, follow.
 - Migration: none.
 - FIX guide retry: only heal-rejected drafts (quality_notes starts with 'Rejected by heal:') are retried; a person-rejected or unmarked draft never is. Checks added in scripts/check-guide-retry.ts.
+
+## Shorter contact form: optional package, clear error and throttle messages
+- What changed: `package` is optional in `lib/schemas/contact.ts` and no longer required or starred in `components/contact-form.tsx`. New `lib/form-errors.ts` (`submitPackage`, `formErrorMessage`) reuses the guide form wording. The form sends 'Custom Package' when nothing is chosen, and shows the plain 429 and network messages (with the site phone) instead of "Something went wrong". `app/api/submit-lead/route.ts` also fills 'Custom Package' for direct API callers so downstream code (GoHighLevel, leads) still always gets a package. `ContactForm` takes a `phone` prop (passed from the home and package pages). `ContactSubmission` type keeps `package: string`.
+- Why it helps: one fewer required field means fewer abandoned enquiries, and a throttled or offline visitor is told what to do (wait or call) instead of leaving.
+- UAT: `pnpm dlx tsx scripts/check-contact-form.ts`. Live: submit the home form with only name and email, it reaches /thank-you with package Custom Package.
+- Migration: none.
