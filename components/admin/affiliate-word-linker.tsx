@@ -11,6 +11,7 @@ import { Loader2, Search, Trash2, RefreshCw } from "lucide-react"
 import type { KeywordRow } from "@/lib/affiliate-rules"
 import type { PreviewResult, UsageReport, Snippet } from "@/lib/affiliate-usage"
 import { MAX_PHRASE_LENGTH, MIN_PHRASE_LENGTH } from "@/lib/affiliate-linker"
+import { WHERE_WE_LOOK_TEXT } from "@/lib/affiliate-text-sources"
 
 // WP22 part 2: the "Link a word or phrase" tool. Type a phrase, pick a link, say where, press Preview to see every page that
 // would get the link, then "Save and turn on". Nothing on any page is rewritten: the pages link the phrase when they are
@@ -112,7 +113,8 @@ export function AffiliateWordLinker({
     try {
       const saved = await call("/api/admin/affiliate-keywords", { method: "POST", body: JSON.stringify({ phrase, link_id: linkId, scope, max_per_page: max }) })
       const warned: string[] = Array.isArray(saved.warnings) ? saved.warnings : []
-      toast({ title: "Saved and turned on", description: warned.length ? `The whole site is updated. Note: ${warned[0]}` : "The whole site is updated." })
+      const note = warned.find((w) => /No page uses this phrase yet/.test(w)) ?? warned[0]
+      toast({ title: "Saved and turned on", description: note ? `The whole site is updated. Note: ${note}` : "The whole site is updated." })
       setPhrase("")
       setPreview(null)
       onChanged()
@@ -169,6 +171,9 @@ export function AffiliateWordLinker({
             Type a word or phrase. Every time your pages, guides or blog posts use it, it becomes a link to the affiliate link you pick, opening in a new tab. Your
             written text is never changed. If you turn a link OFF or change its web address, the phrase links change with it, everywhere, right away.
           </p>
+          <p className="mt-2 text-xs text-muted-foreground" data-where-we-look>
+            <span className="font-semibold">Where we look:</span> {WHERE_WE_LOOK_TEXT}. Headings, buttons, prices, menus, forms, photo text and text that is already a link are never changed.
+          </p>
         </div>
 
         {!migrated && (
@@ -188,7 +193,10 @@ export function AffiliateWordLinker({
               maxLength={MAX_PHRASE_LENGTH}
               onChange={(e) => setPhrase(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">{MIN_PHRASE_LENGTH} to {MAX_PHRASE_LENGTH} letters. Capital letters do not matter. Whole words only.</p>
+            <p className="text-xs text-muted-foreground">
+              {MIN_PHRASE_LENGTH} to {MAX_PHRASE_LENGTH} letters. Capital letters do not matter. Whole words only. A hyphen, a different spacing or a plural &quot;s&quot; on the last word
+              (&quot;croatia tour&quot; also finds &quot;Croatia tours&quot;) is found for you.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="wl-link">Link it to</Label>
@@ -203,6 +211,7 @@ export function AffiliateWordLinker({
               <select id="wl-where" className={selectClass} value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}>
                 {WHERE.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
               </select>
+              <p className="text-xs text-muted-foreground">Trip pages, best-time and compare pages, the home page and the other pages only link with &quot;All pages&quot;.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="wl-max">Max per page</Label>
@@ -228,24 +237,39 @@ export function AffiliateWordLinker({
 
         {preview && (
           <div className="space-y-3 rounded-lg border p-3">
-            <p className="text-sm font-medium">
+            <p className="text-sm font-medium" data-preview-summary>
               {preview.pageCount === 0
                 ? "No page uses this phrase yet."
                 : `It would link on ${preview.pageCount} page${preview.pageCount === 1 ? "" : "s"} (${preview.occurrences} time${preview.occurrences === 1 ? "" : "s"} written).`}
-              {preview.truncated ? ` Only the first ${preview.scanned} pages were checked.` : ""}
             </p>
+            <p className="text-xs text-muted-foreground" data-preview-coverage>{preview.coverage}</p>
+            {preview.pageCount === 0 && preview.explanation && (
+              <div className="space-y-1 rounded border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs" data-preview-explanation>
+                <p>{preview.explanation}</p>
+                <p className="font-medium">{preview.emptyNotice}</p>
+                <p>You can still press Save and turn on.</p>
+              </div>
+            )}
             {preview.warnings.length > 0 && (
               <ul className="space-y-1">
                 {preview.warnings.map((w) => <li key={w} className="rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-xs">{w}</li>)}
               </ul>
+            )}
+            {preview.breakdown && preview.breakdown.length > 0 && (
+              <div data-preview-breakdown>
+                <p className="mb-1 text-xs font-semibold">Where it is written</p>
+                <ul className="space-y-0.5 text-xs text-muted-foreground">
+                  {preview.breakdown.map((b) => <li key={b.fieldKey}>{b.page} ({b.field}): {b.matches} match{b.matches === 1 ? "" : "es"} on {b.pages} page{b.pages === 1 ? "" : "s"}</li>)}
+                </ul>
+              </div>
             )}
             {preview.pages.length > 0 && (
               <div className="max-h-96 divide-y overflow-auto rounded border text-sm">
                 {preview.pages.map((p) => (
                   <div key={p.path} className="space-y-0.5 px-3 py-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <code className="truncate text-xs">{p.path}</code>
-                      <span className="text-xs text-muted-foreground">written {p.count}, linked {p.willLink}</span>
+                      <a href={p.path} target="_blank" rel="noopener noreferrer" className="truncate text-xs text-primary underline"><code>{p.path}</code></a>
+                      <span className="text-xs text-muted-foreground">written {p.count}, linked {p.willLink}{p.fields && p.fields.length > 0 ? ` · ${p.pageLabel}: ${p.fields.map((f) => `${f.label} ${f.count}`).join(", ")}` : ""}</span>
                     </div>
                     <Highlighted s={p.snippet} />
                     {p.warnings.map((w) => <p key={w} className="text-xs text-amber-700 dark:text-amber-400">{w}</p>)}
@@ -253,7 +277,7 @@ export function AffiliateWordLinker({
                 ))}
               </div>
             )}
-            {preview.pageCount > preview.shown && <p className="text-xs text-muted-foreground">Showing the first {preview.shown} pages.</p>}
+            {preview.pageCount > preview.shown && <p className="text-xs text-muted-foreground">Showing {preview.shown} example pages of {preview.pageCount}.</p>}
           </div>
         )}
 
@@ -263,7 +287,7 @@ export function AffiliateWordLinker({
               <h3 className="font-semibold">Linked phrases</h3>
               <p className="text-xs text-muted-foreground">
                 {report
-                  ? `Checked ${report.scanned} page${report.scanned === 1 ? "" : "s"} on ${new Date(report.generatedAt).toLocaleString("en-CA")}.${report.truncated ? ` The site has ${report.totalDocs}+ pages; only the first ${report.scanned} are checked.` : ""}`
+                  ? `Checked ${report.scanned} page${report.scanned === 1 ? "" : "s"}${typeof report.places === "number" ? ` in ${report.places} place${report.places === 1 ? "" : "s"}` : ""} on ${new Date(report.generatedAt).toLocaleString("en-CA")}.${report.truncated ? ` The site has ${report.totalDocs} pages; only the first ${report.scanned} are checked.` : ""}`
                   : "The numbers appear after the first scan."}
               </p>
             </div>
@@ -298,13 +322,19 @@ export function AffiliateWordLinker({
                         <Button type="button" variant="ghost" size="sm" onClick={() => remove(k)} aria-label={`Delete "${k.phrase}"`}><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
+                    {u && u.breakdown && u.breakdown.length > 0 && (
+                      <ul className="text-xs text-muted-foreground" data-usage-breakdown>
+                        {u.breakdown.slice(0, 6).map((b) => <li key={b.fieldKey}>{b.page} ({b.field}): {b.matches} match{b.matches === 1 ? "" : "es"}</li>)}
+                        {u.breakdown.length > 6 && <li>and {u.breakdown.length - 6} more place{u.breakdown.length - 6 === 1 ? "" : "s"}</li>}
+                      </ul>
+                    )}
                     {u && u.examples.length > 0 && (
                       <details className="text-xs">
                         <summary className="cursor-pointer text-muted-foreground">Show up to {u.examples.length} page{u.examples.length === 1 ? "" : "s"}</summary>
                         <ul className="mt-1 space-y-1">
                           {u.examples.map((e) => (
                             <li key={e.path}>
-                              <code>{e.path}</code> <Highlighted s={e.snippet} />
+                              <a href={e.path} target="_blank" rel="noopener noreferrer" className="text-primary underline"><code>{e.path}</code></a> <Highlighted s={e.snippet} />
                             </li>
                           ))}
                         </ul>

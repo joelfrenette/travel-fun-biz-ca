@@ -79,7 +79,9 @@ export async function createKeyword(admin: SupabaseClient, body: Record<string, 
     return fail(500, error.message)
   }
   const refreshed = await refreshAfterChange(admin, deps)
-  return { status: 201, body: { keyword: data, refreshed, warnings: found?.warnings ?? [], pageCount: found?.pageCount ?? null } }
+  // A phrase no page uses yet is still saved (it links wherever it appears from now on); the answer says so plainly.
+  const warnings = found ? [...found.warnings, ...(found.emptyNotice ? [found.emptyNotice] : [])] : []
+  return { status: 201, body: { keyword: data, refreshed, warnings, pageCount: found?.pageCount ?? null } }
 }
 
 export async function updateKeyword(admin: SupabaseClient, id: string, body: Record<string, unknown> | null, deps?: RefreshDeps): Promise<ActionResult> {

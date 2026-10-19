@@ -14,7 +14,7 @@ import {
 import { loadAffiliateRules, clearAffiliateRulesCache, rowsToRules, normalizeKeywordInput, isMissingKeywordsTable, KEYWORDS_MIGRATION_MESSAGE, RULES_TTL_MS } from '../lib/affiliate-rules'
 import { AffiliateParts, AffiliateAutoDisclosure } from '../components/affiliate-text'
 import { linkedGuideContent, GuideArticle, GuideFaqList } from '../components/guide-parts'
-import { buildUsageReport, fitReport, previewRule, rescanSite, loadStoredReport, USAGE_SETTING_KEY, MAX_USAGE_DOCS, MAX_REPORT_BYTES, type UsageDoc } from '../lib/affiliate-usage'
+import { buildUsageReport, fitReport, previewRule, rescanSite, loadStoredReport, staticUsageDocs, USAGE_SETTING_KEY, MAX_USAGE_DOCS, MAX_REPORT_BYTES, PREVIEW_SHOWN, type UsageDoc } from '../lib/affiliate-usage'
 import { refreshAfterChange, resetUsageDebounce, flushPendingUsage, usageRefreshPending, USAGE_MIN_GAP_MS } from '../lib/affiliate-refresh'
 import { createKeyword, updateKeyword, deleteKeyword, previewKeyword, listKeywords, phraseConflict } from '../lib/affiliate-keyword-actions'
 import { fakeAdmin, type Db } from './fake-admin'
@@ -304,17 +304,17 @@ async function main() {
   const bigRep = buildUsageReport(hugeDocs, hugeKw)
   const fitted = fitReport(bigRep)
   expect('usage: a big report is shrunk to fit 100 KB, counts kept', JSON.stringify(bigRep).length > 100_000 && JSON.stringify(fitted).length <= 100_000 && fitted.phrases[0].pages === 400)
-  expect('usage: scan caps at 500 documents in the loader constant', MAX_USAGE_DOCS === 500 && MAX_REPORT_BYTES === 100_000)
+  expect('usage: scan caps at 2000 documents in the loader constant (WP23, was 500)', MAX_USAGE_DOCS === 2000 && MAX_REPORT_BYTES === 100_000)
 
   // preview
   const pv = previewRule(docs, { phrase: 'Croatia tours', scope: 'all', max_per_page: 2 })
   expect('preview: lists the pages where it would link, with counts, willLink and a snippet to highlight', pv.pageCount === 2 && pv.pages[0].path === '/destinations/croatia' && pv.pages[0].count === 3 && pv.pages[0].willLink === 2 && pv.pages[0].snippet.match.length > 0)
   expect('preview: warns about a heading and about a phrase already inside another link', pv.pages[0].warnings.some((w) => /heading/.test(w)) && pv.warnings.some((w) => /heading/.test(w)) && pv.warnings.some((w) => /already inside another link/.test(w)))
   expect('preview: scope guides leaves blog pages out; scope blog leaves guides out', previewRule(docs, { phrase: 'Split hotels', scope: 'guides', max_per_page: 1 }).pageCount === 1 && previewRule(docs, { phrase: 'Split hotels', scope: 'blog', max_per_page: 1 }).pageCount === 2)
-  expect('preview: not found anywhere is said plainly', previewRule(docs, { phrase: 'Temptations', scope: 'all', max_per_page: 1 }).warnings.some((w) => /Not found anywhere/.test(w)))
+  expect('preview: not found anywhere is said plainly', previewRule(docs, { phrase: 'Temptations', scope: 'all', max_per_page: 1 }).explanation?.includes('was not found in any of them') === true)
   expect('preview: a very short phrase is flagged', previewRule(docs, { phrase: 'is', scope: 'all', max_per_page: 1 }).warnings.some((w) => /very short/.test(w)))
   const common = previewRule(Array.from({ length: 45 }, (_, i) => doc('blog', `/blog/c${i}`, 'We love the beach here.')), { phrase: 'beach', scope: 'all', max_per_page: 1 })
-  expect('preview: found on more than 40 pages warns "this may look spammy"', common.pageCount === 45 && common.warnings.some((w) => /this may look spammy/.test(w)) && common.shown === 50 - 5)
+  expect('preview: found on more than 40 pages warns "this may look spammy"', common.pageCount === 45 && common.warnings.some((w) => /this may look spammy/.test(w)) && common.shown === PREVIEW_SHOWN)
   expect('preview: 40 pages or fewer does not warn', !previewRule(Array.from({ length: 40 }, (_, i) => doc('blog', `/blog/c${i}`, 'We love the beach here.')), { phrase: 'beach', scope: 'all', max_per_page: 1 }).warnings.some((w) => /spammy/.test(w)))
   expect('preview: a bad phrase gives a warning, not a crash', previewRule(docs, { phrase: '<b>', scope: 'all', max_per_page: 1 }).pageCount === 0)
 
@@ -336,12 +336,12 @@ async function main() {
   }
   const scanned = await rescanSite(fakeAdmin(siteDb), new Date('2026-10-18T00:00:00Z'))
   const storedRaw = (siteDb.tables.app_settings ?? []).find((r) => r.key === USAGE_SETTING_KEY)?.value as string | undefined
-  expect('rescan: reads published guides and live posts only, counts them, and stores a compact report in app_settings', scanned.ok && scanned.report.scanned === 2 && scanned.report.phrases[0].pages === 2 && scanned.report.phrases[0].occurrences === 3 && !!storedRaw && storedRaw.length <= 100_000 && !/\n/.test(storedRaw), JSON.stringify(scanned))
+  expect('rescan: reads published guides and live posts only, counts them, and stores a compact report in app_settings', scanned.ok && scanned.report.scanned === 2 + staticUsageDocs().length && scanned.report.phrases[0].pages === 2 && scanned.report.phrases[0].occurrences === 3 && !!storedRaw && storedRaw.length <= 100_000 && !/\n/.test(storedRaw), JSON.stringify(scanned))
   expect('rescan: the stored report can be read back', (await loadStoredReport(fakeAdmin(siteDb)))?.phrases[0].keywordId === 'k1' && (await loadStoredReport(fakeAdmin({ tables: {} }))) === null)
   const missing = await rescanSite({ from: () => ({ select: () => ({ order: () => ({ limit: () => Promise.resolve({ data: null, error: { message: 'relation "affiliate_keywords" does not exist' } }) }) }) }) } as never)
   expect('rescan before migration 0050 says so and does not throw', !missing.ok && missing.migrationMissing === true)
   const emptyScan = await rescanSite(fakeAdmin({ tables: { affiliate_keywords: [], guides: [], posts: [] } }))
-  expect('rescan with no rules and no content gives an empty report', emptyScan.ok && emptyScan.report.phrases.length === 0 && emptyScan.report.scanned === 0)
+  expect('rescan with no rules and no content gives an empty report (only the fixed pages are counted)', emptyScan.ok && emptyScan.report.phrases.length === 0 && emptyScan.report.scanned === staticUsageDocs().length)
 
   // refresh after every change
   let revalidated = 0
