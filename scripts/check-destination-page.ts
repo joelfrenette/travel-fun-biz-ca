@@ -26,8 +26,8 @@ expect('guide-page.tsx H1 uses the same label shape', guidePage.includes('{guide
 // The header call to action is now the GuideHeaderActions panel (components/guide-header-actions.tsx).
 const iCompact = dest.indexOf('<GuideHeaderActions name={destination} packageName={upcoming[0]?.name}')
 const iTake = dest.indexOf('<GuideTakeaways guide={guide} />')
-const iArticle = dest.indexOf('<GuideArticle guide={guide} />')
-const iFaq = dest.indexOf('<GuideFaqList guide={guide} />')
+const iArticle = dest.indexOf('<GuideArticle guide={guide} html=')
+const iFaq = dest.indexOf('<GuideFaqList guide={guide} answers=')
 const iFullCta = dest.indexOf('<GuideCta name={destination} packageName={upcoming[0]?.name} />')
 const iGrid = dest.indexOf('More upcoming trips to {destination}')
 expect('all anchors found', [iCompact, iTake, iArticle, iFaq, iFullCta, iGrid].every((i) => i > 0))

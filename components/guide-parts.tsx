@@ -1,5 +1,7 @@
 import Link from "next/link"
 import { renderMarkdown } from "@/lib/markdown"
+import { linkPage, type AffiliateRule, type PageContext, type Part } from "@/lib/affiliate-linker"
+import { AffiliateParts } from "@/components/affiliate-text"
 
 // The presentational pieces of a guide (key takeaways, article body, FAQ). No data fetching and no server-only
 // imports, so the public pages (components/guide-page.tsx, the destination page) and the admin draft preview
@@ -13,8 +15,15 @@ export interface GuideParts {
 }
 
 /** Markdown to HTML, with links to pages of this site opening in the same tab (the markdown renderer opens every link in a new tab). */
-function articleHtml(markdown: string): string {
+export function articleHtml(markdown: string): string {
   return renderMarkdown(markdown).replace(/<a href="(\/[^"]*)" target="_blank" rel="noopener noreferrer">/g, '<a href="$1">')
+}
+
+/** The guide's article and FAQ answers with the word linker applied (WP22), plus how many automatic links were added.
+ * Nothing stored is changed. With no rules the HTML is the same as articleHtml() and every answer is plain text. */
+export function linkedGuideContent(guide: Pick<GuideParts, "body" | "faq">, rules: AffiliateRule[] | null | undefined, context: PageContext): { bodyHtml: string; answers: Part[][]; count: number } {
+  const linked = linkPage({ bodyHtml: articleHtml(guide.body), faqAnswers: guide.faq.map((f) => f.a) }, rules, context)
+  return { bodyHtml: linked.bodyHtml, answers: linked.faq, count: linked.count }
 }
 
 export function GuideTakeaways({ guide }: { guide: GuideParts }) {
@@ -29,20 +38,22 @@ export function GuideTakeaways({ guide }: { guide: GuideParts }) {
   )
 }
 
-export function GuideArticle({ guide }: { guide: GuideParts }) {
-  return <div className="markdown-body" dangerouslySetInnerHTML={{ __html: articleHtml(guide.body) }} />
+/** `html` is the article already processed by linkedGuideContent(); without it the article is rendered as before. */
+export function GuideArticle({ guide, html }: { guide: GuideParts; html?: string }) {
+  return <div className="markdown-body" dangerouslySetInnerHTML={{ __html: html ?? articleHtml(guide.body) }} />
 }
 
-export function GuideFaqList({ guide }: { guide: GuideParts }) {
+/** `answers` are the FAQ answers already processed by linkedGuideContent() (one entry per question). */
+export function GuideFaqList({ guide, answers }: { guide: GuideParts; answers?: Part[][] }) {
   if (guide.faq.length === 0) return null
   return (
     <section aria-labelledby="guide-faq">
       <h2 id="guide-faq" className="mb-3 text-xl font-bold text-foreground">Frequently asked questions about {guide.name}</h2>
       <div className="divide-y rounded-xl border bg-card">
-        {guide.faq.map((f) => (
+        {guide.faq.map((f, i) => (
           <details key={f.q} className="group p-4">
             <summary className="cursor-pointer list-none font-medium text-foreground">{f.q}</summary>
-            <p className="mt-2 text-sm text-muted-foreground">{f.a}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{answers?.[i] ? <AffiliateParts parts={answers[i]} /> : f.a}</p>
           </details>
         ))}
       </div>

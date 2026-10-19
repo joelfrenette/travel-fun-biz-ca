@@ -17,6 +17,9 @@ import { styleById } from "@/lib/content-styles"
 import { PackageCard } from "@/components/package-card"
 import { GuideCta } from "@/components/guide-cta"
 import { listGuidesForPost, guideKinds, guidePath } from "@/lib/guides"
+import { linkPage } from "@/lib/affiliate-linker"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
+import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 import { isNewsPost, newsArchived, newsHeading, newsSourceFromBody } from "@/lib/news-post"
 
 export const revalidate = 300
@@ -67,13 +70,17 @@ export default async function BlogPostPage({ params }: Props) {
   const keywords = [post.primary_keyword, ...(post.secondary_keywords ?? [])].filter((k): k is string => !!k)
   const section = styleById(post.content_style)?.label
   const wordCount = post.body.trim().split(/\s+/).filter(Boolean).length
-  const [relatedPackages, usdToTargetRate, relatedGuides, allPosts] = await Promise.all([
+  const [relatedPackages, usdToTargetRate, relatedGuides, allPosts, affiliateRules] = await Promise.all([
     getRelatedPackages(post.related_package_id),
     getUsdToRate(currency),
     // Published guides this post is really about (destination of its linked package, or a guide name in its tags or title). Empty when none match.
     listGuidesForPost(post),
     getPublishedPosts(),
+    // Word links (WP22): ON rules whose link is ON. Fails open (no rules, no links, never an error page).
+    loadAffiliateRules(),
   ])
+  // The stored post is never changed: the rules are applied to the HTML about to be shown, body first and then the FAQ answers.
+  const linked = linkPage({ bodyHtml, faqAnswers: faq.map((f) => f.a) }, affiliateRules, "blog")
   const morePosts = pickRelatedPosts(post, allPosts, 3)
 
   // What the call to action names: the destination of the linked package when there is one, else the post primary keyword, else its title.
@@ -174,7 +181,7 @@ export default async function BlogPostPage({ params }: Props) {
 
           <div className="mb-8"><GuideCta name={ctaName} compact /></div>
 
-          <div className="markdown-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+          <div className="markdown-body" dangerouslySetInnerHTML={{ __html: linked.bodyHtml }} />
 
           {faq.length > 0 && (
             <section className="mt-10" aria-labelledby="faq-heading">
@@ -183,12 +190,14 @@ export default async function BlogPostPage({ params }: Props) {
                 {faq.map((f, i) => (
                   <details key={i} className="group p-4">
                     <summary className="cursor-pointer font-medium text-foreground">{f.q}</summary>
-                    <p className="mt-2 text-muted-foreground">{f.a}</p>
+                    <p className="mt-2 text-muted-foreground"><AffiliateParts parts={linked.faq[i]} /></p>
                   </details>
                 ))}
               </div>
             </section>
           )}
+
+          <AffiliateAutoDisclosure count={linked.count} language={language} />
 
           {morePosts.length > 0 && (
             <aside className="mt-10" aria-labelledby="more-stories-heading">
