@@ -9,6 +9,7 @@ import { Footer } from "@/components/footer"
 import { ContactForm } from "@/components/contact-form"
 import { BookNowButton } from "@/components/book-now-button"
 import { StickyCta } from "@/components/sticky-cta"
+import { PhoneLink } from "@/components/phone-link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { getPackages, getPublishedPackageBySlug, getNextTripForRecap } from "@/lib/packages"
@@ -211,7 +212,7 @@ export default async function PackagePage({ params }: Props) {
                       request.phone ? (
                         <>
                           {translate(language, "Call or text {phone} for pricing").split("{phone}")[0]}
-                          <a href={request.telHref} className="underline hover:text-primary">{request.phone}</a>
+                          <PhoneLink href={request.telHref} method="package_page_price" className="underline hover:text-primary">{request.phone}</PhoneLink>
                           {translate(language, "Call or text {phone} for pricing").split("{phone}")[1]}
                         </>
                       ) : (
@@ -417,12 +418,12 @@ export default async function PackagePage({ params }: Props) {
               <p className="mx-auto mt-3 max-w-2xl text-pretty text-muted-foreground">{translate(language, "No obligation. We reply within one business day.")}</p>
             </div>
             <Suspense fallback={null}>
-              <ContactForm preselectedPackage={pkg.name} packageOptions={Array.from(new Set([pkg.name, ...allPackages.map((p) => p.name)]))} language={language} />
+              <ContactForm preselectedPackage={pkg.name} packageOptions={Array.from(new Set([pkg.name, ...allPackages.map((p) => p.name)]))} language={language} phone={request.phone} />
             </Suspense>
           </div>
         </section>
       </main>
-      <StickyCta packageName={pkg.name} requestLabel={translate(language, "Request Info")} bookingUrl={isPastTrip ? null : pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} />
+      <StickyCta packageName={pkg.name} requestLabel={translate(language, "Request Info")} bookingUrl={isPastTrip ? null : pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} phone={request.phone} callLabel={translate(language, "Call or text now")} />
       <Footer language={language} />
     </div>
   )

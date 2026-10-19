@@ -3,6 +3,7 @@ import Link from "next/link"
 import { CheckCircle2, Phone } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
+import { PhoneLink } from "@/components/phone-link"
 import { Button } from "@/components/ui/button"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
@@ -36,7 +37,7 @@ export default function ThankYouPage({ searchParams }: { searchParams: { package
             {site.phone && (
               <p className="mt-6 flex items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Phone className="h-4 w-4" aria-hidden="true" />
-                {translate(language, "Prefer to talk? Call or text")} <a href={`tel:${site.phone.replace(/[^\d+]/g, "")}`} className="font-medium text-foreground underline-offset-4 hover:underline">{site.phone}</a>
+                {translate(language, "Prefer to talk? Call or text")} <PhoneLink href={`tel:${site.phone.replace(/[^\d+]/g, "")}`} method="thank_you" className="font-medium text-foreground underline-offset-4 hover:underline">{site.phone}</PhoneLink>
               </p>
             )}
             <div className="mt-10 flex flex-wrap justify-center gap-3">

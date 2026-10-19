@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
-import { listPostsAdmin, createPost } from '@/lib/posts'
+import { listPostsAdmin, createPost, type Post } from '@/lib/posts'
+import { listPublishedGuideLinks, guidePath, isGuideKind, type GuideKind } from '@/lib/guides'
 import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
 import { deleteEdits } from '@/lib/content-edits'
@@ -65,11 +66,119 @@ async function pickRecentCtaStyle(admin: ReturnType<typeof getSupabaseAdmin>, re
   }
 }
 
+/** The most internal links one blog post may be offered. */
+export const MAX_POST_LINKS = 5
+const MAX_GUIDE_LINKS = 3
+const MAX_POST_LINKS_RELATED = 2
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** Case-insensitive whole-word test: "Viking" matches "a Viking cruise" but not "Vikings". Empty needle never matches. */
+function hasWholeWord(haystack: string, needle: string): boolean {
+  const n = needle.trim()
+  if (!n) return false
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(n)}($|[^\\p{L}\\p{N}])`, 'iu').test(haystack)
+}
+
+export interface LinkTopic {
+  angle: string
+  keyword: string
+  keywords?: string[]
+  tags?: string[]
+}
+export interface LinkGuide {
+  kind: GuideKind
+  slug: string
+  name: string
+}
+export interface LinkPost {
+  slug: string
+  title: string
+  tags?: string[] | null
+  status: string
+  publish_date?: string | null
+}
+
+/** Pure: up to 3 published guides whose name appears (whole word, any case) in the topic's angle, keywords or
+ * tags, then up to 2 recent published posts that share a tag with the topic (a post tag that is a topic tag,
+ * or appears as a whole word in the topic text). Posts are taken in the order given (newest first). The post
+ * being written (`selfSlug`) is never linked. No match returns []. Never exceeds MAX_POST_LINKS. */
+export function pickGuideAndPostLinks(topic: LinkTopic, guides: LinkGuide[], posts: LinkPost[], selfSlug?: string, now: number = Date.now()): AllowedLink[] {
+  const topicTags = (topic.tags ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean)
+  const text = [topic.angle, topic.keyword, ...(topic.keywords ?? []), ...topicTags].filter(Boolean).join(' | ')
+  const out: AllowedLink[] = []
+  const seen = new Set<string>()
+  for (const g of guides) {
+    if (out.length >= MAX_GUIDE_LINKS) break
+    if (!g?.name || !isGuideKind(g.kind) || !g.slug) continue
+    if (!hasWholeWord(text, g.name)) continue
+    const path = guidePath(g.kind, g.slug)
+    if (seen.has(path)) continue
+    seen.add(path)
+    out.push({ path, label: `our ${g.name.replace(/[[\]]/g, '')} guide` })
+  }
+  let postCount = 0
+  for (const p of posts) {
+    if (postCount >= MAX_POST_LINKS_RELATED) break
+    if (!p?.slug || p.slug === selfSlug || p.status !== 'published') continue
+    if (p.publish_date) {
+      const ms = Date.parse(p.publish_date)
+      if (!Number.isNaN(ms) && ms > now) continue
+    }
+    const shares = (p.tags ?? []).some((t) => {
+      const tag = (t ?? '').trim()
+      return !!tag && (topicTags.includes(tag.toLowerCase()) || hasWholeWord(text, tag))
+    })
+    if (!shares) continue
+    const path = `/blog/${p.slug}`
+    if (seen.has(path)) continue
+    seen.add(path)
+    postCount++
+    out.push({ path, label: `our post "${p.title.replace(/[[\]]/g, '')}"` })
+  }
+  return out
+}
+
+/** Pure: the existing links first, then the guide and post links, no repeated path, never more than MAX_POST_LINKS. */
+export function mergeAllowedLinks(base: AllowedLink[], extra: AllowedLink[]): AllowedLink[] {
+  const seen = new Set<string>()
+  const out: AllowedLink[] = []
+  for (const l of [...base, ...extra]) {
+    if (seen.has(l.path)) continue
+    seen.add(l.path)
+    out.push(l)
+    if (out.length >= MAX_POST_LINKS) break
+  }
+  return out
+}
+
+/** Adds the guide and post links to `base`. Any read error (or a throw from the readers) returns `base` unchanged. */
+export async function withGuideAndPostLinks(
+  base: AllowedLink[],
+  topic: LinkTopic,
+  readGuides: () => Promise<LinkGuide[]>,
+  readPosts: () => Promise<LinkPost[]>,
+  selfSlug?: string,
+): Promise<AllowedLink[]> {
+  try {
+    const [guides, posts] = await Promise.all([readGuides(), readPosts()])
+    return mergeAllowedLinks(base, pickGuideAndPostLinks(topic, guides, posts, selfSlug))
+  } catch (err) {
+    console.error('[autoblog] could not add guide and post links:', err instanceof Error ? err.message : err)
+    return base
+  }
+}
+
 /** The pages the composer may link to from the body, each confirmed to exist right now: the matched
- * package, its destination page (only when a published package gives it one), and its
- * best-time-to-visit page (only when that page really exists). No package means no links, so the
- * writer cannot reach for a page that is not there. Never throws. */
-async function buildAllowedLinks(admin: ReturnType<typeof getSupabaseAdmin>, pkg: PackageGrounding | null): Promise<AllowedLink[]> {
+ * package, its destination page (only when a published package gives it one), its best-time-to-visit
+ * page (only when that page really exists), then up to 3 published guides named in the topic and up to 2
+ * recent published posts sharing a tag (at most 5 in all). With no package and no match there are no
+ * links, so the writer cannot reach for a page that is not there. Never throws. */
+async function buildAllowedLinks(admin: ReturnType<typeof getSupabaseAdmin>, pkg: PackageGrounding | null, topic: TopicIdea, posts: Post[]): Promise<AllowedLink[]> {
+  const base = await buildPackageLinks(admin, pkg)
+  return withGuideAndPostLinks(base, topic, listPublishedGuideLinks, async () => posts)
+}
+
+async function buildPackageLinks(admin: ReturnType<typeof getSupabaseAdmin>, pkg: PackageGrounding | null): Promise<AllowedLink[]> {
   if (!pkg?.slug) return []
   const links: AllowedLink[] = [{ path: `/packages/${pkg.slug}`, label: `the ${pkg.name.replace(/[[\]]/g, '')} trip page` }]
   const destSlug = pkg.destination ? generateSlug(pkg.destination) : ''
@@ -294,7 +403,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // internal pages the post may link to.
   const style = await pickStyleWithScores(admin, existingPosts.slice(0, 10).map((p) => p.content_style))
   const ctaStyle = await pickRecentCtaStyle(admin, existingPosts.slice(0, 10).map((p) => p.slug), existingPosts.length)
-  const allowedLinks = await buildAllowedLinks(admin, groundingPackage)
+  const allowedLinks = await buildAllowedLinks(admin, groundingPackage, topic, existingPosts)
 
   // The routes that call this are killed at 300s. Compose and repair are told to wrap up by 240s from
   // now: the optional steps (FAQ/takeaways, the repair call) are skipped when too little time is left.

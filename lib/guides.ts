@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { generateSlug } from '@/lib/utils'
 import { GUIDE_SEEDS } from '@/lib/guide-seeds'
 import { GUIDE_BACKFILL_KEY, parseBackfillState } from '@/lib/guide-backfill'
+import { readGuideFailures } from '@/lib/guide-failures'
 import type { TripFact } from '@/lib/guide-facts'
 import { groupChildren, inferScope, parentChain, parseScope, type GuideScope } from '@/lib/guide-scope'
 import { dbPackageToTravelPackage, type DbPackage } from '@/lib/packages'
@@ -591,18 +592,71 @@ export function cleanPropertyName(raw: string): string | null {
   return first
 }
 
+/** A rejected draft becomes a candidate again after this long. */
+export const REJECTED_RETRY_DAYS = 2
+/** After this many rejections a slug is no longer offered. */
+export const MAX_GUIDE_REJECTIONS = 2
+
+/** The start of the note the heal writes on a draft it rejected (same text as healNoteOf in lib/heal-targets.ts;
+ * the offline check proves they match). A person's rejection never writes this note. */
+export const HEAL_REJECTED_NOTE_PREFIX = 'Rejected by heal:'
+export function isHealRejectedNote(note: string | null | undefined): boolean {
+  return typeof note === 'string' && note.startsWith(HEAL_REJECTED_NOTE_PREFIX)
+}
+
+/** Pure decision: may a guide row that already exists be written again? Only a draft that the heal
+ * rejected (never one a person rejected), untouched for REJECTED_RETRY_DAYS, with fewer than MAX_GUIDE_REJECTIONS rejections so far. A published
+ * guide, a non-rejected draft, a recent rejection or a missing/invalid date never retries. */
+export function isRetryableRejected(
+  row: { status?: string | null; review_state?: string | null; updated_at?: string | null; quality_notes?: string | null },
+  now: Date | number,
+  rejectionCount: number,
+): boolean {
+  if (row.review_state !== 'rejected' || row.status === 'published') return false
+  // Only a draft the heal rejected (its note starts with the heal marker) may come back. A draft a person rejected
+  // in the review queue never does, and a missing note (not known to be the heal's) fails closed.
+  if (!isHealRejectedNote(row.quality_notes)) return false
+  if (!Number.isFinite(rejectionCount) || rejectionCount >= MAX_GUIDE_REJECTIONS) return false
+  const at = row.updated_at ? Date.parse(row.updated_at) : NaN
+  if (!Number.isFinite(at)) return false
+  const nowMs = typeof now === 'number' ? now : now.getTime()
+  return nowMs - at > REJECTED_RETRY_DAYS * 86_400_000
+}
+
+/** Rejections so far for a rejected row: the ones already recorded in the failure store, plus the current one. */
+export function rejectionCountFor(failureN: number | undefined): number {
+  return (failureN ?? 0) + 1
+}
+
 /** Everything that could be written next and is not a guide yet: every destination of a published package,
  * every package name that looks like a hotel/resort/ship/cruise line (by name words and category), and the
  * curated names in lib/guide-seeds.ts. Real data first (destinations, then package names), seeds last. */
 export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideCandidate[]> {
   const [{ data: pkgs, error: pkgError }, { data: existing, error: guideError }] = await Promise.all([
     admin.from('travel_packages').select('name, destination, category').eq('status', 'published'),
-    admin.from('guides').select('kind, slug'),
+    withScopeFallback((v) => admin.from('guides').select(v === 'new' ? 'kind, slug, status, review_state, updated_at, quality_notes' : 'kind, slug, status, updated_at')),
   ])
   if (pkgError) throw new Error(`Could not read packages: ${pkgError.message}`)
   if (guideError) throw new Error(`Could not read guides: ${guideError.message}`)
 
-  const taken = new Set(((existing ?? []) as { kind: string; slug: string }[]).map((g) => `${g.kind}:${g.slug}`))
+  // A draft that was rejected long enough ago is offered again (bounded by the failure store); fails closed.
+  let failureCounts: Record<string, number> = {}
+  const existingRows = (existing ?? []) as { kind: string; slug: string; status?: string | null; review_state?: string | null; updated_at?: string | null; quality_notes?: string | null }[]
+  if (existingRows.some((g) => g.review_state === 'rejected')) {
+    try {
+      const f = await readGuideFailures(admin)
+      failureCounts = Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v?.n ?? 0]))
+    } catch {
+      failureCounts = {}
+      existingRows.forEach((g) => { if (g.review_state === 'rejected') failureCounts[`${g.kind}:${g.slug}`] = MAX_GUIDE_REJECTIONS })
+    }
+  }
+  const nowMs = Date.now()
+  const taken = new Set(
+    existingRows
+      .filter((g) => !isRetryableRejected(g, nowMs, rejectionCountFor(failureCounts[`${g.kind}:${g.slug}`])))
+      .map((g) => `${g.kind}:${g.slug}`),
+  )
   const out: GuideCandidate[] = []
   const add = (c: GuideCandidate) => {
     if (!c.slug) return

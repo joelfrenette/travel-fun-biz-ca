@@ -20,7 +20,10 @@ export function GuideHeaderActions({
   feature,
   language,
   factParts,
+  formAnchor,
 }: {
+  /** On-page form to scroll to instead of the enquiry page (e.g. "#guide-cta"). Unset: the old enquiry link. */
+  formAnchor?: string
   name: string
   packageName?: string | null
   guide: HeaderGuide | null
@@ -61,7 +64,7 @@ export function GuideHeaderActions({
               </span>
             )
           )}
-          <Link href={cta.enquiryHref} className="inline-flex items-center justify-center gap-2 rounded-md border border-primary bg-background px-5 py-3 text-sm font-bold text-foreground hover:bg-primary/10">
+          <Link href={formAnchor || cta.enquiryHref}className="inline-flex items-center justify-center gap-2 rounded-md border border-primary bg-background px-5 py-3 text-sm font-bold text-foreground hover:bg-primary/10">
             <MessageSquare className="h-4 w-4" aria-hidden="true" />
             {translate(language, "Send an enquiry")}
           </Link>

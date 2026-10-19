@@ -13,6 +13,8 @@ import type { TravelPackage } from "@/types/travel"
 import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, relatedGuideCards, getPublishedTripRowsByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
 import { GuideCta } from "@/components/guide-cta"
+import { StickyCta } from "@/components/sticky-cta"
+import { translate } from "@/lib/i18n"
 import { GuideThingsToDo } from "@/components/guide-things-to-do"
 import { loadThingsToDo } from "@/lib/things-to-do"
 import { GuideFacts } from "@/components/guide-facts"
@@ -26,7 +28,7 @@ import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogS
 import { AffiliateAutoDisclosure, AffiliateParts } from "@/components/affiliate-text"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { jsonLdHtml } from "@/lib/jsonld"
-import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
+import { site, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
 
 // ONE shared page for every guide kind (destinations, hotels, resorts, cruise lines, ships, river cruises,
@@ -228,7 +230,8 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
               <p className="mt-2 text-sm text-muted-foreground"><time dateTime={guide.updated_at}>Updated {formatDate(guide.updated_at)}</time></p>
             )}
             <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground"><AffiliateParts parts={linked.summary} /></p>
-            <GuideHeaderActions name={guide.name} packageName={packages[0]?.name} guide={guide} feature={feature} language={language} factParts={linked.facts} />
+            <GuideHeaderActions name={guide.name} packageName={packages[0]?.name} guide={guide} feature={feature} language={language} factParts={linked.facts} formAnchor="#guide-cta" />
+
             </div>
             <GuideHeaderFeature feature={feature} language={language} currency={currency} usdToTargetRate={usdToTargetRate} factParts={linked.facts} />
           </div>
@@ -318,6 +321,13 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
           )}
         </article>
       </main>
+      <StickyCta
+        packageName={packages[0]?.name || guide.name}
+        requestLabel={translate(language, "Request Info")}
+        requestHref="#guide-cta"
+        phone={site.phone}
+        callLabel={translate(language, "Call or text now")}
+      />
       <Footer language={language} />
     </div>
   )

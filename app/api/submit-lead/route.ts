@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { submitLeadToGoHighLevel } from "@/lib/gohighlevel"
 import { contactSubmissionSchema } from "@/lib/schemas/contact"
 import { isHoneypotFilled, allowRequest } from "@/lib/abuse-guard"
+import { submitPackage } from "@/lib/form-errors"
+import { resolveLeadResponse } from "@/lib/lead-response"
 import { recordLead, saveLeadFirst, markLeadSent } from "@/lib/leads"
 
 export async function POST(request: Request) {
@@ -24,7 +26,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Too many submissions - please try again shortly" }, { status: 429 })
     }
 
-    const data = { ...parsed.data, submittedAt: parsed.data.submittedAt || new Date().toISOString() }
+    const data = { ...parsed.data, package: submitPackage(parsed.data.package), submittedAt: parsed.data.submittedAt || new Date().toISOString() }
     console.log("[lead] Submission received", { package: data.package, source: data.attribution?.utm_source, page: data.attribution?.page_path })
 
     // Saved here BEFORE GoHighLevel is called, so a slow or hanging GHL cannot lose the lead.
@@ -32,9 +34,15 @@ export async function POST(request: Request) {
     const result = await submitLeadToGoHighLevel(data)
     if (leadId) await markLeadSent(leadId, result)
     else await recordLead(data, result) // the early save failed: record it now, as before
-    if (result.ok) return NextResponse.json({ success: true, message: "Lead submitted successfully" })
+    // Saved means the visitor sees success even if GoHighLevel failed: the row stays unforwarded and
+    // lib/heal.ts retries it, and Needs attention shows it.
+    const outcome = resolveLeadResponse({ saved: !!leadId, ghlOk: result.ok, ghlError: result.ok ? undefined : result.error })
+    if (outcome.success) {
+      if (outcome.retryLater) console.error("[lead] saved, GoHighLevel send failed (will be retried):", result.ok ? "" : result.error)
+      return NextResponse.json({ success: true, message: "Lead submitted successfully" }, { status: outcome.status })
+    }
 
-    return NextResponse.json({ error: result.error }, { status: result.error.includes('not configured') ? 503 : 502 })
+    return NextResponse.json({ error: result.ok ? "Internal server error" : result.error }, { status: outcome.status })
   } catch (error) {
     console.error("[lead] Error submitting lead:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

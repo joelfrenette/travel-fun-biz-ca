@@ -9,6 +9,7 @@ import type { TravelPackage } from "@/types/travel"
 import type { Language } from "@/lib/preferences"
 import type { Currency } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
+import { PhoneLink } from "@/components/phone-link"
 import { formatPrice, parseUsdPrice } from "@/lib/currency"
 import { priceOnRequestLine } from "@/lib/site"
 
@@ -76,7 +77,7 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
             {request.phone ? (
               <>
                 {translate(language, "Call or text {phone} for pricing").split("{phone}")[0]}
-                <a href={request.telHref} className="underline hover:text-primary">{request.phone}</a>
+                <PhoneLink href={request.telHref} method="package_card" className="underline hover:text-primary">{request.phone}</PhoneLink>
                 {translate(language, "Call or text {phone} for pricing").split("{phone}")[1]}
               </>
             ) : (

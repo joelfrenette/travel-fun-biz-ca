@@ -76,7 +76,7 @@ export default async function HomePage() {
               </p>
             </div>
             <Suspense fallback={null}>
-              <ContactForm packageOptions={packageNames} language={language} />
+              <ContactForm packageOptions={packageNames} language={language} phone={site.phone} />
             </Suspense>
             <AffiliateAutoDisclosure count={linked.count} language={language} wrapperClassName="mx-auto mt-6 max-w-2xl text-center" />
           </div>

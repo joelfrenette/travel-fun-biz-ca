@@ -4,6 +4,7 @@ import { withCronHeartbeat } from '@/lib/cron-heartbeat'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { takeRankingSnapshot } from '@/lib/rankings-snapshot'
 import { connectKeywordsToRankingPages } from '@/lib/keyword-pages'
+import { runCronWatchdog } from '@/lib/cron-watchdog'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
 // CRON_SECRET must be set (cronUnauthorized 503s until then), and Search Console itself must be
@@ -28,7 +29,16 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] keyword connection failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}` })
+    // Watchdog: tell Joel if the 15-minute autopilot cron has gone quiet. runCronWatchdog never throws,
+    // and the extra try/catch keeps it from ever breaking the snapshot.
+    let watchdog = ''
+    try {
+      const w = await runCronWatchdog(getSupabaseAdmin())
+      if (w) watchdog = `; ${w}`
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] watchdog failed:', e)
+    }
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found

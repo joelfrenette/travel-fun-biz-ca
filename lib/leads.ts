@@ -1,13 +1,25 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import type { ContactSubmission } from '@/lib/schemas/contact'
 import { isTestPerson } from '@/lib/test-data'
+import { notifyNewLead } from '@/lib/alerts'
+
+// Fire-and-forget: the new lead email can never fail or slow the form (it catches everything itself).
+function announceLead(id: string | undefined | null, isTest: boolean, a: ContactSubmission['attribution'], pkg?: string | null): void {
+  try {
+    if (!id) return
+    void notifyNewLead({ id, isTest, package: pkg, pagePath: a?.page_path, utmSource: a?.utm_source }).catch(() => undefined)
+  } catch {
+    // never the visitor's problem
+  }
+}
 
 // Factory Phase 10: leads/CRM glue. A local backup of every real contact-form submission,
 // independent of whether GoHighLevel accepted it. Never throws - a lost backup write must never
 // turn into a lost lead on top of it; the visitor still gets whatever the GHL call's own result was.
 export async function recordLead(lead: ContactSubmission, forwarded: { ok: boolean; error?: string }): Promise<void> {
   try {
-    await getSupabaseAdmin().from('leads').insert({
+    const isTest = isTestPerson(lead)
+    const { data, error } = await getSupabaseAdmin().from('leads').insert({
       name: lead.name,
       email: lead.email,
       phone: lead.phone || null,
@@ -22,8 +34,9 @@ export async function recordLead(lead: ContactSubmission, forwarded: { ok: boole
       page_path: lead.attribution?.page_path || null,
       forwarded_to_ghl: forwarded.ok,
       ghl_error: forwarded.ok ? null : (forwarded.error ?? null),
-      is_test: isTestPerson(lead),
-    })
+      is_test: isTest,
+    }).select('id').single()
+    if (!error) announceLead((data as { id?: string } | null)?.id, isTest, lead.attribution, lead.package)
   } catch {
     // the backup itself failing is never the visitor's problem
   }
@@ -48,6 +61,7 @@ const PENDING_NOTE = 'Saved here first; the send to GoHighLevel did not finish.'
  * to recordLead after the send, as before). Never throws. */
 export async function saveLeadFirst(lead: LeadBackup): Promise<string | null> {
   try {
+    const isTest = isTestPerson(lead)
     const { data, error } = await getSupabaseAdmin()
       .from('leads')
       .insert({
@@ -65,11 +79,13 @@ export async function saveLeadFirst(lead: LeadBackup): Promise<string | null> {
         page_path: lead.attribution?.page_path || null,
         forwarded_to_ghl: false,
         ghl_error: PENDING_NOTE,
-        is_test: isTestPerson(lead),
+        is_test: isTest,
       })
       .select('id')
       .single()
-    return error ? null : ((data as { id?: string } | null)?.id ?? null)
+    const id = error ? null : ((data as { id?: string } | null)?.id ?? null)
+    announceLead(id, isTest, lead.attribution, lead.package)
+    return id
   } catch {
     return null
   }

@@ -128,18 +128,71 @@ export function parseGhlOrder(body: Record<string, unknown>): OrderInput | null 
  * lead-first-touch lookup (matching by email against a leads table with a first-touch cookie)
  * would be stronger, but no such table exists in this project yet - that's tracking-foundation
  * territory (Decision 8, still blocked on Joel's consent wording), not something to invent here. */
-export async function recordOrder(admin: SupabaseClient, input: OrderInput, webhookEventId: string | null): Promise<{ error?: string }> {
-  const utm = input.ghl_attribution
-  let channel: string | null = null
-  let channelSource: string | null = null
-  let attributionBasis = 'none'
+export interface LeadTouch {
+  utm_source?: string | null
+  utm_medium?: string | null
+  utm_campaign?: string | null
+  utm_content?: string | null
+  page_path?: string | null
+}
 
-  if (utm.utm_source || utm.utm_medium) {
-    const classified = classifyVisit({ utmSource: utm.utm_source, utmMedium: utm.utm_medium })
-    channel = classified.channel
-    channelSource = classified.source
-    attributionBasis = 'ghl_custom_data'
+export interface PickedAttribution {
+  utm: OrderInput['ghl_attribution']
+  channel: string | null
+  channelSource: string | null
+  basis: string
+}
+
+/** Decide an order's attribution. GoHighLevel's own UTM tags win. Otherwise the buyer's earliest
+ * lead (matched by email, looked up by the caller) supplies the first-touch UTM values, and its
+ * page_path fills utm_content only when that is empty. No lead, or a lead with no UTM source or
+ * medium, keeps today's result (basis 'none'). Pure - no database, never logs the email. */
+export function pickLeadAttribution(lead: LeadTouch | null | undefined, ghl: OrderInput['ghl_attribution']): PickedAttribution {
+  if (ghl.utm_source || ghl.utm_medium) {
+    const c = classifyVisit({ utmSource: ghl.utm_source, utmMedium: ghl.utm_medium })
+    return { utm: ghl, channel: c.channel, channelSource: c.source, basis: 'ghl_custom_data' }
   }
+  const src = lead?.utm_source || undefined
+  const med = lead?.utm_medium || undefined
+  if (!lead || (!src && !med)) return { utm: ghl, channel: null, channelSource: null, basis: 'none' }
+  const c = classifyVisit({ utmSource: src, utmMedium: med })
+  const utm = {
+    utm_source: src,
+    utm_medium: med,
+    utm_campaign: lead.utm_campaign || undefined,
+    utm_content: lead.utm_content || lead.page_path || undefined,
+  }
+  return { utm, channel: c.channel, channelSource: c.source, basis: 'lead_email_match' }
+}
+
+/** Earliest non-test lead for this email (read only). Any error or no match gives null. */
+async function firstTouchLead(admin: SupabaseClient, email: string | null): Promise<LeadTouch | null> {
+  if (!email) return null
+  try {
+    const pattern = email.trim().replace(/[\\%_]/g, (m) => `\\${m}`)
+    const { data, error } = await admin
+      .from('leads')
+      .select('utm_source, utm_medium, utm_campaign, utm_content, page_path')
+      .ilike('email', pattern)
+      .eq('is_test', false)
+      .order('created_at', { ascending: true })
+      .limit(1)
+    if (error || !Array.isArray(data) || data.length === 0) return null
+    return data[0] as LeadTouch
+  } catch {
+    return null
+  }
+}
+
+export async function recordOrder(admin: SupabaseClient, input: OrderInput, webhookEventId: string | null): Promise<{ error?: string }> {
+  const ghl = input.ghl_attribution
+  const hasGhl = !!(ghl.utm_source || ghl.utm_medium)
+  const lead = hasGhl ? null : await firstTouchLead(admin, input.email)
+  const picked = pickLeadAttribution(lead, ghl)
+  const utm = picked.utm
+  const channel = picked.channel
+  const channelSource = picked.channelSource
+  const attributionBasis = picked.basis
 
   const row = {
     provider: input.provider,
