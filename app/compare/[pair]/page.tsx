@@ -115,9 +115,7 @@ export default async function ComparePage({ params }: Props) {
           </div>
         )}
 
-        <div className="container mx-auto px-4">
-          <AffiliateAutoDisclosure count={linked.count} language={language} />
-        </div>
+        <AffiliateAutoDisclosure count={linked.count} language={language} wrapperClassName="container mx-auto px-4" />
 
         <div className="container mx-auto px-4 pb-10">
           <GuideCta name={`${page.a.destination} vs ${page.b.destination}`} packageName={page.a.packages[0]?.name ?? page.b.packages[0]?.name} />

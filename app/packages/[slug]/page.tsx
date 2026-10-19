@@ -260,7 +260,7 @@ export default async function PackagePage({ params }: Props) {
                   <div>
                     <h2 className="mb-3 text-xl font-bold">{translate(language, "Recap highlights")}</h2>
                     <ul className="grid gap-2 sm:grid-cols-2">
-                      {recapHighlights.map((h) => <li key={h.id} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" /><span><AffiliateParts parts={linked.parts(h)} /></span></li>)}
+                      {recapHighlights.map((h) => <li key={h.id} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" /><AffiliateParts parts={linked.parts(h)} /></li>)}
                     </ul>
                   </div>
                 )}
@@ -285,7 +285,7 @@ export default async function PackagePage({ params }: Props) {
               <div>
                 <h2 className="mb-3 text-2xl font-bold">{translate(language, "Highlights")}</h2>
                 <ul className="grid gap-2 sm:grid-cols-2">
-                  {highlights.map((h) => <li key={h.id} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" /><span><AffiliateParts parts={linked.parts(h)} /></span></li>)}
+                  {highlights.map((h) => <li key={h.id} className="flex gap-2 text-muted-foreground"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" /><AffiliateParts parts={linked.parts(h)} /></li>)}
                 </ul>
               </div>
             )}

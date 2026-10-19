@@ -5,7 +5,8 @@ import { generateSlug } from '@/lib/utils'
 import { isNewsPost } from '@/lib/news-post'
 import { pickRelatedPosts, type Post } from '@/lib/posts'
 import { readAllPages } from '@/lib/paged-read'
-import { compileRules, findMatches, scopeMatches, cleanPhrase, phraseKey, PAGE_CONTEXTS, type AffiliateRule, type CompiledRules, type FoundMatch, type LinkScope, type PageContext } from '@/lib/affiliate-linker'
+import { staleLinkedSlugs } from '@/lib/page-copy'
+import { compileRules, findMatches, scopeMatches, cleanPhrase, phraseKey, PAGE_CONTEXTS, PLURAL_MIN_LENGTH, type AffiliateRule, type CompiledRules, type FoundMatch, type LinkScope, type PageContext } from '@/lib/affiliate-linker'
 import { KEYWORD_COLUMNS, isMissingKeywordsTable, type KeywordRow } from '@/lib/affiliate-rules'
 import { articleHtml } from '@/lib/markdown'
 import {
@@ -87,7 +88,17 @@ export interface UsageReport {
   totalDocs: number
   /** Distinct places (page type and field) that had text in the scanned pages. Absent in older reports. */
   places?: number
+  /** Places that could not be read in full (a table that failed, or more rows than one scan reads). Absent when all was read. */
+  notes?: string[]
+  /** Pages the 2000-page cut left out, by page type ("Trip pages": 110). Absent when nothing was cut. */
+  dropped?: Record<string, number>
   phrases: PhraseUsage[]
+}
+
+/** What a scan could not cover, passed from loadUsageDocs to the report and to Preview. */
+export interface ScanGaps {
+  notes?: string[]
+  dropped?: Record<string, number>
 }
 
 const LEGACY_PAGE_TYPE: Record<PageContext, PageType> = { blog: 'blog', guides: 'guide', destinations: 'destination', trips: 'trip', pages: 'home' }
@@ -155,7 +166,7 @@ function breakdownRows(agg: Agg): BreakdownRow[] {
 }
 
 /** Pure: counts, per keyword, the pages and occurrences across the documents. */
-export function buildUsageReport(docs: UsageDoc[], keywords: KeywordLike[], opts: { now?: Date; totalDocs?: number } = {}): UsageReport {
+export function buildUsageReport(docs: UsageDoc[], keywords: KeywordLike[], opts: { now?: Date; totalDocs?: number } & ScanGaps = {}): UsageReport {
   const asRules = (list: KeywordLike[]): AffiliateRule[] => list.map((k) => ({ id: k.id, phrase: k.phrase, slug: 'xx', scope: k.scope, max_per_page: 1 }))
   const compiled = new Map<PageContext, CompiledRules>()
   // Counting does not depend on ON or OFF, so every keyword is compiled for every context it applies to.
@@ -200,7 +211,7 @@ export function buildUsageReport(docs: UsageDoc[], keywords: KeywordLike[], opts
     }
   })
   const totalDocs = opts.totalDocs ?? docs.length
-  return { generatedAt: (opts.now ?? new Date()).toISOString(), scanned: docs.length, truncated: totalDocs > docs.length, totalDocs, places: placesIn(docs).size, phrases }
+  return { generatedAt: (opts.now ?? new Date()).toISOString(), scanned: docs.length, truncated: totalDocs > docs.length, totalDocs, places: placesIn(docs).size, ...(opts.notes?.length ? { notes: opts.notes } : {}), ...(opts.dropped && Object.keys(opts.dropped).length ? { dropped: opts.dropped } : {}), phrases }
 }
 
 /** Shrinks a report until its JSON fits: fewer examples, then no snippets. Counts are never dropped. */
@@ -244,8 +255,14 @@ export interface PreviewResult {
   checkedPlaces: number
   /** Where the matches are, by page type and field, biggest first. */
   breakdown: BreakdownRow[]
-  /** "Checked 120 pages in 14 places." (plus a notice when the site has more pages than were read). */
+  /** "Checked 120 pages in 14 places." (plus what could not be checked: pages cut by the cap, places that could not be read). */
   coverage: string
+  /** Places that could not be read in full. When there are any, "not found anywhere" is never claimed. */
+  notes: string[]
+  /** Pages the cap left out, by page type. */
+  dropped: Record<string, number>
+  /** Always-on tips about how phrases are matched (one phrase for "a-b" and "a b", plural endings, very short phrases). */
+  hints: string[]
   /** Said in plain words when the phrase was found nowhere. Null otherwise. */
   explanation: string | null
   /** Set when no page uses the phrase yet. Saving is still allowed. */
@@ -257,18 +274,30 @@ export const PREVIEW_SHOWN = 10
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
 /** "Checked 120 pages in 14 places." plus, when the site has more pages than were read, how many were. */
-export function coverageSentence(r: { checkedPages: number; checkedPlaces: number; truncated: boolean; scanned: number; totalDocs: number }): string {
-  const base = `Checked ${plural(r.checkedPages, 'page')} in ${plural(r.checkedPlaces, 'place')}.`
-  return r.truncated ? `${base} Only the first ${r.scanned} of ${r.totalDocs} pages were checked.` : base
+export function coverageSentence(r: { checkedPages: number; checkedPlaces: number; truncated: boolean; scanned: number; totalDocs: number; notes?: string[]; dropped?: Record<string, number> }): string {
+  let s = `Checked ${plural(r.checkedPages, 'page')} in ${plural(r.checkedPlaces, 'place')}.`
+  if (r.truncated) {
+    s += ` Only the first ${r.scanned} of ${r.totalDocs} pages were checked.`
+    const cut = Object.entries(r.dropped ?? {})
+    if (cut.length > 0) s += ` Not checked: ${cut.map(([label, n]) => `${label} ${n}`).join(', ')}.`
+  }
+  if (r.notes && r.notes.length > 0) s += ` Could not read all of: ${r.notes.join('; ')}.`
+  return s
 }
 
 /** Pure: what would this rule do across the documents? Does not write anything. */
-export function previewRule(docs: UsageDoc[], input: { phrase: string; scope: LinkScope; max_per_page: number }, opts: { totalDocs?: number } = {}): PreviewResult {
+export function previewRule(docs: UsageDoc[], input: { phrase: string; scope: LinkScope; max_per_page: number }, opts: { totalDocs?: number } & ScanGaps = {}): PreviewResult {
   const totalDocs = opts.totalDocs ?? docs.length
   const truncated = totalDocs > docs.length
+  const notes = opts.notes ?? []
+  const dropped = opts.dropped ?? {}
+  const hints = [
+    'Spellings with a hyphen, a dash or a space are one phrase: "croatia-tours" and "croatia tours" are found together.',
+    'The last word may end in "s" or "es" ("croatia tour" also finds "Croatia tours"). This is off for phrases of 3 characters or fewer.',
+  ]
   const empty: PreviewResult = {
     pages: [], pageCount: 0, occurrences: 0, shown: 0, warnings: [], scanned: docs.length, truncated, totalDocs,
-    checkedPages: 0, checkedPlaces: 0, breakdown: [], coverage: '', explanation: null, emptyNotice: null,
+    checkedPages: 0, checkedPlaces: 0, breakdown: [], coverage: '', notes, dropped, hints, explanation: null, emptyNotice: null,
   }
   const phrase = cleanPhrase(input.phrase)
   if (!phrase) return { ...empty, warnings: ['That phrase cannot be used.'] }
@@ -336,16 +365,20 @@ export function previewRule(docs: UsageDoc[], input: { phrase: string; scope: Li
   const checkedPlaces = placesIn(checked).size
   const result: PreviewResult = {
     pages, pageCount, occurrences, shown: pages.length, warnings, scanned: docs.length, truncated, totalDocs,
-    checkedPages: checked.length, checkedPlaces, breakdown: breakdownRows(agg), coverage: '', explanation: null, emptyNotice: null,
+    checkedPages: checked.length, checkedPlaces, breakdown: breakdownRows(agg), coverage: '', notes, dropped, hints, explanation: null, emptyNotice: null,
   }
+  if (phrase.length < PLURAL_MIN_LENGTH) result.hints.push(`"${phrase}" is very short, so plural endings are not matched ("us" does not find "uses").`)
   const coverage = coverageSentence(result)
   result.coverage = coverage
   if (pageCount === 0) {
+    const incomplete = notes.length > 0 || truncated
     result.explanation =
       checked.length === 0
         ? `${coverage} There is nothing to check in the part of the site you picked. Choose "All pages" in "Where".`
-        : `${coverage} "${phrase}" was not found in any of them. Try the singular or the plural, or check the spelling. A hyphen, a different spacing and a plural "s" at the end are matched for you; other word forms are not.`
-    result.emptyNotice = NO_PAGE_NOTICE
+        : incomplete
+          ? `${coverage} "${phrase}" was not found in the pages that could be read, but not everything could be read, so we cannot say that no page uses it.`
+          : `${coverage} "${phrase}" was not found in any of them. Try the singular or the plural, or check the spelling. A hyphen, a different spacing and a plural "s" at the end are matched for you; other word forms are not.`
+    result.emptyNotice = incomplete ? null : NO_PAGE_NOTICE
   }
   return result
 }
@@ -355,12 +388,35 @@ export function previewRule(docs: UsageDoc[], input: { phrase: string; scope: Li
 interface GuideRow { kind: string; slug: string; name: string; summary: string | null; key_takeaways: string[] | null; body: string | null; faq: { q?: unknown; a?: unknown }[] | null }
 interface TripRow { slug: string | null; name: string; destination: string | null; [k: string]: unknown }
 interface BlurbRow { slug: string; destination: string; blurb: string }
-interface CopyRow { path: string; intro: string | null; key_takeaways: string[] | null; faq: { q?: unknown; a?: unknown }[] | null }
+interface CopyRow { path: string; linked_slugs?: string[] | null; intro: string | null; key_takeaways: string[] | null; faq: { q?: unknown; a?: unknown }[] | null }
 
 /** Reads a whole table (page by page, PostgREST returns at most 1000 rows at a time). A failing table gives no rows and its message. */
-async function readRows<T>(admin: SupabaseClient, table: string, columns: string, orderBy: string, narrow: (q: any) => any): Promise<{ rows: T[]; error?: string }> {
+async function readRows<T>(admin: SupabaseClient, table: string, columns: string, orderBy: string, narrow: (q: any) => any): Promise<{ rows: T[]; error?: string; capped?: boolean }> {
   const res = await readAllPages<T>((from, to) => narrow(admin.from(table).select(columns)).order(orderBy).range(from, to), 3)
-  return { rows: res.rows, error: res.ok || res.capped ? undefined : res.error }
+  return { rows: res.rows, error: res.ok || res.capped ? undefined : res.error, capped: !!res.capped }
+}
+
+/** Is a published compare or best-time copy row still safe to show? Same rule as getUsablePageCopy: the page must exist (a
+ * best-time page needs a dated, still bookable published trip for the destination; a compare page needs both destinations
+ * to have a published trip) and the copy may not link to a trip the page no longer lists. */
+export function pageCopyIsUsable(path: string, linkedSlugs: string[] | null | undefined, trips: { slug: string | null; destination: string | null; available_from?: unknown; available_to?: unknown }[], today: string): boolean {
+  const destSlug = (t: { destination: string | null }) => generateSlug(String(t.destination ?? ''))
+  let current: string[] = []
+  const bt = /^\/best-time-to-visit\/([^/]+)$/.exec(path)
+  if (bt) {
+    const dated = trips.filter((t) => destSlug(t) === bt[1] && !!t.available_from && !!t.available_to && String(t.available_to) >= today)
+    if (dated.length === 0) return false
+    current = dated.map((t) => String(t.slug))
+  } else {
+    const cm = /^\/compare\/([^/]+)$/.exec(path)
+    if (!cm) return false
+    const slugs = [...new Set(trips.map(destSlug).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+    let pair: [string, string] | null = null
+    for (let i = 0; i < slugs.length && !pair; i++) for (let j = i + 1; j < slugs.length; j++) if (`${slugs[i]}-vs-${slugs[j]}` === cm[1]) { pair = [slugs[i], slugs[j]]; break }
+    if (!pair) return false
+    current = trips.filter((t) => pair!.includes(destSlug(t))).map((t) => String(t.slug))
+  }
+  return staleLinkedSlugs(linkedSlugs, current).length === 0
 }
 
 /** The pages that are not rows in a table: home, who we are, the blog index and the index of each guide kind. */
@@ -378,16 +434,23 @@ export function staticUsageDocs(): UsageDoc[] {
 }
 
 /** Every public page we can list from the database, as documents. At most MAX_USAGE_DOCS are returned; totalDocs says how many exist (capped at the number read). */
-export async function loadUsageDocs(admin: SupabaseClient, now: Date = new Date()): Promise<{ docs: UsageDoc[]; totalDocs: number; error?: string; notes?: string[] }> {
+export async function loadUsageDocs(admin: SupabaseClient, now: Date = new Date()): Promise<{ docs: UsageDoc[]; totalDocs: number; error?: string; notes?: string[]; dropped?: Record<string, number> }> {
   const [guidesRes, postsRes, tripsRes, blurbsRes, copyRes] = await Promise.all([
     readRows<GuideRow>(admin, 'guides', 'kind, slug, name, summary, key_takeaways, body, faq', 'slug', (q) => q.eq('status', 'published')),
     readRows<Post>(admin, 'posts', '*', 'slug', (q) => q.eq('status', 'published')),
     readRows<TripRow>(admin, 'travel_packages', '*', 'slug', (q) => q.eq('status', 'published')),
     readRows<BlurbRow>(admin, 'destination_blurbs', 'slug, destination, blurb', 'slug', (q) => q),
-    readRows<CopyRow>(admin, 'page_copy', 'path, intro, key_takeaways, faq', 'path', (q) => q.eq('status', 'published')),
+    readRows<CopyRow>(admin, 'page_copy', 'path, linked_slugs, intro, key_takeaways, faq', 'path', (q) => q.eq('status', 'published')),
   ])
   if (guidesRes.error && postsRes.error) return { docs: [], totalDocs: 0, error: guidesRes.error }
-  const notes = [guidesRes, postsRes, tripsRes, blurbsRes, copyRes].flatMap((r, i) => (r.error ? [`${['guides', 'posts', 'trips', 'destination blurbs', 'page copy'][i]}: ${r.error}`] : []))
+  // Anything that could not be read in full is named, so Preview never says "not found anywhere" about a place it could not see.
+  // A table that does not exist yet (an older database) simply has no pages, so it is not a gap.
+  const names = ['guides', 'posts', 'trips', 'destination blurbs', 'page copy']
+  const notes = [guidesRes, postsRes, tripsRes, blurbsRes, copyRes].flatMap((r, i) => {
+    if (r.error) return /does not exist|schema cache|could not find/i.test(r.error) && i >= 3 ? [] : [`${names[i]} (${r.error})`]
+    return r.capped ? [`${names[i]} (more than ${3 * 1000} rows, only the first ${3 * 1000} were read)`] : []
+  })
+  const today = now.toISOString().slice(0, 10)
 
   const docs: UsageDoc[] = staticUsageDocs()
 
@@ -401,8 +464,9 @@ export async function loadUsageDocs(admin: SupabaseClient, now: Date = new Date(
       pageType: isDestination ? 'destination' : 'guide',
       path: guidePath(g.kind, g.slug),
       title: g.name,
-      // The quick facts are counted under the title ("left"): that is where a page with no trip card shows them.
-      fields: guideFieldSet(g, isDestination ? 'destination' : 'guide', 'left').fields,
+      // Quick facts: up to 5 are scanned. A page shows 4 under the title, or 5 in the photo card when it has no trip card; the
+      // first four are the same sentences either way, so the scan covers both layouts.
+      fields: guideFieldSet(g, isDestination ? 'destination' : 'guide', 'right').fields,
     })
   }
 
@@ -414,7 +478,7 @@ export async function loadUsageDocs(admin: SupabaseClient, now: Date = new Date(
 
   const trips = tripsRes.rows.filter((t) => !!t.slug)
   for (const t of trips) {
-    docs.push({ context: 'trips', pageType: 'trip', path: `/packages/${t.slug}`, title: t.name, fields: tripFieldSet(t as Parameters<typeof tripFieldSet>[0], now.toISOString().slice(0, 10)).fields })
+    docs.push({ context: 'trips', pageType: 'trip', path: `/packages/${t.slug}`, title: t.name, fields: tripFieldSet(t as Parameters<typeof tripFieldSet>[0], today).fields })
   }
 
   // A destination page with no guide shows the destination's intro blurb (only when the destination has a published trip).
@@ -428,10 +492,17 @@ export async function loadUsageDocs(admin: SupabaseClient, now: Date = new Date(
   for (const c of copyRes.rows) {
     const kind = /^\/compare\/[^/]+$/.test(c.path) ? 'compare' : /^\/best-time-to-visit\/[^/]+$/.test(c.path) ? 'best-time' : null
     if (!kind) continue
+    // The page shows this copy only when it is "usable" (see getUsablePageCopy): the page exists and no linked trip is gone.
+    if (!pageCopyIsUsable(c.path, c.linked_slugs, tripsRes.rows, today)) continue
     docs.push({ context: 'pages', pageType: kind, path: c.path, title: c.path, fields: pageCopyFieldSet(c, kind).fields })
   }
 
-  return { docs: docs.slice(0, MAX_USAGE_DOCS), totalDocs: docs.length, notes }
+  const dropped: Record<string, number> = {}
+  for (const d of docs.slice(MAX_USAGE_DOCS)) {
+    const label = PAGE_TYPE_LABEL[pageTypeOfDoc(d)]
+    dropped[label] = (dropped[label] ?? 0) + 1
+  }
+  return { docs: docs.slice(0, MAX_USAGE_DOCS), totalDocs: docs.length, notes, dropped }
 }
 
 export async function loadKeywordRows(admin: SupabaseClient): Promise<{ rows: KeywordRow[]; missing: boolean; error?: string }> {
@@ -459,7 +530,7 @@ export async function rescanSite(admin: SupabaseClient, now: Date = new Date()):
     if (kw.error) return { ok: false, error: kw.error }
     const site = await loadUsageDocs(admin, now)
     if (site.error) return { ok: false, error: site.error }
-    const report = fitReport(buildUsageReport(site.docs, kw.rows, { now, totalDocs: site.totalDocs }))
+    const report = fitReport(buildUsageReport(site.docs, kw.rows, { now, totalDocs: site.totalDocs, notes: site.notes, dropped: site.dropped }))
     const saved = await setSetting(admin, USAGE_SETTING_KEY, JSON.stringify(report))
     if (saved.error) return { ok: false, error: saved.error }
     return { ok: true, report }

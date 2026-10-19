@@ -49,7 +49,7 @@ async function runFinder(admin: SupabaseClient, v: { phrase: string; scope: stri
   try {
     const site = await loadUsageDocs(admin)
     if (site.error || !isLinkScope(v.scope)) return null
-    return previewRule(site.docs, { phrase: v.phrase, scope: v.scope, max_per_page: v.max_per_page }, { totalDocs: site.totalDocs })
+    return previewRule(site.docs, { phrase: v.phrase, scope: v.scope, max_per_page: v.max_per_page }, { totalDocs: site.totalDocs, notes: site.notes, dropped: site.dropped })
   } catch {
     return null
   }
@@ -142,7 +142,7 @@ export async function previewKeyword(admin: SupabaseClient, body: Record<string,
 
   const site = await loadUsageDocs(admin)
   if (site.error) return fail(500, site.error)
-  const result = previewRule(site.docs, { phrase, scope, max_per_page: max }, { totalDocs: site.totalDocs })
+  const result = previewRule(site.docs, { phrase, scope, max_per_page: max }, { totalDocs: site.totalDocs, notes: site.notes, dropped: site.dropped })
   const warnings = [...result.warnings]
   const rows = await allRows(admin)
   if (!('error' in rows)) {

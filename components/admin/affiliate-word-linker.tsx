@@ -246,9 +246,14 @@ export function AffiliateWordLinker({
             {preview.pageCount === 0 && preview.explanation && (
               <div className="space-y-1 rounded border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs" data-preview-explanation>
                 <p>{preview.explanation}</p>
-                <p className="font-medium">{preview.emptyNotice}</p>
+                {preview.emptyNotice && <p className="font-medium">{preview.emptyNotice}</p>}
                 <p>You can still press Save and turn on.</p>
               </div>
+            )}
+            {preview.hints && preview.hints.length > 0 && (
+              <ul className="space-y-0.5 text-xs text-muted-foreground" data-preview-hints>
+                {preview.hints.map((h) => <li key={h}>{h}</li>)}
+              </ul>
             )}
             {preview.warnings.length > 0 && (
               <ul className="space-y-1">
@@ -287,7 +292,7 @@ export function AffiliateWordLinker({
               <h3 className="font-semibold">Linked phrases</h3>
               <p className="text-xs text-muted-foreground">
                 {report
-                  ? `Checked ${report.scanned} page${report.scanned === 1 ? "" : "s"}${typeof report.places === "number" ? ` in ${report.places} place${report.places === 1 ? "" : "s"}` : ""} on ${new Date(report.generatedAt).toLocaleString("en-CA")}.${report.truncated ? ` The site has ${report.totalDocs} pages; only the first ${report.scanned} are checked.` : ""}`
+                  ? `Checked ${report.scanned} page${report.scanned === 1 ? "" : "s"}${typeof report.places === "number" ? ` in ${report.places} place${report.places === 1 ? "" : "s"}` : ""} on ${new Date(report.generatedAt).toLocaleString("en-CA")}.${report.truncated ? ` The site has ${report.totalDocs} pages; only the first ${report.scanned} are checked${report.dropped ? ` (not checked: ${Object.entries(report.dropped).map(([l, n]) => `${l} ${n}`).join(", ")})` : ""}.` : ""}${report.notes?.length ? ` Could not read all of: ${report.notes.join("; ")}.` : ""}`
                   : "The numbers appear after the first scan."}
               </p>
             </div>

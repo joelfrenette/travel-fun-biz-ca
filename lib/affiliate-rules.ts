@@ -73,28 +73,56 @@ export function rowsToRules(rows: JoinedRow[] | null | undefined): AffiliateRule
 export const RULES_TTL_MS = 60_000
 let cache: { at: number; rules: AffiliateRule[] } | null = null
 
+/** A slow database must not slow a public page down: after this long the page renders with no word links. */
+export const RULES_TIMEOUT_MS = 1500
+let inFlight: Promise<AffiliateRule[]> | null = null
+
 export function clearAffiliateRulesCache(): void {
   cache = null
+  inFlight = null
 }
 
-/** The ON rules whose link is ON, for the public pages. One query (the keyword rows with their link joined), kept in
- * memory for 60 seconds. FAILS OPEN: any error, or migration 0050 not applied yet, is "no rules" (no links, never a 500). */
-export async function loadAffiliateRules(opts: { client?: SupabaseClient; now?: number } = {}): Promise<AffiliateRule[]> {
-  const now = opts.now ?? Date.now()
-  if (cache && now - cache.at < RULES_TTL_MS) return cache.rules
-  let rules: AffiliateRule[] = []
+async function queryRules(db: SupabaseClient): Promise<AffiliateRule[]> {
   try {
-    const db = opts.client ?? getSupabaseAdmin()
     const res = await db
       .from('affiliate_keywords')
       .select('id, phrase, scope, max_per_page, link_id, affiliate_links!inner(slug, status, url)')
       .eq('status', 'on')
       .order('created_at')
       .limit(1000)
-    if (!res.error) rules = rowsToRules((res.data ?? []) as unknown as JoinedRow[])
+    return res.error ? [] : rowsToRules((res.data ?? []) as unknown as JoinedRow[])
   } catch {
-    rules = []
+    return []
   }
-  cache = { at: now, rules }
-  return rules
+}
+
+/** The ON rules whose link is ON, for the public pages. One query (the keyword rows with their link joined), kept in
+ * memory for 60 seconds; requests that arrive while it runs share that one query. FAILS OPEN: any error, a query slower
+ * than RULES_TIMEOUT_MS, or migration 0050 not applied yet, is "no rules" (no links, never a 500, never a hung page). */
+export async function loadAffiliateRules(opts: { client?: SupabaseClient; now?: number; timeoutMs?: number } = {}): Promise<AffiliateRule[]> {
+  const now = opts.now ?? Date.now()
+  if (cache && now - cache.at < RULES_TTL_MS) return cache.rules
+  if (inFlight) return inFlight
+  let run: Promise<AffiliateRule[]>
+  try {
+    run = queryRules(opts.client ?? getSupabaseAdmin())
+  } catch {
+    run = Promise.resolve([])
+  }
+  const timeoutMs = opts.timeoutMs ?? RULES_TIMEOUT_MS
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const guarded = Promise.race([
+    run.then((r) => ({ rules: r, timedOut: false })),
+    new Promise<{ rules: AffiliateRule[]; timedOut: boolean }>((resolve) => {
+      timer = setTimeout(() => resolve({ rules: [], timedOut: true }), timeoutMs)
+    }),
+  ]).then((out) => {
+    if (timer) clearTimeout(timer)
+    // A timed-out read is remembered for only 5 seconds (not a minute), so pages are not each held up while the database is slow.
+    cache = { at: out.timedOut ? now - (RULES_TTL_MS - 5000) : now, rules: out.rules }
+    inFlight = null
+    return out.rules
+  })
+  inFlight = guarded
+  return guarded
 }

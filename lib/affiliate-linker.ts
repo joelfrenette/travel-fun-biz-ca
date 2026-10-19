@@ -96,7 +96,7 @@ export function phraseProblem(raw: unknown): string | null {
 //    apostrophes matches, so "croatia tours" also finds "Croatia-tours", "Croatia  tours" and "Croatia&nbsp;tours";
 //  - an apostrophe INSIDE a word of the phrase is optional ("children's tours" finds "childrens tours" too);
 //  - the LAST word may carry a plural ending: the phrase as typed, plus an optional "s" or "es" ("croatia tour" also finds
-//    "Croatia tours"; "bus" also finds "buses"). Nothing else is guessed: no other word forms, no synonyms.
+//    "Croatia tours"). Not for a phrase of 3 characters or fewer ("us" never finds "uses"). Nothing else is guessed: no other word forms, no synonyms.
 const SEPARATORS = "\\s\\u00a0\\u2010-\\u2013\\-'\\u2018\\u2019\\u02bc\\u00b4`"
 const SEPARATOR_RUN = `[${SEPARATORS}]+`
 // The words of a phrase are split at spaces, hyphens and dashes. An apostrophe stays INSIDE its word (and is optional there).
@@ -113,13 +113,17 @@ const BEFORE = '(?<![\\p{L}\\p{N}_])'
 const AFTER = '(?![\\p{L}\\p{N}_])'
 const escapeRegex =(s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 
+/** The plural "s" or "es" rule is switched off for a phrase of 3 characters or fewer ("us" must not find "uses", "bus" finds
+ * only "bus"): such short words change meaning when an ending is added. */
+export const PLURAL_MIN_LENGTH = 4
+
 /** The regex source for one phrase (see the matching rules above). */
 function phraseSource(phrase: string): string {
   const words = phrase.split(WORD_SPLIT).map((w) => w.split(APOSTROPHES).filter(Boolean)).filter((pieces) => pieces.length > 0)
   return words
     .map((pieces, i) => {
       const body = pieces.map(escapeRegex).join(INNER_APOSTROPHE)
-      return i === words.length - 1 ? `${body}(?:e?s)?` : body
+      return i === words.length - 1 && phrase.length >= PLURAL_MIN_LENGTH ? `${body}(?:e?s)?` : body
     })
     .join(SEPARATOR_RUN)
 }

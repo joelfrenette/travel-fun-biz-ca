@@ -14,7 +14,7 @@ import {
   tripFieldSet, pageCopyFieldSet, homeFieldSet, whoWeAreFieldSet, blogIndexFieldSet, guideIndexFieldSet, type LinkedFields, type TextField,
 } from '../lib/affiliate-text-sources'
 import {
-  previewRule, buildUsageReport, loadUsageDocs, rescanSite, staticUsageDocs, coverageSentence, breakdownLabel, MAX_USAGE_DOCS, PREVIEW_SHOWN, NO_PAGE_NOTICE, type UsageDoc,
+  previewRule, buildUsageReport, loadUsageDocs, rescanSite, pageCopyIsUsable, staticUsageDocs, coverageSentence, breakdownLabel, MAX_USAGE_DOCS, PREVIEW_SHOWN, NO_PAGE_NOTICE, type UsageDoc,
 } from '../lib/affiliate-usage'
 import { createKeyword, previewKeyword } from '../lib/affiliate-keyword-actions'
 import { resetUsageDebounce } from '../lib/affiliate-refresh'
@@ -170,7 +170,8 @@ async function main() {
   expect('spaces, line breaks and non-breaking spaces (also as &nbsp; and &#160;) are collapsed', m('croatia tours', '<p>Croatia   tours</p>') === 1 && m('croatia tours', '<p>Croatia\ntours</p>') === 1 && m('croatia tours', '<p>Croatia tours</p>') === 1 && m('croatia tours', '<p>Croatia&nbsp;tours</p>') === 1 && m('croatia tours', '<p>Croatia&#160;tours</p>') === 1 && m('croatia tours', '<p>Croatia&#xa0;tours</p>') === 1)
   expect('an entity that is not a space is left alone: "&amp;" is not part of a word', m('amp', '<p>R&amp;B</p>') === 0 && linkKeywords('<p>Fish &amp; Croatia&nbsp;tours</p>', [rule(P)], { context: 'blog' }).output.includes('Fish &amp; <a '))
   expect('a text node with no link keeps its &nbsp; exactly as written', linkKeywords('<p>Plain&nbsp;words &amp; more</p>', [rule(P)], { context: 'blog' }).output === '<p>Plain&nbsp;words &amp; more</p>')
-  expect('plural: the last word may carry s or es ("croatia tour" finds "Croatia tours"; "bus" finds "buses")', m('croatia tour', '<p>Croatia tours</p>') === 1 && m('croatia tour', '<p>Croatia tour</p>') === 1 && m('bus', '<p>two buses</p>') === 1 && m('bus', '<p>a busy day</p>') === 0)
+  expect('plural: the last word may carry s or es ("croatia tour" finds "Croatia tours"; "bush" finds "bushes")', m('croatia tour', '<p>Croatia tours</p>') === 1 && m('croatia tour', '<p>Croatia tour</p>') === 1 && m('bush', '<p>two bushes</p>') === 1 && m('bush', '<p>a bushy day</p>') === 0)
+  expect('plural is OFF for a phrase of 3 characters or fewer ("us" never finds "uses", "bus" never finds "buses")', m('us', '<p>He uses it</p>') === 0 && m('us', '<p>Join us today</p>') === 1 && m('bus', '<p>two buses</p>') === 0 && m('bus', '<p>the bus</p>') === 1 && m('car', '<p>cars</p>') === 0 && m('cars', '<p>cars</p>') === 1)
   expect('plural: only the last word, only s or es, nothing else guessed', m('croatia tours', '<p>Croatias tours</p>') === 0 && m('tour', '<p>touring tours</p>') === 1 && m('tour', '<p>touring</p>') === 0 && m('tour', '<p>toured</p>') === 0)
   expect('an apostrophe inside a word is optional ("children\'s tours" finds "childrens tours" and the curly apostrophe)', m("children's tours", '<p>Children’s tours</p>') === 1 && m("children's tours", '<p>childrens tours</p>') === 1 && m("children's tours", "<p>children's tours</p>") === 1 && m('croatia tours', "<p>Croatia's tours</p>") === 0)
   expect('plain text fields match the same way (no HTML involved)', (() => { const r = linkTextParts('Our Croatia-tours and Croatia tours.', [rule('croatia tours', 'viator', { max_per_page: 3 })], { context: 'blog' }); return r.count === 2 })())
@@ -366,8 +367,8 @@ async function main() {
       ],
       posts: [{ id: 'p1', title: 'Post', slug: 'p1', body: `Read about ${P}.`, faq: [{ q: 'q', a: `Yes ${P}.` }], tags: [], status: 'published', publish_date: '2026-01-01T00:00:00Z', related_package_id: null, key_takeaways: null }],
       travel_packages: [
-        { id: 't1', slug: 't1', name: 'Croatia trip', destination: 'Croatia', status: 'published', available_to: '2999-01-01', full_description: `Our ${P}.`, highlights: [`${P} by boat`] },
-        { id: 't2', slug: 't2', name: 'Greece trip', destination: 'Greece', status: 'published', available_to: '2999-01-01', full_description: 'Greek isles.', highlights: [] },
+        { id: 't1', slug: 't1', name: 'Croatia trip', destination: 'Croatia', status: 'published', available_from: '2026-01-01', available_to: '2999-01-01', full_description: `Our ${P}.`, highlights: [`${P} by boat`] },
+        { id: 't2', slug: 't2', name: 'Greece trip', destination: 'Greece', status: 'published', available_from: '2026-01-01', available_to: '2999-01-01', full_description: 'Greek isles.', highlights: [] },
         { id: 't3', slug: 't3', name: 'Draft trip', destination: 'Spain', status: 'draft', available_to: '2999-01-01', full_description: P, highlights: [] },
       ],
       destination_blurbs: [
@@ -420,6 +421,96 @@ async function main() {
   const partial: Db = { tables: { guides: [], posts: [] } }
   const part = await loadUsageDocs(fakeAdmin(partial))
   expect('missing tables (trips, blurbs, copy) just add nothing: the fixed pages are still checked', !part.error && part.docs.length === staticUsageDocs().length)
+
+  // ---------- 14b. QA fixes: a page with NO rules renders exactly what it rendered before WP23 ----------
+  const noRules = (fields: TextField[], ctx: PageContext) => linkPageFields(fields, [], ctx)
+  expect('no links: the disclosure wrapper does not exist (no empty space on the home or compare page)', renderToStaticMarkup(React.createElement(AffiliateAutoDisclosure, { count: 0, language: 'en', wrapperClassName: 'mx-auto mt-6 max-w-2xl text-center' })) === '' && /^<div class="mx-auto mt-6 max-w-2xl text-center"><p /.test(renderToStaticMarkup(React.createElement(AffiliateAutoDisclosure, { count: 1, language: 'en', wrapperClassName: 'mx-auto mt-6 max-w-2xl text-center' }))))
+  for (const f of ['app/page.tsx', 'app/compare/[pair]/page.tsx', 'app/best-time-to-visit/[destination]/page.tsx', 'app/who-we-are/page.tsx', 'app/packages/[slug]/page.tsx', 'app/blog/page.tsx', 'components/guide-index-page.tsx']) {
+    expect(`${f}: no wrapper element is left around the disclosure line`, !/<div[^>]*>\s*<AffiliateAutoDisclosure/.test(read(f)))
+  }
+  // The trip description: with no rules, one <span> per text run and the same site links as before (captured from main).
+  const descField = (value: string): TextField => ({ id: 'd', key: 'trip.description', format: 'linkified', value })
+  const LINK_CLASS = 'class="text-primary underline underline-offset-2 hover:no-underline"'
+  const d1 = descField('Hello [See](/packages/x) there')
+  const d2 = descField('Related: [Spain](/packages/spain)')
+  const d3 = descField('Just plain words.')
+  expect('trip description, no rules: markup equals the old LinkifiedText output (spans per run, same site link)',
+    renderField(d1, noRules([d1], 'trips')) === `<span>Hello </span><a ${LINK_CLASS} href="/packages/x">See</a><span> there</span>` &&
+    renderField(d2, noRules([d2], 'trips')) === `<span>Related: </span><a ${LINK_CLASS} href="/packages/spain">Spain</a><span></span>` &&
+    renderField(d3, noRules([d3], 'trips')) === '<span>Just plain words.</span>', renderField(d1, noRules([d1], 'trips')))
+  const withRules = renderField(d1, link([d1], [rule('hello')], 'trips'))
+  expect('trip description, with a rule: the phrase is linked and the site link is untouched', count(withRules) === 1 && withRules.includes(`href="/packages/x"`))
+  const bullet = (child: unknown) => renderToStaticMarkup(React.createElement('li', { className: 'flex gap-2 text-muted-foreground' }, React.createElement('span', { className: 'mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary' }), child as React.ReactNode))
+  const hl = text('Wine tasting', 'trip.highlights')
+  expect('trip highlights and recap highlights, no rules: no extra <span> around the text', bullet(React.createElement(AffiliateParts, { parts: noRules([hl], 'trips').parts(hl) })) === bullet(hl.value) && !bullet(React.createElement(AffiliateParts, { parts: noRules([hl], 'trips').parts(hl) })).includes('<span>Wine'))
+  const inc = text('Hotel', 'trip.included')
+  const li = (child: unknown) => renderToStaticMarkup(React.createElement('li', null, '✓ ', child as React.ReactNode))
+  expect('included lines, itinerary text and FAQ answers, no rules: same markup as plain text', li(React.createElement(AffiliateParts, { parts: noRules([inc], 'trips').parts(inc) })) === li(inc.value))
+  // the hero sentence: plain text unless a link was really added
+  let heroPlain = ''
+  let heroNoRules = ''
+  let heroLinked = ''
+  try {
+    const { HeroSection } = await import('../components/hero-section')
+    const hf = homeFieldSet('en').hero
+    heroPlain = renderToStaticMarkup(React.createElement(HeroSection, { language: 'en' }))
+    heroNoRules = renderToStaticMarkup(React.createElement(HeroSection, { language: 'en', descriptionParts: noRules([hf], 'pages').parts(hf) }))
+    heroLinked = renderToStaticMarkup(React.createElement(HeroSection, { language: 'en', descriptionParts: link([hf], [rule('group adventures')], 'pages').parts(hf) }))
+  } catch (e) {
+    heroPlain = `ERR ${(e as Error).message}`
+  }
+  expect('hero sentence, no rules: markup equals the old markup (no new span)', heroPlain.length > 100 && heroNoRules === heroPlain && !heroNoRules.includes('[&amp;_a]:text-white'), heroPlain.slice(0, 120))
+  expect('hero sentence, with a link: the span that keeps the link readable on the dark photo is added', heroLinked.includes('[&amp;_a]:text-white') && count(heroLinked) === 1)
+
+  // ---------- 14c. QA fixes: the rules read cannot hang or stampede a page ----------
+  clearAffiliateRulesCache()
+  let queries = 0
+  const slowClient = (ms: number, rows: unknown[]) => ({
+    from: () => {
+      const q: Record<string, unknown> = { select: () => q, eq: () => q, order: () => q, limit: () => (queries++, new Promise((res) => setTimeout(() => res({ data: rows, error: null }), ms))) }
+      return q
+    },
+  }) as never
+  const okRow = { id: 'k1', phrase: P, scope: 'all', max_per_page: 3, affiliate_links: { slug: 'viator', status: 'active', url: 'https://merchant.shopco.com/a' } }
+  const tSlow = Date.now()
+  const slowRules = await loadAffiliateRules({ client: slowClient(5000, [okRow]), timeoutMs: 100, now: 10 })
+  expect('a slow rules read gives up after the timeout and the page renders with no links', slowRules.length === 0 && Date.now() - tSlow < 2000, `${Date.now() - tSlow} ms`)
+  clearAffiliateRulesCache()
+  queries = 0
+  const shared = await Promise.all([1, 2, 3, 4, 5].map(() => loadAffiliateRules({ client: slowClient(50, [okRow]), now: 20 })))
+  expect('five requests at the same moment share ONE query', queries === 1 && shared.every((r) => r.length === 1))
+  clearAffiliateRulesCache()
+
+  // ---------- 14d. QA fixes: what the scan could not read is never reported as "not found" ----------
+  const gaps = previewRule(docs10, { phrase: 'zanzibar safaris', scope: 'all', max_per_page: 1 }, { notes: ['trips (boom)'] })
+  expect('a table that could not be read: the coverage line names it and "not found anywhere" is not claimed', /Could not read all of: trips \(boom\)\./.test(gaps.coverage) && !/was not found in any of them/.test(gaps.explanation ?? '') && /cannot say that no page uses it/.test(gaps.explanation ?? '') && gaps.emptyNotice === null)
+  expect('the hints say "a-b" and "a b" are one phrase, and short phrases get no plural', gaps.hints.some((h) => /one phrase/.test(h) && /croatia-tours/.test(h)) && previewRule(docs10, { phrase: 'us', scope: 'all', max_per_page: 1 }).hints.some((h) => /very short/.test(h) && /uses/.test(h)))
+  const failingTrips: Db = { tables: { guides: [], posts: [] } }
+  const flaky = fakeAdmin(failingTrips)
+  const realFrom = flaky.from.bind(flaky)
+  ;(flaky as unknown as { from: (t: string) => unknown }).from = (t: string) => (t === 'travel_packages' ? ((): unknown => { const q: unknown = new Proxy({}, { get: (_x, p) => (p === 'then' ? (res: (v: unknown) => unknown) => res({ data: null, error: { message: 'connection reset' } }) : () => q) }); return q })() : realFrom(t))
+  const flakySite = await loadUsageDocs(flaky as never)
+  expect('loadUsageDocs reports a failed table as a note, and the scan carries on with the rest', !flakySite.error && (flakySite.notes ?? []).some((x) => /trips \(connection reset\)/.test(x)) && flakySite.docs.length === staticUsageDocs().length)
+  const cappedDb: Db = { tables: { guides: [], posts: [], travel_packages: Array.from({ length: 3100 }, (_, i) => ({ id: `c${i}`, slug: `t-${String(i).padStart(4, '0')}`, name: `T${i}`, destination: `P${i}`, status: 'published', available_to: '2999-01-01', full_description: 'x', highlights: [] })) } }
+  const cappedSite = await loadUsageDocs(fakeAdmin(cappedDb))
+  expect('more rows than one scan reads (3 x 1000): the scan says so', (cappedSite.notes ?? []).some((x) => /trips \(more than 3000 rows/.test(x)))
+  expect('the 2000-page cut says which page types it dropped', (big.dropped?.['Trip pages'] ?? 0) === 110 && /Not checked: Trip pages 110\./.test(coverageSentence({ checkedPages: 2000, checkedPlaces: 5, truncated: true, scanned: 2000, totalDocs: 2110, dropped: big.dropped })))
+  const reportGaps = buildUsageReport(big.docs.slice(0, 20), [{ id: 'k1', phrase: P, scope: 'all', status: 'on' }], { totalDocs: 2110, notes: ['trips (x)'], dropped: { 'Trip pages': 110 } })
+  expect('the stored report keeps the notes and the dropped counts', reportGaps.notes?.[0] === 'trips (x)' && reportGaps.dropped?.['Trip pages'] === 110)
+  const stale = (path: string, linked: string[]) => pageCopyIsUsable(path, linked, [
+    { slug: 'cro-1', destination: 'Croatia', available_from: '2999-01-01', available_to: '2999-02-01' },
+    { slug: 'gre-1', destination: 'Greece', available_from: '2999-03-01', available_to: '2999-03-09' },
+    { slug: 'old-1', destination: 'Spain', available_from: '2020-01-01', available_to: '2020-01-09' },
+    { slug: 'undated', destination: 'Italy', available_from: null, available_to: null },
+  ], '2026-10-18')
+  expect('best-time and compare copy: only copy the page would really show is scanned', stale('/best-time-to-visit/croatia', ['cro-1']) && !stale('/best-time-to-visit/croatia', ['gone-1']) && !stale('/best-time-to-visit/spain', []) && !stale('/best-time-to-visit/italy', []) && stale('/compare/croatia-vs-greece', ['cro-1', 'gre-1']) && !stale('/compare/croatia-vs-greece', ['cro-1', 'zzz']) && !stale('/compare/greece-vs-croatia', []) && !stale('/compare/croatia-vs-nowhere', []))
+  const staleDb: Db = JSON.parse(JSON.stringify(wide))
+  ;(staleDb.tables.page_copy as Record<string, unknown>[]).push({ path: '/best-time-to-visit/greece', intro: 'Greek copy', key_takeaways: [], faq: [], status: 'published', linked_slugs: ['gone'] })
+  ;(staleDb.tables.page_copy as Record<string, unknown>[])[0].linked_slugs = ['t1']
+  const staleSite = await loadUsageDocs(fakeAdmin(staleDb), new Date('2026-10-18T00:00:00Z'))
+  expect('the scan drops copy that links to a trip the page no longer lists, and keeps copy whose trips are all still there', !staleSite.docs.some((d) => d.path === '/best-time-to-visit/greece') && staleSite.docs.some((d) => d.path === '/best-time-to-visit/croatia'))
+  const qf = guideFieldSet({ ...guideBase, key_takeaways: ['One. a', 'Two. b', 'Three. c', 'Four. d', 'Five. e', 'Six. f'] }, 'guide', 'right').facts.length
+  expect('quick facts are scanned for both layouts: up to five (four under the title are the same first four)', qf === 5 && guideFieldSet({ ...guideBase, key_takeaways: ['One. a', 'Two. b', 'Three. c', 'Four. d', 'Five. e'] }, 'guide', 'left').facts.length === 4)
 
   // ---------- 15. the written files hold no em dash ----------
   const newText = ['lib/affiliate-text-sources.ts', 'lib/affiliate-usage.ts', 'lib/path-links.ts', 'content/who-we-are.ts', 'components/affiliate-text.tsx', 'components/page-copy-parts.tsx', 'components/trip-journal.tsx', 'components/admin/affiliate-word-linker.tsx', 'scripts/check-affiliate-text-sources.ts']

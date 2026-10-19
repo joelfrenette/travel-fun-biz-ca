@@ -9,11 +9,11 @@ const LINK_ONLY = /^\[([^\]\n]{1,120})\]\((\/(?![/\\])[^)\s\\]*)\)$/
 
 export type PathSegment = { kind: 'text'; text: string } | { kind: 'path'; text: string; href: string }
 
-/** Splits plain text into ordinary text and site links, in order. Empty text pieces are kept out. */
+/** Splits plain text into ordinary text and site links, in order. Empty text pieces are KEPT (as the page always rendered
+ * them: one element per piece), so a page with no word links renders exactly the markup it rendered before WP23. */
 export function splitPathLinks(text: string): PathSegment[] {
   const out: PathSegment[] = []
   for (const part of String(text ?? '').split(LINK)) {
-    if (part === '') continue
     const m = LINK_ONLY.exec(part)
     out.push(m ? { kind: 'path', text: m[1], href: m[2] } : { kind: 'text', text: part })
   }
