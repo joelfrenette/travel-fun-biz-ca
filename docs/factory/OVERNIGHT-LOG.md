@@ -26,3 +26,9 @@
 - Why it helps: guides published before enrolment existed (or on a day the cap was used) get a social post one per day, so more organic and social traffic from content already written, with no manual work.
 - UAT: `pnpm dlx tsx scripts/check-guide-catchup.ts`. Live: with distribution mode prepare or auto, run the posting pass and see one old guide appear in the distribution queue (held for named businesses); a second run the same day adds none.
 - Migration: none.
+
+## Inline lead form on guide pages
+- What changed: new `components/guide-lead-form.tsx` (client form: name and email required, phone and one-line message optional, hidden `company_website` honeypot) mounted inside the `#guide-cta` section of `components/guide-cta.tsx`. It posts to the existing `/api/submit-lead` with package = the guide's linked trip, else Custom Package, plus `getAttribution()`, tracks `generate_lead` (method guide_form) and routes to `/thank-you`. Pure helpers in new `lib/guide-lead-form.ts` (payload, package fallback, required fields, 429 and network messages that offer `site.phone`). The guide page sticky bar and the header "Send an enquiry" button now point at `#guide-cta`; the "Ask us about your trip" enquiry link stays in the section as the no-JS fallback. No API route, no `lib/site.ts` change.
+- Why it helps: a guide reader can leave their details in place, in two fields, instead of going to another page first, so more guide traffic becomes leads.
+- UAT: `pnpm dlx tsx scripts/check-guide-lead-form.ts`. Live: open a guide page, tap Request Info (scrolls to the form), submit a test lead and land on /thank-you; the lead row carries the guide page path in attribution.
+- Migration: none.

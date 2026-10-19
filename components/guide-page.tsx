@@ -12,7 +12,7 @@ import { dbPackageToTravelPackage } from "@/lib/packages"
 import type { TravelPackage } from "@/types/travel"
 import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, relatedGuideCards, getPublishedTripRowsByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
-import { GuideCta, enquiryHref } from "@/components/guide-cta"
+import { GuideCta } from "@/components/guide-cta"
 import { StickyCta } from "@/components/sticky-cta"
 import { translate } from "@/lib/i18n"
 import { GuideThingsToDo } from "@/components/guide-things-to-do"
@@ -227,7 +227,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
               <p className="mt-2 text-sm text-muted-foreground"><time dateTime={guide.updated_at}>Updated {formatDate(guide.updated_at)}</time></p>
             )}
             <p className="mt-4 max-w-3xl text-pretty text-lg text-foreground">{guide.summary}</p>
-            <GuideHeaderActions name={guide.name} packageName={packages[0]?.name} guide={guide} feature={feature} language={language} />
+            <GuideHeaderActions name={guide.name} packageName={packages[0]?.name} guide={guide} feature={feature} language={language} formAnchor="#guide-cta" />
             </div>
             <GuideHeaderFeature feature={feature} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
           </div>
@@ -320,7 +320,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
       <StickyCta
         packageName={packages[0]?.name || guide.name}
         requestLabel={translate(language, "Request Info")}
-        requestHref={enquiryHref(packages[0]?.name)}
+        requestHref="#guide-cta"
         phone={site.phone}
         callLabel={translate(language, "Call or text now")}
       />
