@@ -20,3 +20,9 @@
 - Note: the guide page's request button points at the existing enquiry link (`enquiryHref`), since guides have no #enquire form.
 - UAT: `pnpm dlx tsx scripts/check-phone-link.ts`. Live: on a phone, open a guide or trip page, see the bar with Call or text now, tap it, and see `phone_click` in GA4 with page_path and method.
 - Migration: none.
+
+## Catch-up social enrolment for published guides that never got a post
+- What changed: `pickCatchUpGuide` (pure) and `runGuideCatchUp` in `lib/guide-distribution.ts`; `runDistribution` in `lib/distribution.ts` calls it once per posting pass, after the held-guide release and before the send. If today UTC single guide enrolment (GUIDE_ENROLMENTS_PER_DAY) is unused, it picks the oldest published guide with no ledger row and empty quality_notes (destinations first) and hands it to the existing `enrollGuideIfDue`, so the cap, held-for-named-businesses, kill switch, distribution mode and caption checks are unchanged. No new cron, `lib/guide-run.ts` untouched.
+- Why it helps: guides published before enrolment existed (or on a day the cap was used) get a social post one per day, so more organic and social traffic from content already written, with no manual work.
+- UAT: `pnpm dlx tsx scripts/check-guide-catchup.ts`. Live: with distribution mode prepare or auto, run the posting pass and see one old guide appear in the distribution queue (held for named businesses); a second run the same day adds none.
+- Migration: none.
