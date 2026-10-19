@@ -364,7 +364,7 @@ async function main() {
   const kwRoutes = ['app/api/admin/affiliate-keywords/route.ts', 'app/api/admin/affiliate-keywords/[id]/route.ts', 'app/api/admin/affiliate-keywords/preview/route.ts', 'app/api/admin/affiliate-keywords/rescan/route.ts']
   for (const f of kwRoutes) {
     const src = read(f)
-    const handlers = [...src.matchAll(/export async function (GET|POST|PATCH|DELETE)\(request: Request[^)]*\) \{\n  if \(!isAuthorized\(request\)\)/g)].length
+    const handlers = [...src.matchAll(/export async function (GET|POST|PATCH|DELETE)\(request: Request[^)]*\) \{\r?\n  if \(!isAuthorized\(request\)\)/g)].length
     const declared = [...src.matchAll(/export async function (GET|POST|PATCH|DELETE)\(/g)].length
     expect(`${f}: every handler checks isAuthorized first`, handlers === declared && declared > 0)
   }
