@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { ghlWebhookUnauthorized } from '@/lib/ghl-webhook-auth'
+import { handleOrderWrite } from '@/lib/webhook-order-result'
 import { belongsToThisSite, parseGhlOrder, recordOrder } from '@/lib/purchase-ledger'
 
 // Factory Phase 4: leads/CRM, inbound side. Dormant until GOHIGHLEVEL_WEBHOOK_SECRET is set in
@@ -50,11 +51,19 @@ export async function POST(request: Request) {
 
     const order = belongsToThisSite(body) ? parseGhlOrder(body) : null
     if (order) {
-      try {
-        await recordOrder(getSupabaseAdmin(), order, eventId)
-      } catch {
-        // the response GHL sees already succeeded; a ledger failure is logged, not surfaced.
-      }
+      // A failed save answers 500 so GoHighLevel retries (the upsert on provider + provider_order_id
+      // makes a retry safe), and the logged event is marked failed so Needs attention can show it.
+      const outcome = await handleOrderWrite(
+        async () => recordOrder(getSupabaseAdmin(), order, eventId),
+        async (errorText) => {
+          if (!eventId) return
+          const admin = getSupabaseAdmin()
+          const { data } = await admin.from('webhook_events').select('payload').eq('id', eventId).single()
+          const payload = { ...((data?.payload as Record<string, unknown> | null) ?? {}), order_error: errorText }
+          await admin.from('webhook_events').update({ status: 500, payload }).eq('id', eventId)
+        },
+      )
+      if (outcome.status === 500) return NextResponse.json({ error: 'Order could not be saved' }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true })

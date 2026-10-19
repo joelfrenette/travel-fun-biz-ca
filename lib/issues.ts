@@ -11,7 +11,8 @@ import { readEngineRun } from '@/lib/keyword-intel'
 import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX_GUIDE_ATTEMPTS } from '@/lib/guide-failures'
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { healLoopCard } from '@/lib/heal-loop'
-import { AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { orderWebhookFailureCount } from '@/lib/webhook-order-result'
+import { AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, ORDER_WEBHOOK_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
 import { failingSources, newsTableReady } from '@/lib/news-ingest'
 import { getNewsMode } from '@/lib/news-settings'
 import { sourceByKey } from '@/lib/news-sources'
@@ -203,6 +204,19 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     }
   } catch {
     // an unreadable audit is not worth failing the list
+  }
+
+  // Paid orders from GoHighLevel that could not be saved (the webhook answered 500 so GoHighLevel retries). Silent when none,
+  // or when the log cannot be read.
+  const failedOrders = await orderWebhookFailureCount(admin)
+  if (failedOrders > 0) {
+    issues.push({
+      id: ORDER_WEBHOOK_ISSUE_ID,
+      area: 'system',
+      title: `${failedOrders} paid order${failedOrders === 1 ? '' : 's'} from GoHighLevel could not be saved`,
+      detail: 'In the last 7 days the order ledger refused a write. GoHighLevel was told to retry, and a retry cannot double count an order.',
+      fix: 'Wait about an hour for the retry. If it is still here tomorrow, check the orders table in Supabase and the SUPABASE_SERVICE_ROLE_KEY in Vercel, then retry the failed calls in GoHighLevel.',
+    })
   }
 
   // Parts of a "Promote this package" click that did not work (WP15). One item lists every trip and the parts that failed.

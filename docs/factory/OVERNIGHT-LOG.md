@@ -39,3 +39,9 @@
 - Note: a replacement counts as one entry in the guide failure log, so it also counts toward the existing 24h breaker and shows in Needs attention as a plain-English reason.
 - UAT: `pnpm dlx tsx scripts/check-guide-retry.ts`. Live: reject a draft in the review queue, wait 2 days (or backdate in a test), run the guides step and see it rewritten; reject again and see it no longer offered.
 - Migration: none (degrades to old behaviour before 0041, where there is no review_state column).
+
+## Webhook no longer swallows failed order writes
+- What changed: `app/api/ghl/webhook/route.ts` now runs the order save through the new pure helper `handleOrderWrite` in `lib/webhook-order-result.ts`. If `recordOrder` returns `{error}` or throws, the already-logged `webhook_events` row is updated to status 500 with a short, personal-data-free `order_error` note in its payload, and the route answers 500 so GoHighLevel retries (the upsert on provider + provider_order_id makes a retry safe). Success path and auth are unchanged. `lib/issues.ts` adds one Needs attention item (`ORDER_WEBHOOK_ISSUE_ID`, plain steps in `lib/plain-steps.ts`) when failed order events exist in the last 7 days; a missing table or column gives no item.
+- Why it helps: a paid order that failed to save used to vanish silently (GoHighLevel saw success and never retried), which hid revenue and bookings. Now it is retried automatically and shown to Joel if it keeps failing.
+- UAT: `pnpm dlx tsx scripts/check-webhook-order-failure.ts`. Live: with a deliberately broken orders write in a test, the webhook answers 500 and the event row shows status 500 with order_error; a retry that works answers 200.
+- Migration: none (reuses webhook_events.status and payload).

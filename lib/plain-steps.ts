@@ -29,6 +29,9 @@ export const HEAL_LOOP_ISSUE_ID = 'system:heal-loop-unreadable'
 /** The Needs attention item for parts of a "Promote this package" click that did not work (WP15). Same reason as above. */
 export const PROMOTION_ISSUE_ID = 'system:promotion-failing'
 
+/** The Needs attention item for paid orders from GoHighLevel that could not be saved to the ledger. Same reason as above. */
+export const ORDER_WEBHOOK_ISSUE_ID = 'system:order-webhook-failed'
+
 /** The Needs attention item for live guide pages that no other page links to (WP16). Same reason as above. */
 export const GUIDE_ORPHANS_ISSUE_ID = 'system:guide-orphans'
 
@@ -145,6 +148,23 @@ export function plainAction(i: Issue): PlainAction {
       steps: ['Open the Content Autopilot page with the link below.', 'Read the grey line. It lists the page addresses.', 'In the page copy card, find each of those addresses and click "Delete" on its row.', 'Click "Write one now" so a new intro is written from the trips you list today.', 'If you have turned the trip back on, you can skip this: the problem clears itself within a day.'],
       url: autopilot(i.id),
       urlLabel: 'Open this problem',
+      paste,
+    }
+  }
+  if (i.id === ORDER_WEBHOOK_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'GoHighLevel told the site about a paid order, but the site could not write it down. The site answered with an error on purpose, so GoHighLevel tries again by itself. Until it works, that sale is missing from your revenue numbers.',
+      steps: [
+        'Wait about an hour. GoHighLevel retries by itself, and a retry cannot count the same order twice.',
+        'If this item is still here tomorrow, open Supabase, then the Table editor, then the orders table, and check that it opens without an error.',
+        'Open Vercel, then your project, then Settings, then Environment Variables, and check SUPABASE_SERVICE_ROLE_KEY is there.',
+        'Open GoHighLevel, find the workflow that calls the site, and look at its history for the failed calls. Press the retry button on each one.',
+        'If it keeps failing, copy the message below and paste it to Claude.',
+      ],
+      url: 'https://app.gohighlevel.com',
+      urlLabel: 'Open GoHighLevel',
       paste,
     }
   }
