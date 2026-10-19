@@ -153,7 +153,11 @@ async function main() {
   expect('a thrown error fails open too', (await loadAffiliateRules({ client: stub('throw') as never, now: t0 })).length === 0)
   clearAffiliateRulesCache()
   const srcRules = read('lib/affiliate-rules.ts')
-  expect('the loader asks only for ON keywords and joins the link in the same query', /affiliate_links!inner\(slug, status\)/.test(srcRules) && /\.eq\('status', 'on'\)/.test(srcRules))
+  const seen: string[] = []
+  clearAffiliateRulesCache()
+  await loadAffiliateRules({ client: ({ from: (t: string) => { const q: Record<string, unknown> = { select: (c: string) => (seen.push(t + ':' + c), q), eq: (c: string, v: string) => (seen.push(c + '=' + v), q), order: () => q, limit: () => Promise.resolve({ data: [], error: null }) }; return q } }) as never, now: 9 })
+  clearAffiliateRulesCache()
+  expect('the loader makes ONE query: ON keywords with the link (slug, status, address) joined', seen.length === 2 && seen[0] === 'affiliate_keywords:id, phrase, scope, max_per_page, link_id, affiliate_links!inner(slug, status, url)' && seen[1] === 'status=on', seen.join(' | '))
 
   // ---------- 6. hostile phrases and content ----------
   expect('phrase validation: 2 to 80 characters, trimmed, no angle brackets', cleanPhrase('  Croatia   tours ') === 'Croatia tours' && cleanPhrase('a') === null && cleanPhrase('x'.repeat(81)) === null && cleanPhrase('x'.repeat(80)) !== null && cleanPhrase('<b>hi</b>') === null && cleanPhrase('a\u0000b') === null && cleanPhrase(5) === null)
@@ -176,10 +180,40 @@ async function main() {
   const big = '<p>' + 'Croatia tours '.repeat(100_000) + '</p>'
   const tBig = Date.now()
   const bigOut = link(big, R)
-  expect('input over 1 MB is returned untouched, instantly', bigOut.output === big && bigOut.count === 0 && Date.now() - tBig < 500)
-  const nearBig = '<p>' + 'x '.repeat(200_000) + 'Croatia tours</p>'
+  expect('input over 300 KB is returned untouched, instantly', bigOut.output === big && bigOut.count === 0 && Date.now() - tBig < 500)
+  const nearBig = '<p>' + 'x '.repeat(100_000) + 'Croatia tours</p>'
   const t1 = Date.now()
-  expect('a very long document is linked within a time limit', link(nearBig, R).count === 1 && Date.now() - t1 < 1500)
+  expect('a very long document is linked within a time limit', link(nearBig, R, 'blog', { budgetMs: 5000 }).count === 1 && Date.now() - t1 < 1500)
+  expect('a document just over 300 KB is returned untouched', link('<p>' + 'Croatia tours '.repeat(23_000) + '</p>', R).count === 0 && link('<p>' + 'Croatia tours '.repeat(20_000) + '</p>', R).count === 1)
+  // the QA case: many phrases made of repeated tokens against a long text
+  const chain = Array.from({ length: 200 }, (_, i) => rule('a '.repeat(38) + 'b' + i, `aa-${i % 30}`))
+  expect('phrases of repeated tokens are refused (never compiled)', compileRules(chain, 'blog').size === 0 && cleanPhrase('a b a b a b a b') === null && cleanPhrase('one two three four five six seven eight nine') === null && cleanPhrase('one two three four five six seven eight') !== null && cleanPhrase('big big big big cat') === null && cleanPhrase('big cat big dog') !== null)
+  expect('the admin sees why: too many words, too repetitive', /too many words/.test(phraseProblem('one two three four five six seven eight nine') ?? '') && /repeats the same words/.test(phraseProblem('a a a a b') ?? ''))
+  const tChain = Date.now()
+  link('<p>' + 'a '.repeat(10_000) + '</p>', chain)
+  expect('the QA pathological case (200 repeated-token phrases, 20 KB of text) is instant now', Date.now() - tChain < 200, `${Date.now() - tChain} ms`)
+  // legitimate but heavy: 200 long distinct phrases sharing a prefix, against 22 KB that matches the prefix everywhere
+  const heavy = Array.from({ length: 200 }, (_, i) => rule(`the quick brown fox jumps over the lazy${i}`, `hv-${i % 30}`))
+  const heavyText = '<p>' + 'the quick brown fox jumps over the lazy dog '.repeat(500) + '</p>'
+  const tHeavy = Date.now()
+  const heavyOut = link(heavyText, heavy)
+  expect('a heavy page finishes fast with the default 50 ms budget and never throws', Date.now() - tHeavy < 400 && heavyOut.output.length >= heavyText.length - 10, `${Date.now() - tHeavy} ms`)
+  const spent = newLinkerState(-1)
+  const noTime = link('<p>Croatia tours and Croatia tours</p>', R, 'blog', { state: spent })
+  expect('when the time budget is gone, linking stops: the page comes back whole, unlinked, and the state says so', noTime.output === '<p>Croatia tours and Croatia tours</p>' && noTime.count === 0 && spent.truncated)
+  const midState = newLinkerState(5000)
+  const first2 = link('<p>Croatia tours</p>', R, 'blog', { state: midState })
+  midState.budgetEnd = Date.now() - 1
+  const second2 = link('<p>Croatia tours again</p>', [rule('again', 'ag')], 'blog', { state: midState })
+  expect('links made before the budget ran out stay, later text is left alone', first2.count === 1 && second2.count === 0 && midState.truncated && midState.total === 1)
+  // minor: self-closing non-void tags are open; raw-text elements are opaque
+  expect('<h2/>, <a/> and <script/> open an element (a trailing slash means nothing in HTML)', none('<h2/>Croatia tours</h2>') && none('<a/>Croatia tours</a>') && none('<script/>Croatia tours</script>') && none('<h3 />Croatia tours</h3>'))
+  expect('xmp, plaintext, noembed, noframes, textarea and title content is opaque', none('<xmp>Croatia tours</xmp>') && none('<noembed>Croatia tours</noembed>') && none('<noframes>Croatia tours</noframes>') && none('<title>Croatia tours</title>') && none('<p>a</p><plaintext>Croatia tours <p>more') && none('<textarea><b>Croatia tours</textarea>'))
+  expect('text after an opaque element is linked again, and fake tags inside it do not confuse the scanner', link('<script>var a = "</b></a>"; if (1<2) {}</script><p>Croatia tours</p>', R).count === 1 && link('<xmp><a href="x"></xmp><p>Croatia tours</p>', R).count === 1 && link('<textarea></p></textarea><p>Croatia tours</p>', R).count === 1)
+  expect('an opaque element that never closes leaves the rest untouched', none('<p>x</p><script>never closed Croatia tours'))
+  // minor 7: the longest rule is used up, a shorter overlapping rule still gets its turn
+  const overlap = link('<p>Paris hotels and Paris hotels, Paris</p>', [rule('Paris hotels', 'long'), rule('Paris', 'short')])
+  expect('when the longest rule has used up its allowance a shorter overlapping rule takes over', anchors(overlap.output).join('|') === 'Paris hotels|Paris' && overlap.output.includes('/go/short') && overlap.output.includes('/go/long') && overlap.output.endsWith(', Paris</p>') && overlap.count === 2, overlap.output)
   const evil = '<a '.repeat(150_000)
   const t2 = Date.now()
   link(evil, R)

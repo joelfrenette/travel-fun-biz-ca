@@ -19,7 +19,11 @@ export const MAX_RULES = 200
 export const MAX_LINKS_PER_PAGE = 6
 export const MAX_PER_PHRASE = 3
 /** Longer input is returned untouched (a hostile or broken document cannot slow a page down). */
-export const MAX_INPUT_LENGTH = 1_000_000
+export const MAX_INPUT_LENGTH = 300_000
+/** Linking one page may take at most this long (milliseconds). After that the rest of the page is left unlinked. */
+export const LINK_BUDGET_MS = 50
+/** Text is matched in pieces of about this many characters, so the time budget is checked often enough to matter. */
+const CHUNK = 2000
 
 /** A rule that is ready to use: its keyword is ON and the link it points at is ON. */
 export interface AffiliateRule {
@@ -52,7 +56,17 @@ export function cleanPhrase(raw: unknown): string | null {
   const t = raw.replace(/\s+/g, ' ').trim()
   if (t.length < MIN_PHRASE_LENGTH || t.length > MAX_PHRASE_LENGTH) return null
   if (/[<>]/.test(t) || CONTROL.test(t)) return null
+  if (tooManyWords(t) || mostlyRepeated(t)) return null
   return t
+}
+
+/** A phrase of more than 8 words is not a phrase a writer repeats; it only slows matching down. */
+export const MAX_PHRASE_WORDS = 8
+const tooManyWords = (t: string) => t.split(' ').length > MAX_PHRASE_WORDS
+/** "a a a a b": three or more words of which fewer than half are different. Such phrases make the matcher do far more work. */
+function mostlyRepeated(t: string): boolean {
+  const words = t.toLowerCase().split(' ')
+  return words.length >= 3 && new Set(words).size * 2 < words.length
 }
 
 /** Why a phrase is not acceptable, in plain English (for the admin). Null when it is fine. */
@@ -63,28 +77,38 @@ export function phraseProblem(raw: unknown): string | null {
   if (t.length > MAX_PHRASE_LENGTH) return `The phrase is too long (${MAX_PHRASE_LENGTH} characters at most).`
   if (/[<>]/.test(t)) return 'The phrase cannot contain the < or > characters.'
   if (CONTROL.test(t)) return 'The phrase cannot contain line breaks or control characters.'
+  if (tooManyWords(t)) return `The phrase has too many words (${MAX_PHRASE_WORDS} at most).`
+  if (mostlyRepeated(t)) return 'The phrase repeats the same words too much. Use a normal phrase.'
   return null
 }
 
 export const phraseKey = (phrase: string): string => phrase.replace(/\s+/g, ' ').trim().toLowerCase()
 
-const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+const BEFORE = '(?<![\\p{L}\\p{N}_])'
+const AFTER = '(?![\\p{L}\\p{N}_])'
+const escapeRegex =(s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
 export interface CompiledRule {
   rule: AffiliateRule
   key: string
   max: number
+  /** The phrase as a regex source (spaces become any run of whitespace). */
+  source: string
+  /** Built the first time a longer rule has used up its allowance and this one is tried in its place. */
+  sticky?: RegExp
 }
 
 export interface CompiledRules {
   /** ONE combined case-insensitive regex, longest phrase first; null when there is nothing to match. */
   re: RegExp | null
   byKey: Map<string, CompiledRule>
+  /** The same rules, longest phrase first. */
+  list: CompiledRule[]
   size: number
 }
 
-export const EMPTY_COMPILED: CompiledRules = { re: null, byKey: new Map(), size: 0 }
+export const EMPTY_COMPILED: CompiledRules = { re: null, byKey: new Map(), list: [], size: 0 }
 
 const compiledCache = new WeakMap<AffiliateRule[], Map<PageContext, CompiledRules>>()
 
@@ -103,15 +127,13 @@ export function compileRules(rules: AffiliateRule[] | null | undefined, ctx: Pag
     const key = phraseKey(phrase)
     if (byKey.has(key)) continue
     const max = Math.min(MAX_PER_PHRASE, Math.max(1, Math.trunc(Number(rule.max_per_page)) || 1))
-    byKey.set(key, { rule: { ...rule, phrase }, key, max })
+    byKey.set(key, { rule: { ...rule, phrase }, key, max, source: phrase.split(' ').map(escapeRegex).join('\\s+') })
   }
   let out: CompiledRules = EMPTY_COMPILED
   if (byKey.size > 0) {
-    const alts = [...byKey.values()]
-      .sort((a, b) => b.rule.phrase.length - a.rule.phrase.length || (a.key < b.key ? -1 : 1))
-      .map((c) => c.rule.phrase.split(' ').map(escapeRegex).join('\\s+'))
+    const list = [...byKey.values()].sort((a, b) => b.rule.phrase.length - a.rule.phrase.length || (a.key < b.key ? -1 : 1))
     // Whole words only: the characters either side of the match may not be a letter, a digit or an underscore.
-    out = { re: new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alts.join('|')})(?![\\p{L}\\p{N}_])`, 'giu'), byKey, size: byKey.size }
+    out = { re: new RegExp(`${BEFORE}(?:${list.map((c) => c.source).join('|')})${AFTER}`, 'giu'), byKey, list, size: byKey.size }
   }
   const perCtx = compiledCache.get(rules) ?? new Map<PageContext, CompiledRules>()
   perCtx.set(ctx, out)
@@ -133,9 +155,14 @@ export interface LinkerState {
   total: number
   perKey: Map<string, number>
   linked: LinkedItem[]
+  /** Time budget for this page: starts at the first piece of text, in milliseconds. */
+  budgetMs: number
+  budgetEnd: number | null
+  /** True when the budget ran out and part of the page was left unlinked. */
+  truncated: boolean
 }
 
-export const newLinkerState = (): LinkerState => ({ total: 0, perKey: new Map(), linked: [] })
+export const newLinkerState = (budgetMs: number = LINK_BUDGET_MS): LinkerState => ({ total: 0, perKey: new Map(), linked: [], budgetMs, budgetEnd: null, truncated: false })
 
 /** One piece of linked text: plain text, or a phrase to turn into a link. */
 export type Part = string | { text: string; slug: string; ruleId: string }
@@ -147,6 +174,8 @@ export interface LinkOptions {
   state?: LinkerState
   /** Page-wide limit on automatic links. Default 6; never more than 6. */
   pageCap?: number
+  /** Time budget in milliseconds for a new state (default 50). Ignored when `state` is passed in. */
+  budgetMs?: number
 }
 
 export interface LinkResult {
@@ -158,9 +187,46 @@ export interface LinkResult {
 
 // ---------- the core: link inside one run of plain text ----------
 
+/** Is there still time? The clock starts at the first piece of text of the page. Once it runs out, nothing more is linked. */
+function timeLeft(state: LinkerState): boolean {
+  const now = Date.now()
+  if (state.budgetEnd === null) state.budgetEnd = now + state.budgetMs
+  if (now > state.budgetEnd) {
+    state.truncated = true
+    return false
+  }
+  return true
+}
+
+/** The text of rule `alt` starting exactly at `index`, if it is there as a whole word. */
+function matchRuleAt(alt: CompiledRule, text: string, index: number): string | null {
+  alt.sticky ??= new RegExp(`${BEFORE}(?:${alt.source})${AFTER}`, 'iuy')
+  alt.sticky.lastIndex = index
+  const m = alt.sticky.exec(text)
+  return m ? m[0] : null
+}
+
+/** Links inside one run of plain text, in pieces of about 2000 characters with the time budget checked between pieces. */
 function linkPlain(text: string, c: CompiledRules, state: LinkerState, cap: number, out: Part[]): void {
+  if (text.length <= CHUNK) {
+    linkChunk(text, c, state, cap, out)
+    return
+  }
+  let from = 0
+  while (from < text.length) {
+    let to = Math.min(text.length, from + CHUNK)
+    if (to < text.length) {
+      const space = text.lastIndexOf(' ', to)
+      if (space > from + CHUNK / 2) to = space + 1
+    }
+    linkChunk(text.slice(from, to), c, state, cap, out)
+    from = to
+  }
+}
+
+function linkChunk(text: string, c: CompiledRules, state: LinkerState, cap: number, out: Part[]): void {
   const re = c.re
-  if (!re || state.total >= cap || text.length < MIN_PHRASE_LENGTH) {
+  if (!re || state.total >= cap || text.length < MIN_PHRASE_LENGTH || !timeLeft(state)) {
     out.push(text)
     return
   }
@@ -169,16 +235,33 @@ function linkPlain(text: string, c: CompiledRules, state: LinkerState, cap: numb
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     if (state.total >= cap) break
-    const hit = c.byKey.get(phraseKey(m[0]))
+    let hit = c.byKey.get(phraseKey(m[0]))
+    let matched = m[0]
     if (!hit) continue
+    if ((state.perKey.get(hit.key) ?? 0) >= hit.max) {
+      // The longest rule here has used up its allowance: let a shorter rule that starts at the same place take it.
+      const longer = hit
+      hit = undefined
+      for (const alt of c.list) {
+        if (alt === longer || alt.rule.phrase.length >= longer.rule.phrase.length) continue
+        if ((state.perKey.get(alt.key) ?? 0) >= alt.max) continue
+        const found = matchRuleAt(alt, text, m.index)
+        if (found && found.length < matched.length) {
+          hit = alt
+          matched = found
+          break
+        }
+      }
+      if (!hit) continue
+      re.lastIndex = m.index + matched.length
+    }
     const used = state.perKey.get(hit.key) ?? 0
-    if (used >= hit.max) continue
     if (m.index > last) out.push(text.slice(last, m.index))
-    out.push({ text: m[0], slug: hit.rule.slug, ruleId: hit.rule.id })
+    out.push({ text: matched, slug: hit.rule.slug, ruleId: hit.rule.id })
     state.perKey.set(hit.key, used + 1)
     state.total += 1
-    state.linked.push({ ruleId: hit.rule.id, slug: hit.rule.slug, text: m[0], key: hit.key })
-    last = m.index + m[0].length
+    state.linked.push({ ruleId: hit.rule.id, slug: hit.rule.slug, text: matched, key: hit.key })
+    last = m.index + matched.length
   }
   re.lastIndex = 0
   if (last < text.length) out.push(text.slice(last))
@@ -195,7 +278,7 @@ function cap(opts: LinkOptions, state: LinkerState): number {
 
 /** Plain text in, parts out (React renders the strings escaped and the links as anchors). Never throws. */
 export function linkTextParts(text: string, rules: AffiliateRule[] | CompiledRules | null | undefined, opts: LinkOptions): { parts: Part[]; count: number; state: LinkerState } {
-  const state = opts.state ?? newLinkerState()
+  const state = opts.state ?? newLinkerState(opts.budgetMs)
   const before = state.total
   try {
     const c = Array.isArray(rules) || rules == null ? compileRules(rules as AffiliateRule[] | null, opts.context) : rules
@@ -216,6 +299,14 @@ const SKIP = new Set([
   'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'button', 'code', 'pre', 'kbd', 'samp', 'script', 'style', 'textarea', 'select', 'option', 'optgroup',
   'label', 'summary', 'svg', 'math', 'noscript', 'iframe', 'template', 'title', 'head', 'object', 'video', 'audio', 'canvas', 'figcaption',
 ])
+SKIP.add('xmp')
+SKIP.add('plaintext')
+SKIP.add('noembed')
+SKIP.add('noframes')
+// Raw-text elements: what is inside is not markup, so it is skipped to the matching close tag without looking for tags.
+// "plaintext" never ends (the rest of the document is its text).
+const OPAQUE = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'noembed', 'noframes', 'plaintext', 'iframe'])
+const closeTagRe = new Map<string, RegExp>()
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'])
 const HEADING = /^h[1-6]$/
 
@@ -306,8 +397,25 @@ export function mapHtmlText(html: string, fn: (text: string, zone: Zone | null) 
     if (closing) {
       const at = stack.lastIndexOf(name)
       if (at >= 0) stack.length = at
-    } else if (SKIP.has(name) && !VOID.has(name) && !/\/\s*$/.test(html.slice(attrsStart, j))) {
+    } else if (SKIP.has(name) && !VOID.has(name)) {
+      // A "self-closing" slash on a non-void element (<a/>, <h2/>, <script/>) does nothing in HTML: the element is open.
+      void attrsStart
       stack.push(name)
+      if (OPAQUE.has(name)) {
+        // Copy everything up to the matching close tag untouched; its content is never text.
+        let re = closeTagRe.get(name)
+        if (!re) closeTagRe.set(name, (re = new RegExp(`</${name}(?=[\\s/>])`, 'gi')))
+        re.lastIndex = j + 1
+        const close = name === 'plaintext' ? null : re.exec(html)
+        if (!close) {
+          out.push(html.slice(j + 1))
+          last = html.length
+          aborted = true
+          break
+        }
+        out.push(html.slice(j + 1, close.index))
+        last = i = close.index
+      }
     }
   }
   const tail = html.slice(last)
@@ -419,7 +527,7 @@ function linkMarkdown(md: string, c: CompiledRules, state: LinkerState, capN: nu
  * markdown renderer). The input string is never changed; a new string is returned. Never throws: any failure returns the
  * input unchanged (no links), and input over 1 MB is returned unchanged. */
 export function linkKeywords(input: string, rules: AffiliateRule[] | CompiledRules | null | undefined, opts: LinkOptions): LinkResult {
-  const state = opts.state ?? newLinkerState()
+  const state = opts.state ?? newLinkerState(opts.budgetMs)
   const format = opts.format ?? 'html'
   const before = state.total
   const fallback = (): LinkResult => ({ output: format === 'text' ? escapeHtml(String(input ?? '')) : String(input ?? ''), count: 0, state })
