@@ -17,7 +17,7 @@ import { styleById } from "@/lib/content-styles"
 import { PackageCard } from "@/components/package-card"
 import { GuideCta } from "@/components/guide-cta"
 import { listGuidesForPost, guideKinds, guidePath } from "@/lib/guides"
-import { linkPage } from "@/lib/affiliate-linker"
+import { blogFaq, blogTakeaways, blogFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 import { isNewsPost, newsArchived, newsHeading, newsSourceFromBody } from "@/lib/news-post"
@@ -59,14 +59,14 @@ export default async function BlogPostPage({ params }: Props) {
   const renderedBody = renderMarkdown(post.body)
   const hasQuickAnswer = /<p><strong>Quick answer:/.test(renderedBody)
   const bodyHtml = hasQuickAnswer ? renderedBody.replace(/<p>(<strong>Quick answer:)/, '<p class="quick-answer">$1') : renderedBody
-  const faq = (Array.isArray(post.faq) ? post.faq : []).filter((f) => f && typeof f.q === "string" && typeof f.a === "string" && f.q && f.a)
+  const faq = blogFaq(post)
   // Travel news (WP20): an ordinary post tagged travel-news. Its first key takeaway is only the social hook and repeats the
   // "What happened" line, so the takeaways box is not shown; the page shows an Updated date, the original source in its
   // markup (citation), and "Archived news" in the heading line once it is more than 30 days old. It is never unpublished.
   const isNews = isNewsPost(post)
   const archived = newsArchived(post)
   const newsSource = isNews ? newsSourceFromBody(post.body) : null
-  const takeaways = isNews ? [] : (Array.isArray(post.key_takeaways) ? post.key_takeaways : []).filter((t) => typeof t === "string" && t)
+  const takeaways = blogTakeaways(post, isNews)
   const keywords = [post.primary_keyword, ...(post.secondary_keywords ?? [])].filter((k): k is string => !!k)
   const section = styleById(post.content_style)?.label
   const wordCount = post.body.trim().split(/\s+/).filter(Boolean).length
@@ -79,9 +79,11 @@ export default async function BlogPostPage({ params }: Props) {
     // Word links (WP22): ON rules whose link is ON. Fails open (no rules, no links, never an error page).
     loadAffiliateRules(),
   ])
-  // The stored post is never changed: the rules are applied to the HTML about to be shown, body first and then the FAQ answers.
-  const linked = linkPage({ bodyHtml, faqAnswers: faq.map((f) => f.a) }, affiliateRules, "blog")
   const morePosts = pickRelatedPosts(post, allPosts, 3)
+  // The stored post is never changed: the rules are applied to the text about to be shown, in reading order and with one
+  // shared limit (3 per phrase, 6 per page): key takeaways, the article, the FAQ answers, then the related-post excerpts.
+  const fieldSet = blogFieldSet(post, { isNews, bodyHtml, moreExcerpts: morePosts.map((p) => p.meta_description ?? "") })
+  const linked = linkPageFields(fieldSet.fields, affiliateRules, "blog")
 
   // What the call to action names: the destination of the linked package when there is one, else the post primary keyword, else its title.
   const linkedPackage = post.related_package_id ? relatedPackages.find((p) => p.id === post.related_package_id) : undefined
@@ -174,14 +176,14 @@ export default async function BlogPostPage({ params }: Props) {
             <aside id="key-takeaways" className="mb-8 rounded-xl border bg-muted/30 p-5">
               <h2 className="mb-2 text-lg font-semibold text-foreground">Key takeaways</h2>
               <ul className="list-disc space-y-1 pl-5 text-foreground">
-                {takeaways.map((t, i) => <li key={i}>{t}</li>)}
+                {fieldSet.takeaways.map((f) => <li key={f.id}><AffiliateParts parts={linked.parts(f)} /></li>)}
               </ul>
             </aside>
           )}
 
           <div className="mb-8"><GuideCta name={ctaName} compact /></div>
 
-          <div className="markdown-body" dangerouslySetInnerHTML={{ __html: linked.bodyHtml }} />
+          <div className="markdown-body" dangerouslySetInnerHTML={{ __html: linked.html(fieldSet.body) }} />
 
           {faq.length > 0 && (
             <section className="mt-10" aria-labelledby="faq-heading">
@@ -190,7 +192,7 @@ export default async function BlogPostPage({ params }: Props) {
                 {faq.map((f, i) => (
                   <details key={i} className="group p-4">
                     <summary className="cursor-pointer font-medium text-foreground">{f.q}</summary>
-                    <p className="mt-2 text-muted-foreground"><AffiliateParts parts={linked.faq[i]} /></p>
+                    <p className="mt-2 text-muted-foreground"><AffiliateParts parts={linked.parts(fieldSet.faq[i])} /></p>
                   </details>
                 ))}
               </div>
@@ -203,7 +205,7 @@ export default async function BlogPostPage({ params }: Props) {
             <aside className="mt-10" aria-labelledby="more-stories-heading">
               <h2 id="more-stories-heading" className="mb-4 text-xl font-semibold text-foreground">More stories</h2>
               <ul className="grid gap-4 sm:grid-cols-3">
-                {morePosts.map((p) => (
+                {morePosts.map((p, i) => (
                   <li key={p.id} className="overflow-hidden rounded-xl border">
                     <Link href={`/blog/${p.slug}`} className="block">
                       {p.cover_image_url && (
@@ -212,7 +214,7 @@ export default async function BlogPostPage({ params }: Props) {
                       )}
                       <span className="block p-3 font-medium text-foreground hover:underline">{p.title}</span>
                     </Link>
-                    {p.meta_description && <p className="px-3 pb-3 text-sm text-muted-foreground line-clamp-2">{p.meta_description}</p>}
+                    {p.meta_description && <p className="px-3 pb-3 text-sm text-muted-foreground line-clamp-2"><AffiliateParts parts={linked.parts(fieldSet.moreStories[i])} /></p>}
                   </li>
                 ))}
               </ul>

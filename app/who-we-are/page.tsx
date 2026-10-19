@@ -6,6 +6,10 @@ import { Footer } from "@/components/footer"
 import { Button } from "@/components/ui/button"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
+import { WHO_WE_ARE_SECTIONS } from "@/content/who-we-are"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
+import { whoWeAreFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
+import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 
 // Added 2026-10-03 (roadmap_usecases 0181b4f4): a visitor landing on a "singles trip" package
 // from an ad or search result may reasonably wonder if this is a dating service. This page exists
@@ -25,13 +29,20 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title, description, images: [DEFAULT_OG_IMAGE] },
 }
 
-export default function WhoWeArePage() {
+const SECTION_ICONS = { connection: Heart, who: Users, agency: ShieldCheck } as const
+
+export default async function WhoWeArePage() {
   // `language` is forwarded to Header/Footer (whose nav/footer links are translated) but NOT used
   // for this page's own body copy below, unlike other top-level pages - deliberately English-only
   // for now rather than a silent gap. This is marketing/values copy where tone matters; translating
   // it accurately needs a real FR/ES pass, not a literal machine translation, so it's left as a
   // known scope gap rather than guessed at.
   const { language, currency } = getVisitorPreferences()
+  // Word links (WP23): the copy lives in content/who-we-are.ts and is linked in reading order with one shared limit.
+  // Fails open (no rules, no links). Headings are never linked.
+  const affiliateRules = await loadAffiliateRules()
+  const copy = whoWeAreFieldSet()
+  const linked = linkPageFields(copy.fields, affiliateRules, "pages")
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -41,39 +52,32 @@ export default function WhoWeArePage() {
           <div className="container mx-auto px-4 py-10">
             <h1 className="text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">Who We Are</h1>
             <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">
-              A straight answer to the question we get asked most about our singles and group trips: no, this isn&apos;t a dating service.
+              <AffiliateParts parts={linked.parts(copy.intro)} />
             </p>
           </div>
         </div>
 
         <div className="container mx-auto max-w-2xl space-y-8 px-4 py-10">
-          <section className="space-y-3">
-            <h2 className="flex items-center gap-2 text-xl font-bold uppercase text-foreground"><Heart className="h-5 w-5" aria-hidden="true" />Connection, not matchmaking</h2>
-            <p className="text-muted-foreground">
-              Our singles and group trips exist for one reason: traveling is more fun with people around you. Some of our travelers come alone and leave with a group of new friends. Some bring their sister, their best friend, or their mom. Some are a couple joining a group departure. What they have in common isn&apos;t relationship status - it&apos;s wanting a trip where they&apos;re never doing things solo unless they want to be.
-            </p>
-          </section>
-
-          <section className="space-y-3">
-            <h2 className="flex items-center gap-2 text-xl font-bold uppercase text-foreground"><Users className="h-5 w-5" aria-hidden="true" />Who actually shows up</h2>
-            <p className="text-muted-foreground">
-              Every group is different, and we don&apos;t screen for dating intent or run a matching algorithm. You&apos;re not signing up to be paired with anyone. You&apos;re signing up for a real trip, with real logistics, run by a real travel advisor - the people on it are simply other travelers who booked the same departure.
-            </p>
-          </section>
-
-          <section className="space-y-3">
-            <h2 className="flex items-center gap-2 text-xl font-bold uppercase text-foreground"><ShieldCheck className="h-5 w-5" aria-hidden="true" />A real travel agency, not a platform</h2>
-            <p className="text-muted-foreground">
-              We&apos;re a licensed travel agency that plans and books the trip end to end - flights, hotels, excursions, the details that actually go wrong if nobody&apos;s handling them. That&apos;s the job. Anything social that happens on a trip is a side effect of good people ending up in the same place, not the product we&apos;re selling.
-            </p>
-          </section>
+          {WHO_WE_ARE_SECTIONS.map((s, i) => {
+            const Icon = SECTION_ICONS[s.id]
+            return (
+              <section key={s.id} className="space-y-3">
+                <h2 className="flex items-center gap-2 text-xl font-bold uppercase text-foreground"><Icon className="h-5 w-5" aria-hidden="true" />{s.heading}</h2>
+                <p className="text-muted-foreground">
+                  <AffiliateParts parts={linked.parts(copy.sections[i])} />
+                </p>
+              </section>
+            )
+          })}
 
           <div className="rounded-xl border bg-card p-6 text-center">
-            <p className="text-sm text-muted-foreground">Have a question before you book? Just ask - we&apos;d rather answer it now than have you wonder.</p>
+            <p className="text-sm text-muted-foreground"><AffiliateParts parts={linked.parts(copy.closing)} /></p>
             <Button asChild className="mt-4 font-bold uppercase">
               <Link href="/#contact">Get in touch</Link>
             </Button>
           </div>
+
+          <AffiliateAutoDisclosure count={linked.count} language={language} />
         </div>
       </main>
       <Footer language={language} />

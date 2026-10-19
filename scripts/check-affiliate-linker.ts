@@ -258,10 +258,10 @@ async function main() {
   expect('the disclosure is translated (French and Spanish)', renderToStaticMarkup(React.createElement(AffiliateAutoDisclosure, { count: 1, language: 'fr' })).includes(translate('fr', DEFAULT_DISCLOSURE).replace(/'/g, '&#x27;')) && translate('fr', DEFAULT_DISCLOSURE) !== DEFAULT_DISCLOSURE && translate('es', DEFAULT_DISCLOSURE) !== DEFAULT_DISCLOSURE)
   for (const f of ['components/guide-page.tsx', 'app/destinations/[slug]/page.tsx', 'app/blog/[slug]/page.tsx']) {
     const src = read(f)
-    expect(`${f} loads the rules with the page data, links the content and shows the disclosure`, /loadAffiliateRules\(\)/.test(src) && /AffiliateAutoDisclosure/.test(src) && (/linkedGuideContent|linkPage/.test(src)))
+    expect(`${f} loads the rules with the page data, links the content and shows the disclosure`, /loadAffiliateRules\(\)/.test(src) && /AffiliateAutoDisclosure/.test(src) && (/linkedGuidePage|linkPageFields/.test(src)))
   }
   const blogSrc = read('app/blog/[slug]/page.tsx')
-  expect('the blog links the rendered HTML only: the stored post body and the FAQ JSON-LD still use the raw post', /const linked = linkPage\(\{ bodyHtml, faqAnswers/.test(blogSrc) && /name: f\.q, acceptedAnswer: \{ "@type": "Answer", text: f\.a \}/.test(blogSrc))
+  expect('the blog links the rendered HTML only: the stored post body and the FAQ JSON-LD still use the raw post', /const linked = linkPageFields\(fieldSet\.fields, affiliateRules, "blog"\)/.test(blogSrc) && /name: f\.q, acceptedAnswer: \{ "@type": "Answer", text: f\.a \}/.test(blogSrc))
 
   // ---------- 9. rule validation + migration ----------
   const L = '11111111-1111-4111-8111-111111111111'

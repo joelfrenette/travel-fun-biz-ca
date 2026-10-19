@@ -10,8 +10,9 @@ import { GuideHeaderActions } from "@/components/guide-header-actions"
 import { pickHeaderFeature, type HeaderPastTrip } from "@/lib/guide-header"
 import type { TravelPackage } from "@/types/travel"
 import { guideJsonLd, guideMetadata } from "@/components/guide-page"
-import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection, linkedGuideContent } from "@/components/guide-parts"
-import { AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogStoriesSection, linkedGuidePage } from "@/components/guide-parts"
+import { AffiliateAutoDisclosure, AffiliateParts } from "@/components/affiliate-text"
+import { destinationBlurbFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { getDestinationPage } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
@@ -75,12 +76,16 @@ export default async function DestinationPage({ params }: Props) {
   const heroInHeader = feature.kind === "facts" && !!feature.image
 
   const { language, currency } = getVisitorPreferences()
-  const linked = guide ? linkedGuideContent(guide, affiliateRules, "destinations") : null
+  // Word links (WP23): with a guide, its summary, quick facts, takeaways, article and FAQ answers share one limit (3 per
+  // phrase, 6 per page, in reading order); without one, the intro blurb is the page text that is linked.
+  const linked = guide ? linkedGuidePage(guide, affiliateRules, "destinations", feature.kind === "facts" ? "right" : "left") : null
   const usdToTargetRate = await getUsdToRate(currency)
   const pageUrl = absoluteUrl(`/destinations/${params.slug}`)
   const blurb = await getPublicBlurb(params.slug)  // Reuses the same grounding check best-time-to-visit's own page already applies (a real dated
   // published package must exist) rather than re-deriving it from page.upcoming, whose
   // TravelPackage items don't carry available_from/available_to at all.
+  const blurbSet = destinationBlurbFieldSet(guide ? null : blurb?.blurb)
+  const blurbLinked = linkPageFields(blurbSet.fields, guide ? [] : affiliateRules, "destinations")
   const bestTimeToVisit = await getBestTimeToVisitPage(params.slug)
   // Every published hotel and resort guide under this destination (published rows only; empty means no section).
   const propertyGuides = await listPropertyGuidesForDestination(params.slug)
@@ -150,14 +155,14 @@ export default async function DestinationPage({ params }: Props) {
             )}
             {guide ? (
               <>
-                <p className="mt-3 max-w-3xl text-pretty text-foreground">{guide.summary}</p>
+                <p className="mt-3 max-w-3xl text-pretty text-foreground">{linked ? <AffiliateParts parts={linked.summary} /> : guide.summary}</p>
               </>
             ) : (
-              blurb && <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">{blurb.blurb}</p>
+              blurb && <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">{blurbSet.blurb ? <AffiliateParts parts={blurbLinked.parts(blurbSet.blurb)} /> : blurb.blurb}</p>
             )}
-            <GuideHeaderActions name={destination} packageName={upcoming[0]?.name} guide={guide} feature={feature} language={language} />
+            <GuideHeaderActions name={destination} packageName={upcoming[0]?.name} guide={guide} feature={feature} language={language} factParts={linked?.facts} />
             </div>
-            <GuideHeaderFeature feature={feature} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
+            <GuideHeaderFeature feature={feature} language={language} currency={currency} usdToTargetRate={usdToTargetRate} factParts={linked?.facts} />
           </div>
         </div>
 
@@ -177,7 +182,7 @@ export default async function DestinationPage({ params }: Props) {
                   <figcaption className="mt-1.5 text-xs text-muted-foreground">Illustrative stock photo.</figcaption>
                 </figure>
               )}
-              <GuideTakeaways guide={guide} />
+              <GuideTakeaways guide={guide} parts={linked?.takeaways} />
               <GuideFacts input={factsInput} />
               <GuideArticle guide={guide} html={linked?.bodyHtml} />
               <GuideFaqList guide={guide} answers={linked?.answers} />
@@ -210,6 +215,9 @@ export default async function DestinationPage({ params }: Props) {
               <GuideThingsToDo things={things} name={destination} language={language} />
             </div>
           )}
+
+          {/* One disclosure line per page, only when the intro blurb really got an automatic link (a page with a guide shows it after the FAQ). */}
+          {!guide && <AffiliateAutoDisclosure count={blurbLinked.count} language={language} />}
 
           {childBlocks.length > 0 && (
             <section aria-labelledby="inside-heading">

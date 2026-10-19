@@ -8,6 +8,9 @@ import { GuideCta } from "@/components/guide-cta"
 import { heroSrcSet, HERO_SIZES } from "@/lib/guide-images"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { jsonLdHtml } from "@/lib/jsonld"
+import { loadAffiliateRules } from "@/lib/affiliate-rules"
+import { guideIndexFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
+import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
 // ONE shared index page for every guide kind (the thin route files at app/<kind>/page.tsx call these).
@@ -59,11 +62,12 @@ export async function GuideIndexPage({ kind }: { kind: GuideKind }) {
   const { language, currency } = getVisitorPreferences()
   const items = await loadItems(kind)
   const heading = kind === "destinations" ? "Destination Guides and Trips" : `${info.plural}: Guides`
-  const intro =
-    kind === "destinations"
-      ? "Where our group trips, cruises and singles getaways go, with a plain-English guide to each place."
-      : `Plain-English guides to ${info.plural.toLowerCase()} for group travellers: who each one suits, what to expect and how to book it with a group.`
+  const introSet = guideIndexFieldSet(kind, info.plural)
+  const intro = introSet.intro.value
   const url = absoluteUrl(info.urlPrefix)
+  // Word links (WP23): the sentence under the title is the only running text here (the cards are wholly one link each).
+  // Fails open (no rules, no links).
+  const linked = linkPageFields(introSet.fields, await loadAffiliateRules(), "pages")
 
   const jsonLd = [
     {
@@ -97,7 +101,8 @@ export async function GuideIndexPage({ kind }: { kind: GuideKind }) {
           </nav>
           <div className="mb-10 text-center">
             <h1 className="text-balance text-4xl font-bold text-foreground">{heading}</h1>
-            <p className="mx-auto mt-3 max-w-2xl text-pretty text-muted-foreground">{intro}</p>
+            <p className="mx-auto mt-3 max-w-2xl text-pretty text-muted-foreground"><AffiliateParts parts={linked.parts(introSet.intro)} /></p>
+            <AffiliateAutoDisclosure count={linked.count} language={language} />
           </div>
 
           {items.length === 0 ? (

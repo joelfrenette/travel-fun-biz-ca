@@ -121,6 +121,13 @@ export function renderMarkdown(markdown: string): string {
   return html.join('\n')
 }
 
+/** Markdown to HTML for the written pages of the site (guides, compare and best-time copy): links to pages of this site
+ * open in the same tab (renderMarkdown opens every link in a new tab). One definition, used by the pages and by the
+ * word linker's text list, so what is scanned is what is shown. */
+export function articleHtml(markdown: string): string {
+  return renderMarkdown(markdown).replace(/<a href="(\/[^"]*)" target="_blank" rel="noopener noreferrer">/g, '<a href="$1">')
+}
+
 /** Rough reading time in minutes, for a post's meta line. */
 export function readingTimeMinutes(markdown: string): number {
   const words = (markdown || '').trim().split(/\s+/).filter(Boolean).length

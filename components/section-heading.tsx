@@ -1,8 +1,10 @@
+import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 interface SectionHeadingProps {
   title: string
-  subtitle?: string
+  /** Text, or text with automatic word links (the home page "why choose us" paragraph). */
+  subtitle?: ReactNode
   eyebrow?: string
   align?: 'left' | 'center'
   className?: string

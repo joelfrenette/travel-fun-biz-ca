@@ -4,6 +4,8 @@ import { site } from "@/lib/site"
 import { headerCta, leftQuickFacts, type HeaderFeature, type HeaderGuide } from "@/lib/guide-header"
 import { translate } from "@/lib/i18n"
 import type { Language } from "@/lib/preferences"
+import type { Part } from "@/lib/affiliate-linker"
+import { AffiliateParts } from "@/components/affiliate-text"
 
 // The lower part of the LEFT column of a guide page header: up to four quick facts (stored key takeaways only, see
 // lib/guide-header.ts) and a call-to-action panel pushed to the bottom (mt-auto) so the column fills the height of
@@ -17,12 +19,15 @@ export function GuideHeaderActions({
   guide,
   feature,
   language,
+  factParts,
 }: {
   name: string
   packageName?: string | null
   guide: HeaderGuide | null
   feature: HeaderFeature<unknown>
   language: Language
+  /** The quick facts already processed by the word linker (one entry per fact, same order). Plain text when absent. */
+  factParts?: Part[][]
 }) {
   const facts = leftQuickFacts(guide, feature)
   const cta = headerCta(name, packageName, site.phone)
@@ -33,8 +38,8 @@ export function GuideHeaderActions({
         <aside aria-label={translate(language, "Quick facts")}>
           <h2 className="text-sm font-bold uppercase text-foreground">{translate(language, "Quick facts")}</h2>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-foreground">
-            {facts.map((f) => (
-              <li key={f}>{f}</li>
+            {facts.map((f, i) => (
+              <li key={f}>{factParts?.[i] ? <AffiliateParts parts={factParts[i]} /> : f}</li>
             ))}
           </ul>
         </aside>
