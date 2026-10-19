@@ -77,3 +77,7 @@
 - Why it helps: more internal links from each new post to guides and sibling posts means better crawl paths and ranking for guides, and more routes from a reader to a trip page, with no manual linking.
 - UAT: `pnpm dlx tsx scripts/check-blog-links.ts`. Live: run autoblog in draft mode for a topic naming a published cruise line and see its guide link in the draft body.
 - Migration: none.
+
+## Orchestrator note (2026-10-19)
+
+Commit da42d0d (catch-up social enrolment of old guides) was reverted before shipping: it raises how much is posted to real accounts, so it waits for Joel to approve. To bring it back: git revert the revert commit.
