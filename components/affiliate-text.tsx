@@ -8,7 +8,7 @@ import type { Language } from "@/lib/preferences"
 
 // WP22/WP23: pieces for text that the word linker (lib/affiliate-linker.ts) has processed. No hooks, no handlers, no
 // server-only imports. Text is rendered by React (always escaped); a link is built from the short-link slug only.
-// AffiliateParts is for the linked output of a plain-text field; the article HTML of a field comes from linkPageFields().
+// AffiliateParts is for the linked output of a plain-text field; the article HTML of a field comes from the page linker.
 
 /** Text parts as React nodes: plain strings are escaped by React, a link is an anchor to /go/<slug> in a new tab. */
 export function AffiliateParts({ parts }: { parts: Part[] }) {
@@ -28,7 +28,7 @@ export function AffiliateParts({ parts }: { parts: Part[] }) {
 }
 
 /** Text that may hold links to pages of this site ([words](/path), see lib/path-links.ts) AND automatic phrase links: the
- * linkPageFields() output for a "linkified" field. Site links open in the same tab, phrase links in a new one. */
+ * page linker's output for a "linkified" field. Site links open in the same tab, phrase links in a new one. */
 export function AffiliateLinkified({ parts }: { parts: LinkifiedPart[] }) {
   return (
     <>

@@ -64,7 +64,7 @@ export function cleanPhrase(raw: unknown): string | null {
   return t
 }
 /** A phrase made only of spaces, hyphens and apostrophes has no word to find. */
-const hasWord = (t: string): boolean => t.split(WORD_SPLIT).some(Boolean)
+const hasWord = (t: string): boolean => t.split(WORD_SPLIT).some((w) => w.split(APOSTROPHES).some(Boolean))
 
 /** A phrase of more than 8 words is not a phrase a writer repeats; it only slows matching down. */
 export const MAX_PHRASE_WORDS = 8
@@ -99,13 +99,14 @@ export function phraseProblem(raw: unknown): string | null {
 //    "Croatia tours"; "bus" also finds "buses"). Nothing else is guessed: no other word forms, no synonyms.
 const SEPARATORS = "\\s\\u00a0\\u2010-\\u2013\\-'\\u2018\\u2019\\u02bc\\u00b4`"
 const SEPARATOR_RUN = `[${SEPARATORS}]+`
-const WORD_SPLIT = new RegExp(SEPARATOR_RUN, 'u')
-const APOSTROPHES = /['‘’ʼ´`]/
+// The words of a phrase are split at spaces, hyphens and dashes. An apostrophe stays INSIDE its word (and is optional there).
+const WORD_SPLIT = new RegExp('[\\s\\u00a0\\u2010-\\u2013\\-]+', 'u')
+const APOSTROPHES = new RegExp("['\\u2018\\u2019\\u02bc\\u00b4`]", 'u')
 const INNER_APOSTROPHE = `(?:['\\u2018\\u2019\\u02bc\\u00b4\`]|[\\s\\u00a0\\u2010-\\u2013\\-])?`
 const KEY_STRIP = new RegExp(`[${SEPARATORS}]+`, 'gu')
 
 /** The comparison key of a phrase or of the text found on a page: lower case with every separator and apostrophe removed.
- * "Croatia tours", "croatia-tours" and "Croatia tours" all have the key "croatiatours". */
+ * "Croatia tours", "croatia-tours" and "Croatia (no-break space) tours" all have the key "croatiatours". */
 export const phraseKey = (phrase: string): string => phrase.toLowerCase().replace(KEY_STRIP, '')
 
 const BEFORE = '(?<![\\p{L}\\p{N}_])'
@@ -114,10 +115,9 @@ const escapeRegex =(s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 
 /** The regex source for one phrase (see the matching rules above). */
 function phraseSource(phrase: string): string {
-  const words = phrase.split(WORD_SPLIT).filter(Boolean)
+  const words = phrase.split(WORD_SPLIT).map((w) => w.split(APOSTROPHES).filter(Boolean)).filter((pieces) => pieces.length > 0)
   return words
-    .map((w, i) => {
-      const pieces = w.split(APOSTROPHES).filter(Boolean)
+    .map((pieces, i) => {
       const body = pieces.map(escapeRegex).join(INNER_APOSTROPHE)
       return i === words.length - 1 ? `${body}(?:e?s)?` : body
     })
@@ -131,7 +131,7 @@ function ruleOfMatch(byKey: Map<string, CompiledRule>, matched: string): Compile
 }
 
 const ENTITY_CHARS: Record<string, string> = {
-  nbsp: ' ', ndash: '–', hyphen: '‐', apos: "'", rsquo: '’', lsquo: '‘',
+  nbsp: String.fromCharCode(0xa0), ndash: String.fromCharCode(0x2013), hyphen: String.fromCharCode(0x2010), apos: "'", rsquo: String.fromCharCode(0x2019), lsquo: String.fromCharCode(0x2018),
 }
 /** Turns the few entities that only mean "a space, a dash or an apostrophe" into their characters, so a phrase can match
  * across them. Every other entity (&amp;, &lt; ...) is left alone. */

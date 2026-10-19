@@ -109,7 +109,7 @@ export const SOURCE_FIELDS: SourceField[] = [
   field('trip.recap', 'trip', 'recap ("How the trip went")', 'trips', 'text', 'plain text', 'travel_packages.recap_summary', [R(TRIP_PAGE)]),
   field('trip.recap-highlights', 'trip', 'recap highlights', 'trips', 'text', 'plain text', 'travel_packages.recap_highlights', [R(TRIP_PAGE)]),
   field('trip.journal', 'trip', 'trip journal entries', 'trips', 'text', 'plain text', 'travel_packages.journal_entries[].body', [R(TRIP_PAGE), R(TRIP_JOURNAL, 'shows')]),
-  field('trip.description', 'trip', 'description (full, else short)', 'trips', 'linkified', 'plain text with [words](/path) links', 'travel_packages.full_description, else short_description', [R(TRIP_PAGE)]),
+  field('trip.description', 'trip', 'description', 'trips', 'linkified', 'plain text with [words](/path) links', 'travel_packages.full_description, else short_description', [R(TRIP_PAGE)]),
   field('trip.highlights', 'trip', 'highlights', 'trips', 'text', 'plain text', 'travel_packages.highlights', [R(TRIP_PAGE)]),
   field('trip.itinerary', 'trip', 'itinerary day text', 'trips', 'text', 'plain text', 'travel_packages.itinerary[].description', [R(TRIP_PAGE)]),
   field('trip.included', 'trip', 'what is included', 'trips', 'text', 'plain text', 'travel_packages.price_includes', [R(TRIP_PAGE)]),
