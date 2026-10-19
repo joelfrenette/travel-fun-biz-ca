@@ -2,7 +2,9 @@
 // real listGuideCandidates against a small in-memory fake of the Supabase client. No network, no database.
 // Run: pnpm dlx tsx scripts/check-guide-retry.ts
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isRetryableRejected, listGuideCandidates, rejectionCountFor } from '../lib/guides'
+import { HEAL_REJECTED_NOTE_PREFIX, isHealRejectedNote, isRetryableRejected, listGuideCandidates, rejectionCountFor } from '../lib/guides'
+import { healNoteOf } from '../lib/heal-targets'
+import type { HealOutcome } from '../lib/heal-loop'
 
 let failed = 0
 function check(label: string, ok: boolean) {
@@ -15,16 +17,24 @@ const now = Date.parse('2026-10-19T12:00:00Z')
 const ago = (days: number) => new Date(now - days * DAY).toISOString()
 
 // ---- the pure decision
-check('rejected, 3 days old, 1 rejection: retry', isRetryableRejected({ status: 'draft', review_state: 'rejected', updated_at: ago(3) }, now, 1))
-check('rejected, 1 day old: not yet', !isRetryableRejected({ status: 'draft', review_state: 'rejected', updated_at: ago(1) }, now, 1))
-check('rejected, 3 days old, 2 rejections: stop', !isRetryableRejected({ status: 'draft', review_state: 'rejected', updated_at: ago(3) }, now, 2))
-check('rejected, 3 days old, 5 rejections: stop', !isRetryableRejected({ status: 'draft', review_state: 'rejected', updated_at: ago(3) }, now, 5))
+const HEAL = healNoteOf({ status: 'rejected_by_heal', reasons: ['a claim has no source'], note: 'x', rounds: 3 } as unknown as HealOutcome)
+check('the heal marker matches what the heal writes', isHealRejectedNote(HEAL) && HEAL.startsWith(HEAL_REJECTED_NOTE_PREFIX))
+const rej = (extra: Record<string, unknown>) => ({ status: 'draft', review_state: 'rejected', quality_notes: HEAL, updated_at: ago(3), ...extra })
+check('heal-rejected, 3 days old, 1 rejection: retry', isRetryableRejected(rej({}), now, 1))
+check('heal-rejected with a guessed-name note appended still retries', isRetryableRejected(rej({ quality_notes: `${HEAL}; held for review: x` }), now, 1))
+check('rejected, 1 day old: not yet', !isRetryableRejected(rej({ updated_at: ago(1) }), now, 1))
+check('rejected, 3 days old, 2 rejections: stop', !isRetryableRejected(rej({}), now, 2))
+check('rejected, 3 days old, 5 rejections: stop', !isRetryableRejected(rej({}), now, 5))
+check('person-rejected (gate note, no heal marker) never retries', !isRetryableRejected(rej({ quality_notes: 'held for review: the quality gate found 2 problems' }), now, 1))
+check('person-rejected (empty note) never retries', !isRetryableRejected(rej({ quality_notes: null }), now, 1))
+check('person-rejected (note missing) never retries', !isRetryableRejected({ status: 'draft', review_state: 'rejected', updated_at: ago(30) }, now, 0))
+check('heal words in the middle of a note are not the marker', !isRetryableRejected(rej({ quality_notes: `a person said: ${HEAL}` }), now, 1))
 check('published row never retries', !isRetryableRejected({ status: 'published', review_state: null, updated_at: ago(30) }, now, 0))
-check('published row even if flagged rejected never retries', !isRetryableRejected({ status: 'published', review_state: 'rejected', updated_at: ago(30) }, now, 0))
-check('non-rejected draft does not retry', !isRetryableRejected({ status: 'draft', review_state: null, updated_at: ago(30) }, now, 0))
-check('missing date does not retry', !isRetryableRejected({ status: 'draft', review_state: 'rejected', updated_at: null }, now, 1))
-check('bad date does not retry', !isRetryableRejected({ status: 'draft', review_state: 'rejected', updated_at: 'nope' }, now, 1))
-check('accepts a Date for now', isRetryableRejected({ status: 'draft', review_state: 'rejected', updated_at: ago(3) }, new Date(now), 1))
+check('published row even if flagged rejected never retries', !isRetryableRejected(rej({ status: 'published', updated_at: ago(30) }), now, 0))
+check('non-rejected draft does not retry', !isRetryableRejected({ status: 'draft', review_state: null, quality_notes: HEAL, updated_at: ago(30) }, now, 0))
+check('missing date does not retry', !isRetryableRejected(rej({ updated_at: null }), now, 1))
+check('bad date does not retry', !isRetryableRejected(rej({ updated_at: 'nope' }), now, 1))
+check('accepts a Date for now', isRetryableRejected(rej({}), new Date(now), 1))
 check('rejection count is recorded failures plus the current one', rejectionCountFor(undefined) === 1 && rejectionCountFor(1) === 2)
 
 // ---- listGuideCandidates against a fake client
@@ -62,9 +72,11 @@ async function offered(guides: Row[], failures?: Record<string, { n: number }>, 
 async function main() {
   const base = { kind: 'destinations', slug: 'aruba' }
   check('candidates: no row, offered', await offered([]))
-  check('candidates: rejected 3 days ago, no failures, offered again', await offered([{ ...base, status: 'draft', review_state: 'rejected', updated_at: ago(3) }]))
-  check('candidates: rejected 1 day ago, not offered', !(await offered([{ ...base, status: 'draft', review_state: 'rejected', updated_at: ago(1) }])))
-  check('candidates: rejected, one earlier retry recorded, not offered', !(await offered([{ ...base, status: 'draft', review_state: 'rejected', updated_at: ago(3) }], { 'destinations:aruba': { n: 1 } })))
+  check('candidates: heal-rejected 3 days ago, no failures, offered again', await offered([{ ...base, status: 'draft', review_state: 'rejected', quality_notes: HEAL, updated_at: ago(3) }]))
+  check('candidates: person-rejected 3 days ago, never offered', !(await offered([{ ...base, status: 'draft', review_state: 'rejected', quality_notes: 'held for review: the quality gate found 1 problem', updated_at: ago(3) }])))
+  check('candidates: person-rejected with no note, never offered', !(await offered([{ ...base, status: 'draft', review_state: 'rejected', quality_notes: null, updated_at: ago(30) }])))
+  check('candidates: heal-rejected 1 day ago, not offered', !(await offered([{ ...base, status: 'draft', review_state: 'rejected', quality_notes: HEAL, updated_at: ago(1) }])))
+  check('candidates: heal-rejected, one earlier retry recorded, not offered', !(await offered([{ ...base, status: 'draft', review_state: 'rejected', quality_notes: HEAL, updated_at: ago(3) }], { 'destinations:aruba': { n: 1 } })))
   check('candidates: published never offered', !(await offered([{ ...base, status: 'published', review_state: null, updated_at: ago(30) }])))
   check('candidates: non-rejected draft not offered', !(await offered([{ ...base, status: 'draft', review_state: null, updated_at: ago(30) }])))
   check('candidates: before migration 0041 (no review_state column) the row still blocks', !(await offered([{ ...base, status: 'draft', updated_at: ago(30) }], undefined, 'review_state')))

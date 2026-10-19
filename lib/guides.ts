@@ -597,15 +597,25 @@ export const REJECTED_RETRY_DAYS = 2
 /** After this many rejections a slug is no longer offered. */
 export const MAX_GUIDE_REJECTIONS = 2
 
-/** Pure decision: may a guide row that already exists be written again? Only a draft that a person or the heal
- * rejected, untouched for REJECTED_RETRY_DAYS, with fewer than MAX_GUIDE_REJECTIONS rejections so far. A published
+/** The start of the note the heal writes on a draft it rejected (same text as healNoteOf in lib/heal-targets.ts;
+ * the offline check proves they match). A person's rejection never writes this note. */
+export const HEAL_REJECTED_NOTE_PREFIX = 'Rejected by heal:'
+export function isHealRejectedNote(note: string | null | undefined): boolean {
+  return typeof note === 'string' && note.startsWith(HEAL_REJECTED_NOTE_PREFIX)
+}
+
+/** Pure decision: may a guide row that already exists be written again? Only a draft that the heal
+ * rejected (never one a person rejected), untouched for REJECTED_RETRY_DAYS, with fewer than MAX_GUIDE_REJECTIONS rejections so far. A published
  * guide, a non-rejected draft, a recent rejection or a missing/invalid date never retries. */
 export function isRetryableRejected(
-  row: { status?: string | null; review_state?: string | null; updated_at?: string | null },
+  row: { status?: string | null; review_state?: string | null; updated_at?: string | null; quality_notes?: string | null },
   now: Date | number,
   rejectionCount: number,
 ): boolean {
   if (row.review_state !== 'rejected' || row.status === 'published') return false
+  // Only a draft the heal rejected (its note starts with the heal marker) may come back. A draft a person rejected
+  // in the review queue never does, and a missing note (not known to be the heal's) fails closed.
+  if (!isHealRejectedNote(row.quality_notes)) return false
   if (!Number.isFinite(rejectionCount) || rejectionCount >= MAX_GUIDE_REJECTIONS) return false
   const at = row.updated_at ? Date.parse(row.updated_at) : NaN
   if (!Number.isFinite(at)) return false
@@ -624,14 +634,14 @@ export function rejectionCountFor(failureN: number | undefined): number {
 export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideCandidate[]> {
   const [{ data: pkgs, error: pkgError }, { data: existing, error: guideError }] = await Promise.all([
     admin.from('travel_packages').select('name, destination, category').eq('status', 'published'),
-    withScopeFallback((v) => admin.from('guides').select(v === 'new' ? 'kind, slug, status, review_state, updated_at' : 'kind, slug, status, updated_at')),
+    withScopeFallback((v) => admin.from('guides').select(v === 'new' ? 'kind, slug, status, review_state, updated_at, quality_notes' : 'kind, slug, status, updated_at')),
   ])
   if (pkgError) throw new Error(`Could not read packages: ${pkgError.message}`)
   if (guideError) throw new Error(`Could not read guides: ${guideError.message}`)
 
   // A draft that was rejected long enough ago is offered again (bounded by the failure store); fails closed.
   let failureCounts: Record<string, number> = {}
-  const existingRows = (existing ?? []) as { kind: string; slug: string; status?: string | null; review_state?: string | null; updated_at?: string | null }[]
+  const existingRows = (existing ?? []) as { kind: string; slug: string; status?: string | null; review_state?: string | null; updated_at?: string | null; quality_notes?: string | null }[]
   if (existingRows.some((g) => g.review_state === 'rejected')) {
     try {
       const f = await readGuideFailures(admin)

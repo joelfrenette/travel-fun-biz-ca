@@ -52,3 +52,4 @@
 - Note: a transient page_copy read error on one page render can briefly mark it noindex until the next revalidate (5 minutes).
 - UAT: `pnpm dlx tsx scripts/check-page-copy-index.ts`. Live: view /sitemap.xml and see only compare and best-time URLs that have published copy; view source of one without copy and see robots noindex, follow.
 - Migration: none.
+- FIX guide retry: only heal-rejected drafts (quality_notes starts with 'Rejected by heal:') are retried; a person-rejected or unmarked draft never is. Checks added in scripts/check-guide-retry.ts.
