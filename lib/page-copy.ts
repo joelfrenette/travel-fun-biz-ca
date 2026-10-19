@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '@/integrations/supabase/client'
 import { getComparePairSlugs } from '@/lib/compare-destinations'
 import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
+import { buildCopyPathSet } from '@/lib/page-copy-index'
 
 // Real copy for the compare and best-time pages (growth loop wave 2, WP8): the types, the public read (anon
 // client, RLS only lets published rows through), the admin reads and writes (service role) and the candidate
@@ -73,6 +74,17 @@ export async function getPublishedPageCopy(path: string): Promise<PublicPageCopy
     return null
   }
   return (data as unknown as PublicPageCopy | null) ?? null
+}
+
+/** Every path that has published copy, in one query (used by the sitemap). Null on a read error or when there are
+ * no rows, so the sitemap fails open and lists every page as before. */
+export async function getPublishedPageCopyPaths(): Promise<Set<string> | null> {
+  const { data, error } = await supabase.from('page_copy').select('path').eq('status', 'published').limit(5000)
+  if (error) {
+    console.error('[page-copy] paths fetch failed:', error.message)
+    return null
+  }
+  return buildCopyPathSet(data as { path?: unknown }[] | null)
 }
 
 /** The slugs the copy links to that are NOT among the page's current trips. Empty means the copy is safe to show.

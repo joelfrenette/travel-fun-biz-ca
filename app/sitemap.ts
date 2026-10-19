@@ -5,20 +5,27 @@ import { getDestinationSlugs } from '@/lib/destinations'
 import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { getComparePairSlugs } from '@/lib/compare-destinations'
 import { getPublishedGuidePaths, guidePath, guideKinds, GUIDE_KINDS } from '@/lib/guides'
+import { getPublishedPageCopyPaths, comparePath, bestTimePath } from '@/lib/page-copy'
+import { filterByCopy } from '@/lib/page-copy-index'
 import { absoluteUrl } from '@/lib/site'
 import { maxIso, lastModOrUndefined, lastModField } from '@/lib/sitemap-dates'
 
 export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [packages, posts, destinations, bestTimeToVisit, compareDestinations, guides] = await Promise.all([
+  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths] = await Promise.all([
     getPublishedPackageSlugs(),
     getPublishedPosts(),
     getDestinationSlugs(),
     getBestTimeToVisitSlugs(),
     getComparePairSlugs(),
     getPublishedGuidePaths(),
+    getPublishedPageCopyPaths().catch(() => null),
   ])
+  // Compare and best-time pages are listed only when published copy exists for the path (one query for all);
+  // a failed or empty read gives a null set and everything stays listed.
+  const bestTimeToVisit = filterByCopy(allBestTime, (d) => bestTimePath(d.slug), copyPaths)
+  const compareDestinations = filterByCopy(allCompare, (c) => comparePath(c.pairSlug), copyPaths)
   // A destination guide for a place no package goes to yet has no /destinations entry above, so it is added here.
   const destinationSlugs = new Set(destinations.map((d) => d.slug))
   const guidePages = guides.filter((g) => !(g.kind === 'destinations' && destinationSlugs.has(g.slug)))

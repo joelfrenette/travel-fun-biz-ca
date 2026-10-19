@@ -45,3 +45,10 @@
 - Why it helps: a paid order that failed to save used to vanish silently (GoHighLevel saw success and never retried), which hid revenue and bookings. Now it is retried automatically and shown to Joel if it keeps failing.
 - UAT: `pnpm dlx tsx scripts/check-webhook-order-failure.ts`. Live: with a deliberately broken orders write in a test, the webhook answers 500 and the event row shows status 500 with order_error; a retry that works answers 200.
 - Migration: none (reuses webhook_events.status and payload).
+
+## Only list and index compare and best-time pages that have copy
+- What changed: new pure helper `lib/page-copy-index.ts` (`buildCopyPathSet`, `shouldListPath`, `filterByCopy`, `copyRobots`) and one query `getPublishedPageCopyPaths()` in `lib/page-copy.ts` (published rows, path only). `app/sitemap.ts` fetches that set once and lists a compare or best-time URL only when its path has published copy. A read error or an empty table gives a null set and the sitemap lists everything as before (fail open, never shrinks by accident). `generateMetadata` on `app/compare/[pair]` and `app/best-time-to-visit/[destination]` now returns robots index:false, follow:true when no usable copy exists (not-found behaviour, routes, links and IndexNow unchanged).
+- Why it helps: thin, copy-less pages stop diluting the index and crawl budget, so the pages with real copy get crawled and ranked sooner (more organic traffic) with no manual work. Pages flip to indexed and listed automatically within the revalidate window once the pipeline publishes copy.
+- Note: a transient page_copy read error on one page render can briefly mark it noindex until the next revalidate (5 minutes).
+- UAT: `pnpm dlx tsx scripts/check-page-copy-index.ts`. Live: view /sitemap.xml and see only compare and best-time URLs that have published copy; view source of one without copy and see robots noindex, follow.
+- Migration: none.

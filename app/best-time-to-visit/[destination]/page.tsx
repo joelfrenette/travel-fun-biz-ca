@@ -13,6 +13,7 @@ import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import { bestTimePath } from "@/lib/page-copy"
 import { getUsablePageCopy } from "@/lib/page-copy-render"
+import { copyRobots } from "@/lib/page-copy-index"
 import { GuideCta } from "@/components/guide-cta"
 import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page-copy-parts"
 
@@ -37,6 +38,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title,
     description,
     alternates: { canonical: url },
+    // No usable written copy yet: keep the page reachable but out of the index (links still followed).
+    ...(copyRobots(!!copy) ? { robots: copyRobots(!!copy) } : {}),
     openGraph: { title: ogTitle, description: ogDescription, url, type: "website", images: [image] },
     twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription, images: [image.url] },
   }
