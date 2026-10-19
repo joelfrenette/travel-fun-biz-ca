@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { submitLeadToGoHighLevel } from "@/lib/gohighlevel"
 import { contactSubmissionSchema } from "@/lib/schemas/contact"
 import { isHoneypotFilled, allowRequest } from "@/lib/abuse-guard"
+import { resolveLeadResponse } from "@/lib/lead-response"
 import { recordLead, saveLeadFirst, markLeadSent } from "@/lib/leads"
 
 export async function POST(request: Request) {
@@ -32,9 +33,15 @@ export async function POST(request: Request) {
     const result = await submitLeadToGoHighLevel(data)
     if (leadId) await markLeadSent(leadId, result)
     else await recordLead(data, result) // the early save failed: record it now, as before
-    if (result.ok) return NextResponse.json({ success: true, message: "Lead submitted successfully" })
+    // Saved means the visitor sees success even if GoHighLevel failed: the row stays unforwarded and
+    // lib/heal.ts retries it, and Needs attention shows it.
+    const outcome = resolveLeadResponse({ saved: !!leadId, ghlOk: result.ok, ghlError: result.ok ? undefined : result.error })
+    if (outcome.success) {
+      if (outcome.retryLater) console.error("[lead] saved, GoHighLevel send failed (will be retried):", result.ok ? "" : result.error)
+      return NextResponse.json({ success: true, message: "Lead submitted successfully" }, { status: outcome.status })
+    }
 
-    return NextResponse.json({ error: result.error }, { status: result.error.includes('not configured') ? 503 : 502 })
+    return NextResponse.json({ error: result.ok ? "Internal server error" : result.error }, { status: outcome.status })
   } catch (error) {
     console.error("[lead] Error submitting lead:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { tripAlertSubmissionSchema } from '@/lib/schemas/trip-alert'
 import { subscribeTripAlertToGoHighLevel } from '@/lib/gohighlevel'
 import { isHoneypotFilled, allowRequest } from '@/lib/abuse-guard'
+import { resolveLeadResponse } from '@/lib/lead-response'
 import { saveLeadFirst, markLeadSent } from '@/lib/leads'
 import { getPublishedPackageBySlug } from '@/lib/packages'
 import { effectiveAlertTag } from '@/lib/past-trip'
@@ -38,11 +39,16 @@ export async function POST(request: Request) {
     })
     const result = await subscribeTripAlertToGoHighLevel({ email: parsed.data.email, name: parsed.data.name, alertTag: tag, attribution })
     if (backupId) await markLeadSent(backupId, result)
-    if (result.ok) return NextResponse.json({ success: true })
+    // Saved in `leads` counts as success even if GoHighLevel failed (lib/heal.ts retries the unforwarded row).
+    const outcome = resolveLeadResponse({ saved: !!backupId, ghlOk: result.ok, ghlError: result.ok ? undefined : result.error })
+    if (outcome.success) {
+      if (outcome.retryLater) console.error('[trip-alerts] saved, GoHighLevel send failed (will be retried):', result.ok ? '' : result.error)
+      return NextResponse.json({ success: true }, { status: outcome.status })
+    }
 
-    // The detail stays in the server log; the visitor gets one fixed sentence (the sign-up is also saved in `leads`).
-    console.error('[trip-alerts] not saved:', result.error)
-    return NextResponse.json({ error: 'We could not save your sign-up just now. Please try again in a few minutes.' }, { status: result.error.includes('not configured') ? 503 : 502 })
+    // The detail stays in the server log; the visitor gets one fixed sentence.
+    console.error('[trip-alerts] not saved:', result.ok ? '' : result.error)
+    return NextResponse.json({ error: 'We could not save your sign-up just now. Please try again in a few minutes.' }, { status: outcome.status })
   } catch (error) {
     console.error('[trip-alerts] failed', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

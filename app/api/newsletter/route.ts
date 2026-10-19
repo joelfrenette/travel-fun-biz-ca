@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { newsletterSubmissionSchema } from '@/lib/schemas/newsletter'
 import { subscribeNewsletterToGoHighLevel } from '@/lib/gohighlevel'
 import { isHoneypotFilled, allowRequest } from '@/lib/abuse-guard'
+import { resolveLeadResponse } from '@/lib/lead-response'
 import { saveLeadFirst, markLeadSent } from '@/lib/leads'
 
 export async function POST(request: Request) {
@@ -38,11 +39,15 @@ export async function POST(request: Request) {
     })
     const result = await subscribeNewsletterToGoHighLevel(parsed.data)
     if (backupId) await markLeadSent(backupId, result)
-    if (result.ok) return NextResponse.json({ success: true })
-
-    // Never tell a visitor they are subscribed when nothing was saved.
-    console.error('[newsletter] not saved:', result.error)
-    return NextResponse.json({ error: result.error }, { status: result.error.includes('not configured') ? 503 : 502 })
+    // Saved in our own table counts as success even if GoHighLevel failed (the row stays unforwarded
+    // and lib/heal.ts retries it). Never tell a visitor they are subscribed when nothing was saved.
+    const outcome = resolveLeadResponse({ saved: !!backupId, ghlOk: result.ok, ghlError: result.ok ? undefined : result.error })
+    if (outcome.success) {
+      if (outcome.retryLater) console.error('[newsletter] saved, GoHighLevel send failed (will be retried):', result.ok ? '' : result.error)
+      return NextResponse.json({ success: true }, { status: outcome.status })
+    }
+    console.error('[newsletter] not saved:', result.ok ? '' : result.error)
+    return NextResponse.json({ error: result.ok ? 'Internal server error' : result.error }, { status: outcome.status })
   } catch (error) {
     console.error('[newsletter] failed to subscribe', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
