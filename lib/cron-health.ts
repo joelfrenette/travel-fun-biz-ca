@@ -14,6 +14,8 @@ export interface CronStatus {
   name: CronName
   light: Light
   label: string
+  /** True only when amber because the run went quiet (not because the last run reported a problem). */
+  stale?: boolean
 }
 
 /** How long a cron can go quiet before its silence itself is the problem. Every registered cron
@@ -32,7 +34,7 @@ export function judgeCron(name: CronName, run: CronRun | undefined, now: number 
   if (!run) return { name, light: 'gray', label: 'Never run since this was added' }
   const age = now - Date.parse(run.at)
   if (!Number.isFinite(age)) return { name, light: 'gray', label: 'Never run since this was added' }
-  if (age > (STALE_MS_BY_CRON[name] ?? STALE_MS)) return { name, light: 'amber', label: `Hasn't run since ${siteTime(run.at)}` }
+  if (age > (STALE_MS_BY_CRON[name] ?? STALE_MS)) return { name, light: 'amber', stale: true, label: `Hasn't run since ${siteTime(run.at)}` }
   if (!run.ok) return { name, light: 'amber', label: `Last run (${siteTime(run.at)}) reported a problem${run.note ? `: ${run.note}` : ''}` }
   return { name, light: 'green', label: `Ran ${siteTime(run.at)}${run.note ? ` - ${run.note}` : ''}` }
 }

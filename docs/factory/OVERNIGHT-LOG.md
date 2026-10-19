@@ -65,3 +65,9 @@
 - Why it helps: sales that arrive without utm tags were unattributed, so revenue per channel was blank. Now bookings are credited to the channel that first brought the lead, with no manual work.
 - UAT: `pnpm dlx tsx scripts/check-order-attribution.ts`. Live: record a test order for an email that has a lead with utm_source, and see attribution_basis 'lead_email_match' on the orders row.
 - Migration: none.
+
+## Watchdog alert when the 15-minute autopilot cron stops
+- What changed: new `lib/cron-watchdog.ts` with pure `decideWatchdog(judgement, autopilotMode, paused)` and `runCronWatchdog(admin)`. The daily `app/api/cron/gsc-snapshot/route.ts` now reads the autopilot heartbeat (`readCronRuns`, `judgeCron`) after the snapshot work and calls `sendThrottledAlert` with subject 'Autopilot has stopped running' and 3 grade-5 steps (Vercel Cron tab, CRON_SECRET, Redeploy), only when the light is amber because the run is stale, Autopilot is on and the kill switch is not set. Double try/catch so it never breaks the snapshot. `CronStatus` in `lib/cron-health.ts` gets an optional `stale` flag so "went quiet" is told apart from "last run reported a problem". No new cron, no spend, no setting writes beyond what sendThrottledAlert does (throttled to one email per 6 hours).
+- Why it helps: if the cron that runs the whole autopilot dies, nothing else can say so; Joel now gets an email within a day instead of finding out from missing leads and posts.
+- UAT: `pnpm dlx tsx scripts/check-cron-watchdog.ts`. Live: the gsc-snapshot cron result text ends with "watchdog: autopilot stale, alert sent" only when the autopilot heartbeat is older than 3 hours with Autopilot on.
+- Migration: none.
