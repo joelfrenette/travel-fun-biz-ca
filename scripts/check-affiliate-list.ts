@@ -7,9 +7,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fakeAdmin, type Db } from './fake-admin'
 import {
-  applyAdvanced, setLinkOnOff, partnerForLink, orphanPartners, readAdvanced, validateAdvanced, hasAdvanced, partnerStatusFor, advancedOf, hidePartnerOfLink,
-  type AdvancedInput,
+  applyAdvanced, setLinkOnOff, partnerForLink, orphanPartners, readAdvanced, validateAdvanced, hasAdvanced, partnerStatusFor, advancedOf, partnerIdOfLink, hidePartner, NEEDS_REAL_LINK_MESSAGE,
+  type AdvancedRequest,
 } from '../lib/affiliate-link-partner'
+import { createLink, editLink, removeLink } from '../lib/affiliate-link-actions'
 import { loadThingsToDo } from '../lib/things-to-do'
 import { loadTripExtras } from '../lib/trip-extras'
 import type { PartnerRow } from '../lib/affiliate-partners'
@@ -21,7 +22,7 @@ function expect(name: string, ok: boolean, detail = '') {
 }
 const read = (p: string) => readFileSync(join(__dirname, '..', p), 'utf8')
 
-const ADV = (o: Partial<AdvancedInput> = {}): AdvancedInput => ({ partner_code: '', search_template: '', logo_url: '', disclosure: '', ...o })
+const ADV = (o: Partial<AdvancedRequest> = {}): AdvancedRequest => ({ partner_code: '', search_template: '', logo_url: '', disclosure: '', clear: false, ...o })
 const TEMPLATE = 'https://partner.shopco.com/search?q={query}&pid={partner_id}'
 const linkRow = (o: Record<string, unknown> = {}) => ({ id: 'L1', slug: 'viator', status: 'active', url: 'https://viator.shopco.com/aff', merchant: 'Viator', title: 'Viator tours', sort_order: 1, partner_id: null, guide_kind: null, guide_slug: null, image_url: null, note: null, category: null, ...o })
 const partnerRow = (o: Record<string, unknown> = {}) => ({ id: 'P1', slug: 'viator', name: 'Viator', logo_url: null, partner_id: 'abc', search_template: TEMPLATE, disclosure: null, status: 'active', sort_order: 1, ...o })
@@ -53,12 +54,21 @@ async function main() {
   const d3: Db = { tables: { affiliate_links: [linkRow()], affiliate_partners: [] } }
   const r3 = await applyAdvanced(fakeAdmin(d3), link, ADV())
   expect('a link with nothing in the advanced part and no partner stays without one', r3.ok && d3.tables.affiliate_partners!.length === 0 && (d3.tables.affiliate_links![0] as { partner_id: unknown }).partner_id === null)
-  const d4: Db = { tables: { affiliate_links: [linkRow({ slug: 'getyourguide', id: 'L2' })], affiliate_partners: [partnerRow({ slug: 'getyourguide' })] } }
-  const r4 = await applyAdvanced(fakeAdmin(d4), { ...link, id: 'L2', slug: 'getyourguide' }, ADV())
-  expect('emptying the advanced part clears the search link but keeps the partner row (and its history)', r4.ok && d4.tables.affiliate_partners!.length === 1 && (d4.tables.affiliate_partners![0] as { search_template: unknown }).search_template === null)
-  const d5: Db = { tables: { affiliate_links: [linkRow({ slug: 'other', id: 'L9' })], affiliate_partners: [partnerRow({ slug: 'other' })] } }
-  await applyAdvanced(fakeAdmin(d5), { ...link, id: 'L9', slug: 'other', status: 'hidden' }, ADV({ search_template: TEMPLATE, partner_code: 'abc' }))
-  expect('the partner status follows the link status on save', (d5.tables.affiliate_partners![0] as { status: string }).status === 'hidden')
+  const d4: Db = { tables: { affiliate_links: [linkRow({ slug: 'getyourguide', id: 'L2' })], affiliate_partners: [partnerRow({ slug: 'getyourguide', logo_url: 'https://cdn.shopco.com/l.png', disclosure: 'Mine' })] } }
+  const gyg = { ...link, id: 'L2', slug: 'getyourguide' }
+  const r4 = await applyAdvanced(fakeAdmin(d4), gyg, ADV())
+  expect('an ADOPTED partner is not touched when nothing was typed (not linked, not changed)', r4.ok && (d4.tables.affiliate_links![0] as { partner_id: unknown }).partner_id === null && (d4.tables.affiliate_partners![0] as { search_template: string }).search_template === TEMPLATE)
+  await applyAdvanced(fakeAdmin(d4), gyg, ADV({ partner_code: 'new-id', search_template: TEMPLATE }))
+  const adoptedRow = d4.tables.affiliate_partners![0] as { partner_id: string; logo_url: string; disclosure: string }
+  expect('typing one field on an adopted partner changes it and keeps the blank ones (logo, wording)', adoptedRow.partner_id === 'new-id' && adoptedRow.logo_url === 'https://cdn.shopco.com/l.png' && adoptedRow.disclosure === 'Mine' && (d4.tables.affiliate_links![0] as { partner_id: string }).partner_id === 'P1')
+  const cleared = await applyAdvanced(fakeAdmin(d4), { ...gyg, partner_id: 'P1' }, ADV({ clear: true }))
+  expect('the explicit Clear control wipes the settings but keeps the partner row (and its history)', cleared.ok && d4.tables.affiliate_partners!.length === 1 && (d4.tables.affiliate_partners![0] as { search_template: unknown }).search_template === null)
+  const d5: Db = { tables: { affiliate_links: [linkRow({ slug: 'other', id: 'L9', partner_id: 'P1' })], affiliate_partners: [partnerRow({ slug: 'other' })] } }
+  await applyAdvanced(fakeAdmin(d5), { ...link, id: 'L9', slug: 'other', status: 'hidden', partner_id: 'P1' }, ADV({ search_template: TEMPLATE, partner_code: 'abc' }))
+  expect('saving the form on an OFF or draft link never downgrades an active search button', (d5.tables.affiliate_partners![0] as { status: string }).status === 'active')
+  const d5b: Db = { tables: { affiliate_links: [linkRow({ id: 'L1', partner_id: 'P1' })], affiliate_partners: [partnerRow()] } }
+  await applyAdvanced(fakeAdmin(d5b), { ...link, partner_id: 'P1' }, ADV())
+  expect('a LINKED partner with blank fields is cleared (the form shows its values, so blank means cleared)', (d5b.tables.affiliate_partners![0] as { search_template: unknown }).search_template === null)
   const d6: Db = { tables: { affiliate_links: [linkRow({ slug: 'dupe' })], affiliate_partners: [partnerRow({ slug: 'dupe', id: 'PX' })] } }
   const r6 = await applyAdvanced(fakeAdmin(d6), { ...link, slug: 'dupe' }, ADV({ search_template: TEMPLATE, partner_code: 'abc' }))
   expect('a link whose slug matches a partner never creates a second one', r6.ok && d6.tables.affiliate_partners!.length === 1)
@@ -92,8 +102,73 @@ async function main() {
   const gone = await setLinkOnOff(admin, 'nope', true)
   expect('ON/OFF of a link that is gone is a 404, not a crash', !gone.ok && gone.status === 404)
   const del = world()
-  await hidePartnerOfLink(fakeAdmin(del), 'L1')
-  expect('deleting a link hides its search button but keeps the partner row', (del.tables.affiliate_partners![0] as { status: string }).status === 'hidden' && del.tables.affiliate_partners!.length === 1)
+  const pid = await partnerIdOfLink(fakeAdmin(del), 'L1')
+  await hidePartner(fakeAdmin(del), pid)
+  expect('the search button of a deleted link can be hidden after the delete (the partner row stays)', pid === 'P1' && (del.tables.affiliate_partners![0] as { status: string }).status === 'hidden' && del.tables.affiliate_partners!.length === 1)
+
+  // ---------- 3b. real link needed for ON; new links start OFF ----------
+  let refreshes = 0
+  const deps = { revalidate: () => { refreshes++ }, rescan: async () => ({ ok: true }) }
+  for (const bad of ['https://', 'https://example.com/REPLACE', 'REPLACE-ME', '', 'https://your-link.shopco.com']) {
+    const dp: Db = { tables: { affiliate_links: [linkRow({ id: 'D1', status: 'draft', url: bad })], affiliate_partners: [] } }
+    const t = await setLinkOnOff(fakeAdmin(dp), 'D1', true)
+    const t2 = await editLink(fakeAdmin(dp), 'D1', { status: 'active' }, deps)
+    expect(`turning ON a link whose address is "${bad}" is refused with a plain message and changes nothing`, !t.ok && t.status === 400 && t.error === NEEDS_REAL_LINK_MESSAGE && t2.status === 400 && (dp.tables.affiliate_links![0] as { status: string }).status === 'draft')
+  }
+  const dReal: Db = { tables: { affiliate_links: [linkRow({ id: 'D2', status: 'hidden' })], affiliate_partners: [] } }
+  refreshes = 0
+  const turnedOn = await editLink(fakeAdmin(dReal), 'D2', { status: 'active' }, deps)
+  expect('a real https link can be turned ON, and the site is refreshed', turnedOn.status === 200 && (dReal.tables.affiliate_links![0] as { status: string }).status === 'active' && refreshes === 1)
+  const offAlways = await editLink(fakeAdmin(dReal), 'D2', { status: 'hidden' }, deps)
+  expect('OFF is always allowed', offAlways.status === 200 && (dReal.tables.affiliate_links![0] as { status: string }).status === 'hidden')
+  const placeholderEdit = await editLink(fakeAdmin(dReal), 'D2', { url: 'https://example.com/REPLACE', title: 'x', status: 'active' }, deps)
+  expect('a full edit cannot turn a link ON with a placeholder address either', placeholderEdit.status === 400 && (dReal.tables.affiliate_links![0] as { status: string }).status === 'hidden')
+  const dNew: Db = { tables: { affiliate_links: [], affiliate_partners: [] } }
+  const created = await createLink(fakeAdmin(dNew), { url: 'https://merchant.shopco.com/a', title: 'Brand new', status: 'active' }, deps)
+  expect('a new link starts OFF (hidden), even if the request says active', created.status === 201 && (dNew.tables.affiliate_links![0] as { status: string }).status === 'hidden')
+  expect('a body that is not a JSON object is a 400 (create and edit)', (await createLink(fakeAdmin(dNew), null)).status === 400 && (await editLink(fakeAdmin(dNew), 'x', null)).status === 400)
+  expect('editing a link that is gone is a 404', (await editLink(fakeAdmin(dNew), 'nope', { url: 'https://merchant.shopco.com/a', title: 'x' }, deps)).status === 404)
+
+  // ---------- 3c. partner sync: explicit toggle only, rollback, delete order ----------
+  const PU = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const syncDb = (): Db => ({ tables: { affiliate_links: [linkRow({ id: 'S1', status: 'hidden', partner_id: PU })], affiliate_partners: [partnerRow({ id: PU })] } })
+  const sd = syncDb()
+  const codes3: number[] = []
+  const body = { url: 'https://viator.shopco.com/aff', title: 'Viator tours', merchant: 'Viator', slug: 'viator', partner_id: PU, sort_order: 1 }
+  codes3.push((await editLink(fakeAdmin(sd), 'S1', { ...body, status: 'hidden' }, deps)).status)
+  expect('a full edit that leaves the link OFF does not downgrade the live search button (no advanced sent)', (sd.tables.affiliate_partners![0] as { status: string }).status === 'active')
+  codes3.push((await editLink(fakeAdmin(sd), 'S1', { ...body, status: 'hidden', advanced: { partner_code: 'abc', search_template: TEMPLATE } }, deps)).status)
+  expect('nor when advanced settings are saved', (sd.tables.affiliate_partners![0] as { status: string }).status === 'active')
+  sd.tables.affiliate_links![0] = { ...(sd.tables.affiliate_links![0] as object), status: 'active' }
+  codes3.push((await editLink(fakeAdmin(sd), 'S1', { ...body, status: 'hidden' }, deps)).status)
+  expect('a full edit that really changes the status (ON to OFF) switches the search button too, with or without advanced', (sd.tables.affiliate_partners![0] as { status: string }).status === 'hidden')
+  expect('(those full edits all succeeded, so the checks above are not vacuous)', codes3.every((c) => c === 200), codes3.join())
+  const toggled = syncDb()
+  await editLink(fakeAdmin(toggled), 'S1', { status: 'active' }, deps)
+  expect('the explicit ON toggle switches the search button', (toggled.tables.affiliate_partners![0] as { status: string }).status === 'active')
+
+  // a failed second write leaves nothing half done, and the site is still refreshed
+  const rb: Db = {
+    tables: { affiliate_links: [linkRow({ id: 'R1', slug: 'viator', status: 'hidden', partner_id: null })], affiliate_partners: [partnerRow({ logo_url: 'https://cdn.shopco.com/old.png' })] },
+    rejectUpdate: (t, p) => (t === 'affiliate_links' && Object.keys(p).length === 2 && 'partner_id' in p ? 'connection lost' : null),
+  }
+  refreshes = 0
+  const rbRes = await editLink(fakeAdmin(rb), 'R1', { ...body, title: 'Changed title', status: 'hidden', partner_id: '', advanced: { partner_code: 'zzz', search_template: TEMPLATE, logo_url: 'https://cdn.shopco.com/new.png' } }, deps)
+  const rbLink = rb.tables.affiliate_links![0] as { title: string; partner_id: unknown }
+  const rbPartner = rb.tables.affiliate_partners![0] as { partner_id: string; logo_url: string }
+  expect('if linking the partner fails, the partner and the link are put back, the user gets an error, and the site is refreshed anyway', rbRes.status === 500 && rbLink.title === 'Viator tours' && rbLink.partner_id === null && rbPartner.partner_id === 'abc' && rbPartner.logo_url === 'https://cdn.shopco.com/old.png' && refreshes === 1, JSON.stringify([rbRes, rbLink, rbPartner]))
+  const rbNew: Db = { tables: { affiliate_links: [], affiliate_partners: [] }, rejectUpdate: (t, p) => (t === 'affiliate_links' && Object.keys(p).length === 2 && 'partner_id' in p ? 'connection lost' : null) }
+  refreshes = 0
+  const rbCreate = await createLink(fakeAdmin(rbNew), { url: 'https://merchant.shopco.com/a', title: 'Fresh', advanced: { partner_code: 'abc', search_template: TEMPLATE } }, deps)
+  expect('adding a link whose partner linking fails leaves no new link and no new partner, and still refreshes', rbCreate.status === 500 && rbNew.tables.affiliate_links!.length === 0 && rbNew.tables.affiliate_partners!.length === 0 && refreshes === 1)
+
+  // delete: the search button is hidden only after the link delete worked
+  const delFail: Db = { tables: { affiliate_links: [linkRow({ id: 'X1', partner_id: 'P1' })], affiliate_partners: [partnerRow()] }, failWrites: { affiliate_links: 'cannot delete' } }
+  const delRes = await removeLink(fakeAdmin(delFail), 'X1', deps)
+  expect('if the link delete fails the search button stays live', delRes.status === 500 && (delFail.tables.affiliate_partners![0] as { status: string }).status === 'active')
+  const delOk: Db = { tables: { affiliate_links: [linkRow({ id: 'X1', partner_id: 'P1' })], affiliate_partners: [partnerRow()] } }
+  const delOkRes = await removeLink(fakeAdmin(delOk), 'X1', deps)
+  expect('when the delete works the search button is hidden and the site is refreshed', delOkRes.status === 200 && delOk.tables.affiliate_links!.length === 0 && (delOk.tables.affiliate_partners![0] as { status: string }).status === 'hidden')
 
   // ---------- 4. routes ----------
   const linksRoute = read('app/api/admin/affiliate-links/route.ts')
@@ -105,7 +180,16 @@ async function main() {
     const declared = [...src.matchAll(/export async function (GET|POST|PATCH|DELETE)\(/g)].length
     expect(`${name}: every handler checks isAuthorized first`, handlers === declared && declared > 0)
   }
-  expect('create, edit, ON, OFF, delete and the partner writes all refresh the whole site', /refreshAfterChange/.test(linksRoute) && (idRoute.match(/refreshAfterChange\(admin\)/g) ?? []).length === 3 && /refreshAfterChange\(admin\)/.test(partnerRoute) && (partnerIdRoute.match(/refreshAfterChange\(admin\)/g) ?? []).length === 2)
+  refreshes = 0
+  const rw: Db = { tables: { affiliate_links: [], affiliate_partners: [] } }
+  const made2 = await createLink(fakeAdmin(rw), { url: 'https://merchant.shopco.com/a', title: 'Refresh me' }, deps)
+  const madeId = (rw.tables.affiliate_links![0] as { id: string }).id
+  await editLink(fakeAdmin(rw), madeId, { status: 'active' }, deps)
+  await editLink(fakeAdmin(rw), madeId, { status: 'hidden' }, deps)
+  await editLink(fakeAdmin(rw), madeId, { url: 'https://merchant.shopco.com/b', title: 'Refresh me', slug: (rw.tables.affiliate_links![0] as { slug: string }).slug }, deps)
+  await removeLink(fakeAdmin(rw), madeId, deps)
+  expect('create, ON, OFF, edit and delete each refresh the whole site (once each)', made2.status === 201 && refreshes === 5, String(refreshes))
+  expect('the partner routes refresh too', /refreshAfterChange\(admin\)/.test(partnerRoute) && (partnerIdRoute.match(/refreshAfterChange\(admin\)/g) ?? []).length === 2)
   expect('the list read keeps card clicks and partner clicks in separate queries', /not\('link_id', 'is', null\)/.test(linksRoute) && /not\('partner_id', 'is', null\)/.test(linksRoute))
   const { GET, POST } = await import('../app/api/admin/affiliate-links/route')
   const { PATCH, DELETE } = await import('../app/api/admin/affiliate-links/[id]/route')
@@ -113,7 +197,7 @@ async function main() {
   const anon = () => new Request('http://localhost/api/admin/affiliate-links', { method: 'POST', body: '{}' })
   const codes = await Promise.all([GET(anon()), POST(anon()), PATCH(anon(), { params: { id: 'x' } }), DELETE(anon(), { params: { id: 'x' } }), pPatch(anon(), { params: { id: 'x' } })].map((p) => p.then((r) => r.status)))
   expect('without an admin token the list routes answer 401', codes.every((c) => c === 401), codes.join())
-  expect('ON/OFF is a status-only PATCH that accepts only active or hidden', /keys\.length === 1 && keys\[0\] === 'status'/.test(idRoute) && /wanted !== 'active' && wanted !== 'hidden'/.test(idRoute))
+  expect('ON/OFF is a status-only PATCH that accepts only active or hidden', (await editLink(fakeAdmin({ tables: { affiliate_links: [linkRow()] } }), 'L1', { status: 'draft' }, deps)).status === 400 && (await editLink(fakeAdmin({ tables: { affiliate_links: [linkRow()] } }), 'L1', { status: 'hidden' }, deps)).status === 200)
 
   // ---------- 5. the page ----------
   const page = read('app/admin/affiliate-links/page.tsx')

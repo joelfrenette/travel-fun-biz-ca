@@ -96,16 +96,16 @@ async function main() {
   expect('a rule with a bad slug or phrase or scope is ignored, not an error', link('<p>Croatia tours</p>', [rule('Croatia tours', 'BAD SLUG!'), rule('x'), { ...rule('Croatia tours'), scope: 'nope' as never }]).count === 0)
   // OFF rows never reach the linker: rowsToRules drops an OFF link; the loader only asks for ON keywords.
   const joined = [
-    { id: 'k1', phrase: 'Croatia tours', scope: 'all', max_per_page: 1, affiliate_links: { slug: 'viator', status: 'active' } },
-    { id: 'k2', phrase: 'Temptations', scope: 'all', max_per_page: 1, affiliate_links: { slug: 'temptations', status: 'hidden' } },
-    { id: 'k3', phrase: 'Drafty', scope: 'all', max_per_page: 1, affiliate_links: { slug: 'drafty', status: 'draft' } },
+    { id: 'k1', phrase: 'Croatia tours', scope: 'all', max_per_page: 1, affiliate_links: { slug: 'viator', status: 'active', url: 'https://merchant.shopco.com/a' } },
+    { id: 'k2', phrase: 'Temptations', scope: 'all', max_per_page: 1, affiliate_links: { slug: 'temptations', status: 'hidden', url: 'https://merchant.shopco.com/a' } },
+    { id: 'k3', phrase: 'Drafty', scope: 'all', max_per_page: 1, affiliate_links: { slug: 'drafty', status: 'draft', url: 'https://merchant.shopco.com/a' } },
     { id: 'k4', phrase: 'Lonely', scope: 'all', max_per_page: 1, affiliate_links: null },
-    { id: 'k5', phrase: 'Arr', scope: 'all', max_per_page: 1, affiliate_links: [{ slug: 'arr-link', status: 'active' }] },
+    { id: 'k5', phrase: 'Arr', scope: 'all', max_per_page: 1, affiliate_links: [{ slug: 'arr-link', status: 'active', url: 'https://merchant.shopco.com/a' }] },
   ]
   expect('a keyword whose link is OFF (hidden or draft) or missing produces no rule', rowsToRules(joined).map((r) => r.phrase).join(',') === 'Croatia tours,Arr')
   expect('turning a link OFF removes its phrase links on the next render', (() => {
     const html = '<p>Visit Temptations and Croatia tours.</p>'
-    const before = link(html, rowsToRules(joined.map((j) => (j.id === 'k2' ? { ...j, affiliate_links: { slug: 'temptations', status: 'active' } } : j))))
+    const before = link(html, rowsToRules(joined.map((j) => (j.id === 'k2' ? { ...j, affiliate_links: { slug: 'temptations', status: 'active', url: 'https://merchant.shopco.com/a' } } : j))))
     const after = link(html, rowsToRules(joined))
     return before.output.includes('/go/temptations') && !after.output.includes('/go/temptations') && after.output.includes('/go/viator')
   })())
@@ -113,6 +113,13 @@ async function main() {
     const rows = (url: string) => rowsToRules([{ id: 'k', phrase: 'Croatia tours', scope: 'all', max_per_page: 1, affiliate_links: { slug: 'viator', status: 'active', url } as never }])
     return link('<p>Croatia tours</p>', rows('https://old.example.com/a')).output === link('<p>Croatia tours</p>', rows('https://new.example.com/b')).output
   })())
+
+  const placeholderRows = ['https://', 'https://example.com/REPLACE', 'REPLACE', '', null, 'https://your-link.shopco.com'].map((url, i) => ({ id: `p${i}`, phrase: `Place ${i}`, scope: 'all', max_per_page: 1, affiliate_links: { slug: 'viator', status: 'active', url } }))
+  expect('an ON link with an empty or placeholder address gets no word links (they would land on the home page)', rowsToRules(placeholderRows as never).length === 0)
+  clearAffiliateRulesCache()
+  const ph = await loadAffiliateRules({ client: ({ from: () => { const q: Record<string, unknown> = { select: () => q, eq: () => q, order: () => q, limit: () => Promise.resolve({ data: placeholderRows, error: null }) }; return q } }) as never, now: 7 })
+  expect('the loader drops them too, so no disclosure is shown either', ph.length === 0 && linkPage({ bodyHtml: '<p>Place 0 and Place 1</p>', faqAnswers: [] }, ph, 'blog').count === 0)
+  clearAffiliateRulesCache()
 
   // ---------- 5. loader: one joined query, ON only, 60 s cache, fail open ----------
   clearAffiliateRulesCache()
@@ -133,7 +140,7 @@ async function main() {
       return q
     },
   })
-  const goodRows = [{ id: 'k1', phrase: 'Croatia tours', scope: 'all', max_per_page: 2, affiliate_links: { slug: 'viator', status: 'active' } }]
+  const goodRows = [{ id: 'k1', phrase: 'Croatia tours', scope: 'all', max_per_page: 2, affiliate_links: { slug: 'viator', status: 'active', url: 'https://merchant.shopco.com/a' } }]
   const t0 = 1_000_000
   const first = await loadAffiliateRules({ client: stub({ data: goodRows, error: null }) as never, now: t0 })
   const cached = await loadAffiliateRules({ client: stub({ data: [], error: null }) as never, now: t0 + RULES_TTL_MS - 1 })

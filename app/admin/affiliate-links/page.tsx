@@ -63,9 +63,11 @@ interface LinkForm {
   note: string
   category: string
   advanced: AdvancedInput
+  /** Set by the Clear button: the only way to wipe the search button settings. */
+  clearAdvanced: boolean
 }
 
-const EMPTY_FORM: LinkForm = { id: "", slug: "", url: "", name: "", merchant: "", status: "active", sort_order: 0, partner_id: "", page: "", image_url: "", note: "", category: "", advanced: EMPTY_ADVANCED }
+const EMPTY_FORM: LinkForm = { id: "", slug: "", url: "", name: "", merchant: "", status: "hidden", sort_order: 0, partner_id: "", page: "", image_url: "", note: "", category: "", advanced: EMPTY_ADVANCED, clearAdvanced: false }
 
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 
@@ -155,7 +157,7 @@ export default function AffiliateLinksPage() {
     setForm({
       id: row.id, slug: row.slug, url: row.url, name: row.title || row.merchant || "", merchant: row.merchant ?? "", status: row.status, sort_order: row.sort_order,
       partner_id: row.partner_id ?? "", page: row.guide_kind && row.guide_slug ? `${row.guide_kind}/${row.guide_slug}` : "", image_url: row.image_url ?? "", note: row.note ?? "",
-      category: row.category ?? "", advanced: row.advanced ?? EMPTY_ADVANCED,
+      category: row.category ?? "", advanced: row.advanced ?? EMPTY_ADVANCED, clearAdvanced: false,
     })
     setAdvancedOpen(false)
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0)
@@ -178,16 +180,16 @@ export default function AffiliateLinksPage() {
     try {
       const isEdit = !!form.id
       const [guide_kind, ...rest] = form.page ? form.page.split("/") : [""]
-      const { page: _page, name, advanced, ...fields } = form
+      const { page: _page, name, advanced, clearAdvanced, ...fields } = form
       void _page
       const res = await fetch(isEdit ? `/api/admin/affiliate-links/${form.id}` : "/api/admin/affiliate-links", {
         method: isEdit ? "PATCH" : "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ ...fields, title: name, guide_kind, guide_slug: rest.join("/"), advanced }),
+        body: JSON.stringify({ ...fields, title: name, guide_kind, guide_slug: rest.join("/"), advanced: { ...advanced, clear: clearAdvanced } }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "Could not save")
-      toast({ title: isEdit ? "Link updated" : "Link added", description: told(data.refreshed) })
+      toast({ title: isEdit ? "Link updated" : "Link added", description: isEdit ? told(data.refreshed) : "It starts OFF. Press ON in the list when you are ready." })
       setForm(null)
       load()
     } catch (e) {
@@ -328,6 +330,10 @@ export default function AffiliateLinksPage() {
                           <Label htmlFor="a-template">Search link</Label>
                           <Input id="a-template" placeholder="https://partner-site.example/search?q={query}&pid={partner_id}" value={form.advanced.search_template} onChange={(e) => setForm({ ...form, advanced: { ...form.advanced, search_template: e.target.value } })} />
                           <p className="text-xs text-muted-foreground">{TEMPLATE_HELP}. Only https links work. Copy it from the company&rsquo;s dashboard.</p>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <Button type="button" variant="outline" onClick={() => setForm({ ...form, advanced: EMPTY_ADVANCED, clearAdvanced: true })}>Clear the search button settings</Button>
+                          {form.clearAdvanced && <p className="mt-1 text-xs text-muted-foreground">All four fields will be emptied when you press Save changes.</p>}
                         </div>
                         <div className="space-y-2 sm:col-span-2">
                           <Label htmlFor="a-disclosure">Commission wording</Label>

@@ -6,6 +6,8 @@ import { normalizeAffiliateLinkInput, summarizeClicksByLink, clicksFor, saveLink
 import { summarizePartnerClicks, type PartnerClickRow, type PartnerRow } from '@/lib/affiliate-partners'
 import { advancedOf, applyAdvanced, orphanPartners, partnerForLink, readAdvanced, validateAdvanced } from '@/lib/affiliate-link-partner'
 import { refreshAfterChange } from '@/lib/affiliate-refresh'
+import { readJsonObject } from '@/lib/admin-body'
+import { createLink } from '@/lib/affiliate-link-actions'
 
 const PARTNER_COLUMNS = 'id, slug, name, logo_url, partner_id, search_template, disclosure, status, sort_order, created_at'
 
@@ -83,30 +85,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
-    const body = await request.json().catch(() => ({}))
-    const parsed = normalizeAffiliateLinkInput(body)
-    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
-    // The advanced (search button) settings are checked before anything is written.
-    const advanced = readAdvanced(body as Record<string, unknown>)
-    const advancedCheck = validateAdvanced(advanced)
-    if (!advancedCheck.ok) return NextResponse.json({ error: advancedCheck.error }, { status: advancedCheck.status })
-
-    const admin = getSupabaseAdmin()
-    // A brand-new card never 500s on a slug collision — it's deduped against every taken slug
-    // (auto-generated or typed by hand) the same way Phase 6's own dedupeSlug expects to be used.
-    const { data: existing, error: existingError } = await admin.from('affiliate_links').select('slug')
-    if (existingError) throw new Error(existingError.message)
-    const slug = dedupeSlug(parsed.value.slug, (existing ?? []).map((r) => r.slug))
-
-    const saved = await saveLink(admin, { ...parsed.value, slug })
-    if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: saved.status })
-    if (advanced) {
-      const s = saved.data as { id: string; slug: string; status: string; merchant: string | null; title: string | null; sort_order: number; partner_id?: string | null }
-      const applied = await applyAdvanced(admin, { ...s, partner_id: s.partner_id ?? null }, advanced)
-      if (!applied.ok) return NextResponse.json({ error: `The link was saved, but its search button settings were not: ${applied.error}` }, { status: applied.status })
-    }
-    const refreshed = await refreshAfterChange(admin)
-    return NextResponse.json({ link: { ...saved.data, clicks: { total: 0, last7: 0, last30: 0 } }, refreshed }, { status: 201 })
+    const result = await createLink(getSupabaseAdmin(), await readJsonObject(request))
+    return NextResponse.json(result.body, { status: result.status })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }

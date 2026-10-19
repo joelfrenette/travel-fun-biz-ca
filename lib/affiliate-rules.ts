@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { isValidSlug } from '@/lib/affiliate-go'
+import { isValidSlug, isRealLink } from '@/lib/affiliate-go'
 import { cleanPhrase, isLinkScope, phraseProblem, type AffiliateRule, type LinkScope } from '@/lib/affiliate-linker'
 
 // WP22: reading and validating the word-link rules (table affiliate_keywords, migration 0050).
@@ -55,7 +55,7 @@ interface JoinedRow {
   phrase: string
   scope: string
   max_per_page: number
-  affiliate_links?: { slug: string | null; status: string } | { slug: string | null; status: string }[] | null
+  affiliate_links?: { slug: string | null; status: string; url?: string | null } | { slug: string | null; status: string; url?: string | null }[] | null
 }
 
 /** Pure: joined rows (keyword plus its link) to usable rules. Only a link that is ON (status active) with a real short-link slug counts. */
@@ -63,7 +63,7 @@ export function rowsToRules(rows: JoinedRow[] | null | undefined): AffiliateRule
   const out: AffiliateRule[] = []
   for (const r of rows ?? []) {
     const link = Array.isArray(r.affiliate_links) ? r.affiliate_links[0] : r.affiliate_links
-    if (!link || link.status !== 'active' || !isValidSlug(link.slug)) continue
+    if (!link || link.status !== 'active' || !isValidSlug(link.slug) || !isRealLink(link.url)) continue
     if (!isLinkScope(r.scope) || !cleanPhrase(r.phrase)) continue
     out.push({ id: r.id, phrase: r.phrase, slug: link.slug, scope: r.scope, max_per_page: r.max_per_page })
   }
@@ -87,7 +87,7 @@ export async function loadAffiliateRules(opts: { client?: SupabaseClient; now?: 
     const db = opts.client ?? getSupabaseAdmin()
     const res = await db
       .from('affiliate_keywords')
-      .select('id, phrase, scope, max_per_page, link_id, affiliate_links!inner(slug, status)')
+      .select('id, phrase, scope, max_per_page, link_id, affiliate_links!inner(slug, status, url)')
       .eq('status', 'on')
       .order('created_at')
       .limit(1000)
