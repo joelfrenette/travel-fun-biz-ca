@@ -71,3 +71,9 @@
 - Why it helps: if the cron that runs the whole autopilot dies, nothing else can say so; Joel now gets an email within a day instead of finding out from missing leads and posts.
 - UAT: `pnpm dlx tsx scripts/check-cron-watchdog.ts`. Live: the gsc-snapshot cron result text ends with "watchdog: autopilot stale, alert sent" only when the autopilot heartbeat is older than 3 hours with Autopilot on.
 - Migration: none.
+
+## Blog posts link to matching published guides and related posts
+- What changed: `lib/autoblog-run.ts` has exported pure `pickGuideAndPostLinks(topic, guides, posts, selfSlug)`, `mergeAllowedLinks` and `withGuideAndPostLinks`. `buildAllowedLinks` now adds, after the trip, destination and best-time links, up to 3 published guides whose name appears (whole word, any case) in the topic angle, keywords or tags (`listPublishedGuideLinks`, `guidePath`, read only) and up to 2 recent published posts sharing a tag with the topic (never the post being written, no drafts or future-dated posts). Total is capped at 5 and the existing links always come first. The quality gate's allowed paths come from the same list, so these paths count as allowed and any unlisted path is still a dead link. Any read error returns today's links. Affiliate linker files untouched.
+- Why it helps: more internal links from each new post to guides and sibling posts means better crawl paths and ranking for guides, and more routes from a reader to a trip page, with no manual linking.
+- UAT: `pnpm dlx tsx scripts/check-blog-links.ts`. Live: run autoblog in draft mode for a topic naming a published cruise line and see its guide link in the draft body.
+- Migration: none.
