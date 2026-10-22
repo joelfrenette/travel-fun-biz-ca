@@ -14,6 +14,7 @@ import {
 } from '@/lib/distribution'
 import { uploadPostConfigured, uploadPostListProfiles, uploadPostConnectLink, UPLOAD_POST_DASHBOARD_URL } from '@/lib/upload-post'
 import { isAiConfigured } from '@/lib/ai-verify'
+import { getTripSocialEnabled, setTripSocialEnabled } from '@/lib/trip-social'
 import { getProvider, setProvider, getGhlAccounts, setGhlAccounts, type Provider, type GhlAccountRef } from '@/lib/social-provider'
 import { ghlSocialConfigured, ghlSocialMissing, ghlListAccounts } from '@/lib/ghl-social'
 
@@ -31,11 +32,12 @@ export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const admin = getSupabaseAdmin()
-    const [mode, accounts, platforms, tailoredCaptions, listed, provider, ghlSelected, ghlListed] = await Promise.all([
+    const [mode, accounts, platforms, tailoredCaptions, tripSocialPosts, listed, provider, ghlSelected, ghlListed] = await Promise.all([
       getDistributionMode(admin),
       getDistributionAccounts(admin),
       getDistributionPlatforms(admin),
       getTailoredCaptionsEnabled(admin),
+      getTripSocialEnabled(admin),
       uploadPostListProfiles(),
       getProvider(admin),
       getGhlAccounts(admin),
@@ -51,6 +53,7 @@ export async function GET(request: Request) {
       selectedPlatforms: platforms,
       mode: fromDistributionMode(mode),
       tailoredCaptions,
+      tripSocialPosts,
       aiConfigured: isAiConfigured(),
       dashboardUrl: UPLOAD_POST_DASHBOARD_URL,
     })
@@ -100,6 +103,11 @@ export async function POST(request: Request) {
     if (typeof body.tailoredCaptions === 'boolean') {
       if (body.tailoredCaptions && !isAiConfigured()) return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not set in Vercel.' }, { status: 400 })
       const { error } = await setTailoredCaptionsEnabled(admin, body.tailoredCaptions)
+      if (error) throw new Error(error)
+      return NextResponse.json({ ok: true })
+    }
+    if (typeof body.tripSocialPosts === 'boolean') {
+      const { error } = await setTripSocialEnabled(admin, body.tripSocialPosts)
       if (error) throw new Error(error)
       return NextResponse.json({ ok: true })
     }

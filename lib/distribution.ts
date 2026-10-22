@@ -7,6 +7,8 @@ import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
 import { utmLink, canonicalNetwork } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource } from '@/lib/guide-post-source'
+import { runGuideCatchUp } from '@/lib/guide-distribution'
+import { releaseHeldTrips, runTripSocialEnrol } from '@/lib/trip-social'
 import { fitCaption, tightestLimit, generatePlatformCaptions, buildFallbackCaption, buildNetworkFallbacks, groupNetworksForSend, type PlatformCaptions } from '@/lib/social-captions'
 import type { UploadPostSendResult } from '@/lib/upload-post'
 import { buildGroundingText } from '@/lib/post-grounding'
@@ -193,8 +195,16 @@ export async function runDistribution(admin: SupabaseClient): Promise<string> {
     // Guide posts about a named place wait here (held) and are let go after guide_social_release_hours if their
     // caption passes (WP18-E). This only moves a row from held to queued; the send below is the same code as ever.
     const release = await releaseHeldGuides(admin, { mode })
+    // Catch-up: while today's single guide enrolment is unused, enrol the oldest published guide that never got a post.
+    // Same enrolGuideIfDue rules (cap, held for named businesses, kill switch); a no-op in every other case.
+    const catchUp = await runGuideCatchUp(admin)
+    // Trip posts (app_settings.trip_social_posts, default off): release held ones whose 24 hours are up, then enrol at most
+    // one new trip. Both are no-ops unless the setting is exactly 'true'; the send below is the same code as ever.
+    const tripRelease = await releaseHeldTrips(admin, { mode })
+    const tripEnrol = await runTripSocialEnrol(admin, mode)
     const sent = await runDistributionLocked(admin, target, tailoredCaptionsOn)
-    return release.released || release.stillHeld ? `${sent}; ${release.note}` : sent
+    const notes = [release.released || release.stillHeld ? release.note : '', catchUp, tripRelease.released || tripRelease.stillHeld ? tripRelease.note : '', tripEnrol].filter(Boolean)
+    return notes.length > 0 ? `${sent}; ${notes.join('; ')}` : sent
   } finally {
     await releaseDistributionLock(admin)
   }

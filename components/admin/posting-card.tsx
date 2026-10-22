@@ -20,6 +20,7 @@ interface Posting {
   selectedPlatforms: string[]
   mode: "review" | "auto" | "off"
   tailoredCaptions: boolean
+  tripSocialPosts: boolean
   aiConfigured: boolean
   dashboardUrl: string
 }
@@ -214,6 +215,11 @@ export function PostingCard({ onChanged }: { onChanged?: () => void }) {
         <label className="flex items-start gap-2 border-t pt-4 text-sm">
           <input type="checkbox" className="mt-1" checked={data.tailoredCaptions} disabled={busy || !data.aiConfigured} onChange={(e) => save({ tailoredCaptions: e.target.checked }, "Saved")} />
           <span><span className="font-medium">Write a different caption for each network</span><span className="block text-xs text-muted-foreground">Costs a little more AI and uses more of your Upload-Post upload quota (one upload per network).</span></span>
+        </label>
+
+        <label className="flex items-start gap-2 border-t pt-4 text-sm">
+          <input type="checkbox" className="mt-1" checked={data.tripSocialPosts} disabled={busy} onChange={(e) => save({ tripSocialPosts: e.target.checked }, "Saved")} />
+          <span><span className="font-medium">Post about our trips</span><span className="block text-xs text-muted-foreground">Off by default. When on, at most one live trip is posted about once every 30 days, after a 24 hour wait. A trip with no price or no dates is never posted. It follows the posting mode above and the daily and weekly limits.</span></span>
         </label>
       </CardContent>
     </Card>
