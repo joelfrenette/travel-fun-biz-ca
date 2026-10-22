@@ -444,7 +444,7 @@ async function part2() {
 
   // ---- draft mode, end to end ----
   const s1 = newStubs()
-  const w1 = world({ travel_news_mode: 'draft', distribution_mode: 'auto' })
+  const w1 = world({ travel_news_mode: 'draft', distribution_mode: 'auto', news_social_posts: 'true' })
   const deps1 = { fetchDeps: feedDeps(s1, allRoutes, () => NOW), model: modelFor(s1), now: STEP_NOW, ping: async (p: string[]) => void s1.pings.push(p), phone: undefined }
   const r1 = await runNewsStep(w1.admin, deps1)
   const items1 = rowsOf(w1.db, 'news_items')
@@ -509,7 +509,7 @@ async function part2() {
   // ---- publish from the start ----
   {
     const s = newStubs()
-    const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'prepare', travel_news_per_day: '1' })
+    const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'prepare', news_social_posts: 'true', travel_news_per_day: '1' })
     const r = await runNewsStep(admin, { fetchDeps: feedDeps(s, allRoutes, () => NOW), model: modelFor(s), now: STEP_NOW, ping: async (p) => void s.pings.push(p) })
     const posts = rowsOf(db, 'posts')
     check('publish mode, 1 a day: exactly one brief is written and published, and it is the newest breaking official notice (the storm warning)', !!r && posts.length === 1 && posts[0].status === 'published' && String(posts[0].slug).includes('hurricane'), r?.note)
@@ -520,7 +520,7 @@ async function part2() {
   // ---- the audit log is missing: nothing goes live ----
   {
     const s = newStubs()
-    const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto' })
+    const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto', news_social_posts: 'true' })
     const broken = breakReads(admin, (t) => t === 'content_edits')
     const r = await runNewsStep(broken as typeof admin, { fetchDeps: feedDeps(s, allRoutes, () => NOW), model: modelFor(s), now: STEP_NOW, ping: async (p) => void s.pings.push(p) })
     check('no edit log, no going live: briefs are kept as drafts, nothing published, no social post', !!r && rowsOf(db, 'posts').length > 0 && rowsOf(db, 'posts').every((p) => p.status === 'draft') && rowsOf(db, 'post_distribution').length === 0 && s.pings.length === 0, r?.note)
@@ -528,7 +528,7 @@ async function part2() {
   // ---- the judge says no ----
   {
     const s = newStubs()
-    const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto' })
+    const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto', news_social_posts: 'true' })
     const r = await runNewsStep(admin, { fetchDeps: feedDeps(s, allRoutes, () => NOW), model: modelFor(s, { judge: '{"pass":false,"failures":[{"quote":"The US National Hurricane Center reports","reason":"unsupported"}]}' }), now: STEP_NOW })
     check('judge fails: nothing is published or saved, items are rejected with a plain reason, the run moves on', !!r && rowsOf(db, 'posts').length === 0 && rowsOf(db, 'news_items').some((i) => i.status === 'rejected' && /QA reviewer/.test(String(i.reject_reason))) && rowsOf(db, 'post_distribution').length === 0, r?.note)
     const attempts = rowsOf(db, 'news_items').filter((i) => i.decided_at).length
@@ -585,7 +585,7 @@ async function part2() {
     check('trade feeds: skift, cruise-industry-news and cruise-hive are enabled; the Canadian JSON advisories are enabled as a json source (proved in scripts/check-news-json.ts)', ['skift', 'cruise-industry-news', 'cruise-hive'].every((k) => sourceByKey(k)?.enabled === true) && sourceByKey('gac-advisories')?.enabled === true && sourceByKey('gac-advisories')?.kind === 'json')
     const feed = `<?xml version="1.0"?><rss version="2.0"><channel><item><title>Cruise line suspends calls at Port Alpha after pier damage</title><link>https://skift.com/2026/10/13/atlas-port-alpha/</link><guid>SK-1</guid><pubDate>Tue, 13 Oct 2026 12:00:00 GMT</pubDate><description>${FACTS_T2.summary}</description></item><item><title>Airline appoints new chief marketing officer</title><link>https://skift.com/2026/10/13/cmo/</link><guid>SK-2</guid><pubDate>Tue, 13 Oct 2026 12:00:00 GMT</pubDate><description>Business news.</description></item></channel></rss>`
     const s = newStubs()
-    const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto' })
+    const { db, admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto', news_social_posts: 'true' })
     const r = await runNewsStep(admin, { fetchDeps: feedDeps(s, { 'https://skift.com/feed/': feed }, () => NOW), model: modelFor(s), now: STEP_NOW, ping: async () => undefined, sources: [skift] })
     const post = rowsOf(db, 'posts')[0]
     check('tier 2: trade news goes through the same gate and judge, then publishes with the source name and link', !!r && !!post && post.status === 'published' && String(post.body).includes('[Check the official source: Skift](https://skift.com/2026/10/13/atlas-port-alpha/)') && /by Skift\.\*/.test(String(post.body)), r?.note)
@@ -831,7 +831,7 @@ async function part3() {
   {
     const s = newStubs()
     const crowded = Array.from({ length: SOCIAL_ENROLMENTS_PER_DAY_CEILING }, (_, i) => ({ content_type: 'post', slug: `guide-x-${i}`, stage: 'done', created_at: new Date().toISOString() }))
-    const { admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto' }, { post_distribution: crowded })
+    const { admin } = world({ travel_news_mode: 'publish', distribution_mode: 'auto', news_social_posts: 'true' }, { post_distribution: crowded })
     const nhc = sourceByKey('nhc-atlantic')!
     const r = await runNewsStep(admin, { fetchDeps: feedDeps(s, { [nhc.feedUrl]: NHC_FEED }, () => NOW), model: modelFor(s), now: new Date(NOW), sources: [nhc], ping: async () => undefined })
     check('m3: when the shared social ceiling skips a news post, the step note says so', !!r && /shared daily limit/.test(r.note), r?.note)

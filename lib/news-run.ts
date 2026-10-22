@@ -16,7 +16,7 @@ import { buildCaBrief, isCaAdvisorySource, isCaTemplateBrief } from '@/lib/news-
 import { createNewsPost, markSuperseded, publishQueuedDraft } from '@/lib/news-publish'
 import { newsTitle, parseNewsBody } from '@/lib/news-post'
 import { STORM_POST_WINDOW_MS, classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, priorityOf, stormKey, stormKeysMatch, stormSignature, titleKey, titleSimilarity, SIMILAR_TITLE_THRESHOLD } from '@/lib/news-relevance'
-import { getNewsMode, getNewsPerDay, getNewsUkPerDay, type NewsMode } from '@/lib/news-settings'
+import { getNewsMode, getNewsPerDay, getNewsSocialEnabled, getNewsUkPerDay, type NewsMode } from '@/lib/news-settings'
 import { maxAgeMs, sourceByKey, type NewsSource } from '@/lib/news-sources'
 
 // Growth loop WP20: the news step inside the existing pipeline (lib/pipeline.ts). No new cron. One pass:
@@ -189,7 +189,8 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
     const claimCall = async () => (await claimNewsSlot(admin, 'call', Math.max(1, Math.floor((budget?.cap ?? 0) / 2)), now)) === 'ok'
 
     const goLive = async (item: NewsItemRow, slug: string, title: string) => {
-      const enrolled = await enrollNewsIfDue(admin, { slug, title, status: 'published' }, perDay)
+      // With news-on-social OFF (the default) a news brief never takes one of the shared daily social slots from blog posts and guides.
+      const enrolled = (await getNewsSocialEnabled(admin)) ? await enrollNewsIfDue(admin, { slug, title, status: 'published' }, perDay) : 'skipped'
       if (enrolled === 'ceiling') notes.push(`no social post for ${slug}: the shared daily limit of ${SOCIAL_ENROLMENTS_PER_DAY_CEILING} social posts (blog posts, guides and news together) is used up`)
       // A later bulletin of the same storm replaces the earlier live brief: mark the older ones "Update: superseded".
       for (const old of await olderStormItems(admin, item)) {
