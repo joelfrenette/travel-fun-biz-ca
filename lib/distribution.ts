@@ -19,6 +19,8 @@ import { tagVariant } from '@/lib/content-variants'
 import { CTA_STYLES, hashtagCapFor, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 import { assignHookStyles, questionNetworks, hasGroundableNumber, wantsCommentPrompt } from '@/lib/caption-plan'
 import { recordCaptions } from '@/lib/caption-log'
+import { loadOptimizerState } from '@/lib/optimizer-run'
+import { makeHookSteer } from '@/lib/optimizer'
 import { commentPromptLine } from '@/lib/reel-questions'
 import { getNewsSocialEnabled, NEWS_SOCIAL_SKIP_NOTE } from '@/lib/news-settings'
 import { isRecapSlug, baseSlugOfRecap, recapFacts } from '@/lib/fanout-plan'
@@ -498,7 +500,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         const grounding = isGuideRow ? guideSource?.grounding : await loadGrounding(admin, row.slug)
         // One style per network for THIS post, round-robin over each network's own history, so no two networks share a style where possible;
         // "number" is only a choice when the post has a number it can quote. At least half the networks must end the first line with a question.
-        Object.assign(hookStyles, assignHookStyles(platforms, (p) => valuesFromRows(variantRows, `hook_style:${p}`, 12), { hasNumber: hasGroundableNumber(`${title} ${post?.meta_description ?? ''} ${grounding ?? ''}`) }))
+        Object.assign(hookStyles, assignHookStyles(platforms, (p) => valuesFromRows(variantRows, `hook_style:${p}`, 12), { hasNumber: hasGroundableNumber(`${title} ${post?.meta_description ?? ''} ${grounding ?? ''}`), steer: makeHookSteer(await loadOptimizerState(admin), 'post') }))
         const questionFirstLine = questionNetworks(platforms, hookStyles)
         const commentPrompts: Record<string, string> = {}
         for (const [i, p] of platforms.entries()) {

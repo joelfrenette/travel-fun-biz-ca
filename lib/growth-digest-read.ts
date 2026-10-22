@@ -8,6 +8,7 @@ import { VISUAL_GATE_STATS_KEY, parseStats, sumRecent } from '@/lib/visual-gate-
 import { readPublishEvents } from '@/lib/publish-cadence'
 import { getActivePlatforms } from '@/lib/social-provider'
 import { VISIT_TRACKING_KEY } from '@/lib/visit-tracking'
+import { readLearningCounts } from '@/lib/optimizer-run'
 
 // Reads every source the Growth digest needs (read only) and hands the raw results to the pure builder in lib/growth-digest.ts.
 // Each source is read on its own: one that fails becomes { ok: false }, which the builder prints as "could not be read". Nothing
@@ -115,7 +116,12 @@ export async function readGrowthDigestInput(admin: SupabaseClient, now: Date = n
     return { ok: true, value: { platforms: a.platforms } }
   })
 
-  return { now, gscDays, gscRows, bing, postsWritten, postsPublished, newsBriefs, guidesPublished, guidesFlagged, postsHeld, reels, carousels, sends, gate, cadence, leads, visits, visitTrackingOn, ai, social }
+  const learning = await safe<{ retired: number; winners: number }>(async () => {
+    const r = await readLearningCounts(admin)
+    return r.ok ? { ok: true, value: { retired: r.retired, winners: r.winners } } : { ok: false, reason: r.reason }
+  })
+
+  return { now, learning, gscDays, gscRows, bing, postsWritten, postsPublished, newsBriefs, guidesPublished, guidesFlagged, postsHeld, reels, carousels, sends, gate, cadence, leads, visits, visitTrackingOn, ai, social }
 }
 
 /** The digest, never throwing: a total failure comes back as null so the caller can leave the section out. */

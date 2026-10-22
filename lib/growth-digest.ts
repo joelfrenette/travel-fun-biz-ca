@@ -81,6 +81,8 @@ export interface DigestInput {
   visitTrackingOn: Read<boolean>
   ai: Read<AiRow[]>
   social: Read<SocialState>
+  /** What the Optimizer has learned so far (lib/optimizer.ts). Optional: left out, the digest has no Learning line. */
+  learning?: Read<{ retired: number; winners: number }>
 }
 
 export interface DigestSection {
@@ -263,6 +265,7 @@ export function buildGrowthDigest(i: DigestInput): GrowthDigest {
   else c.push(`Pacing limit log shows ${n0(i.cadence.value.guides + i.cadence.value.posts)} automatic publishes (guides ${n0(i.cadence.value.guides)}, posts ${n0(i.cadence.value.posts)}). How many were held back by the limit is not recorded anywhere, so no number is shown.`)
   one('Guides still flagged by the quality check', i.guidesFlagged)
   one('Blog drafts held back (last 30 days)', i.postsHeld)
+  if (i.learning) c.push(i.learning.ok ? `Learning: ${plural(i.learning.value.retired, 'style')} retired, ${plural(i.learning.value.winners, 'winner')}` : `Learning: ${UNREAD}`)
   sections.push({ title: 'Content shipped in the last 7 days', lines: c })
 
   // 3. Money and leads

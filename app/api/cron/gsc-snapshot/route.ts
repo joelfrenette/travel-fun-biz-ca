@@ -7,6 +7,7 @@ import { connectKeywordsToRankingPages } from '@/lib/keyword-pages'
 import { runCronWatchdog } from '@/lib/cron-watchdog'
 import { runAiTripwire } from '@/lib/ai-tripwire'
 import { runBingCoverage } from '@/lib/bing-coverage'
+import { runOptimizer } from '@/lib/optimizer-run'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
 // CRON_SECRET must be set (cronUnauthorized 503s until then), and Search Console itself must be
@@ -58,7 +59,15 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] bing coverage failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}` })
+    // The Optimizer: counts newly settled social sends, retires clear losers, saves its state. No AI call and no posting; runOptimizer never throws.
+    let learning = ''
+    try {
+      const o = await runOptimizer(getSupabaseAdmin())
+      if (o) learning = `; ${o}`
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] optimizer failed:', e)
+    }
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found
