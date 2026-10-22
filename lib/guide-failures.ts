@@ -56,6 +56,18 @@ async function readStrict(admin: SupabaseClient): Promise<{ failures: GuideFailu
   }
 }
 
+/** Counts one more rejection for a guide (`kind:slug`) WITHOUT touching the breaker log: a heal that rejects an already rejected draft is
+ * not a writing failure and must not pause the guide writer. This is the same counter the writer uses to bound how often a rejected
+ * draft is retried (MAX_GUIDE_REJECTIONS in lib/guides.ts). A read error skips the write and returns null. */
+export async function bumpRejectionCount(admin: SupabaseClient, key: string, info: { name: string; kind: string; reason: string }): Promise<number | null> {
+  const { failures, error } = await readStrict(admin)
+  if (error) return null
+  const n = (failures[key]?.n ?? 0) + 1
+  failures[key] = { n, name: info.name, kind: info.kind, last: info.reason.slice(0, 300), at: new Date().toISOString() }
+  await setSetting(admin, GUIDE_FAILURES_KEY, JSON.stringify(failures))
+  return n
+}
+
 /** Bumps and returns the failure count for one guide (`kind:slug`). A read error skips the write. */
 export async function recordGuideFailure(admin: SupabaseClient, key: string, info: { name: string; kind: string; reason: string }): Promise<number> {
   const now = new Date().toISOString()

@@ -387,7 +387,7 @@ async function main() {
   // ================================================================================================
   {
     const s = src('scripts/heal-guides-now.ts')
-    const gate = s.indexOf("if (!process.argv.includes('--yes')) usage()")
+    const gate = s.indexOf("if (!dry && !process.argv.includes('--yes')) usage()")
     check('X1: it refuses to run without --yes, before it reads any environment or database', gate > 0 && /function usage\(\): never[\s\S]*?process\.exit\(1\)/.test(s) && gate < s.indexOf('loadEnvLocal()', gate) && gate < s.indexOf('getSupabaseAdmin()', gate))
     check('X2: it reuses the production path (healGuideRow) and the shared memory budget, with a default budget of 60', /healGuideRow/.test(s) && /memoryBudget/.test(s) && /\b60\b/.test(s))
     check('X3: it loads non-published guides and published guides with review_state rejected', /neq\('status', 'published'\)|status.*published/.test(s) && /review_state/.test(s) && /rejected/.test(s))

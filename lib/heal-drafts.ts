@@ -8,7 +8,8 @@ import { pageCopyBlockers, copyGroundingText, linkedPackageSlugs, type ComposedP
 import { MODE_HOLD_NOTE } from '@/lib/guide-list'
 import { buildBrief, GUESSED_PROPERTY_NOTE, getGuidePublishMode, isGuessedPropertyNote } from '@/lib/guide-run'
 import { buildCopyBrief, getPageCopyPublishMode } from '@/lib/page-copy-run'
-import { guidePath, type GuideCandidate, type GuideKind } from '@/lib/guides'
+import { guidePath, isRetryableRejected, rejectionCountFor, type GuideCandidate, type GuideKind } from '@/lib/guides'
+import { bumpRejectionCount, readGuideFailuresChecked } from '@/lib/guide-failures'
 import { healComposedCopy, healComposedGuide, healNoteOf, type Healed } from '@/lib/heal-targets'
 import type { HealBudget, HealOutcome, LadderStep } from '@/lib/heal-loop'
 import { SAFE_PAGE_NOTE, isSafePageNote } from '@/lib/guide-repairs'
@@ -28,7 +29,8 @@ import type { ModelCall } from '@/lib/content-repair'
 // A guide whose name was taken from a package title (isGuessedProperty, WP15/WP16) can have its TEXT healed, but it is
 // NEVER published here: its note keeps the "taken from a trip title" marker, which this file refuses to publish.
 
-export const GUIDES_HEALED_PER_DAY = 2
+/** Held guides given a go per day (still bounded by heal_loop_calls_per_day, which stops the loop when the day's calls are used). */
+export const GUIDES_HEALED_PER_DAY = 6
 export const COPY_HEALED_PER_DAY = 2
 /** Only rows this young are looked at (older held rows were reviewed or abandoned). */
 export const HEAL_DRAFT_MAX_AGE_DAYS = 30
@@ -61,12 +63,17 @@ export const REJECTED_PREFIX = 'Rejected by heal:'
 
 /** Is this held guide or page copy row due a go at the heal loop? Pure. `modeHoldNote` is the note a clean row gets in draft
  * mode, which is not a problem to fix. */
-export function isHealDraftCandidate(row: Row, now: Date, modeHoldNotes: string[]): boolean {
+export function isHealDraftCandidate(row: Row, now: Date, modeHoldNotes: string[], retry?: { rejections: (row: Row) => number }): boolean {
   if (row.status !== 'draft' || row.source !== 'ai') return false
-  if (row.review_state === 'rejected') return false
   const notes = str(row.quality_notes).trim()
   if (!notes) return false
-  if (notes.startsWith(REJECTED_PREFIX)) return false
+  // A draft the heal itself rejected (guides only: the caller passes `retry`) comes back under the writer's own bounds: untouched for
+  // REJECTED_RETRY_DAYS and fewer than MAX_GUIDE_REJECTIONS rejections so far. A draft a person rejected never does (no heal note).
+  const healRejected = row.review_state === 'rejected' || notes.startsWith(REJECTED_PREFIX)
+  if (healRejected) {
+    if (!retry || row.review_state !== 'rejected') return false
+    if (!isRetryableRejected({ status: str(row.status), review_state: str(row.review_state), updated_at: str(row.updated_at), quality_notes: notes }, now, rejectionCountFor(retry.rejections(row)))) return false
+  }
   // A guessed property name whose text was already healed waits for a person to check the name; nothing is left to heal.
   if (notes === GUESSED_PROPERTY_NOTE) return false
   if (modeHoldNotes.includes(notes)) return false
@@ -74,14 +81,28 @@ export function isHealDraftCandidate(row: Row, now: Date, modeHoldNotes: string[
   if (!Number.isFinite(created) || now.getTime() - created > HEAL_DRAFT_MAX_AGE_DAYS * 86_400_000) return false
   // A row someone edited after the writer saved it (updated_at well after created_at) may have been parked on purpose:
   // the heal leaves it alone. The writer sets both stamps within moments of each other.
+  // (A heal-rejected draft was last touched by the heal itself, so it is not "parked"; its own retry rule above applies.)
   const updated = Date.parse(str(row.updated_at))
-  if (Number.isFinite(updated) && updated - created > PARKED_AFTER_MS) return false
+  if (!healRejected && Number.isFinite(updated) && updated - created > PARKED_AFTER_MS) return false
   return true
 }
 
-export function selectHealDrafts(rows: Row[], now: Date, limit: number, modeHoldNotes: string[]): Row[] {
+/** Which guide rows the admin script (scripts/heal-guides-now.ts) may hand to the heal. Looser than the daily runner on age, the
+ * once-a-day claim and the retry bounds (an admin who runs it by hand means it), but it keeps the rules that protect a person's decision:
+ * only AI-written pages; a draft with no note (a guide someone unpublished on purpose) and a draft a PERSON rejected are left alone; a
+ * clean mode hold is not a problem to fix. A live guide is taken only when it is marked rejected. Pure. */
+export function isNowCandidate(row: Row, modeHoldNotes: string[]): boolean {
+  if (row.source !== 'ai') return false
+  if (row.status === 'published') return row.review_state === 'rejected'
+  const notes = str(row.quality_notes).trim()
+  if (!notes || modeHoldNotes.includes(notes)) return false
+  if (row.review_state === 'rejected' && !notes.startsWith(REJECTED_PREFIX)) return false
+  return true
+}
+
+export function selectHealDrafts(rows: Row[], now: Date, limit: number, modeHoldNotes: string[], retry?: { rejections: (row: Row) => number }): Row[] {
   return rows
-    .filter((r) => isHealDraftCandidate(r, now, modeHoldNotes))
+    .filter((r) => isHealDraftCandidate(r, now, modeHoldNotes, retry))
     .sort((a, b) => Date.parse(str(a.created_at)) - Date.parse(str(b.created_at)))
     .slice(0, Math.max(0, limit))
 }
@@ -203,6 +224,19 @@ export interface GuideRowResult {
   problems: string[]
 }
 
+/** Read-only: the gate's current blockers for one saved guide row, and whether its name was guessed from a trip title (so it could never
+ * be published by the heal). Rebuilds the facts from the database like the heal does; makes no AI call and writes nothing. Never throws. */
+export async function describeGuideRow(admin: SupabaseClient, row: Row, opts: { guideBrief?: HealDraftOpts['guideBrief'] } = {}): Promise<{ blockers: string[]; guessed: boolean; error: string | null }> {
+  const guessed = isGuessedPropertyNote(str(row.quality_notes))
+  try {
+    const parts = await (opts.guideBrief ?? defaultGuideBrief)(row, admin)
+    if (!parts) return { blockers: [], guessed, error: 'could not rebuild its facts' }
+    return { blockers: guideBlockers(composedGuideFromRow(row), parts.ctx), guessed, error: null }
+  } catch (e) {
+    return { blockers: [], guessed, error: e instanceof Error ? e.message : 'unknown error' }
+  }
+}
+
 /** The production path for ONE saved guide row: rebuild its facts, run the heal loop, save the result exactly as the daily runner does
  * (every change logged to content_edits first so Undo works, then the status change). Used by healHeldGuides and by
  * scripts/heal-guides-now.ts, so the two can never drift. `skipClaim` lifts only the once-a-day claim (an admin who runs it by hand
@@ -246,6 +280,8 @@ export async function healGuideRow(
     out.calls += healed.outcome.calls
     const before = { ...out, problems: [...out.problems] }
     const action = await applyHealedRow(admin, 'guides', 'guide', row, path, healed.outcome, healed.logIds, healed.outcome.status === 'healed' ? sectionsColumns(healed.value) : null, guessed, now, out, (note) => ({ quality_notes: note, review_state: 'rejected' }), GUESSED_PROPERTY_NOTE)
+    // A draft that was already rejected and is rejected again uses up one of its bounded retries (same counter the writer uses).
+    if (action === 'rejected' && row.review_state === 'rejected') await bumpRejectionCount(admin, `${kind}:${slug}`, { name: str(row.name), kind, reason: 'a rejected draft was healed again and rejected again' }).catch(() => undefined)
     return {
       ...base,
       action,
@@ -273,12 +309,17 @@ export async function healHeldGuides(admin: SupabaseClient, opts: HealDraftOpts 
     if (!(await editsLoggable(admin))) return { ...out, problems: ['held guides not re-checked: apply migration 0033'], note: 'held guides not re-checked' }
     const { data, error } = await admin.from('guides').select('*').eq('status', 'draft').eq('source', 'ai').order('created_at', { ascending: true }).limit(READ_LIMIT)
     if (error) return { ...out, problems: [`could not read the guides (${error.message})`], note: 'held guides not re-checked' }
-    const picks = selectHealDrafts((data ?? []) as Row[], now, opts.limit ?? GUIDES_HEALED_PER_DAY, [MODE_HOLD_NOTE])
+    // Rejected-by-heal drafts are eligible again under the writer's bounds (2 days quiet, at most MAX_GUIDE_REJECTIONS). If the counter
+    // cannot be read they stay out: fail closed, so an unreadable counter can never mean unlimited retries.
+    const counted = await readGuideFailuresChecked(admin)
+    const retry = counted.error ? undefined : { rejections: (row: Row) => counted.failures[`${str(row.kind)}:${str(row.slug)}`]?.n ?? 0 }
+    const picks = selectHealDrafts((data ?? []) as Row[], now, opts.limit ?? GUIDES_HEALED_PER_DAY, [MODE_HOLD_NOTE], retry)
     if (!picks.length) return { ...out, note: 'no held guides waiting' }
 
     for (const row of picks) {
       const r = await healGuideRow(admin, row, { now, model: opts.model, deadlineMs: opts.deadlineMs, guideBrief: opts.guideBrief, budget: opts.budget }, out)
-      if (r.action === 'published') await pingIndexNow([r.path, '/sitemap.xml']).catch(() => undefined)
+      // A safe page is kept out of search (noindex, no sitemap entry), so it is not announced either.
+      if (r.action === 'published' && !r.ladder.includes('safe-page')) await pingIndexNow([r.path, '/sitemap.xml']).catch(() => undefined)
     }
     out.note = `held guides: ${out.tried} re-checked, ${out.published} published, ${out.healedDraft} healed but kept as drafts, ${out.rejected} rejected, ${out.deferred} waiting`
     return out

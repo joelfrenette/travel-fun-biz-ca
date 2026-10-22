@@ -22,9 +22,9 @@ import { dirname, join, resolve } from 'node:path'
 const DEFAULT_BUDGET = 60
 
 function usage(): never {
-  console.error('Refusing to run: this script spends AI calls and may publish guides. Re-run with --yes to confirm.')
+  console.error('Refusing to run: this script spends AI calls and may publish guides. Re-run with --yes to confirm (or --dry to only look).')
   console.error('Example: pnpm dlx tsx scripts/heal-guides-now.ts --yes --budget=60')
-  console.error('Options: --yes (required)  --budget=N (AI calls, default 60)  --only=kind/slug  --limit=N')
+  console.error('Options: --yes (required to heal)  --dry (list what would be processed and each guide\'s current blockers; no AI call, no write)  --budget=N (AI calls, default 60)  --only=kind/slug  --limit=N')
   process.exit(1)
 }
 
@@ -60,7 +60,9 @@ function loadEnvLocal(): string | null {
 const pad = (s: string, n: number) => (s.length >= n ? `${s.slice(0, n - 1)} ` : s.padEnd(n))
 
 async function main() {
-  if (!process.argv.includes('--yes')) usage()
+  const dry = process.argv.includes('--dry')
+  // --dry never spends or writes anything, so it needs no --yes; everything else does.
+  if (!dry && !process.argv.includes('--yes')) usage()
   const budgetArg = argValue('budget')
   const budget = budgetArg === null ? DEFAULT_BUDGET : Number(budgetArg)
   if (!Number.isInteger(budget) || budget < 2 || budget > 400) {
@@ -81,27 +83,34 @@ async function main() {
     console.error('SUPABASE_SERVICE_ROLE_KEY is not set. Add it to .env.local and run again.')
     process.exit(1)
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!dry && !process.env.ANTHROPIC_API_KEY) {
     console.error('ANTHROPIC_API_KEY is not set, so the heal cannot ask the AI. Add it to .env.local and run again.')
     process.exit(1)
   }
 
   // Imported only now, after the environment is loaded (the Supabase clients read it when their module loads).
   const { getSupabaseAdmin } = await import('../lib/supabase-admin')
-  const { healGuideRow } = await import('../lib/heal-drafts')
+  const { healGuideRow, describeGuideRow, isNowCandidate } = await import('../lib/heal-drafts')
+  const { MODE_HOLD_NOTE } = await import('../lib/guide-list')
   const { memoryBudget } = await import('../lib/heal-loop')
   const { getGuidePublishMode } = await import('../lib/guide-run')
   const { isAutomationPaused } = await import('../lib/automation-kill-switch')
   const { pingIndexNow } = await import('../lib/indexnow')
 
   const admin = getSupabaseAdmin()
-  if ((await getGuidePublishMode(admin)) !== 'publish') {
-    console.error('guides_publish_mode is not "publish", so the heal would not publish anything (the same rule as the daily runner). Stopping.')
-    process.exit(1)
-  }
-  if (await isAutomationPaused(admin)) {
-    console.error('Automation is paused (the kill switch). Stopping.')
-    process.exit(1)
+  const modeOk = (await getGuidePublishMode(admin)) === 'publish'
+  const paused = await isAutomationPaused(admin)
+  if (dry) {
+    console.log(`DRY RUN: no AI call, no write. guides_publish_mode is ${modeOk ? 'publish' : 'NOT publish (a real run would stop)'}; automation is ${paused ? 'PAUSED (a real run would stop)' : 'running'}.`)
+  } else {
+    if (!modeOk) {
+      console.error('guides_publish_mode is not "publish", so the heal would not publish anything (the same rule as the daily runner). Stopping.')
+      process.exit(1)
+    }
+    if (paused) {
+      console.error('Automation is paused (the kill switch). Stopping.')
+      process.exit(1)
+    }
   }
 
   const { data, error } = await admin.from('guides').select('*').order('created_at', { ascending: true }).limit(2000)
@@ -112,24 +121,49 @@ async function main() {
   type Row = Record<string, unknown>
   const all = (data ?? []) as Row[]
   const wanted = all.filter((r) => r.status !== 'published' || r.review_state === 'rejected')
-  // Only pages the AI wrote: a page a person wrote is never rewritten.
-  const aiRows = wanted.filter((r) => r.source === 'ai')
+  // Only pages the AI wrote (a page a person wrote is never rewritten), and not a draft a person unpublished or rejected: the shared
+  // rule isNowCandidate() in lib/heal-drafts.ts is the one place that decides.
+  const aiRows = wanted.filter((r) => isNowCandidate(r, [MODE_HOLD_NOTE]))
   const skippedHuman = wanted.length - aiRows.length
   const picked = (only ? aiRows.filter((r) => `${String(r.kind)}/${String(r.slug)}` === only) : aiRows).slice(0, Number.isFinite(limit) ? limit : undefined)
-  console.log(`Guides read: ${all.length}. To heal: ${picked.length}${skippedHuman ? ` (${skippedHuman} written by a person are left alone)` : ''}. AI call budget: ${budget}.`)
+  console.log(`Guides read: ${all.length}. To heal: ${picked.length}${skippedHuman ? ` (${skippedHuman} left alone: written by a person, unpublished or rejected by a person, or no problem to fix)` : ''}. AI call budget: ${budget}.`)
   if (picked.length === 0) return
+
+  if (dry) {
+    for (const row of picked) {
+      const d = await describeGuideRow(admin, row)
+      const where = `${String(row.kind)}/${String(row.slug)}`
+      const state = `${String(row.status)}${row.review_state === 'rejected' ? ', rejected' : ''}`
+      const fate = d.guessed ? 'text only, never published (name guessed from a trip title)' : 'could be published if it heals'
+      console.log(`  ${pad(where, 48)} ${pad(state, 20)} ${fate}`)
+      if (d.error) console.log(`      could not read its blockers: ${d.error}`)
+      else if (d.blockers.length === 0) console.log('      no blockers now (the reviewer would still read it before it goes live)')
+      else for (const b of d.blockers.slice(0, 8)) console.log(`      blocker: ${b}`)
+    }
+    console.log(`\nDry run done: ${picked.length} guide(s) would be processed with a budget of ${budget} AI calls. Nothing was changed.`)
+    return
+  }
 
   const shared = memoryBudget(budget)
   const rows: { path: string; action: string; status: string; ladder: string; rounds: number; calls: number; note: string }[] = []
   for (const row of picked) {
+    const where = `${String(row.kind)}/${String(row.slug)}`
     if (shared.remaining() < 2) {
-      rows.push({ path: `${String(row.kind)}/${String(row.slug)}`, action: 'not tried', status: '-', ladder: '-', rounds: 0, calls: 0, note: 'the call budget is used up' })
+      rows.push({ path: where, action: 'not tried', status: '-', ladder: '-', rounds: 0, calls: 0, note: 'the call budget is used up' })
       continue
     }
-    const r = await healGuideRow(admin, row, { budget: shared, skipClaim: true })
-    if (r.action === 'published') await pingIndexNow([r.path, '/sitemap.xml']).catch(() => undefined)
-    rows.push({ path: r.path, action: r.action, status: r.status, ladder: r.ladder.join('>') || '-', rounds: r.rounds, calls: r.calls, note: [r.note, ...r.problems].filter(Boolean).join('; ') })
-    console.log(`  ${pad(r.path, 48)} ${pad(r.action, 13)} calls so far: ${shared.used}/${budget}`)
+    // healGuideRow never throws, but one guide must never stop the rest, so any surprise is caught here too.
+    try {
+      const r = await healGuideRow(admin, row, { budget: shared, skipClaim: true })
+      // A safe page is kept out of search until it is enriched, so it is not announced either.
+      if (r.action === 'published' && !r.ladder.includes('safe-page')) await pingIndexNow([r.path, '/sitemap.xml']).catch(() => undefined)
+      rows.push({ path: r.path, action: r.action, status: r.status, ladder: r.ladder.join('>') || '-', rounds: r.rounds, calls: r.calls, note: [r.note, ...r.problems].filter(Boolean).join('; ') })
+      console.log(`  ${pad(r.path, 48)} ${pad(r.action, 13)} calls so far: ${shared.used}/${budget}`)
+    } catch (e) {
+      const why = e instanceof Error ? e.message : 'unknown error'
+      rows.push({ path: where, action: 'failed', status: '-', ladder: '-', rounds: 0, calls: 0, note: why })
+      console.log(`  ${pad(where, 48)} ${pad('failed', 13)} ${why}`)
+    }
   }
 
   console.log('\nOutcome per guide')
