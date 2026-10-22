@@ -12,7 +12,7 @@ import type { Language } from "@/lib/preferences"
 // good-faith draft, not legal advice; have it and the Privacy Policy it links to reviewed.
 // English is the source text; French is in lib/i18n.ts and other languages fall back to English.
 const BODY =
-  'We use cookies that are essential to make this site work. With your permission we would also use Google Analytics, and remember which ad, post or search brought you here. This shows us which trips and articles are helpful so we can improve them. Nothing optional runs unless you say yes, and you can change your mind any time with "Cookie settings" at the bottom of every page.'
+  'We use cookies that are essential to make this site work. With your permission we would also use Google Analytics, and remember which ad, post or search brought you here. This shows us which trips and articles are helpful so we can improve them. We also keep a simple record of visits on our own site (which page, where you came from, how long you stayed, and no IP address) for 13 months. Nothing optional runs unless you say yes, and you can change your mind any time with "Cookie settings" at the bottom of every page.'
 
 export function CookieBanner({ language }: { language: Language }) {
   const { decided } = useConsent()
