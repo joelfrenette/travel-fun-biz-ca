@@ -409,9 +409,11 @@ export function dedupeIdeas(ideas: IdeaDraft[], ctx: DedupeContext): { kept: Ide
 
 /** The ledger row for the trip's one social post, or null when social posting is off. `prepare` waits for you on the
  * Distribution screen (held); `auto` goes out on the next posting pass (queued). */
-export function socialRowFor(pkg: Pick<PromotionPackage, 'slug' | 'name'>, mode: string): { content_type: 'post'; slug: string; title: string; path: string; stage: 'held' | 'queued' } | null {
+export function socialRowFor(pkg: Pick<PromotionPackage, 'slug' | 'name'>, mode: string, holdNote?: string): { content_type: 'post'; slug: string; title: string; path: string; stage: 'held' | 'queued'; last_error?: string } | null {
   if (mode !== 'prepare' && mode !== 'auto') return null
-  return { content_type: 'post', slug: packageDistributionSlug(pkg.slug), title: pkg.name, path: packageDistributionPath(pkg.slug), stage: mode === 'auto' ? 'queued' : 'held' }
+  // `holdNote` (the automatic trip post, lib/trip-social.ts) enrols the row held with an Auto-hold note even in auto mode.
+  const held = !!holdNote || mode !== 'auto'
+  return { content_type: 'post', slug: packageDistributionSlug(pkg.slug), title: pkg.name, path: packageDistributionPath(pkg.slug), stage: held ? 'held' : 'queued', ...(holdNote && mode === 'auto' ? { last_error: holdNote } : {}) }
 }
 
 /** A plain note on the compare and best-time pages for the trip's destination. Pure: `paths` are the candidate pages
@@ -677,7 +679,7 @@ async function stepGuides(admin: SupabaseClient, pkg: PromotionPackage, guides: 
 /** Puts the trip's one social post into the ledger. Never throws; says in plain words what happened. One per trip per 30
  * days, and at most PACKAGE_ENROLMENTS_PER_DAY across all trips per UTC day. The send path is not touched: the existing
  * posting pass sends the row, with its usual captions, hook rotation and UTM tags (campaign = the ledger slug). */
-export async function enrolPackagePost(admin: SupabaseClient, pkg: Pick<PromotionPackage, 'slug' | 'name' | 'status' | 'available_to' | 'recap_mode'>, now: Date = new Date()): Promise<PlanSocial> {
+export async function enrolPackagePost(admin: SupabaseClient, pkg: Pick<PromotionPackage, 'slug' | 'name' | 'status' | 'available_to' | 'recap_mode'>, now: Date = new Date(), holdNote?: string): Promise<PlanSocial> {
   const slug = packageDistributionSlug(pkg.slug)
   const path = packageDistributionPath(pkg.slug)
   const result = (state: PlanSocial['state'], note: string): PlanSocial => ({ slug, path, state, note })
@@ -698,11 +700,11 @@ export async function enrolPackagePost(admin: SupabaseClient, pkg: Pick<Promotio
     if (used === null) return result('skipped', 'Could not count today\'s trip posts, so no post was queued.')
     if (used >= PACKAGE_ENROLMENTS_PER_DAY) return result('waiting', 'Today\'s trip post is already used by another trip. Press "Queue the social post" again tomorrow.')
 
-    const row = socialRowFor(pkg, mode)
+    const row = socialRowFor(pkg, mode, holdNote)
     if (!row) return result('skipped', 'Social posting is off, so no post was queued.')
     if (old) {
       // The earlier post is over 30 days old and finished: start its ledger row again so the trip is posted afresh.
-      const { error } = await admin.from('post_distribution').update({ stage: row.stage, sent_platforms: [], attempts: 0, last_error: null, provider_request_id: null, provider_job_id: null, title: row.title, path: row.path, created_at: now.toISOString(), updated_at: now.toISOString() }).eq('content_type', 'post').eq('slug', slug)
+      const { error } = await admin.from('post_distribution').update({ stage: row.stage, sent_platforms: [], attempts: 0, last_error: row.last_error ?? null, provider_request_id: null, provider_job_id: null, title: row.title, path: row.path, created_at: now.toISOString(), updated_at: now.toISOString() }).eq('content_type', 'post').eq('slug', slug)
       if (error) return result('skipped', `Could not queue the post (${error.message}).`)
     } else {
       const { error } = await admin.from('post_distribution').insert(row)
