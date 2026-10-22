@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Calendar, MapPin, Clock } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
+import { PageSignupBox } from "@/components/page-signup-box"
 import { getComparePage, type ComparePageSide } from "@/lib/compare-destinations"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
@@ -122,6 +123,10 @@ export default async function ComparePage({ params }: Props) {
 
         <div className="container mx-auto px-4 pb-10">
           <GuideCta name={`${page.a.destination} vs ${page.b.destination}`} packageName={page.a.packages[0]?.name ?? page.b.packages[0]?.name} />
+        </div>
+
+        <div className="container mx-auto px-4 pb-10">
+          <PageSignupBox path={`/compare/${params.pair}`} language={language} />
         </div>
       </main>
       <Footer language={language} />

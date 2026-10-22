@@ -13,7 +13,8 @@ import { track } from "@/lib/analytics-client"
 // "Tell me about the next one" on a past trip's page (WP14): email, an optional name, the CASL consent box (same
 // wording as components/newsletter-form.tsx, email only because no phone number is asked for) and the hidden
 // honeypot field. Posts to /api/trip-alerts, which reads the trip's tag on the server.
-export function TripAlertForm({ slug, language }: { slug: string; language: Language }) {
+// On a trip page pass `slug`; on a guide, blog, compare or best-time page pass `source` (the page path) instead.
+export function TripAlertForm({ slug, source, language }: { slug?: string; source?: string; language: Language }) {
   const { toast } = useToast()
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
@@ -33,7 +34,7 @@ export function TripAlertForm({ slug, language }: { slug: string; language: Lang
       const res = await fetch("/api/trip-alerts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, email: email.trim(), name: name.trim() || undefined, consent, company_website: honeypot, attribution: getAttribution() }),
+        body: JSON.stringify({ slug, source, email: email.trim(), name: name.trim() || undefined, consent, company_website: honeypot, attribution: getAttribution() }),
       })
       if (res.status === 429) {
         setError(translate(language, "Too many sign-ups from your connection just now. Please wait a few minutes and try again."))

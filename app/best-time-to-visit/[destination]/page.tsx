@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Calendar, MapPin, Clock } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
+import { PageSignupBox } from "@/components/page-signup-box"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
@@ -150,6 +151,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
           {copy && copy.faq.length > 0 && <PageCopyFaq copy={copy} answers={copySet.faq.map((f) => linked.parts(f))} />}
           <AffiliateAutoDisclosure count={linked.count} language={language} />
           <GuideCta name={page.destination} packageName={page.packages[0]?.name} />
+          <PageSignupBox path={`/best-time-to-visit/${params.destination}`} language={language} />
         </div>
       </main>
       <Footer language={language} />

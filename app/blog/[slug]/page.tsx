@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Calendar, Clock } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
+import { PageSignupBox } from "@/components/page-signup-box"
 import { Badge } from "@/components/ui/badge"
 import { getPublishedPostBySlug, getPublishedPosts, pickRelatedPosts } from "@/lib/posts"
 import { getRelatedPackages } from "@/lib/packages"
@@ -200,6 +201,8 @@ export default async function BlogPostPage({ params }: Props) {
           )}
 
           <AffiliateAutoDisclosure count={linked.count} language={language} />
+
+          <div className="mt-10"><PageSignupBox path={`/blog/${post.slug}`} language={language} /></div>
 
           {morePosts.length > 0 && (
             <aside className="mt-10" aria-labelledby="more-stories-heading">

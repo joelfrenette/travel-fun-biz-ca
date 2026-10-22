@@ -5,7 +5,7 @@ import { isHoneypotFilled, allowRequest } from '@/lib/abuse-guard'
 import { resolveLeadResponse } from '@/lib/lead-response'
 import { saveLeadFirst, markLeadSent } from '@/lib/leads'
 import { getPublishedPackageBySlug } from '@/lib/packages'
-import { effectiveAlertTag } from '@/lib/past-trip'
+import { effectiveAlertTag, defaultAlertTag } from '@/lib/past-trip'
 
 // Public: "tell me about the next one" on a past trip's page (WP14). Same path as the newsletter: honeypot, a light
 // per-IP throttle, the lead saved to `leads` BEFORE GoHighLevel is called (so a GHL failure cannot lose it), then the
@@ -24,17 +24,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Too many submissions - please try again shortly' }, { status: 429 })
     }
 
-    // The tag comes from the trip's own row, never from the request.
-    const pkg = await getPublishedPackageBySlug(parsed.data.slug)
-    if (!pkg) return NextResponse.json({ error: 'Trip not found' }, { status: 404 })
-    const tag = effectiveAlertTag(pkg)
-
-    const attribution = { ...parsed.data.attribution, page_path: parsed.data.attribution?.page_path || `/packages/${pkg.slug}` }
+    // The tag comes from the trip's own row, never from the request. A sign-up from a content page (no slug) gets the
+    // general default tag and its page path as the source.
+    const pkg = parsed.data.slug ? await getPublishedPackageBySlug(parsed.data.slug) : null
+    if (parsed.data.slug && !pkg) return NextResponse.json({ error: 'Trip not found' }, { status: 404 })
+    const tag = pkg ? effectiveAlertTag(pkg) : defaultAlertTag(null)
+    const source = parsed.data.source || parsed.data.attribution?.page_path || '(unknown page)'
+    const attribution = { ...parsed.data.attribution, page_path: parsed.data.attribution?.page_path || (pkg ? `/packages/${pkg.slug}` : parsed.data.source) }
     const backupId = await saveLeadFirst({
       name: parsed.data.name || 'Trip alert subscriber',
       email: parsed.data.email,
       package: `Trip alert: ${tag}`,
-      message: `Asked to hear about the next trip like: ${pkg.name} (/packages/${pkg.slug})\nConsent to emails: yes (checkbox ticked on the trip alert form)`,
+      message: (pkg ? `Asked to hear about the next trip like: ${pkg.name} (/packages/${pkg.slug})` : `Signed up for trip alerts from the page: ${source}`) + `\nConsent to emails: yes (checkbox ticked on the trip alert form)`,
       attribution,
     })
     const result = await subscribeTripAlertToGoHighLevel({ email: parsed.data.email, name: parsed.data.name, alertTag: tag, attribution })

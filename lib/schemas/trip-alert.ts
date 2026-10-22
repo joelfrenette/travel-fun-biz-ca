@@ -5,7 +5,10 @@ import { attributionSchema } from '@/lib/attribution'
 // The tag is NOT sent by the browser: the server looks the trip up by `slug` and reads its alert tag, so nobody
 // can tag themselves into a list by editing the request.
 export const tripAlertSchema = z.object({
-  slug: z.string().trim().min(1).max(200),
+  // Optional: the signup box on guide, blog, compare and best-time pages has no single trip. Without a slug the server
+  // uses the general default tag (alert:trips) and records `source` (the page path) as where the sign-up came from.
+  slug: z.string().trim().min(1).max(200).optional(),
+  source: z.string().trim().max(300).regex(/^\/\S*$/, 'Invalid source').optional(),
   email: z.string().trim().email('Enter a valid email'),
   name: z.string().trim().max(120).optional(),
   // Express consent (CASL): an unticked box the visitor ticks themselves, never pre-ticked. Refused without it,
