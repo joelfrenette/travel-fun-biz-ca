@@ -1,5 +1,6 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { ungroundedNumbers, repairDashes, normaliseHashtags } from '@/lib/hook-styles'
+import { isValidCoverHeadline, fallbackCoverHeadline, shortestWholePhrase } from '@/lib/cover-headline'
 
 // Short-form video script generation (factory item 1/6, video pipeline): one model call produces
 // a hook, a sequence of beats (scene description + on-screen text + the spoken voiceover line for
@@ -202,10 +203,14 @@ export function capScriptDuration(script: VideoScript, maxSeconds = MAX_DURATION
   return { ...script, beats }
 }
 
-/** The cover card headline: the model's, or a short cut of the post's own title when it gave none
- * (or one with an unsupported number). Never invents anything. */
+/** The cover card headline: the model's when it passes the cover headline rules (lib/cover-headline.ts),
+ * else a whole short phrase of the post's own title (never a word-count slice, which made fragments
+ * such as "ERTO PLATA TRIP AND"). If no phrase of the title works, the model's own whole headline is
+ * kept as it was, and failing that the shortest whole title phrase. Never invents anything. */
 export function coverTitleFor(script: VideoScript, postTitle: string): string {
+  if (script.coverTitle && isValidCoverHeadline(script.coverTitle, `${postTitle} ${script.title ?? ''}`)) return script.coverTitle
+  const fallback = fallbackCoverHeadline(postTitle)
+  if (fallback) return fallback
   if (script.coverTitle) return script.coverTitle
-  const words = postTitle.replace(/[.!?]+$/, '').split(/\s+/).filter(Boolean)
-  return words.slice(0, 7).join(' ')
+  return shortestWholePhrase(postTitle)
 }
