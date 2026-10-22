@@ -7,6 +7,8 @@ import { readTrendPeaks } from '@/lib/keyword-ideas'
 import { getNearMissKeywords } from '@/lib/search-console'
 import { SITE_ID } from '@/lib/site'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { generateSlug } from '@/lib/utils'
+import { isNewsSlug } from '@/lib/news-post'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-topics.ts (Factory Phase 2:
 // blog/autoblog), trimmed to what this site's own blog needs: no visa/passport material (100%
@@ -347,13 +349,240 @@ export function groundAngleInPackage(angle: string, pkg: PackageGrounding | null
 }
 
 
+// ---- topic conflicts and diversity (loop-blog-quality) ----------------------------------------------------
+// The editor audit found three Cologne-to-Basel posts, two Puerto Plata, three Croatia and three solo-traveller posts among
+// ten. The old check compared a topic's angle text with post TITLES only. These rules compare the keyword and the trip against
+// EVERY post. They are pure; autoblog-run reads the posts and applies the verdict ('duplicate' is dropped for good, 'defer' waits).
+
+export const SAME_TRIP_WALL_DAYS = 45
+export const SOLO_WALL_DAYS = 14
+export const DESTINATION_WALL_DAYS = 30
+export const DESTINATION_MAX_IN_WALL = 2
+
+/** What the rules need to know about a post already written (published or draft). */
+export interface PostFact {
+  slug: string
+  title: string
+  primary_keyword?: string | null
+  secondary_keywords?: string[] | null
+  tags?: string[] | null
+  body?: string | null
+  publish_date?: string | null
+  created_at?: string | null
+  related_package_id?: string | null
+}
+
+/** What the rules need to know about the topic about to be written. */
+export interface TopicFacts {
+  angle: string
+  keyword: string
+  keywords?: string[]
+  /** The real package the topic is grounded in, when there is one. */
+  packageSlug?: string | null
+  /** The destination slug of that package (see generateSlug), when known. */
+  destinationSlug?: string | null
+}
+
+export interface TopicConflict {
+  /** 'duplicate': drop the topic for good. 'defer': try again on `until` (YYYY-MM-DD). */
+  kind: 'duplicate' | 'defer'
+  reason: string
+  until?: string
+}
+
+const TOPIC_STOP = new Set(['a', 'an', 'the', 'to', 'for', 'of', 'in', 'on', 'and', 'or', 'vs', 'with', 'what', 'how', 'is', 'are', 'do', 'does', 'your', 'you', 'my', 'our', 'from', 'about', 'at', 'it', 'be', 'can', 'should'])
+/** Words that describe the kind of post, not what it is about: never the "primary noun". */
+const TOPIC_GENERIC = new Set(['trip', 'trips', 'travel', 'travelling', 'traveling', 'guide', 'tips', 'tip', 'first', 'time', 'timers', 'best', 'group', 'vacation', 'holiday', 'package', 'packages', 'worth', 'booking', 'book', 'plan', 'planning', 'need', 'know', 'things', 'ideas', 'complete', 'beginner', 'beginners'])
+
+const topicTokens = (s: string): string[] => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !TOPIC_STOP.has(w))
+
+/** The nouns a keyword is really about (no stop words, no post-kind words), as 5-letter stems. Pure. */
+export function primaryNounsOf(keyword: string): string[] {
+  return [...new Set(topicTokens(keyword).filter((w) => !TOPIC_GENERIC.has(w)).map((w) => w.slice(0, 5)))]
+}
+
+const ROUTE_NOT_PLACE = new Set(['how', 'way', 'ways', 'time', 'want', 'need', 'ready', 'going', 'back', 'close', 'next', 'safe', 'easy', 'best', 'tips', 'things', 'what', 'where', 'when', 'why', 'trip', 'travel', 'plan', 'guide', 'able', 'used', 'prepare', 'listen', 'talk', 'say', 'been', 'due', 'key', 'right', 'ideas', 'reasons', 'steps', 'solo', 'add', 'adds', 'tell', 'ask', 'look', 'guests', 'travelers', 'travellers', 'everything', 'something', 'anything', 'nothing', 'the', 'a', 'an', 'your', 'you', 'book', 'make', 'see', 'know', 'pick', 'choose', 'visit', 'get', 'have', 'avoid', 'take', 'find', 'decide', 'pack', 'enjoy', 'join', 'start', 'go', 'be', 'do', 'worth', 'help', 'keep', 'bring', 'try', 'check', 'compare', 'save', 'spend', 'stay', 'skip', 'expect', 'understand', 'consider', 'choose'])
+
+/** "Cologne to Basel" in any text (any capitalisation), as "cologne>basel", or null. Pure. */
+export function routeKeyOf(text: string): string | null {
+  for (const m of text.matchAll(/\b([a-z]{3,})\s+(?:to|and|-)\s+([a-z]{3,})\b/gi)) {
+    const a = m[1].toLowerCase()
+    const b = m[2].toLowerCase()
+    if (ROUTE_NOT_PLACE.has(a) || ROUTE_NOT_PLACE.has(b)) continue
+    // Title Case or a lower-case keyword: both words must look like names (no trailing "ing"/"ed" verbs).
+    if (/(?:ing|ed)$/.test(a) || /(?:ing|ed)$/.test(b)) continue
+    return `${a}>${b}`
+  }
+  return null
+}
+
+/** True when a text is a solo-traveller angle. Pure. */
+export const isSoloAngle = (text: string): boolean => /\bsolo\b|\btravell?ing alone\b|\bon your own\b|\bsingle travell?ers?\b|\bgoing alone\b/i.test(text)
+
+const dayMs = 86_400_000
+const dateOf = (p: PostFact): number => {
+  const ms = Date.parse(p.publish_date || p.created_at || '')
+  return Number.isFinite(ms) ? ms : 0
+}
+const addDays = (ms: number, days: number): string => new Date(ms + days * dayMs).toISOString().slice(0, 10)
+const packageSlugsIn = (body: string): string[] => [...body.matchAll(/\/packages\/([a-z0-9][a-z0-9-]*)/gi)].map((m) => m[1].toLowerCase())
+const destinationSlugsIn = (body: string): string[] => [...body.matchAll(/\/destinations\/([a-z0-9][a-z0-9-]*)/gi)].map((m) => m[1].toLowerCase())
+
+const tokenOverlap = (a: string[], b: string[]): number => {
+  const A = new Set(a)
+  const B = new Set(b)
+  if (!A.size || !B.size) return 0
+  let shared = 0
+  for (const t of A) if (B.has(t)) shared++
+  return shared / Math.min(A.size, B.size)
+}
+
+/** The first post whose primary or secondary keyword is the same search as `keyword` (80% of the words shared, both ways round). Pure. */
+export function postWithSameKeyword(keyword: string, posts: PostFact[]): PostFact | null {
+  const t = topicTokens(keyword)
+  if (t.length < 2) return null
+  return posts.find((p) => [p.primary_keyword, ...(p.secondary_keywords ?? [])].some((k) => !!k && tokenOverlap(t, topicTokens(k)) >= 0.8 && Math.abs(topicTokens(k).length - t.length) <= 1)) ?? null
+}
+
+/** The rules, in order: same keyword (drop), same trip and noun within 45 days (wait), one solo angle per 14 days (wait), two posts
+ * per destination per 30 days (wait). `packageDest` maps a package slug to its destination slug. `now` is injected for tests. Pure. */
+export function topicConflict(topic: TopicFacts, posts: PostFact[], opts: { now?: Date; packageDest?: Map<string, string> } = {}): TopicConflict | null {
+  const now = (opts.now ?? new Date()).getTime()
+  const packageDest = opts.packageDest ?? new Map<string, string>()
+  const keywords = [...new Set([topic.keyword, ...(topic.keywords ?? [])].filter(Boolean))]
+
+  for (const k of keywords.slice(0, 1)) {
+    const same = postWithSameKeyword(k, posts)
+    if (same) return { kind: 'duplicate', reason: `the keyword "${k}" is already the target of the post "${same.title}"` }
+  }
+
+  const topicText = `${topic.angle} ${topic.keyword}`
+  const topicRoute = routeKeyOf(topicText)
+  const nouns = primaryNounsOf(topic.keyword)
+  const tripOf = (p: PostFact): { slugs: string[]; route: string | null } => ({ slugs: packageSlugsIn(p.body ?? ''), route: routeKeyOf(`${p.title} ${p.primary_keyword ?? ''}`) })
+  const newest = (list: PostFact[]) => list.reduce((m, p) => Math.max(m, dateOf(p)), 0)
+
+  // Same trip (its package page, or the same "A to B" route) and the same primary noun, within 45 days.
+  const sameTrip = posts.filter((p) => {
+    if (now - dateOf(p) > SAME_TRIP_WALL_DAYS * dayMs) return false
+    const t = tripOf(p)
+    const tripMatch = (!!topic.packageSlug && t.slugs.includes(topic.packageSlug.toLowerCase())) || (!!topicRoute && t.route === topicRoute)
+    if (!tripMatch) return false
+    const postNouns = primaryNounsOf(`${p.primary_keyword ?? ''} ${p.title}`)
+    return nouns.length === 0 || nouns.some((n) => postNouns.includes(n))
+  })
+  if (sameTrip.length) return { kind: 'defer', reason: `"${sameTrip[0].title}" already covers this trip and subject in the last ${SAME_TRIP_WALL_DAYS} days`, until: addDays(newest(sameTrip), SAME_TRIP_WALL_DAYS + 1) }
+
+  if (isSoloAngle(topicText)) {
+    const solo = posts.filter((p) => now - dateOf(p) <= SOLO_WALL_DAYS * dayMs && isSoloAngle(`${p.title} ${p.primary_keyword ?? ''} ${(p.tags ?? []).join(' ')}`))
+    if (solo.length >= 1) return { kind: 'defer', reason: `a solo-traveller post ("${solo[0].title}") went out in the last ${SOLO_WALL_DAYS} days; one per ${SOLO_WALL_DAYS} days`, until: addDays(newest(solo), SOLO_WALL_DAYS + 1) }
+  }
+
+  const dest = (topic.destinationSlug ?? '').toLowerCase()
+  if (dest) {
+    const inDest = posts.filter((p) => {
+      if (now - dateOf(p) > DESTINATION_WALL_DAYS * dayMs) return false
+      const slugs = packageSlugsIn(p.body ?? '')
+      return destinationSlugsIn(p.body ?? '').includes(dest) || slugs.some((s) => packageDest.get(s) === dest)
+    })
+    if (inDest.length >= DESTINATION_MAX_IN_WALL) {
+      const oldest = inDest.reduce((m, p) => Math.min(m, dateOf(p)), Number.MAX_SAFE_INTEGER)
+      return { kind: 'defer', reason: `${inDest.length} posts about ${dest} went out in the last ${DESTINATION_WALL_DAYS} days (at most ${DESTINATION_MAX_IN_WALL})`, until: addDays(oldest, DESTINATION_WALL_DAYS + 1) }
+    }
+  }
+  return null
+}
+
+/** Reads every post (published and draft, the retired ones left out by the caller) and the package-to-destination map, then applies
+ * topicConflict. FAILS OPEN: if a read fails the topic is not blocked here (the 30-day package wall and the title check still apply). */
+export async function checkTopicConflict(admin: SupabaseClient, topic: TopicFacts, opts: { retired?: Set<string>; now?: Date } = {}): Promise<TopicConflict | null> {
+  try {
+    const [{ data: posts, error }, { data: pk }] = await Promise.all([
+      admin.from('posts').select('slug, title, primary_keyword, secondary_keywords, tags, body, publish_date, created_at, related_package_id').limit(500),
+      admin.from('travel_packages').select('slug, destination').limit(300),
+    ])
+    if (error || !posts) return null
+    const packageDest = new Map<string, string>(((pk ?? []) as { slug: string; destination: string | null }[]).filter((p) => p.slug && p.destination).map((p) => [p.slug.toLowerCase(), generateSlug(p.destination as string)]))
+    const facts = (posts as PostFact[]).filter((p) => !opts.retired?.has(p.slug) && !isNewsSlug(p.slug))
+    return topicConflict(topic, facts, { now: opts.now, packageDest })
+  } catch {
+    return null
+  }
+}
+
+// ---- Search Console support (gsc_rankings, striking distance first) -----------------------------------------
+
+export interface GscQuery {
+  key: string
+  position: number
+  impressions: number
+}
+
+/** Positions that are close enough to page one that one focused post can move them. */
+export const STRIKING_MIN = 8
+export const STRIKING_MAX = 20
+
+/** The last 28 days of query rows from gsc_rankings, one row per query (impression-weighted position). [] on any failure or an empty table. */
+export async function readGscQueries(admin: SupabaseClient, now: Date = new Date()): Promise<GscQuery[]> {
+  try {
+    const since = new Date(now.getTime() - 28 * dayMs).toISOString().slice(0, 10)
+    const { data, error } = await admin.from('gsc_rankings').select('key, position, impressions').eq('kind', 'query').gte('day', since).limit(5000)
+    if (error || !data) return []
+    const by = new Map<string, { imp: number; weighted: number; n: number; plain: number }>()
+    for (const r of data as { key: string; position: number | string; impressions: number | string }[]) {
+      const pos = Number(r.position)
+      const imp = Number(r.impressions) || 0
+      if (!r.key || !Number.isFinite(pos)) continue
+      const cur = by.get(r.key) ?? { imp: 0, weighted: 0, n: 0, plain: 0 }
+      cur.imp += imp
+      cur.weighted += pos * Math.max(imp, 1)
+      cur.n += Math.max(imp, 1)
+      cur.plain += pos
+      by.set(r.key, cur)
+    }
+    return [...by.entries()].map(([key, v]) => ({ key, position: v.weighted / v.n, impressions: v.imp }))
+  } catch {
+    return []
+  }
+}
+
+/** How well Search Console supports a topic: the best matching query (80% of the words shared) by striking distance, then by impressions. Pure. */
+export function gscSupport(keywords: string[], rows: GscQuery[]): { impressions: number; position: number | null; striking: boolean } {
+  let best: GscQuery | null = null
+  for (const k of keywords) {
+    const t = topicTokens(k)
+    if (t.length === 0) continue
+    for (const r of rows) {
+      if (tokenOverlap(t, topicTokens(r.key)) < 0.8) continue
+      const strike = (q: GscQuery) => q.position >= STRIKING_MIN && q.position <= STRIKING_MAX
+      if (!best || (strike(r) && !strike(best)) || (strike(r) === strike(best) && r.impressions > best.impressions)) best = r
+    }
+  }
+  if (!best) return { impressions: 0, position: null, striking: false }
+  return { impressions: best.impressions, position: best.position, striking: best.position >= STRIKING_MIN && best.position <= STRIKING_MAX }
+}
+
+/** Reorders candidates so topics Search Console supports come first: striking-distance ones (position 8 to 20), then other topics with
+ * impressions, then the rest. The order inside each group is kept. With no rows the list is returned unchanged. Pure. */
+export function rankByGsc<T extends { keyword: string; keywords?: string[] | null }>(items: T[], rows: GscQuery[]): T[] {
+  if (rows.length === 0) return items
+  const rank = (it: T): number => {
+    const s = gscSupport([it.keyword, ...(it.keywords ?? [])], rows)
+    return s.striking ? 0 : s.impressions > 0 ? 1 : 2
+  }
+  return items
+    .map((it, i) => ({ it, i, r: rank(it), imp: gscSupport([it.keyword, ...(it.keywords ?? [])], rows).impressions }))
+    .sort((a, b) => a.r - b.r || b.imp - a.imp || a.i - b.i)
+    .map((x) => x.it)
+}
+
 /** KEYWORD FIRST: the next blog post is about the best-scoring usable researched keyword (lib/keyword-score.ts:
  * winnability, demand, intent and timing, gated to trips we really sell and phrases nothing covers yet),
  * skipping any whose trip already has a post in the last 30 days so a pass is not wasted. Near-duplicate
  * phrases ride along as secondary phrases of the same post. Returns null when nothing qualifies, and the
  * caller falls back to an AI-chosen topic. Once the post is written the caller connects the main phrase to
  * it, so it is not picked again. */
-export async function pickKeywordTopic(admin: SupabaseClient, existing: { title: string }[]): Promise<TopicIdea | null> {
+export async function pickKeywordTopic(admin: SupabaseClient, existing: { title: string; primary_keyword?: string | null; secondary_keywords?: string[] | null }[]): Promise<TopicIdea | null> {
   const [{ data: rows }, { data: pk }] = await Promise.all([
     admin.from('keyword_research').select('keyword, volume, cpc, competition, gsc_impressions, gsc_position, target_path, note').eq('country', SITE_ID),
     admin.from('travel_packages').select('slug, name, destination, available_from, available_to').eq('status', 'published'),
@@ -368,6 +597,8 @@ export async function pickKeywordTopic(admin: SupabaseClient, existing: { title:
   const inQueue = new Set(openRows.flatMap((q) => [q.keyword, ...(q.keywords ?? [])]).map((k) => k.toLowerCase()))
   for (const c of nextUp(rankKeywords(rows as ScoreKeyword[], pk as ScorePackage[], new Date(), peaks), 12)) {
     if (findDuplicate(c.keyword, existing)) continue
+    // loop-blog-quality: also the same search as a post's primary or secondary keyword, not only its title.
+    if (postWithSameKeyword(c.keyword, existing.map((e) => ({ slug: '', title: e.title, primary_keyword: e.primary_keyword, secondary_keywords: e.secondary_keywords })))) continue
     if ([c.keyword, ...c.secondary].some((k) => inQueue.has(k.toLowerCase()))) continue
     if (c.packageSlug) {
       const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${c.packageSlug}%`)
@@ -395,7 +626,9 @@ export async function markKeywordSkipped(admin: SupabaseClient, keyword: string,
  * on human approval - approval gates the *queue*, not whether autoblog can write anything at all. */
 export async function pickOneTopic(admin: SupabaseClient, existingPostTitles: string[]): Promise<TopicIdea | null> {
   const ideas = await suggestTopics(admin, { count: 3 })
-  const fresh = ideas.find((i) => !findDuplicate(i.angle, existingPostTitles.map((title) => ({ title }))))
+  const notDuplicate = ideas.filter((i) => !findDuplicate(i.angle, existingPostTitles.map((title) => ({ title }))))
+  // loop-blog-quality: among the fresh ideas, the one Search Console already supports (striking distance first). Fails open.
+  const fresh = rankByGsc(notDuplicate, await readGscQueries(admin))[0]
   if (fresh) return fresh
   const usedClusters = new Set((await admin.from('blog_topic_queue').select('keyword').eq('status', 'used')).data?.map((r: { keyword: string }) => r.keyword) ?? [])
   return TOPIC_CLUSTERS.find((c) => !usedClusters.has(c.keyword)) ?? TOPIC_CLUSTERS[0] ?? null

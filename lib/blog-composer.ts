@@ -2,6 +2,7 @@ import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, todayEt }
 import { slugify } from '@/lib/content-dedupe'
 import { type ContentStyle } from '@/lib/content-styles'
 import { weakOpenerOf, titleHookInstruction, coverHeadlineInstruction, cleanCoverHeadline } from '@/lib/hook-rules'
+import { qualityBlockers, BANNED_PHRASES, type TripDates } from '@/lib/blog-quality'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-composer.ts (Factory Phase 2:
 // blog/autoblog). Trimmed: dropped the paid-keyword-volume lookup and Google-autocomplete
@@ -63,9 +64,9 @@ export interface ComposeOptions {
 export const ENRICH_MIN_MS = 50_000
 export const REPAIR_MIN_MS = 70_000
 
-type Step = 'keywords' | 'idea' | 'body' | 'title' | 'enrich'
+export type Step = 'keywords' | 'idea' | 'body' | 'title' | 'enrich'
 
-interface ComposerContext {
+export interface ComposerContext {
   angle: string
   keywords: string[]
   /** Supporting phrases from the topic's keyword set that the post must work in (empty for a single-phrase seed). */
@@ -86,10 +87,33 @@ const EN_DASH = String.fromCharCode(0x2013)
 function linkInstructions(links: AllowedLink[]): string {
   if (links.length === 0) return 'Do not include any links in the post (the site adds its own).'
   const list = links.map((l) => `- ${l.path} (${l.label})`).join('\n')
-  return `Internal links: include one or two natural markdown links in the body text (never in headings and never in the final paragraph), using ONLY these exact paths, written as [descriptive link text](/path):\n${list}\nDo not link to any other page, do not invent a path, and do not use full web addresses.`
+  const wanted = Math.min(3, links.length)
+  return `Internal links: include at least ${wanted} natural markdown links in the body text (never in headings and never in the final paragraph), using ONLY these exact paths, written as [descriptive link text](/path). Spread them over different paragraphs and use each path once. Aim for one link to the trip page, one to a guide or destination page, one to a related post when one is listed, and one to the contact path:\n${list}\nDo not link to any other page, do not invent a path, and do not use full web addresses.`
 }
 
-function composerPrompt(step: Step, ctx: ComposerContext): string {
+/** The four closing-paragraph shapes the body prompt rotates through (picked by a stable hash of the idea, so a run is repeatable
+ * and consecutive posts do not all end the same way). */
+export const CLOSER_VARIANTS = [
+  'End on the single most useful decision this reader still has to make, stated as one plain sentence, followed by one sentence inviting them to ask us a question.',
+  'End with a short two-part check the reader can run themselves (what to compare, what to confirm) written as flowing sentences, not a list.',
+  'End by saying in one or two sentences who this trip or advice suits best and who should look at something else.',
+  'End with one honest trade-off or caveat worth knowing before booking, then one sentence on where the details live (the trip page or the itinerary).',
+] as const
+
+const hashOf = (s: string): number => {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return h
+}
+
+/** The closing-paragraph instruction for an idea. Pure. */
+export function closerFor(seed: string): string {
+  return CLOSER_VARIANTS[hashOf(seed) % CLOSER_VARIANTS.length]
+}
+
+const bannedPromptList = (): string => BANNED_PHRASES.filter((b) => !/opener|one thing worth|happy to help/.test(b.id)).map((b) => `"${b.id}"`).join(', ')
+
+export function composerPrompt(step: Step, ctx: ComposerContext): string {
   switch (step) {
     case 'keywords':
       return `You are planning a blog post for a travel agency (hosted group trips, river and ocean cruises, singles getaways).\n\nPost angle: ${ctx.angle}\n\nSuggest 8 long-tail SEO keyword phrases (3-6 words each) this post could realistically rank for. Favour phrases from someone deciding whether and which trip to book (for example group trip for singles, river cruise for first timers, what is included) over pure trivia phrases. Return ONLY minified JSON: {"keywords":["...", ...]}`
@@ -98,13 +122,13 @@ function composerPrompt(step: Step, ctx: ComposerContext): string {
     case 'body': {
       const wordRange = ctx.style ? `${ctx.style.minWords}-${ctx.style.maxWords}` : '700-900'
       const styleBlock = ctx.style ? `\n\n${ctx.style.prompt}` : ''
-      return `Write a blog post of roughly ${wordRange} words, in markdown, for a travel agency's blog.\n\nIdea: ${ctx.idea}\nDescription: ${ctx.description}\nTarget keywords (work them in naturally, don't stuff): ${ctx.keywords.join(', ')}\nPrimary keyword: ${ctx.keywords[0] ?? ''}${ctx.seedSecondary.length ? `\nThis post is also shooting for these supporting phrases; work them in naturally where they fit, and skip any that would read forced: ${ctx.seedSecondary.slice(0, 3).join(', ')}` : ''}${styleBlock}\n\n${NO_FABRICATION}\n\nFormat rules: the opening sentence must directly answer the core question a reader searching the primary keyword actually has - plain, complete, quotable on its own by a search engine or AI answer box, not a scene-setting lead-in. Follow it with the rest of the hook paragraph (no heading before it). Straight after that opening paragraph, add one separate short paragraph that starts with the bold words "**Quick answer:**" followed by a one or two sentence summary that adds who the trip or advice suits, rather than restating the opening sentence. Within the first two sections, include one short definition sentence for the main concept of the post in the form "X is ..." that an AI answer engine could quote. Use 4-6 "##" section headings and work the primary keyword into the first one naturally (never forced or unnatural-sounding). Use a "###" sub-heading under the longest section where it fits (optional for list and checklist styles). Use a short bullet list somewhere it helps scanability, write in a warm and practical tone, and do not include a title heading (the title is generated separately) or a call-to-action link (the site adds its own).\n\n${linkInstructions(ctx.allowedLinks)}\n\nFinish with a short final paragraph (2-3 sentences, no heading, no link) that names the one question the reader should settle next (for example who they would travel with, or which month works) and says our team can help them work that out. State no prices, dates, availability or urgency, and no exact statistics, distances or counts you were not given: stay at the level of general guidebook knowledge. Never use the long dash character; use commas or full stops instead. Output raw markdown only, no commentary before or after it.`
+      return `Write a blog post of roughly ${wordRange} words, in markdown, for a travel agency's blog.\n\nFacts you were given (state at least 3 concrete trip or guide details from these, such as itinerary stops, what is included, or the group format; if fewer are given, state only those and add nothing specific you cannot back):\n${ctx.angle}\n\nIdea: ${ctx.idea}\nDescription: ${ctx.description}\nTarget keywords (work them in naturally, don't stuff): ${ctx.keywords.join(', ')}\nPrimary keyword: ${ctx.keywords[0] ?? ''}${ctx.seedSecondary.length ? `\nThis post is also shooting for these supporting phrases; work them in naturally where they fit, and skip any that would read forced: ${ctx.seedSecondary.slice(0, 3).join(', ')}` : ''}${styleBlock}\n\n${NO_FABRICATION}\n\nFormat rules: the opening sentence must directly answer the core question a reader searching the primary keyword actually has - plain, complete, quotable on its own by a search engine or AI answer box, not a scene-setting lead-in. Follow it with the rest of the hook paragraph (no heading before it). Straight after that opening paragraph, add one separate short paragraph that starts with the bold words "**Quick answer:**" followed by a one or two sentence summary that adds who the trip or advice suits, rather than restating the opening sentence. Within the first two sections, include one short definition sentence for the main concept of the post in the form "X is ..." that an AI answer engine could quote. Use 4-6 "##" section headings and work the primary keyword into the first one naturally (never forced or unnatural-sounding). Use a "###" sub-heading under the longest section where it fits (optional for list and checklist styles). Use a short bullet list somewhere it helps scanability, write in a warm and practical tone, and do not include a title heading (the title is generated separately) or a call-to-action link (the site adds its own).\n\n${linkInstructions(ctx.allowedLinks)}\n\nInclude one short, honest paragraph that starts with the bold words "**Who this is not for:**" and names the kind of reader this trip or advice does not suit (for example someone wanting a free-form itinerary, or a very different budget level, without stating any price). Never use these phrases anywhere: ${bannedPromptList()}, and never open a paragraph with "Picture" or "Imagine". Do not start a paragraph with a label such as "The takeaway:" or "Why it matters:", and do not write every section the same way. Make no claim that something is the only, first, best or most of anything in a place unless the facts above say so.\n\nFinish with a short final paragraph (2-3 sentences, no heading, no link). ${closerFor(ctx.idea || ctx.angle)} Do not use the sentences "The one thing worth settling next is" or "Our team is happy to help". State no prices, dates, availability or urgency, and no exact statistics, distances or counts you were not given: stay at the level of general guidebook knowledge. Never use the long dash character; use commas or full stops instead. Output raw markdown only, no commentary before or after it.`
     }
     case 'title':
       return `Idea: ${ctx.idea}
 Description: ${ctx.description}
 
-Write: a clear post title (under 65 characters), an SEO title (under 60 characters, can equal the title), an SEO meta description (under 155 characters) and a cover_headline. The title and seo_title must contain the primary keyword (${ctx.keywords[0] ?? ''}) and tell the reader who the trip or advice is for or what decision it helps with. No fake urgency, superlatives about price, and no digits or numbers of any kind in the title, SEO title or meta description. Never use the long dash character.
+Write: a clear post title (under 65 characters), an SEO title (under 60 characters, can equal the title), an SEO meta description (under 155 characters) and a cover_headline. The title and seo_title must contain the primary keyword (${ctx.keywords[0] ?? ''}) and tell the reader who the trip or advice is for or what decision it helps with. No fake urgency, superlatives about price, and no digits or numbers of any kind in the title, SEO title or meta description. Never use the long dash character. Do not use the words decoded, ultimate, playbook, perfect or once-in-a-lifetime. Do not promise forum, TripAdvisor, Reddit, review, day-by-day or checklist content unless the post is built that way, and do not name a cruise line or brand that is not part of the trip described.
 
 ${titleHookInstruction(ctx.keywords[0] ?? '')}
 
@@ -112,7 +136,7 @@ ${coverHeadlineInstruction()}
 
 Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"...","cover_headline":"..."}`
     case 'enrich':
-      return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. No prices, dates, availability, digits, number words or counts of any kind, and no links (answers are plain text).\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits, number words or counts.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post. No digits or numbers.\n- og_description: a social share description, 110 characters or fewer. No digits or numbers.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.${ctx.seedSecondary.length ? ` Prefer these exact phrases if the post actually uses them: ${ctx.seedSecondary.slice(0, 3).join(', ')}.` : ''}\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
+      return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. Answer as the travel agency would: never mention "the text", "the post" or "the article" (no "The text suggests..."), and never claim something is the only, first or best of its kind in a place. No prices, dates, availability, digits, number words or counts of any kind, and no links (answers are plain text).\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits, number words or counts.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post. No digits or numbers.\n- og_description: a social share description, 110 characters or fewer. No digits or numbers.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.${ctx.seedSecondary.length ? ` Prefer these exact phrases if the post actually uses them: ${ctx.seedSecondary.slice(0, 3).join(', ')}.` : ''}\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
   }
 }
 
@@ -350,6 +374,13 @@ export interface PublishGateContext {
   /** Absolute time (Date.now() scale) the caller must finish by; the repair call is skipped when
    * fewer than REPAIR_MIN_MS remain. */
   deadlineMs?: number
+  /** The linked trip's travel dates: a year in the title must agree with them (blog quality gate). */
+  tripDates?: TripDates | null
+  /** Maps the body the gate sees to the body that is saved. The autoblog appends its closing call to action on save, and the
+   * link and contact checks must run on the saved body, so it passes the same mapping here. */
+  storedBody?: (body: string) => string
+  /** Test-only escape hatch for older fixtures that predate the blog quality gate (loop-blog-quality). Never set in production code. */
+  skipQuality?: boolean
 }
 
 interface Grounding {
@@ -531,6 +562,16 @@ function analyse(post: ComposedPost, now: Date, ctx: PublishGateContext): Analys
   // Backstop only: normalizePost already repairs these, so this fires only for a post built by hand.
   if ((post.og_title ?? '').length > 60) blockers.push(`social title too long (${post.og_title.length} characters)`)
   if ((post.og_description ?? '').length > 110) blockers.push(`social description too long (${post.og_description.length} characters)`)
+
+  // Blog quality bar (lib/blog-quality.ts): links, contact link, Quick answer, opening sentence, filler phrases, FAQ meta-language,
+  // unverifiable claims, title year and promises, and the two missing-field checks. Only ever adds blockers.
+  if (!ctx.skipQuality) {
+    for (const b of qualityBlockers(post, { now, groundingText: ctx.groundingText, tripDates: ctx.tripDates, storedBody: ctx.storedBody })) {
+      // A past year in the title is already reported above as "stale year in title".
+      if (staleYear && b.startsWith('title year outside') && b.includes(`(${staleYear[1]})`)) continue
+      blockers.push(b)
+    }
+  }
   return { blockers, offenders }
 }
 

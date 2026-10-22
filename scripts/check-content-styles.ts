@@ -78,7 +78,7 @@ const goodBody = [
   '',
   '## Why a river cruise works for first timers',
   '',
-  'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details. ' + 'word '.repeat(460),
+  'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details, ask us in [the contact section](/#contact) or read [our blog](/blog). ' + 'word '.repeat(460),
   '',
   '### Pace',
   '',
@@ -106,7 +106,7 @@ const good: ComposedPost = {
   secondary_keywords: ['river cruise tips'],
   content_style: 'faq-led',
 }
-const ctx = { allowedPaths: ['/packages/rhine-cruise'], groundingText: 'Rhine trip 2026-11-03 to 2026-11-10' }
+const ctx = { allowedPaths: ['/packages/rhine-cruise', '/blog'], groundingText: 'Rhine trip 2026-11-03 to 2026-11-10' }
 const now = new Date('2026-10-09T12:00:00Z')
 const run = (p: ComposedPost) => autoPublishBlockers(p, now, ctx)
 const has = (blockers: string[], needle: string) => blockers.some((b) => b.includes(needle))

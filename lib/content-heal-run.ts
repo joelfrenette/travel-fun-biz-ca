@@ -336,6 +336,7 @@ function postItem(row: Row, idx: SiteIndex): HealItem {
       hasImageAlt: !!str(row.cover_image_url) && !!str(row.alt_text).trim(),
       existingPaths: existing,
       jsonLdTypes: ['Article', 'BreadcrumbList', ...(f.faq.length ? ['FAQPage'] : [])],
+      capThinPost: true,
     }),
   }
 }

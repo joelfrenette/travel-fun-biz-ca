@@ -404,7 +404,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
   // 8. Posts and page copy
   // -------------------------------------------------------------------------------------------------
   {
-    const goodBody = ['A river cruise is a relaxed way to see several towns without repacking.', '', '**Quick answer:** A river cruise suits first timers who want an easy pace.', '', '## Why a river cruise works for first timers', '', 'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details. ' + 'word '.repeat(460), '', '### Pace', '', 'Most people find the pace gentle. It is easy to settle in. You unpack once.', '', 'Have a think about who you would travel with, and our team can help you work that out.'].join('\n')
+    const goodBody = ['A river cruise is a relaxed way to see several towns without repacking.', '', '**Quick answer:** A river cruise suits first timers who want an easy pace.', '', '## Why a river cruise works for first timers', '', 'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details, ask us in [the contact section](/#contact), read [our blog](/blog) or browse [our trips](/). ' + 'word '.repeat(460), '', '### Pace', '', 'Most people find the pace gentle. It is easy to settle in. You unpack once.', '', 'Have a think about who you would travel with, and our team can help you work that out.'].join('\n')
     const good: ComposedPost = {
       title: 'River cruise for first timers',
       slug: 'river-cruise-for-first-timers',
@@ -420,7 +420,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
       secondary_keywords: ['river cruise tips'],
       content_style: 'faq-led',
     }
-    const ctx = { allowedPaths: ['/packages/rhine-cruise'], groundingText: 'Rhine trip 2026-11-03 to 2026-11-10' }
+    const ctx = { allowedPaths: ['/packages/rhine-cruise', '/blog'], groundingText: 'Rhine trip 2026-11-03 to 2026-11-10' }
     const now = new Date('2026-10-09T12:00:00Z')
     check('post fixture is clean', autoPublishBlockers(good, now, ctx).length === 0)
 
