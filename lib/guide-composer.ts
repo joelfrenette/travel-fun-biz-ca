@@ -1,6 +1,6 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { guideKinds, type GuideKind, type GuideSection, type GuideFaq } from '@/lib/guides'
-import { isGeographyPhrase, isPlaceWord } from '@/lib/geography'
+import { isGeographyPhrase, isPlaceNameOrModifier } from '@/lib/geography'
 
 // Writes one guide page (destination, hotel, resort, cruise line, ship, river cruise, yacht) from a grounded
 // brief, then checks it with plain-code rules before anything can go live. Same discipline as
@@ -379,6 +379,7 @@ export function agencyClaims(markdown: string): string[] {
 
 const NOT_VENUE = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'])
 const CAP_WORD = /^[A-Z][\p{L}'’-]+$/u
+const NAME_JOINERS = new Set(['of', 'de', 'del', 'du', 'von', 'van', 'der', 'da', 'di', 'al', 'el', 'la', 'le', 'the'])
 
 /** Capitalised phrases of two or more words in the prose (a restaurant, a person, a port) that are not the
  * subject, its parent, a link label or something in the grounding text. A phrase at the very start of a
@@ -399,17 +400,28 @@ export function namedThingsNotInBrief(markdown: string, allowedText: string): st
       // Plain geography (Caribbean, Alaska, Yucatan Peninsula, Rhine River) is not a venue or a person; any phrase that holds a
       // word that is neither in the brief nor a place word still fails, so real hotels, ships, restaurants and people do.
       const unknown = phrase.filter((w) => !known.has(w.toLowerCase()))
-      const geography = unknown.length > 0 && (unknown.length < phrase.length ? unknown.every(isPlaceWord) : isGeographyPhrase(unknown))
+      // When part of the phrase is in the brief, only a place NAME (not a demonym or other adjective) may be the unknown part:
+      // "Norwegian Cruise Line" must not pass just because "Cruise Line" is in the brief.
+      const geography = unknown.length > 0 && (unknown.length < phrase.length ? unknown.every(isPlaceNameOrModifier) : isGeographyPhrase(unknown))
       if (phrase.length >= 2 && unknown.length > 0 && !geography) found.push(phrase.join(' '))
       run = []
     }
     let runStart = 0
+    // "Symphony of the Seas", "Palacio de la Reina": a short lowercase joiner between two capitalised words keeps one name together.
+    let joiners: string[] = []
     words.forEach((w, i) => {
       if (CAP_WORD.test(w)) {
         if (run.length === 0) runStart = i
+        if (run.length) run.push(...joiners)
+        joiners = []
         run.push(w)
         if (breaksAfter[i]) flush(runStart)
-      } else if (run.length) flush(runStart)
+      } else if (run.length && !breaksAfter[i] && NAME_JOINERS.has(w) && (joiners.length === 0 || (joiners[0] === 'of' && w === 'the' && joiners.length === 1))) {
+        joiners.push(w)
+      } else {
+        joiners = []
+        if (run.length) flush(runStart)
+      }
     })
     if (run.length) flush(runStart)
   }

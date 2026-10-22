@@ -49,6 +49,7 @@ const PLACE_WORDS: Set<string> = (() => {
   for (const n of PLACE_NAMES) for (const w of tokens(n)) set.add(w)
   return set
 })()
+const SINGLE_PLACE_NAMES: Set<string> = new Set(PLACE_NAMES.filter((n) => tokens(n).length === 1).map((n) => n.toLowerCase()))
 const ADJECTIVES: Set<string> = new Set(PLACE_ADJECTIVES.flatMap(tokens))
 const MODIFIERS: Set<string> = new Set(PLACE_MODIFIERS)
 /** Place words that are also ordinary words or common parts of a business name: never enough on their own to pass a phrase. */
@@ -58,6 +59,14 @@ const WEAK_PLACE_WORDS = new Set(['main', 'victoria', 'split', 'nice', 'java', '
 export function isPlaceWord(word: string): boolean {
   const w = word.toLowerCase().replace(/\./g, '')
   return PLACE_WORDS.has(w) || ADJECTIVES.has(w) || MODIFIERS.has(w)
+}
+
+/** A place name or a harmless modifier, but not a demonym or other adjective ("Norwegian", "French"). Used when the rest of a phrase is
+ * already in the brief, where an adjective could be the front half of a brand ("Norwegian Cruise Line"). */
+export function isPlaceNameOrModifier(word: string): boolean {
+  const w = word.toLowerCase().replace(/\./g, '')
+  // Whole single-word place names only: "norwegian" or "virgin" are fragments of "Norwegian Fjords" and "Virgin Islands", and a brand can start with them.
+  return (SINGLE_PLACE_NAMES.has(w) && !WEAK_PLACE_WORDS.has(w)) || MODIFIERS.has(w)
 }
 
 /** True when a capitalised phrase (its words, in order) is plain geography: every word is a place word or a modifier, and at
