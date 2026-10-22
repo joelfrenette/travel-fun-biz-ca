@@ -12,6 +12,7 @@ interface Profile { username: string; accounts: Account[] }
 
 interface Posting {
   provider: "upload-post" | "ghl"
+  effective?: { networks: string[]; missing: { platform: string; reason: string }[]; notes: string[]; summary: string }
   ghl: { configured: boolean; missing: string[]; accounts: { id: string; platform: string; name: string; type?: string; active: boolean; expired: boolean }[]; selected: { id: string; platform: string; name: string }[]; error: string | null }
   configured: boolean
   profiles: Profile[]
@@ -103,6 +104,21 @@ export function PostingCard({ onChanged }: { onChanged?: () => void }) {
             <Button size="sm" variant={data.provider === "ghl" ? "default" : "outline"} disabled={busy} onClick={() => data.provider !== "ghl" && save({ provider: "ghl" }, "Posting through GoHighLevel")}>GoHighLevel</Button>
           </div>
         </div>
+
+        {data.effective && (
+          <div className="space-y-1.5 rounded-lg border bg-muted/30 p-3" aria-label="Networks that will receive posts">
+            <p className="text-sm font-medium">{data.effective.summary}</p>
+            {data.effective.missing.length > 0 && (
+              <>
+                <p className="text-xs font-medium">Not receiving posts yet:</p>
+                <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                  {data.effective.missing.map((m) => <li key={m.platform}>{m.reason}</li>)}
+                </ul>
+              </>
+            )}
+            {data.effective.notes.map((n) => <p key={n} className="text-xs text-muted-foreground">{n}</p>)}
+          </div>
+        )}
 
         {data.provider === "ghl" ? (
           <div className="space-y-3">

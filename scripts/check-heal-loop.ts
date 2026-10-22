@@ -44,7 +44,8 @@ import { autoPublishBlockers, type ComposedPost } from '../lib/blog-composer'
 import { composedFromRow, rehealStuckDrafts, rejectedPostSlugs, type RehealTags } from '../lib/blog-reheal'
 import { guideBlockers } from '../lib/guide-composer'
 import { pageCopyBlockers } from '../lib/page-copy-composer'
-import { composedCopyFromRow, composedGuideFromRow, healHeldCopy, healHeldGuides, isHealDraftCandidate, REJECTED_PREFIX, type CopyBriefParts, type GuideBriefParts } from '../lib/heal-drafts'
+import { checkCadence, guideLimits } from '../lib/publish-cadence'
+import { composedCopyFromRow, composedGuideFromRow, healGuideRow, healHeldCopy, healHeldGuides, isHealDraftCandidate, REJECTED_PREFIX, type CopyBriefParts, type GuideBriefParts } from '../lib/heal-drafts'
 import { GUESSED_PROPERTY_NOTE, decideGuideSave, isGuessedProperty, isGuessedPropertyNote, readCapUsage } from '../lib/guide-run'
 import { readCopyCapUsage } from '../lib/page-copy-run'
 import { healLinesOf } from '../lib/debrief'
@@ -498,6 +499,40 @@ async function main() {
     const undoBody = await revertEdit(admin, bodyEdit.id as string)
     check('K: Undo of the text edit puts the original sentence back', undoBody.ok && /famous/i.test(String(row.body)), JSON.stringify(undoBody))
     check('K: a candidate the heal already rejected, or a clean mode hold, is not picked', !isHealDraftCandidate({ ...guideRow(), quality_notes: `${REJECTED_PREFIX} x` }, now, []) && !isHealDraftCandidate({ ...guideRow(), review_state: 'rejected' }, now, []) && !isHealDraftCandidate({ ...guideRow(), quality_notes: 'held for review (guides_publish_mode=draft)' }, now, ['held for review (guides_publish_mode=draft)']) && isHealDraftCandidate(guideRow(), now, []))
+  }
+  {
+    // The shared publishing limiter (lib/publish-cadence.ts): two held guides, guides_per_day 3, but at least 90 minutes between publishes.
+    const db: Db = { tables: { app_settings: [{ key: 'guides_publish_mode', value: 'publish' }, { key: 'guides_per_day', value: '3' }, { key: 'guides_per_week', value: '14' }], content_edits: [], guides: [guideRow({ id: 'g1', slug: 'lisbon' }), guideRow({ id: 'g2', slug: 'lisbon-two' })] } }
+    const admin = fakeAdmin(db)
+    const m = scripted({ suggest: () => '{"rewrites":[{"id":0,"text":"The old town is a pleasant place to wander."}]}' })
+    const r1 = await healHeldGuides(admin, { now, model: m.model, guideBrief })
+    const status = (id: string) => db.tables.guides.find((g) => g.id === id)?.status
+    check('K: limiter: of two held guides only the first goes live in one run (the 90 minute gap), the second waits as a draft', r1.published === 1 && status('g1') === 'published' && status('g2') === 'draft' && r1.deferred >= 1, JSON.stringify(r1))
+    check('K: limiter: the waiting guide is deferred, not rejected: no rejected flag, no daily claim used, no AI call spent on it', db.tables.guides[1].review_state === null && !db.tables.app_settings.some((s) => String(s.key).includes('heal:guide:destinations:lisbon-two')) && m.count.total <= 2, JSON.stringify({ calls: m.count.total, r1 }))
+    const later = new Date(now.getTime() + 2 * 3_600_000)
+    const r2 = await healHeldGuides(admin, { now: later, model: m.model, guideBrief })
+    check('K: limiter: two hours later the waiting guide is retried and published (deferred items are retried by the next run)', r2.published === 1 && status('g2') === 'published', JSON.stringify(r2))
+  }
+  {
+    // guides_per_day 1 (the code default): a second held guide waits for the 24 hour window, not just the gap
+    const db: Db = { tables: { app_settings: [{ key: 'guides_publish_mode', value: 'publish' }], content_edits: [], guides: [guideRow({ id: 'g1', slug: 'lisbon' }), guideRow({ id: 'g2', slug: 'lisbon-two' })] } }
+    const m = scripted({ suggest: () => '{"rewrites":[{"id":0,"text":"The old town is a pleasant place to wander."}]}' })
+    const admin = fakeAdmin(db)
+    await healHeldGuides(admin, { now, model: m.model, guideBrief })
+    const r2 = await healHeldGuides(admin, { now: new Date(now.getTime() + 5 * 3_600_000), model: m.model, guideBrief })
+    check('K: limiter: with the default 1 guide a day, five hours later the second held guide still waits', r2.published === 0 && db.tables.guides[1].status === 'draft', JSON.stringify(r2))
+    const r3 = await healHeldGuides(admin, { now: new Date(now.getTime() + 25 * 3_600_000), model: m.model, guideBrief })
+    check('K: limiter: after 24 hours it goes live', r3.published === 1 && db.tables.guides[1].status === 'published', JSON.stringify(r3))
+  }
+  {
+    // A guide that is ALREADY live and is healed (marked rejected, then healed) is not a publish: it does not use a slot
+    const live = guideRow({ id: 'gl', slug: 'lisbon', status: 'published', review_state: 'rejected', quality_notes: null, created_at: new Date(now.getTime() - 40 * 86_400_000).toISOString(), updated_at: new Date(now.getTime() - 40 * 86_400_000).toISOString() })
+    const db: Db = { tables: { app_settings: [{ key: 'guides_publish_mode', value: 'publish' }], content_edits: [], guides: [live] } }
+    const admin = fakeAdmin(db)
+    const m = scripted({ suggest: () => '{"rewrites":[{"id":0,"text":"The old town is a pleasant place to wander."}]}' })
+    const out = await healGuideRow(admin, live, { now, model: m.model, guideBrief, skipClaim: true })
+    const slot = await checkCadence(admin, 'guide', guideLimits({ perDay: 1, perWeek: 5 }), now)
+    check('K: limiter: healing a guide that is already live is not counted as a publish (the slot stays free)', out.action === 'healed_live' && slot.allowed === true && !db.tables.app_settings.some((s) => s.key === 'publish_cadence_log'), JSON.stringify({ out: out.action, slot }))
   }
   {
     // fail closed without migration 0043: the publish cannot be logged, so nothing is published (the text repair is kept)

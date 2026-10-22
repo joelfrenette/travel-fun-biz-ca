@@ -5,6 +5,7 @@ import { bestPairs, buildMovers, type RankRow } from '@/lib/rankings'
 import { getPageMetrics, getQueryPagePairs } from '@/lib/search-console'
 import { listSitePages } from '@/lib/site-pages'
 import { RANKING_DAYS_TABLE, RANKINGS_TABLE } from '@/lib/rankings-snapshot'
+import { readBingCoverage, describeBing } from '@/lib/bing-coverage'
 
 // Factory Phase 8: reads what Phase 5's gsc-snapshot cron has been writing into
 // gsc_ranking_days/gsc_rankings. Both tables are empty until CRON_SECRET is set and the cron
@@ -34,7 +35,11 @@ export async function GET(request: Request) {
       const x = byPath.get(p.path)
       return { ...p, position: x?.position ?? null, clicks: x?.clicks ?? 0, impressions: x?.impressions ?? 0, topKeyword: queryForPage.get(p.path) ?? null }
     })
+    // Bing's crawled/indexed summary from the daily job; a failed read is said so, never shown as zero.
+    const bingRead = await readBingCoverage(admin)
+    const bing = { line: describeBing(bingRead.coverage, bingRead.error, !!process.env.BING_WEBMASTER_API_KEY || !!bingRead.coverage), status: bingRead.error ? 'unreadable' : bingRead.coverage?.status ?? 'none' }
     return NextResponse.json({
+      bing,
       pages,
       days: days.data ?? [],
       queryMovers: buildMovers(queryRows).slice(0, 25).map((m) => ({ ...m, other: pageForQuery.get(m.key.toLowerCase()) ?? null })),

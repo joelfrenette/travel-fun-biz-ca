@@ -50,6 +50,37 @@ export async function setAutoblogPostsPerWeek(admin: SupabaseClient, perWeek: nu
   return setSetting(admin, AUTOBLOG_POSTS_PER_WEEK_KEY, String(perWeek))
 }
 
+// How many posts a scheduled day may write. 1 is the long-standing behaviour (the default). 2 or 3 is only ever used when approved topics
+// are waiting: the extra posts come from the approved queue, never from the AI-freeform fallback, and are spaced at least 90 minutes
+// apart by the shared publishing limiter (lib/publish-cadence.ts). Capped at 3.
+export const AUTOBLOG_MAX_PER_DAY_KEY = 'autoblog_max_per_day'
+export const DEFAULT_MAX_PER_DAY = 1
+export const MAX_MAX_PER_DAY = 3
+
+/** 1 to 3 as a whole number; anything else (unset, empty, 0, 4, text, 2.5) falls back to 1, so a bad value can never raise the volume. Pure. */
+export function clampMaxPerDay(raw: unknown): number {
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_MAX_PER_DAY
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 1 && n <= MAX_MAX_PER_DAY ? n : DEFAULT_MAX_PER_DAY
+}
+
+export async function getAutoblogMaxPerDay(admin: SupabaseClient): Promise<number> {
+  return clampMaxPerDay(await getSetting(admin, AUTOBLOG_MAX_PER_DAY_KEY))
+}
+
+export async function setAutoblogMaxPerDay(admin: SupabaseClient, perDay: number): Promise<{ error?: string }> {
+  if (!Number.isInteger(perDay) || perDay < 1 || perDay > MAX_MAX_PER_DAY) return { error: `posts per day must be a whole number from 1 to ${MAX_MAX_PER_DAY}` }
+  return setSetting(admin, AUTOBLOG_MAX_PER_DAY_KEY, String(perDay))
+}
+
+/** How many posts a scheduled run may still write today. `wroteToday` is what was already written; `approvedWaiting` is whether a due approved
+ * topic exists. The first post of the day is always allowed (the old rule); an extra one only when the setting allows it AND an approved
+ * topic is waiting. Pure. */
+export function mayWriteAnotherToday(wroteToday: number, maxPerDay: number, approvedWaiting: boolean): boolean {
+  if (wroteToday <= 0) return true
+  return wroteToday < maxPerDay && approvedWaiting
+}
+
 /** True when today (given a weekday 0-6) is one of the days a given posts-per-week count writes
  * on. Falls back to true for an out-of-table value so a future dial value never silently means
  * "never writes" by omission. */

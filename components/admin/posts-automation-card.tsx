@@ -20,6 +20,7 @@ interface Automation {
   mode: "off" | "draft" | "publish"
   // blog
   postsPerWeek?: number
+  maxPerDay?: number
   approvedTopics?: number
   plan?: string
   lastRun?: { at: string; ok: boolean; note?: string } | null
@@ -38,6 +39,22 @@ interface Props {
 export default function PostsAutomationCard({ type, refreshKey = 0 }: Props) {
   const [data, setData] = useState<Automation | null>(null)
   const [error, setError] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  async function changeMaxPerDay(next: number) {
+    setSaving(true)
+    setError("")
+    try {
+      const res = await fetch("/api/admin/blog/autoblog-cadence", { method: "POST", headers: authHeaders(), body: JSON.stringify({ maxPerDay: next }) })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      setData((d) => (d ? { ...d, maxPerDay: next } : d))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   useEffect(() => {
     let live = true
@@ -68,6 +85,26 @@ export default function PostsAutomationCard({ type, refreshKey = 0 }: Props) {
         {data && (
           <>
             {type === "blog" && data.plan && <p className="text-sm">{data.plan}</p>}
+            {type === "blog" && typeof data.maxPerDay === "number" && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <label htmlFor="autoblog-max-per-day" className="font-medium text-foreground">Posts on a writing day</label>
+                <select
+                  id="autoblog-max-per-day"
+                  className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+                  value={data.maxPerDay}
+                  disabled={saving}
+                  onChange={(e) => changeMaxPerDay(Number(e.target.value))}
+                >
+                  <option value={1}>1 (default)</option>
+                  <option value={2}>Up to 2</option>
+                  <option value={3}>Up to 3</option>
+                </select>
+                <span>
+                  More than 1 only when approved topics are waiting; the extra posts come from your approved topics, at least 90 minutes apart.
+                  {typeof data.approvedTopics === "number" ? ` ${data.approvedTopics} approved topic${data.approvedTopics === 1 ? "" : "s"} waiting now.` : ""}
+                </span>
+              </div>
+            )}
             {type === "news" && (
               <p className="text-sm">
                 {data.mode === "off" && "News is off: nothing is read or written."}

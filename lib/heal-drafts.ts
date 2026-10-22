@@ -6,7 +6,8 @@ import type { ContentEdit } from '@/lib/content-repair'
 import { guideBlockers, groundingText, type ComposedGuide, type GateContext } from '@/lib/guide-composer'
 import { pageCopyBlockers, copyGroundingText, linkedPackageSlugs, type ComposedPageCopy, type CopyGateContext } from '@/lib/page-copy-composer'
 import { MODE_HOLD_NOTE } from '@/lib/guide-list'
-import { buildBrief, GUESSED_PROPERTY_NOTE, getGuidePublishMode, isGuessedPropertyNote } from '@/lib/guide-run'
+import { buildBrief, GUESSED_PROPERTY_NOTE, getGuidePublishMode, getGuideCaps, isGuessedPropertyNote } from '@/lib/guide-run'
+import { checkCadence, guideCadenceKey, guideLimits, recordPublish } from '@/lib/publish-cadence'
 import { buildCopyBrief, getPageCopyPublishMode } from '@/lib/page-copy-run'
 import { guidePath, isRetryableRejected, rejectionCountFor, type GuideCandidate, type GuideKind } from '@/lib/guides'
 import { bumpRejectionCount, clearGuideFailure, readGuideFailuresChecked } from '@/lib/guide-failures'
@@ -316,12 +317,27 @@ export async function healHeldGuides(admin: SupabaseClient, opts: HealDraftOpts 
     const picks = selectHealDrafts((data ?? []) as Row[], now, opts.limit ?? GUIDES_HEALED_PER_DAY, [MODE_HOLD_NOTE], retry)
     if (!picks.length) return { ...out, note: 'no held guides waiting' }
 
-    for (const row of picks) {
+    // The shared publishing limiter (lib/publish-cadence.ts): a held guide that could go live is only given its go (and its AI spend)
+    // when a slot is free under guides_per_day / guides_per_week (rolling) and the 90 minute gap. Otherwise it stays a draft and is
+    // looked at again on the next run: deferred, never rejected. A guide whose name was guessed from a trip title is never published
+    // here, so it does not need a slot.
+    const limits = guideLimits(await getGuideCaps(admin))
+    let waitNote = ''
+    for (const [i, row] of picks.entries()) {
+      if (!isGuessedPropertyNote(str(row.quality_notes))) {
+        const slot = await checkCadence(admin, 'guide', limits, now)
+        if (!slot.allowed) {
+          // Everything after this one needs the same slot, so stop here: nothing is claimed for today and no AI call is made.
+          out.deferred += picks.length - i
+          waitNote = slot.note
+          break
+        }
+      }
       const r = await healGuideRow(admin, row, { now, model: opts.model, deadlineMs: opts.deadlineMs, guideBrief: opts.guideBrief, budget: opts.budget }, out)
       // A safe page is kept out of search (noindex, no sitemap entry), so it is not announced either.
       if (r.action === 'published' && !r.ladder.includes('safe-page')) await pingIndexNow([r.path, '/sitemap.xml']).catch(() => undefined)
     }
-    out.note = `held guides: ${out.tried} re-checked, ${out.published} published, ${out.healedDraft} healed but kept as drafts, ${out.rejected} rejected, ${out.deferred} waiting`
+    out.note = `held guides: ${out.tried} re-checked, ${out.published} published, ${out.healedDraft} healed but kept as drafts, ${out.rejected} rejected, ${out.deferred} waiting${waitNote ? ` (publishing slot: ${waitNote})` : ''}`
     return out
   } catch (e) {
     return { ...out, problems: [...out.problems, `held guides re-check failed: ${e instanceof Error ? e.message : 'unknown error'}`], note: out.note || 'held guides re-check failed' }
@@ -462,5 +478,7 @@ async function applyHealedRow(
   out.published++
   // A guide that is live no longer "could not be written": drop its old failure record so the warning clears.
   if (table === 'guides') await clearGuideFailure(admin, `${str(row.kind)}:${str(row.slug)}`).catch(() => undefined)
+  // The go-live time for the shared publishing limiter (lib/publish-cadence.ts). Page copy has no limiter.
+  if (table === 'guides') await recordPublish(admin, 'guide', guideCadenceKey(str(row.kind), str(row.slug)), now)
   return 'published'
 }

@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
 import { Loader2, Wrench } from "lucide-react"
 import { DISTRIBUTION_MODE_TEXT } from "@/lib/posts-page-summary"
+import { describeGuideSpend, type GuideSpend } from "@/lib/guide-spend"
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -24,6 +25,7 @@ interface Facts {
   backfill: { state: "none" | "running" | "cancelled" | "done"; written: number; waiting: number }
   safePages: { count: number; attemptsUsed: number; maxAttempts: number; usedUp: number; ready: number } | null
   orphans: { count: number; checked: number; at: string } | null
+  spend: GuideSpend | null
 }
 
 /** The Automation card on Posts: Guides. It reports what runs on its own and holds the two admin-only actions that cost something
@@ -107,6 +109,7 @@ export default function GuidesAutomationCard({ refreshKey = 0, onChanged }: { re
                 {data.heal ? ` · ${data.heal.healedToday} item${data.heal.healedToday === 1 ? "" : "s"} healed today` : ""}
                 {data.heal?.waiting ? ` · ${data.heal.waiting}` : ""}
               </li>
+              <li>{describeGuideSpend(data.spend ?? null)}. The heal part covers every kind of page, not only guides.</li>
               <li>New guides written: {data.usage ? `${data.usage.today ?? "?"} today, ${data.usage.week ?? "?"} in the last 7 days` : "unknown"}</li>
               <li>Backfill: {backfillText} (start or cancel it in the Backfill card below)</li>
               <li>

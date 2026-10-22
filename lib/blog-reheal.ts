@@ -11,6 +11,7 @@ import { enrollIfDue } from '@/lib/distribution'
 import { composeFullPost } from '@/lib/blog-composer'
 import { healComposedPost } from '@/lib/heal-targets'
 import { pingIndexNow } from '@/lib/indexnow'
+import { checkCadence, postCadenceKey, postLimits, recordPublish } from '@/lib/publish-cadence'
 import { isNewsSlug } from '@/lib/news-post'
 
 // Growth loop WP19: a draft is no longer left for a person. The shared repair runs first (plain code and one cheap call),
@@ -190,6 +191,7 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
     const picks = selectRehealCandidates(rows, tagsBySlug, now, left)
     if (!picks.length) return { ...out, note: `blog drafts: none due a re-check today${left === 0 ? ' (the daily limit is used)' : ''}` }
 
+    let waitNote = ''
     for (const row of picks) {
       const slug = str(row.slug)
       const id = str(row.id)
@@ -265,6 +267,16 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
       const changedText = editIds.length > 0
 
       if (clean) {
+        // The shared publishing limiter (lib/publish-cadence.ts): asked only now, when the draft really is about to go live, so a wait never
+        // blocks a draft that is being rejected. No free slot (90 minutes after the last automatic post) means the repaired text is kept on
+        // the draft, no try is used up, and the next run publishes it: deferred, never dropped.
+        const slot = await checkCadence(admin, 'post', postLimits(), now)
+        if (!slot.allowed) {
+          if (changedText) await writeDraft(admin, id, textColumns, editIds, path, false, out, row.updated_at)
+          out.deferred++
+          waitNote = slot.note
+          continue
+        }
         // Log the publish first; no audit row, no publish.
         const statusEdit: ContentEdit = { content_type: 'post', content_id: id, path, field: 'status', reason: 'the draft now passes the full publish gate, so the re-check published it', before: 'draft', after: 'published', method: 'fixer', published_after: true, cost_usd: 0 }
         const logged = await insertEdits(admin, [statusEdit])
@@ -290,6 +302,7 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
         }
         await finalizeEdits(admin, editIds, { id, path, published: true })
         await tagVariant(admin, slug, { held_reasons: '', reheal_tries: next.tries, reheal_last: now.toISOString(), reheal_state: 'published' })
+        await recordPublish(admin, 'post', postCadenceKey(slug), now)
         await enrollIfDue(admin, slug, v.title).catch(() => undefined)
         await pingIndexNow([path, '/blog', '/']).catch(() => undefined)
         out.published++
@@ -307,7 +320,7 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
       })
       if (next.state === 'rejected') out.rejected++
     }
-    out.note = `blog drafts: ${out.tried} re-checked, ${out.published} published, ${out.rejected} retired by the heal${out.deferred ? `, ${out.deferred} waiting for tomorrow` : ''}`
+    out.note = `blog drafts: ${out.tried} re-checked, ${out.published} published, ${out.rejected} retired by the heal${out.deferred ? `, ${out.deferred} waiting for ${waitNote ? 'a free publishing slot' : 'tomorrow'}` : ''}`
     return out
   } catch (e) {
     return { ...out, problems: [...out.problems, `blog drafts re-check failed: ${e instanceof Error ? e.message : 'unknown error'}`], note: out.note || 'blog drafts re-check failed' }

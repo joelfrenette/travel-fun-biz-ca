@@ -36,7 +36,8 @@ import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { generateSlug } from '@/lib/utils'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { enrollIfDue } from '@/lib/distribution'
-import { getAutoblogPostsPerWeek, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
+import { getAutoblogPostsPerWeek, getAutoblogMaxPerDay, mayWriteAnotherToday, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
+import { checkCadence, postCadenceKey, postLimits, recordPublish } from '@/lib/publish-cadence'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { attachAutoblogCoverImage } from '@/lib/blog-image'
 import { pingIndexNow } from '@/lib/indexnow'
@@ -348,6 +349,9 @@ export async function runAutoblog(opts: { scheduled: boolean; deadlineMs?: numbe
 
 async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mode: AutoblogMode, opts: { scheduled: boolean; deadlineMs?: number }): Promise<AutoblogResult> {
   const existingPosts = await listPostsAdmin()
+  // True when today's first post is already written and this run may add an extra one from the approved queue only.
+  let extraOnly = false
+  let wroteBefore = 0
 
   if (opts.scheduled) {
     const postsPerWeek = await getAutoblogPostsPerWeek(admin)
@@ -358,7 +362,20 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     // (a read error means "do not write") and never depends on a list that could be stale.
     const wroteToday = await postsWrittenToday(admin)
     if (wroteToday === null) return { ran: false, mode, note: 'could not check whether a post was already written today, so nothing was written' }
-    if (wroteToday > 0) return { ran: false, mode, note: 'already wrote a post today' }
+    // The first post of the day follows the old rule. A second or third (autoblog_max_per_day, default 1, at most 3) is written only when a
+    // due approved topic is waiting, and only from that queue (see below).
+    const maxPerDay = await getAutoblogMaxPerDay(admin)
+    if (wroteToday > 0) {
+      const approvedWaiting = maxPerDay > 1 ? await dueApprovedTopics(admin).then((r) => r.length > 0, () => false) : false
+      if (!mayWriteAnotherToday(wroteToday, maxPerDay, approvedWaiting)) return { ran: false, mode, note: 'already wrote a post today' }
+      extraOnly = true
+      wroteBefore = wroteToday
+    }
+    // The shared publishing limiter: at least 90 minutes since the last automatic post went live (deferred to a later pass, never dropped).
+    if (mode === 'publish') {
+      const slot = await checkCadence(admin, 'post', postLimits())
+      if (!slot.allowed) return { ran: false, mode, note: `post publishing deferred: ${slot.note}`, ...(slot.reason === 'unreadable' ? { failed: true } : {}) }
+    }
   }
 
   if (opts.scheduled && (Number((await getSetting(admin, `autoblog_dupe_skips:${new Date().toISOString().slice(0, 10)}`)) ?? 0) || 0) >= 4) {
@@ -384,6 +401,8 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
     queueRowId = row.id
     break
   }
+  // An extra post of the day (autoblog_max_per_day above 1) comes ONLY from the approved queue: never the AI-freeform or keyword fallback.
+  if (extraOnly && !topic) return { ran: false, mode, note: 'already wrote a post today (an extra post is only written from an approved topic, and none is usable now)' }
   // Order of choice: a topic you approved, then the best researched keyword nothing targets yet (keyword
   // first), then an AI-suggested topic as the last resort.
   if (!topic) topic = await pickKeywordTopic(admin, existingPosts).catch(() => null)
@@ -468,7 +487,7 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // The compose step takes a while; check once more, right before saving, that no other run got there first.
   if (opts.scheduled) {
     const again = await postsWrittenToday(admin)
-    if (again === null || again > 0) return { ran: false, mode, note: 'a post was written while this one was being composed, so this one was dropped' }
+    if (again === null || again > (extraOnly ? wroteBefore : 0)) return { ran: false, mode, note: 'a post was written while this one was being composed, so this one was dropped' }
   }
 
   // The gate, with the shared self-repair (WP10, lib/content-repair.ts): plain-code fixers, then at most ONE model
@@ -583,6 +602,8 @@ A first draft of this post was refused by the quality checks for these reasons, 
     await admin.from('keyword_research').update({ target_path: `/blog/${post.slug}`, updated_at: new Date().toISOString() }).in('keyword', seedKeywords).eq('country', SITE_ID).is('target_path', null)
   }
   if (publishing) {
+    // The go-live time for the shared publishing limiter (lib/publish-cadence.ts).
+    await recordPublish(admin, 'post', postCadenceKey(post.slug))
     await enrollIfDue(admin, post.slug, post.title)
     // Tell Bing a new public blog page appeared. Never blocks or fails the post above.
     await pingIndexNow([`/blog/${post.slug}`, '/blog', '/'])

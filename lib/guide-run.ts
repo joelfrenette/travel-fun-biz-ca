@@ -13,6 +13,7 @@ import { healComposedGuide, healNoteOf } from '@/lib/heal-targets'
 import { SAFE_PAGE_NOTE, isSafePageNote } from '@/lib/guide-repairs'
 import { freedBySince, rejectLimitReached, type HealOutcome } from '@/lib/heal-loop'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
+import { checkCadence, guideCadenceKey, guideLimits, recordPublish } from '@/lib/publish-cadence'
 import { inferScope } from '@/lib/guide-scope'
 import { MODE_HOLD_NOTE } from '@/lib/guide-list'
 import { BACKFILL_KIND_ORDER, backfillProgress, effectiveGuideCaps, planBackfill, readBackfillState, type BackfillPlan, type BackfillProgress, type BackfillState } from '@/lib/guide-backfill'
@@ -280,7 +281,7 @@ export interface WriteGuideResult {
 export async function writeGuide(
   admin: SupabaseClient,
   cand: GuideCandidate,
-  opts: { source: 'pipeline' | 'admin'; beforeSave?: () => Promise<string | null>; deadlineMs?: number },
+  opts: { source: 'pipeline' | 'admin'; beforeSave?: (ctx: { publishing: boolean }) => Promise<string | null>; deadlineMs?: number },
 ): Promise<WriteGuideResult> {
   if (!isAiConfigured()) return { ok: false, note: 'AI writing is not configured (ANTHROPIC_API_KEY is not set)' }
   // The routes that run this are killed at 300 seconds. The self-repair only starts a model call with enough time left.
@@ -352,7 +353,7 @@ export async function writeGuide(
     rejectedByHeal = decision.rejectedByHeal
     publishing = decision.publish
 
-    const stop = opts.beforeSave ? await opts.beforeSave() : null
+    const stop = opts.beforeSave ? await opts.beforeSave({ publishing }) : null
     // A pass dropped because a cap was reached while composing is not a failure: it must not feed the breaker.
     if (stop) {
       await deleteEdits(admin, repairLogIds)
@@ -406,6 +407,8 @@ export async function writeGuide(
     if (replacingRejected) await recordGuideFailure(admin, failureKey, { name: cand.name, kind: cand.kind, reason: 'an earlier draft was rejected and was written again' })
     else await clearGuideFailure(admin, failureKey)
     await finalizeEdits(admin, repairLogIds, { id: saved.id, path: guidePath(saved.kind, saved.slug), published: publishing })
+    // Write down the go-live time for the shared publishing limiter (lib/publish-cadence.ts).
+    if (publishing) await recordPublish(admin, 'guide', guideCadenceKey(saved.kind, saved.slug))
     // A published guide is enrolled for social posting (one guide a day, mode-gated; never throws).
     if (publishing) await enrollGuideIfDue(admin, saved)
     // A safe page is kept out of search (noindex, no sitemap entry), so it is not announced to search engines either.
@@ -522,13 +525,28 @@ export async function runGuidesStep(admin: SupabaseClient, opts: { deadlineMs?: 
   if (usage.week >= perWeek) return { ok: true, note: `weekly cap reached (${usage.week} of ${perWeek} this week)` }
   if (!cand) return { ok: true, note: 'no guide candidates left (all written, or skipped after repeated failures)' }
 
+  // The shared publishing limiter (lib/publish-cadence.ts): rolling 24 hours / 7 days from the real go-live times, and at least
+  // 90 minutes between two automatic publishes. It is asked BEFORE the AI is, so a blocked slot spends nothing; the guide is simply
+  // written on a later pass (deferred, never failed). Only in publish mode: in draft mode nothing goes live.
+  const limits = guideLimits({ perDay, perWeek })
+  const publishMode = await getGuidePublishMode(admin)
+  if (publishMode === 'publish') {
+    const slot = await checkCadence(admin, 'guide', limits)
+    if (!slot.allowed) return { ok: slot.reason !== 'unreadable', note: `guide publishing deferred: ${slot.note}` }
+  }
+
   const result = await writeGuide(admin, cand, {
     source: 'pipeline',
     deadlineMs: opts.deadlineMs,
     // Composing takes a while: look at the caps again right before saving, so two runs cannot both write.
-    beforeSave: async () => {
+    beforeSave: async ({ publishing }) => {
       const again = await readCapUsage(admin)
       if (again.today === null || again.week === null || again.today >= perDay || again.week >= perWeek) return 'a guide was written while this one was being composed, so this one was dropped'
+      // Same for the publishing limiter: a page that would go live while another one took the slot is dropped (the page is written on a later pass).
+      if (publishing) {
+        const slot = await checkCadence(admin, 'guide', limits)
+        if (!slot.allowed) return `a guide went live while this one was being composed, so this one waits for a later slot (${slot.note})`
+      }
       return null
     },
   })

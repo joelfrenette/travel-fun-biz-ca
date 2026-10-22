@@ -149,6 +149,7 @@ export default function RankingsPage() {
   const [queryMovers, setQueryMovers] = useState<Mover[]>([])
   const [pageMovers, setPageMovers] = useState<Mover[]>([])
   const [pages, setPages] = useState<RankedPage[]>([])
+  const [bingLine, setBingLine] = useState("")
   // One dropdown filters all three tables by kind of page.
   const [typeFilter, setTypeFilter] = useState<"all" | PageType>("all")
   const [loading, setLoading] = useState(true)
@@ -163,6 +164,7 @@ export default function RankingsPage() {
         setQueryMovers(data.queryMovers || [])
         setPageMovers(data.pageMovers || [])
         setPages(Array.isArray(data.pages) ? data.pages : [])
+        setBingLine(typeof data.bing?.line === "string" ? data.bing.line : "")
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -187,6 +189,8 @@ export default function RankingsPage() {
 
       <div className="container mx-auto space-y-4 px-4 py-4">
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+
+        {bingLine && <p className="text-xs text-muted-foreground">{bingLine}</p>}
 
         {loading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>

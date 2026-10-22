@@ -6,6 +6,7 @@ import { takeRankingSnapshot } from '@/lib/rankings-snapshot'
 import { connectKeywordsToRankingPages } from '@/lib/keyword-pages'
 import { runCronWatchdog } from '@/lib/cron-watchdog'
 import { runAiTripwire } from '@/lib/ai-tripwire'
+import { runBingCoverage } from '@/lib/bing-coverage'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
 // CRON_SECRET must be set (cronUnauthorized 503s until then), and Search Console itself must be
@@ -48,7 +49,16 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] ai tripwire failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}` })
+    // Bing crawled/indexed summary: only when BING_WEBMASTER_API_KEY is set, one read-only call (8 second limit), kept in app_settings.
+    // runBingCoverage never throws; the extra try/catch keeps it from ever breaking the snapshot.
+    let bing = ''
+    try {
+      const b = await runBingCoverage(getSupabaseAdmin())
+      if (b) bing = `; ${b}`
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] bing coverage failed:', e)
+    }
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found

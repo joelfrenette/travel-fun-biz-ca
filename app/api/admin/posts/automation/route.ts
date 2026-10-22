@@ -6,6 +6,8 @@ import { getGuideCaps, readCapUsage, getGuidePublishMode, loadBackfillProgress }
 import { readBackfillState } from '@/lib/guide-backfill'
 import { GUIDE_CATCHUP_KEY } from '@/lib/guide-distribution'
 import { healLoopCard } from '@/lib/heal-loop'
+import { readGuideSpend } from '@/lib/guide-spend'
+import { getAutoblogMaxPerDay } from '@/lib/autoblog-cadence'
 import { ENRICH_MAX_ATTEMPTS, listSafePages } from '@/lib/safe-enrich'
 import { readOrphanAudit } from '@/lib/guide-orphans'
 import { TRIP_SOCIAL_KEY, TRIP_ENROLMENTS_PER_WEEK, TRIP_HOLD_HOURS } from '@/lib/trip-social'
@@ -58,10 +60,11 @@ export async function GET(request: Request) {
     const common = { type, distributionMode, tailoredCaptions, paused, cover }
 
     if (type === 'blog') {
-      const [topics, mode, postsPerWeek, lastAutoblog, lastAutopilot] = await Promise.all([
+      const [topics, mode, postsPerWeek, maxPerDay, lastAutoblog, lastAutopilot] = await Promise.all([
         listTopicQueue(admin).catch(() => []),
         getAutoblogMode(),
         getAutoblogPostsPerWeek(admin),
+        getAutoblogMaxPerDay(admin),
         getSetting(admin, cronRunKey('autoblog')).catch(() => null),
         getSetting(admin, cronRunKey('autopilot')).catch(() => null),
       ])
@@ -70,7 +73,7 @@ export async function GET(request: Request) {
       const ap = parseLastRun(lastAutopilot)
       const lastRun = ab && ap ? (Date.parse(ap.at) > Date.parse(ab.at) ? ap : ab) : ab ?? ap
       const plan = describeAutoblogPlan({ mode, paused, postsPerWeek, todayWeekday: currentWeekday(), approvedTopics: approved })
-      return NextResponse.json({ ...common, mode, postsPerWeek, approvedTopics: approved, plan, lastRun })
+      return NextResponse.json({ ...common, mode, postsPerWeek, maxPerDay, approvedTopics: approved, plan, lastRun })
     }
 
     const [mode, perDay] = await Promise.all([getNewsMode(admin), getNewsPerDay(admin)])
@@ -84,7 +87,7 @@ type Admin = ReturnType<typeof getSupabaseAdmin>
 
 // Guides: every number here is read from what the pipeline already stores. A read that fails shows as null, never as a made-up zero.
 async function guidesFacts(admin: Admin) {
-  const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused] = await Promise.all([
+  const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused, spend] = await Promise.all([
     getGuidePublishMode(admin).catch(() => null),
     getGuideCaps(admin).catch(() => null),
     readCapUsage(admin).catch(() => null),
@@ -96,6 +99,7 @@ async function guidesFacts(admin: Admin) {
     loadBackfillProgress(admin).catch(() => null),
     getDistributionMode(admin).catch(() => 'off' as const),
     isAutomationPaused(admin).catch(() => false),
+    readGuideSpend(admin).catch(() => null),
   ])
   const backfill = !backfillState
     ? { state: 'none' as const, written: 0, waiting: 0 }
@@ -118,6 +122,7 @@ async function guidesFacts(admin: Admin) {
     safePages: safePages
       ? { count: safePages.length, attemptsUsed: safePages.reduce((n, p) => n + p.attempts, 0), maxAttempts: ENRICH_MAX_ATTEMPTS, usedUp: safePages.filter((p) => p.state === 'used-up').length, ready: safePages.filter((p) => p.state === 'ready').length }
       : null,
+    spend,
     orphans: orphanAudit ? { count: orphanAudit.orphans.length, checked: orphanAudit.checked, at: orphanAudit.at } : null,
   }
 }
