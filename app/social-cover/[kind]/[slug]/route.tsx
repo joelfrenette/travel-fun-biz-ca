@@ -1,0 +1,259 @@
+import { ImageResponse } from 'next/og'
+import { SITE_NAME } from '@/lib/site'
+import { getPublishedPostBySlug } from '@/lib/posts'
+import { GUIDE_KINDS } from '@/lib/guides'
+import { resolveOgTarget, cleanTitle, isAllowedPhotoUrl, allowedRedirectTarget, exceedsPhotoCap, hostOf, MAX_PHOTO_BYTES, type OgPrefix } from '@/lib/og-image'
+import {
+  COVER_WIDTH,
+  COVER_HEIGHT,
+  COVER_SAFE_SIDE,
+  COVER_SAFE_VERTICAL,
+  COVER_BLOCK_MAX_WIDTH,
+  COVER_BLOCK_PAD_X,
+  fitCoverTitle,
+  fitNewsText,
+  isSocialCoverKind,
+  isValidCoverSlug,
+  shortenCoverTitle,
+  shortenNewsHeadline,
+  type SocialCoverKind,
+} from '@/lib/social-cover'
+
+// Titled single-image social cover, 1080x1350 (Instagram portrait): /social-cover/<kind>/<slug>.
+//   blog / trip / guide: the post's own photo, un-dimmed, with a short ALL-CAPS headline in a solid red block
+//   in the upper middle and a small TRAVELFUNBIZ.CA strip at the bottom.
+//   news: a teal typed card (no photo) with the brand tag, one big headline and the strip.
+// Built from the same pieces as app/og/[...path]/route.tsx (next/og, Inter fetched from Google Fonts, allow-listed
+// photo hosts, a cached font fetch). Public reads only (published rows), so a draft never gets a picture. It must
+// never 500: any failure draws without the photo, and a total failure returns a plain 404/503 the sender detects.
+// For guides the slug is the ledger slug `guide-<kind>-<slug>`; for trips it is the package slug.
+export const dynamic = 'force-dynamic'
+export const maxDuration = 30
+
+const RED = '#d81f26'
+const TEAL = '#0f6f7c'
+const TEAL_TAG = '#0b5560'
+const PHOTO_TIMEOUT_MS = 6000
+const FONT_TIMEOUT_MS = 3000
+const FONT_FAILURE_TTL_MS = 5 * 60 * 1000
+const CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'
+const SHORT_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=60'
+
+type Font = { name: string; data: ArrayBuffer; weight: 700 | 800; style: 'normal' }
+
+const fontCache = new Map<string, ArrayBuffer>()
+const fontInFlight = new Map<string, Promise<ArrayBuffer>>()
+const fontFailedAt = new Map<string, number>()
+
+async function fetchGoogleFont(family: string, weight: number): Promise<ArrayBuffer> {
+  const cssRes = await fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weight}`, { signal: AbortSignal.timeout(FONT_TIMEOUT_MS) })
+  const css = await cssRes.text()
+  const match = css.match(/src: url\(([^)]+)\) format\('(?:opentype|truetype)'\)/)
+  if (!match) throw new Error(`No TTF/OTF link for ${family} ${weight}`)
+  const fontRes = await fetch(match[1], { signal: AbortSignal.timeout(FONT_TIMEOUT_MS) })
+  if (!fontRes.ok) throw new Error(`Font download failed (${fontRes.status})`)
+  return fontRes.arrayBuffer()
+}
+
+function loadGoogleFont(family: string, weight: number): Promise<ArrayBuffer> {
+  const key = `${family}:${weight}`
+  const cached = fontCache.get(key)
+  if (cached) return Promise.resolve(cached)
+  const failedAt = fontFailedAt.get(key)
+  if (failedAt && Date.now() - failedAt < FONT_FAILURE_TTL_MS) return Promise.reject(new Error('font recently failed'))
+  let pending = fontInFlight.get(key)
+  if (!pending) {
+    pending = fetchGoogleFont(family, weight)
+      .then((buf) => {
+        fontCache.set(key, buf)
+        fontFailedAt.delete(key)
+        return buf
+      })
+      .catch((err) => {
+        fontFailedAt.set(key, Date.now())
+        throw err
+      })
+      .finally(() => {
+        fontInFlight.delete(key)
+      })
+    fontInFlight.set(key, pending)
+  }
+  return pending
+}
+
+async function loadFonts(): Promise<Font[]> {
+  try {
+    return [{ name: 'Inter', data: await loadGoogleFont('Inter', 800), weight: 800, style: 'normal' }]
+  } catch {
+    try {
+      return [{ name: 'Inter', data: await loadGoogleFont('Inter', 700), weight: 700, style: 'normal' }]
+    } catch {
+      return [] // the built-in default font still draws a correct image
+    }
+  }
+}
+
+function skipped(url: string, reason: string): null {
+  console.warn('[social-cover] photo skipped', hostOf(url), reason)
+  return null
+}
+
+/** The photo as a data URI Satori can draw (JPEG, PNG or GIF), or null on any problem. */
+async function loadPhoto(url: string | null): Promise<string | null> {
+  if (!url) return null
+  if (!isAllowedPhotoUrl(url)) return skipped(url, 'host not allowed')
+  try {
+    let src = url
+    const u = new URL(url)
+    // Pexels serves originals of several MB; ask for a copy that covers 1080x1350 when the URL has no options.
+    if (u.hostname === 'images.pexels.com' && !u.search) src = `${url}?auto=compress&cs=tinysrgb&h=1500`
+    const fetchOnce = (target: string) => fetch(target, { signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS), redirect: 'manual' })
+    let res = await fetchOnce(src)
+    if (res.status >= 300 && res.status < 400) {
+      const next = allowedRedirectTarget(res.headers.get('location'), src)
+      await res.body?.cancel().catch(() => {})
+      if (!next) return skipped(url, `redirect to a host that is not allowed (${res.status})`)
+      res = await fetchOnce(next)
+      if (res.status >= 300 && res.status < 400) return skipped(url, 'second redirect')
+    }
+    if (!res.ok) return skipped(url, `status ${res.status}`)
+    const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+    if (type !== 'image/jpeg' && type !== 'image/png' && type !== 'image/gif') return skipped(url, `content type ${type || 'missing'}`)
+    if (exceedsPhotoCap(res.headers.get('content-length'))) return skipped(url, 'too large (content-length)')
+    const buf = await res.arrayBuffer()
+    if (buf.byteLength === 0) return skipped(url, 'empty body')
+    if (buf.byteLength > MAX_PHOTO_BYTES) return skipped(url, 'too large')
+    return `data:${type};base64,${Buffer.from(buf).toString('base64')}`
+  } catch (err) {
+    return skipped(url, err instanceof Error ? err.name : 'fetch failed')
+  }
+}
+
+interface CoverContent {
+  kind: SocialCoverKind
+  /** Already shortened for the card. */
+  headline: string
+  photoUrl: string | null
+}
+
+/** guide-<kind>-<slug> -> { kind, slug }; the longest matching kind wins. */
+function parseGuideLedgerSlug(slug: string): { prefix: OgPrefix; slug: string } | null {
+  const kinds = [...GUIDE_KINDS].sort((a, b) => b.length - a.length)
+  for (const kind of kinds) {
+    const prefix = `guide-${kind}-`
+    if (slug.startsWith(prefix) && slug.length > prefix.length) return { prefix: kind, slug: slug.slice(prefix.length) }
+  }
+  return null
+}
+
+async function resolveContent(kind: SocialCoverKind, slug: string): Promise<CoverContent | null> {
+  if (kind === 'news') {
+    const post = await getPublishedPostBySlug(slug)
+    if (!post) return null
+    const headline = shortenNewsHeadline(post.title)
+    return headline ? { kind, headline, photoUrl: null } : null
+  }
+  const target = kind === 'blog' ? { prefix: 'blog' as OgPrefix, slug } : kind === 'trip' ? { prefix: 'packages' as OgPrefix, slug } : parseGuideLedgerSlug(slug)
+  if (!target) return null
+  const og = await resolveOgTarget(target)
+  if (!og) return null
+  // cleanTitle strips a trailing site name; the shortener then picks a whole phrase.
+  const headline = shortenCoverTitle(cleanTitle(og.title, SITE_NAME), SITE_NAME)
+  return headline ? { kind, headline, photoUrl: og.photoUrl } : null
+}
+
+const STRIP_TEXT = SITE_NAME.toUpperCase()
+
+function strip(font: boolean) {
+  return (
+    <div style={{ position: 'absolute', left: 0, right: 0, bottom: COVER_SAFE_VERTICAL, display: 'flex', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', backgroundColor: 'rgba(0,0,0,0.55)', color: '#ffffff', padding: '10px 26px', borderRadius: 999, fontSize: 28, fontWeight: 800, letterSpacing: 4, fontFamily: font ? 'Inter' : undefined }}>{STRIP_TEXT}</div>
+    </div>
+  )
+}
+
+function renderPhotoCover(content: CoverContent, photo: string | null, fonts: Font[]) {
+  const { lines, fontSize } = fitCoverTitle(content.headline)
+  const hasFont = fonts.length > 0
+  return new ImageResponse(
+    (
+      <div style={{ width: COVER_WIDTH, height: COVER_HEIGHT, display: 'flex', position: 'relative', backgroundColor: '#1d4f5c', backgroundImage: `linear-gradient(160deg, #1d6f8a, ${RED})`, fontFamily: hasFont ? 'Inter' : undefined }}>
+        {photo && <img src={photo} width={COVER_WIDTH} height={COVER_HEIGHT} style={{ position: 'absolute', top: 0, left: 0, width: COVER_WIDTH, height: COVER_HEIGHT, objectFit: 'cover' }} />}
+        {/* Headline block: about 20% from the top, horizontally centred, never wider than 880px. */}
+        <div style={{ position: 'absolute', top: Math.round(COVER_HEIGHT * 0.2), left: 0, right: 0, display: 'flex', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: COVER_BLOCK_MAX_WIDTH, backgroundColor: RED, padding: `26px ${COVER_BLOCK_PAD_X}px`, color: '#ffffff' }}>
+            {lines.map((line, i) => (
+              <div key={i} style={{ display: 'flex', fontSize, fontWeight: 800, lineHeight: 1.08, textAlign: 'center', whiteSpace: 'nowrap' }}>{line}</div>
+            ))}
+          </div>
+        </div>
+        {strip(hasFont)}
+      </div>
+    ),
+    { width: COVER_WIDTH, height: COVER_HEIGHT, ...(hasFont ? { fonts } : {}), headers: { 'Cache-Control': CACHE_CONTROL } },
+  )
+}
+
+function renderNewsCard(content: CoverContent, fonts: Font[]) {
+  const { lines, fontSize } = fitNewsText(content.headline)
+  const hasFont = fonts.length > 0
+  return new ImageResponse(
+    (
+      <div style={{ width: COVER_WIDTH, height: COVER_HEIGHT, display: 'flex', position: 'relative', backgroundColor: TEAL, color: '#ffffff', fontFamily: hasFont ? 'Inter' : undefined }}>
+        <div style={{ position: 'absolute', top: COVER_SAFE_VERTICAL, left: 0, right: 0, display: 'flex', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', backgroundColor: TEAL_TAG, padding: '12px 30px', borderRadius: 999, fontSize: 30, fontWeight: 800, letterSpacing: 5 }}>{`${STRIP_TEXT} TRAVEL NEWS`}</div>
+        </div>
+        <div style={{ position: 'absolute', top: 200, bottom: 200, left: COVER_SAFE_SIDE, right: COVER_SAFE_SIDE, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          {lines.map((line, i) => (
+            <div key={i} style={{ display: 'flex', fontSize, fontWeight: 800, lineHeight: 1.15, textAlign: 'center', whiteSpace: 'nowrap' }}>{line}</div>
+          ))}
+        </div>
+        {strip(hasFont)}
+      </div>
+    ),
+    { width: COVER_WIDTH, height: COVER_HEIGHT, ...(hasFont ? { fonts } : {}), headers: { 'Cache-Control': CACHE_CONTROL } },
+  )
+}
+
+export async function GET(request: Request, { params }: { params: { kind: string; slug: string } }) {
+  // Any query string names the same picture as the plain path: one CDN copy, a cache-buster cannot force a re-render.
+  const url = new URL(request.url)
+  if (url.search) return new Response(null, { status: 308, headers: { Location: url.pathname, 'Cache-Control': 'public, s-maxage=86400' } })
+
+  const kind = params.kind
+  const slug = params.slug || ''
+  if (!isSocialCoverKind(kind) || !isValidCoverSlug(slug)) return new Response('Not found', { status: 404, headers: { 'Cache-Control': SHORT_CACHE_CONTROL } })
+
+  let content: CoverContent | null = null
+  try {
+    content = await resolveContent(kind, slug)
+  } catch (err) {
+    console.warn('[social-cover] resolve failed', err instanceof Error ? err.name : 'error')
+    return new Response('Unavailable', { status: 503, headers: { 'Cache-Control': 'no-store' } })
+  }
+  if (!content) return new Response('Not found', { status: 404, headers: { 'Cache-Control': SHORT_CACHE_CONTROL } })
+  const resolved: CoverContent = content
+
+  const fonts = await loadFonts()
+  const photo = resolved.kind === 'news' ? null : await loadPhoto(resolved.photoUrl)
+  // ImageResponse draws lazily: read the body inside the try so a photo Satori cannot decode falls back
+  // to the no-photo version instead of becoming a 500.
+  const draw = async (withPhoto: string | null, withFonts: Font[]) => {
+    const res = resolved.kind === 'news' ? renderNewsCard(resolved, withFonts) : renderPhotoCover(resolved, withPhoto, withFonts)
+    const png = await res.arrayBuffer()
+    return new Response(png, { headers: { 'Content-Type': 'image/png', 'Cache-Control': CACHE_CONTROL } })
+  }
+  try {
+    return await draw(photo, fonts)
+  } catch {
+    try {
+      return await draw(null, fonts)
+    } catch {
+      try {
+        return await draw(null, [])
+      } catch {
+        return new Response('Unavailable', { status: 503, headers: { 'Cache-Control': 'no-store' } })
+      }
+    }
+  }
+}

@@ -17,6 +17,7 @@ import {
   redirectAllowedFor,
   type NewsSource,
 } from '@/lib/news-sources'
+import { FEED_FAIL_LIMIT } from '@/lib/news-sources'
 
 // Growth loop WP20: reading a feed. Two halves.
 //   1. PARSING (pure): RSS 2.0, RSS 1.0 (RDF) and Atom, tolerant of broken XML, never expands entities, never keeps
@@ -474,7 +475,7 @@ export interface FeedState {
 }
 
 export const FEED_STATE_PREFIX = 'news_feed_state:'
-export const FEED_FAIL_LIMIT = 3
+export { FEED_FAIL_LIMIT }
 const ROBOTS_TTL_MS = 24 * 3_600_000
 
 export async function readFeedState(admin: SupabaseClient, key: string): Promise<FeedState> {

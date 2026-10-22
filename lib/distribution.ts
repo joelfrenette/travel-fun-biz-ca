@@ -6,7 +6,8 @@ import { resolvePostingTarget, platformsFor, PLATFORM_ACCEPTS, type PostingTarge
 import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
 import { utmLink, canonicalNetwork } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
-import { loadGuidePostSource } from '@/lib/guide-post-source'
+import { loadGuidePostSource, packageSlugFromPath } from '@/lib/guide-post-source'
+import { pickPostImage, verifyCoverUrl, type SocialCoverKind } from '@/lib/social-cover'
 import { runGuideCatchUp } from '@/lib/guide-distribution'
 import { releaseHeldTrips, runTripSocialEnrol } from '@/lib/trip-social'
 import { fitCaption, tightestLimit, generatePlatformCaptions, buildFallbackCaption, buildNetworkFallbacks, groupNetworksForSend, type PlatformCaptions } from '@/lib/social-captions'
@@ -281,6 +282,12 @@ async function sendTailored(
   }
 }
 
+/** After this long into a pass, no new cover verification starts (the cron function limit is 60 seconds and each
+ * verify can take up to VERIFY_TIMEOUT_MS). */
+const VERIFY_BUDGET_MS = 35_000
+/** Composed cover URLs that verified OK on this warm instance; they may go out unverified once the budget is spent. */
+const verifiedCovers = new Set<string>()
+
 async function runDistributionLocked(admin: SupabaseClient, target: PostingTarget, tailoredCaptionsOn: boolean): Promise<string> {
   const { data: rows, error } = await admin
     .from('post_distribution')
@@ -297,6 +304,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
   let posted = 0
   let failed = 0
   let needsReview = 0
+  const passStart = Date.now()
   for (const row of rows as DistributionRow[]) {
     try {
       // A row with a `path` (migration 0030) is a published guide, not a blog post: its title, summary and hero
@@ -322,7 +330,33 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const networkLink = (p: string) => utmLink(pageUrl, { source: canonicalNetwork(p), medium: 'social', campaign: row.slug, content: 'fallback' })
       const title = post?.title || row.title
       // Only networks that accept this kind of post, and never ones this post already reached.
-      const kind = post?.cover_image_url ? 'photo' : 'text'
+      // The image a photo post goes out with is the TITLED cover (app/social-cover), never the bare photo: a bare
+      // photo is a grid tile with no words. Travel news has no photo, so it gets the typed text card instead of
+      // going out as text only (Instagram cannot take text). The composed URL is fetched once first; if the route
+      // cannot draw it, the raw photo is the fallback (blog, trip, guide) or the post stays text (news).
+      const coverKind: SocialCoverKind = isNewsRow ? 'news' : !isGuideRow ? 'blog' : packageSlugFromPath(row.path as string) ? 'trip' : 'guide'
+      const coverSlug = coverKind === 'trip' ? (packageSlugFromPath(row.path as string) as string) : row.slug
+      let sendImage: string | null = post?.cover_image_url || null
+      if (post?.cover_image_url || isNewsRow) {
+        const picked = pickPostImage({ base: SITE_URL, kind: coverKind, slug: coverSlug, title, coverUrl: post?.cover_image_url })
+        if (picked.composed && picked.url) {
+          const overBudget = Date.now() - passStart > VERIFY_BUDGET_MS
+          if (overBudget && !verifiedCovers.has(picked.url)) {
+            // The cron function has a 60 second limit. Past the budget a row that was never verified is left
+            // queued for the next tick (it is ordered by age, so nothing is skipped for good).
+            console.warn('[distribution] verify budget spent, leaving', row.slug, 'for the next run')
+            break
+          }
+          if (overBudget || (await verifyCoverUrl(picked.url))) {
+            if (!overBudget) verifiedCovers.add(picked.url)
+            sendImage = picked.url
+          } else {
+            sendImage = post?.cover_image_url || null
+            console.warn('[distribution] composed cover unavailable for', row.slug, sendImage ? '- sending the raw photo' : '- sending text only')
+          }
+        }
+      }
+      const kind = sendImage ? 'photo' : 'text'
       const already = row.sent_platforms ?? []
       const platforms = platformsFor(kind, target.platforms, target.provider).filter((p) => !already.includes(p))
       if (platforms.length === 0) {
@@ -407,7 +441,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         }
       }
       const send = (p: string[], text: string) =>
-        post?.cover_image_url ? target.sendPhotos(p, text, [post.cover_image_url]) : target.sendText(p, text)
+        sendImage ? target.sendPhotos(p, text, [sendImage]) : target.sendText(p, text)
       const result = await sendTailored(send, platforms, tailored, baseCaptions, sharedCaption, target.provider)
       const sentPlatforms = [...new Set([...already, ...result.sent])]
 

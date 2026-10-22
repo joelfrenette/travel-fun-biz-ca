@@ -191,3 +191,17 @@ export function redirectAllowedFor(source: NewsSource, target: string): boolean 
     return false
   }
 }
+
+// Pure values shared with the admin News screen (a client component). Kept here so that screen never imports server-only
+// code (node:crypto, supabase) through news-feed or news-ingest.
+export const FEED_FAIL_LIMIT = 3
+
+/** Pure: "a, b ,c" -> Set(a, b, c), lower-cased, junk ignored. */
+export function parseSourcesOff(value: string | null | undefined): Set<string> {
+  return new Set(
+    String(value ?? '')
+      .split(',')
+      .map((k) => k.trim().toLowerCase())
+      .filter((k) => /^[a-z0-9-]{2,40}$/.test(k)),
+  )
+}

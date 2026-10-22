@@ -10,6 +10,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export const HOOK_STYLES = ['question', 'number', 'contrarian', 'mistake', 'story', 'comparison', 'how-to'] as const
 export type HookStyle = (typeof HOOK_STYLES)[number]
 
+/** Hook styles used for Instagram carousel COVERS. story, mistake and how-to are left out: they read as
+ * paragraphs, not as a 3 to 6 word headline. They stay in HOOK_STYLES for captions, so every existing
+ * caller and stored tag keeps working. */
+export const COVER_HOOK_STYLES = ['question', 'contrarian', 'number', 'comparison'] as const satisfies readonly HookStyle[]
+
 export const HOOK_STYLE_PROMPTS: Record<HookStyle, string> = {
   question: 'open with one direct question a curious traveller would genuinely ask about this topic',
   number: 'open with a number, but ONLY a number that appears in the post title, summary or takeaways given below; if none is given, open with a concrete detail from the post instead and do not invent a figure',

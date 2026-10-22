@@ -2,8 +2,29 @@
 // its own yet — Pexels' free API, not AI-generated art. A generated photo of a real place can be
 // subtly wrong (wrong landmark, wrong layout); a real photo of that place can't be. Dormant until
 // PEXELS_API_KEY is set — see .env.example.
+//
+// Photo choice (Instagram quality work): every search fetches several candidates and lib/photo-score.ts
+// picks one. It rejects wrong subjects (laptops, offices, coffee), prefers photos whose description mentions
+// the searched place or topic, skips photos used by the last 30 picks (list kept in app_settings), and
+// prefers lively, colourful photos (a cheap check on a tiny copy with sharp). Every extra step fails open.
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { getSetting, setSetting } from '@/lib/app-settings'
+import {
+  DEFAULT_MIN_HEIGHT,
+  DEFAULT_MIN_WIDTH,
+  parseRecentIds,
+  pushRecentId,
+  queryTokens,
+  rankCandidates,
+  type ColourStats,
+  type PhotoCandidate,
+} from '@/lib/photo-score'
+
 const PEXELS_SEARCH_URL = 'https://api.pexels.com/v1/search'
 const CACHE_MS = 24 * 60 * 60 * 1000
+const EMPTY_CACHE_MS = 60 * 60 * 1000
+const CANDIDATES = 12
+const RECENT_PHOTOS_KEY = 'pexels_recent_photo_ids'
 
 export interface PexelsPhoto {
   id: number
@@ -13,53 +34,178 @@ export interface PexelsPhoto {
   alt: string | null
 }
 
-const cache = new Map<string, { photo: PexelsPhoto | null; at: number }>()
+interface RankedPhoto extends PexelsPhoto {
+  /** Pexels' pre-cropped portrait variant, used by findPortraitPhoto. */
+  portraitUrl: string | null
+}
 
 export function isPexelsConfigured(): boolean {
   return !!process.env.PEXELS_API_KEY
 }
 
-/** One relevant, landscape-oriented real photo for a search term (e.g. a destination or port
- * name), or null when unconfigured, no match, or the request fails — never throws. Cached 24h per
- * query so repeated package creation for the same destination doesn't burn API calls. */
-export async function findDestinationPhoto(query: string): Promise<PexelsPhoto | null> {
-  const key = process.env.PEXELS_API_KEY
-  if (!key || !query.trim()) return null
+// ---- recent photo ids (fail open: any error means "nothing recent") ----
 
-  const cacheKey = query.trim().toLowerCase()
+async function loadRecentIds(): Promise<Set<number>> {
+  try {
+    const raw = await getSetting(getSupabaseAdmin(), RECENT_PHOTOS_KEY)
+    return new Set(parseRecentIds(raw))
+  } catch {
+    return new Set()
+  }
+}
+
+/** Remember a picked photo so the next 30 picks avoid it. Never throws. */
+async function rememberPhotoId(id: number): Promise<void> {
+  try {
+    const admin = getSupabaseAdmin()
+    const list = pushRecentId(parseRecentIds(await getSetting(admin, RECENT_PHOTOS_KEY)), id)
+    await setSetting(admin, RECENT_PHOTOS_KEY, JSON.stringify(list))
+  } catch {
+    // The history is a nicety; a failed write must never block a post.
+  }
+}
+
+// ---- cheap vividness check ----
+
+/** Mean saturation, mean luminance and luminance spread of a tiny copy of the photo, or null when sharp or the
+ * download is unavailable. Deterministic for the same bytes. */
+async function measureColour(url: string): Promise<ColourStats | null> {
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) })
+    if (!res.ok) return null
+    const input = Buffer.from(await res.arrayBuffer())
+    const sharp = (await import('sharp')).default
+    const { data, info } = await sharp(input).resize(48, 48, { fit: 'inside' }).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+    return colourStatsOfRgb(data, info.channels)
+  } catch {
+    return null
+  }
+}
+
+/** Colour stats of raw interleaved 8-bit pixels. Pure; exported for the offline check. */
+export function colourStatsOfRgb(data: ArrayLike<number>, channels: number): ColourStats | null {
+  const n = Math.floor(data.length / channels)
+  if (n === 0 || channels < 3) return null
+  let sat = 0
+  let lumaSum = 0
+  let lumaSq = 0
+  for (let i = 0; i < n; i++) {
+    const r = data[i * channels] / 255
+    const g = data[i * channels + 1] / 255
+    const b = data[i * channels + 2] / 255
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    sat += max === 0 ? 0 : (max - min) / max
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    lumaSum += l
+    lumaSq += l * l
+  }
+  const meanLuma = lumaSum / n
+  return { meanSaturation: sat / n, meanLuma, lumaStd: Math.sqrt(Math.max(0, lumaSq / n - meanLuma * meanLuma)) }
+}
+
+// ---- search + rank ----
+
+const cache = new Map<string, { photos: RankedPhoto[]; at: number }>()
+
+interface RawPexelsPhoto {
+  id: number
+  width?: number
+  height?: number
+  alt?: string
+  photographer?: string
+  photographer_url?: string
+  src?: { original?: string; large2x?: string; large?: string; portrait?: string; small?: string; tiny?: string }
+}
+
+/** Candidates for a query, scored and ordered best first. Empty on any failure. Cached 24h per query + orientation
+ * (the ordering, not the pick: the recent-photo filter runs fresh on every call). */
+async function searchRanked(query: string, orientation: 'landscape' | 'portrait'): Promise<RankedPhoto[]> {
+  const key = process.env.PEXELS_API_KEY
+  if (!key || !query.trim()) return []
+  const cacheKey = `${orientation}:${query.trim().toLowerCase()}`
   const hit = cache.get(cacheKey)
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.photo
+  // An empty list (every candidate rejected, or a failed call) is remembered for 1 hour, not 24.
+  if (hit && Date.now() - hit.at < (hit.photos.length === 0 ? EMPTY_CACHE_MS : CACHE_MS)) return hit.photos
 
   try {
-    const url = `${PEXELS_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`
+    const url = `${PEXELS_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=${CANDIDATES}&orientation=${orientation}`
     const res = await fetch(url, { headers: { Authorization: key }, cache: 'no-store', signal: AbortSignal.timeout(8000) })
     if (!res.ok) {
-      cache.set(cacheKey, { photo: null, at: Date.now() })
-      return null
+      cache.set(cacheKey, { photos: [], at: Date.now() })
+      return []
     }
-    const body = await res.json().catch(() => ({}))
-    const first = body?.photos?.[0]
-    const photo: PexelsPhoto | null = first
-      ? {
-          id: first.id,
-          // Found 2026-10-03: this used to prefer `original` (the full, uncompressed camera-
-          // resolution file - routinely several MB) over Pexels' own pre-sized web variants.
-          // The package-import pipeline resizes afterward (lib/image-pipeline.ts), so it only
-          // paid the cost of downloading an oversized source; the blog cover-image pipeline
-          // (lib/blog-image.ts) uploads this URL's content verbatim with no resize step at all,
-          // so every autoblog post shipped a multi-megabyte hero image straight to visitors.
-          // large2x is ~1880px wide - comfortably more than any format spec in this project
-          // (the widest is the 1600px banner) - at a fraction of the file size, no quality loss.
-          url: first.src?.large2x || first.src?.large || first.src?.original,
-          photographer: first.photographer || 'Unknown',
-          photographerUrl: first.photographer_url || 'https://www.pexels.com',
-          alt: first.alt || null,
-        }
-      : null
-    cache.set(cacheKey, { photo, at: Date.now() })
-    return photo
+    const body = (await res.json().catch(() => ({}))) as { photos?: RawPexelsPhoto[] }
+    const raw = (body.photos ?? []).filter((p) => p && typeof p.id === 'number')
+
+    // Colour check on a tiny copy of each candidate, in parallel. Any failure just means "unknown".
+    const stats = await Promise.all(raw.map((p) => measureColour(p.src?.tiny || p.src?.small || '')))
+    const byId = new Map<number, RawPexelsPhoto>()
+    const candidates: PhotoCandidate[] = raw.map((p, i) => {
+      byId.set(p.id, p)
+      // Found 2026-10-03: this used to prefer `original` (the full, uncompressed camera-
+      // resolution file - routinely several MB) over Pexels' own pre-sized web variants.
+      // The package-import pipeline resizes afterward (lib/image-pipeline.ts), so it only
+      // paid the cost of downloading an oversized source; the blog cover-image pipeline
+      // (lib/blog-image.ts) uploads this URL's content verbatim with no resize step at all,
+      // so every autoblog post shipped a multi-megabyte hero image straight to visitors.
+      // large2x is ~1880px wide - comfortably more than any format spec in this project
+      // (the widest is the 1600px banner) - at a fraction of the file size, no quality loss.
+      return {
+        id: p.id,
+        url: p.src?.large2x || p.src?.large || p.src?.original || '',
+        alt: p.alt || null,
+        width: p.width ?? 0,
+        height: p.height ?? 0,
+        stats: stats[i],
+      }
+    })
+    // Portrait results are narrower than landscape ones, so the minimum is checked on the short edge there.
+    const minWidth = orientation === 'portrait' ? DEFAULT_MIN_HEIGHT * 0.75 : DEFAULT_MIN_WIDTH
+    const minHeight = orientation === 'portrait' ? DEFAULT_MIN_WIDTH : DEFAULT_MIN_HEIGHT
+    const ranked = rankCandidates(candidates, { tokens: queryTokens(query), recentIds: new Set(), minWidth, minHeight })
+    if (ranked.failedOpen) console.warn('[pexels] no photo description mentions', JSON.stringify(query), '- using the best remaining one')
+    if (ranked.rejectedCount > 0) console.warn('[pexels] rejected', ranked.rejectedCount, 'of', raw.length, 'photos for', JSON.stringify(query))
+
+    const photos: RankedPhoto[] = ranked.ranked.map((s) => {
+      const p = byId.get(s.photo.id) as RawPexelsPhoto
+      return {
+        id: p.id,
+        url: s.photo.url,
+        photographer: p.photographer || 'Unknown',
+        photographerUrl: p.photographer_url || 'https://www.pexels.com',
+        alt: p.alt || null,
+        portraitUrl: p.src?.portrait || p.src?.large || null,
+      }
+    })
+    cache.set(cacheKey, { photos, at: Date.now() })
+    return photos
   } catch {
-    cache.set(cacheKey, { photo: null, at: Date.now() })
+    cache.set(cacheKey, { photos: [], at: Date.now() })
+    return []
+  }
+}
+
+/** Re-apply the relevance and recency tiers to a cached ranking: the cache holds the order by relevance and
+ * colour, the recent list changes between calls. Photos used recently move behind fresh ones (still usable). */
+function pickFresh(photos: RankedPhoto[], recent: Set<number>, skip?: (p: RankedPhoto) => boolean): RankedPhoto | null {
+  const usable = skip ? photos.filter((p) => !skip(p)) : photos
+  return usable.find((p) => !recent.has(p.id)) ?? usable[0] ?? null
+}
+
+/** One relevant, landscape-oriented real photo for a search term (e.g. a destination or port
+ * name), or null when unconfigured, no match, or the request fails — never throws. The search is
+ * cached 24h per query so repeated package creation for the same destination doesn't burn API
+ * calls; the pick itself avoids the last 30 photos used and is recorded. */
+export async function findDestinationPhoto(query: string): Promise<PexelsPhoto | null> {
+  try {
+    const ranked = await searchRanked(query, 'landscape')
+    if (ranked.length === 0) return null
+    const pick = pickFresh(ranked, await loadRecentIds())
+    if (!pick) return null
+    await rememberPhotoId(pick.id)
+    return { id: pick.id, url: pick.url, photographer: pick.photographer, photographerUrl: pick.photographerUrl, alt: pick.alt }
+  } catch {
     return null
   }
 }
@@ -92,24 +238,16 @@ export async function findBrollClip(query: string): Promise<{ url: string; durat
 }
 
 /** A portrait stock photo for a carousel slide, skipping any address in `used` so seven slides about
- * the same place do not all get the identical picture. Returns null when unconfigured, nothing
- * matches or the request fails - the slide then falls back to the post's own cover image. */
+ * the same place do not all get the identical picture. Same selector as findDestinationPhoto (wrong
+ * subjects rejected, relevant and vivid preferred, recently used photos last), but the pick is NOT
+ * recorded: a seven-slide carousel would otherwise push every other post out of the 30-photo history.
+ * Returns null when unconfigured, nothing matches or the request fails - the slide then falls back to
+ * the post's own cover image. */
 export async function findPortraitPhoto(query: string, used: Set<string> = new Set()): Promise<string | null> {
-  const key = process.env.PEXELS_API_KEY
-  if (!key || !query.trim()) return null
   try {
-    const res = await fetch(`${PEXELS_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=8&orientation=portrait`, {
-      headers: { Authorization: key },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) return null
-    const body = (await res.json().catch(() => ({}))) as { photos?: Array<{ src?: { portrait?: string; large?: string } }> }
-    for (const photo of body.photos ?? []) {
-      const url = photo.src?.portrait || photo.src?.large
-      if (url && !used.has(url)) return url
-    }
-    return null
+    const ranked = await searchRanked(query, 'portrait')
+    const pick = pickFresh(ranked, await loadRecentIds(), (p) => !p.portraitUrl || used.has(p.portraitUrl))
+    return pick?.portraitUrl ?? null
   } catch {
     return null
   }

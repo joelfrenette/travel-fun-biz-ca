@@ -4,10 +4,11 @@ import { Suspense, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Loader2, Plus, Trash2, FileText, AlertTriangle, RefreshCw } from "lucide-react"
+import { Loader2, Plus, AlertTriangle, RefreshCw } from "lucide-react"
 import type { Post } from "@/lib/posts"
+import type { AdminPostMeta } from "@/lib/blog-admin-filters"
+import BlogPostsList from "@/components/admin/blog-posts-list"
 import type { DriftFinding } from "@/lib/content-drift"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import BlogTopicQueue from "@/components/admin/blog-topic-queue"
@@ -35,15 +36,17 @@ function BlogAdminPageContent() {
   // showing, breaking the back button / a bookmarked or shared link.
   const router = useRouter()
   const searchParams = useSearchParams()
-  const initialTab = searchParams.get("tab") === "autoblog" ? "autoblog" : "posts"
-  const [tab, setTab] = useState(initialTab)
+  // The URL is the single source of truth: the active tab is derived from it on every render, so a sidebar
+  // click on /admin/blog?tab=autoblog while already on this page switches the tab (the old copy-into-state
+  // version only read ?tab= on first paint, so the address changed and the Posts tab stayed up).
+  const tab = searchParams.get("tab") === "autoblog" ? "autoblog" : "posts"
 
   function changeTab(value: string) {
-    setTab(value)
-    router.replace(value === "autoblog" ? "/admin/blog?tab=autoblog" : "/admin/blog")
+    router.replace(value === "autoblog" ? "/admin/blog?tab=autoblog" : "/admin/blog", { scroll: false })
   }
 
   const [posts, setPosts] = useState<Post[]>([])
+  const [meta, setMeta] = useState<Record<string, AdminPostMeta>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   // Post-publish drift check (factory spec item: re-read published posts, flag facts that no
@@ -73,19 +76,14 @@ function BlogAdminPageContent() {
       .then(({ ok, data }) => {
         if (!ok) throw new Error(data.error || "Could not load")
         setPosts(data.posts || [])
+        setMeta(data.meta || {})
+        if (Array.isArray(data.metaProblems) && data.metaProblems.length > 0) setError(`Some post details could not be loaded (${data.metaProblems.join("; ")}). The list still works; those columns may be blank.`)
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
   }
 
   useEffect(load, [])
-
-  async function remove(post: Post) {
-    if (!confirm(`Delete "${post.title}"? This cannot be undone.`)) return
-    const res = await fetch(`/api/admin/blog/${post.id}`, { method: "DELETE", headers: authHeaders() })
-    if (res.ok) setPosts((p) => p.filter((x) => x.id !== post.id))
-    else setError((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
-  }
 
   return (
     <div>
@@ -141,36 +139,7 @@ function BlogAdminPageContent() {
                 </CardContent>
               )}
             </Card>
-            {loading ? (
-              <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-            ) : posts.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
-                <FileText className="h-8 w-8" />
-                <p>No posts yet. Write your first one.</p>
-              </div>
-            ) : (
-              posts.map((post) => (
-                <Card key={post.id}>
-                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <div className="min-w-[220px] flex-1">
-                      <Link href={`/admin/blog/${post.id}`} className="font-medium hover:underline">{post.title}</Link>
-                      <p className="text-xs text-muted-foreground">
-                        /blog/{post.slug}{post.publish_date ? ` · ${new Date(post.publish_date).toLocaleDateString("en-CA")}` : ""}
-                        {post.tags.length > 0 ? ` · ${post.tags.join(", ")}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {post.status === "published" && post.publish_date && post.publish_date > new Date().toISOString().slice(0, 10) ? (
-                        <Badge variant="outline">scheduled {new Date(post.publish_date).toLocaleDateString("en-CA")}</Badge>
-                      ) : (
-                        <Badge variant={post.status === "published" ? "default" : "secondary"}>{post.status}</Badge>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => remove(post)} title="Delete"><Trash2 className="h-4 w-4" /></Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
+            <BlogPostsList posts={posts} meta={meta} loading={loading} onPostsChange={setPosts} onError={setError} />
           </TabsContent>
           <TabsContent value="autoblog" className="pt-3">
             <BlogTopicQueue />

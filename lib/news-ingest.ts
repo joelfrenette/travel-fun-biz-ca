@@ -18,7 +18,7 @@ import {
   type RawFeedItem,
 } from '@/lib/news-feed'
 import { classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
-import { NEWS_MAX_AGE_DAYS, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
+import { NEWS_MAX_AGE_DAYS, parseSourcesOff, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
 
 // Growth loop WP20: step one of the news pipeline. Read the allowlisted feeds (each at most once in 30 minutes), keep
 // only the items that change a traveller's plans, drop repeats, store what is left in news_items, and expire what has
@@ -198,15 +198,7 @@ export const FEED_START_MARGIN_MS = 25_000
  * every source that is enabled in lib/news-sources.ts is read. */
 export const NEWS_SOURCES_OFF_KEY = 'news_sources_off'
 
-/** Pure: "a, b ,c" -> Set(a, b, c), lower-cased, junk ignored. */
-export function parseSourcesOff(value: string | null | undefined): Set<string> {
-  return new Set(
-    String(value ?? '')
-      .split(',')
-      .map((k) => k.trim().toLowerCase())
-      .filter((k) => /^[a-z0-9-]{2,40}$/.test(k)),
-  )
-}
+export { parseSourcesOff }
 
 /** The enabled sources minus the ones switched off in settings. An unreadable setting turns nothing off (the per-source
  * failure counter and the 30-minute limit still apply), so a settings glitch never silences the official feeds. */
