@@ -1,5 +1,6 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { guideKinds, type GuideKind, type GuideSection, type GuideFaq } from '@/lib/guides'
+import { isGeographyPhrase, isPlaceWord } from '@/lib/geography'
 
 // Writes one guide page (destination, hotel, resort, cruise line, ship, river cruise, yacht) from a grounded
 // brief, then checks it with plain-code rules before anything can go live. Same discipline as
@@ -386,13 +387,20 @@ export function namedThingsNotInBrief(markdown: string, allowedText: string): st
   const known = new Set((allowedText.toLowerCase().match(/[\p{L}'’-]+/gu) ?? []))
   const found: string[] = []
   for (const sentence of sentencesOf(markdown)) {
-    const words = sentence.split(/\s+/).map((w) => w.replace(/^[("'“]+|[.,;:!?)"'”]+$/g, '').replace(/['’]s$/i, ''))
+    const rawWords = sentence.split(/\s+/)
+    const words = rawWords.map((w) => w.replace(/^[("'“]+|[.,;:!?)"'”]+$/g, '').replace(/['’]s$/i, ''))
+    // A comma, semicolon or colon ends a name: "the Caribbean, Alaska, Europe" is a list of three places, not one phrase.
+    const breaksAfter = rawWords.map((w) => /[,;:][)"'”]*$/.test(w))
     let run: string[] = []
     const flush = (startIdx: number) => {
       let phrase = run
       if (startIdx === 0) phrase = phrase.slice(1) // sentence-initial capital
       phrase = phrase.filter((w) => !NOT_VENUE.has(w.toLowerCase()))
-      if (phrase.length >= 2 && !phrase.every((w) => known.has(w.toLowerCase()))) found.push(phrase.join(' '))
+      // Plain geography (Caribbean, Alaska, Yucatan Peninsula, Rhine River) is not a venue or a person; any phrase that holds a
+      // word that is neither in the brief nor a place word still fails, so real hotels, ships, restaurants and people do.
+      const unknown = phrase.filter((w) => !known.has(w.toLowerCase()))
+      const geography = unknown.length > 0 && (unknown.length < phrase.length ? unknown.every(isPlaceWord) : isGeographyPhrase(unknown))
+      if (phrase.length >= 2 && unknown.length > 0 && !geography) found.push(phrase.join(' '))
       run = []
     }
     let runStart = 0
@@ -400,6 +408,7 @@ export function namedThingsNotInBrief(markdown: string, allowedText: string): st
       if (CAP_WORD.test(w)) {
         if (run.length === 0) runStart = i
         run.push(w)
+        if (breaksAfter[i]) flush(runStart)
       } else if (run.length) flush(runStart)
     })
     if (run.length) flush(runStart)

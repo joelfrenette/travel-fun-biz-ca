@@ -10,6 +10,7 @@ import { composeGuide, guideBlockers, groundingText, type GuideBrief, type Brief
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedGuide } from '@/lib/content-repair-adapters'
 import { healComposedGuide, healNoteOf } from '@/lib/heal-targets'
+import { SAFE_PAGE_NOTE } from '@/lib/guide-repairs'
 import { freedBySince, rejectLimitReached, type HealOutcome } from '@/lib/heal-loop'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
 import { inferScope } from '@/lib/guide-scope'
@@ -242,6 +243,9 @@ export function decideGuideSave(guessed: boolean, decided: { publish: boolean; n
   const base = guessed ? { publish: false, note: [decided.note, GUESSED_PROPERTY_NOTE].filter(Boolean).join('; ') } : decided
   if (heal?.status === 'rejected_by_heal') return { publish: false, note: [healNoteOf(heal), guessed ? GUESSED_PROPERTY_NOTE : ''].filter(Boolean).join('; '), rejectedByHeal: true }
   if (heal?.status === 'deferred') return { publish: false, note: [base.note, healNoteOf(heal)].filter(Boolean).join('; '), rejectedByHeal: false }
+  // heal-relax: a page the heal rebuilt as a safe page (only stored facts) goes live, flagged in quality_notes so a later enrichment can
+  // improve it. A flagged page is not enrolled for social posting (lib/guide-distribution.ts skips any page that has notes).
+  if (heal?.status === 'healed' && heal.ladder.includes('safe-page') && base.publish) return { publish: true, note: SAFE_PAGE_NOTE, rejectedByHeal: false }
   return { publish: base.publish, note: base.note, rejectedByHeal: false }
 }
 

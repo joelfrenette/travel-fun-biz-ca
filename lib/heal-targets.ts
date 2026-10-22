@@ -2,8 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ComposedPost, PublishGateContext } from '@/lib/blog-composer'
 import type { ComposedGuide, GateContext } from '@/lib/guide-composer'
 import type { ComposedPageCopy, CopyGateContext } from '@/lib/page-copy-composer'
-import type { ModelCall } from '@/lib/content-repair'
-import { buildCopyItem, buildGuideItem, buildPostItem, copyFrom, guideFrom, postFields, postFrom } from '@/lib/content-repair-adapters'
+import type { ModelCall, RepairFields } from '@/lib/content-repair'
+import { GUIDE_LIMITS, buildCopyItem, buildGuideItem, buildPostItem, copyFrom, guideFrom, postFields, postFrom } from '@/lib/content-repair-adapters'
+import { buildSafePage, guideOffenders, looseDelete, parentFromGrounding, repairGuideFields, type GuideRepairCfg } from '@/lib/guide-repairs'
+import type { GuideKind } from '@/lib/guides'
 import { deleteEdits } from '@/lib/content-edits'
 import { parseArticle } from '@/lib/guide-composer'
 import { healItem, type HealBudget, type HealOutcome, type HealTarget } from '@/lib/heal-loop'
@@ -74,8 +76,21 @@ export async function healComposedGuide(
   gateCtx: GateContext,
   opts: CommonOpts & { kind: string; slug: string; path: string; links: { path: string; label: string }[] },
 ): Promise<Healed<ComposedGuide>> {
-  const item = buildGuideItem(guide, gateCtx, { path: opts.path, links: opts.links })
-  const target: HealTarget = { type: 'guide', key: `guide:${opts.kind}:${opts.slug}`, path: opts.path, item, brief: gateCtx.grounding }
+  const built = buildGuideItem(guide, gateCtx, { path: opts.path, links: opts.links })
+  const kind = opts.kind as GuideKind
+  const cfg: GuideRepairCfg = { kind, name: guide.name, grounding: gateCtx.grounding, names: gateCtx.names ?? [], links: opts.links, limits: GUIDE_LIMITS }
+  // The extra detector also sees "we offer / arrange / work with" sentences that the gate lets through but the QA reviewer refuses.
+  const item = { ...built, detect: (f: RepairFields, blockers: string[]) => guideOffenders(f, cfg, blockers) }
+  const target: HealTarget = {
+    type: 'guide',
+    key: `guide:${opts.kind}:${opts.slug}`,
+    path: opts.path,
+    item,
+    brief: gateCtx.grounding,
+    repair: (f, blockers, tracker) => repairGuideFields(f, cfg, blockers, tracker),
+    deleteFallback: (f, o) => looseDelete(f, o, GUIDE_LIMITS, cfg),
+    safePage: () => buildSafePage({ kind, name: guide.name, parentName: parentFromGrounding(gateCtx.grounding), links: opts.links, limits: GUIDE_LIMITS }, gateCtx),
+  }
   const run = await healItem(admin, target, { model: opts.model, deadlineMs: opts.deadlineMs, now: opts.now, budget: opts.budget, requireJudge: opts.requireJudge })
   if (run.outcome.status !== 'healed') return { value: guide, outcome: run.outcome, logIds: run.logIds }
   // A healed body that no longer splits into sections would leave the saved sections out of step with the text: undo it.

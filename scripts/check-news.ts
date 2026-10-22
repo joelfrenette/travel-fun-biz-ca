@@ -819,7 +819,8 @@ async function part3() {
   // ---- m2: news may use at most half of the day's heal cap ----
   {
     const s = newStubs()
-    const { db, admin } = world({ travel_news_mode: 'draft', travel_news_per_day: '3' })
+    // heal-relax: the code default for the cap is now 40, so this fixture sets the 20 it describes instead of relying on the default.
+    const { db, admin } = world({ travel_news_mode: 'draft', travel_news_per_day: '3', heal_loop_calls_per_day: '20' })
     const failJudge = '{"pass":false,"failures":[{"quote":"zzzzzzzzzzzzzz","reason":"no"}]}'
     await runNewsStep(admin, { fetchDeps: feedDeps(s, { 'https://www.nhc.noaa.gov/index-at.xml': NHC_FEED, 'https://travel.state.gov/_res/rss/TAsTWs.xml': STATE_FEED }, () => NOW), model: modelFor(s, { judge: failJudge }), now: new Date(NOW) })
     const callRows = rowsOf(db, 'app_settings').filter((r) => String(r.key).startsWith('news_slot:') && String(r.key).includes(':call:')).length

@@ -10,7 +10,8 @@ import { buildBrief, GUESSED_PROPERTY_NOTE, getGuidePublishMode, isGuessedProper
 import { buildCopyBrief, getPageCopyPublishMode } from '@/lib/page-copy-run'
 import { guidePath, type GuideCandidate, type GuideKind } from '@/lib/guides'
 import { healComposedCopy, healComposedGuide, healNoteOf, type Healed } from '@/lib/heal-targets'
-import type { HealOutcome } from '@/lib/heal-loop'
+import type { HealBudget, HealOutcome, LadderStep } from '@/lib/heal-loop'
+import { SAFE_PAGE_NOTE, isSafePageNote } from '@/lib/guide-repairs'
 import { pingIndexNow } from '@/lib/indexnow'
 import type { ModelCall } from '@/lib/content-repair'
 
@@ -135,6 +136,8 @@ interface HealDraftOpts {
   guideBrief?: (row: Row, admin: SupabaseClient) => Promise<GuideBriefParts | null>
   copyBrief?: (row: Row, admin: SupabaseClient) => Promise<CopyBriefParts | null>
   limit?: number
+  /** Tests (and the admin script) inject a budget; the default opens today's persistent one. */
+  budget?: HealBudget
 }
 
 async function defaultGuideBrief(row: Row, admin: SupabaseClient): Promise<GuideBriefParts | null> {
@@ -163,12 +166,15 @@ function guarded<T extends { eq: (c: string, v: unknown) => T; is: (c: string, v
 }
 
 /** Logs the publish, then makes it. No audit row, no publish. Returns an error text, or null when it worked. */
-async function publishLogged(admin: SupabaseClient, table: 'guides' | 'page_copy', type: 'guide' | 'page_copy', row: Row, path: string, textEditIds: string[], now: Date, expectedUpdatedAt: unknown): Promise<string | null> {
+async function publishLogged(admin: SupabaseClient, table: 'guides' | 'page_copy', type: 'guide' | 'page_copy', row: Row, path: string, textEditIds: string[], now: Date, expectedUpdatedAt: unknown, note: string | null = null): Promise<string | null> {
   const id = str(row.id)
-  const statusEdit: ContentEdit = { content_type: type, content_id: id, path, field: 'status', reason: 'the text now passes the full publish gate and the independent QA review, so the heal published it', before: 'draft', after: 'published', method: 'fixer', published_after: true, cost_usd: 0 }
+  const reason = note && isSafePageNote(note) ? 'the heal rebuilt the page as a safe page (only stored facts) that passes the full publish gate, so it published it' : 'the text now passes the full publish gate and the independent QA review, so the heal published it'
+  const statusEdit: ContentEdit = { content_type: type, content_id: id, path, field: 'status', reason, before: 'draft', after: 'published', method: 'fixer', published_after: true, cost_usd: 0 }
   const logged = await insertEdits(admin, [statusEdit])
   if (logged.error) return `the publish could not be logged (${logged.error})${/check constraint/i.test(logged.error) ? '; apply migration 0043' : ''}`
-  const { data, error } = await guarded(admin.from(table).update({ status: 'published', quality_notes: null, updated_at: now.toISOString() }).eq('id', id).eq('status', 'draft'), expectedUpdatedAt).select('id')
+  // A row a person or the heal had marked rejected is no longer rejected once it is live.
+  const clearRejected = table === 'guides' && !!row.review_state ? { review_state: null } : {}
+  const { data, error } = await guarded(admin.from(table).update({ status: 'published', quality_notes: note, ...clearRejected, updated_at: now.toISOString() }).eq('id', id).eq('status', 'draft'), expectedUpdatedAt).select('id')
   if (error || !data?.length) {
     await deleteEdits(admin, logged.ids).catch(() => undefined)
     return error ? `could not publish (${error.message})` : 'it was published, changed or removed by someone else meanwhile'
@@ -179,6 +185,82 @@ async function publishLogged(admin: SupabaseClient, table: 'guides' | 'page_copy
 
 function sectionsColumns(f: ComposedGuide): Row {
   return { summary: f.summary, body: f.body, sections: f.sections, faq: f.faq, key_takeaways: f.key_takeaways, meta_title: f.meta_title || null, meta_description: f.meta_description || null, og_title: f.og_title || null, og_description: f.og_description || null }
+}
+
+export type GuideRowAction = 'published' | 'healed_draft' | 'healed_live' | 'rejected' | 'deferred' | 'clean' | 'skipped' | 'failed'
+
+export interface GuideRowResult {
+  path: string
+  kind: string
+  slug: string
+  action: GuideRowAction
+  /** The heal loop's own status when it ran. */
+  status: HealOutcome['status'] | 'not_run'
+  ladder: LadderStep[]
+  rounds: number
+  calls: number
+  note: string
+  problems: string[]
+}
+
+/** The production path for ONE saved guide row: rebuild its facts, run the heal loop, save the result exactly as the daily runner does
+ * (every change logged to content_edits first so Undo works, then the status change). Used by healHeldGuides and by
+ * scripts/heal-guides-now.ts, so the two can never drift. `skipClaim` lifts only the once-a-day claim (an admin who runs it by hand
+ * means it); everything else, including the guessed-name rule (such a guide is never published here), is unchanged. A published row
+ * (a guide marked rejected that is already live) gets the healed text and its rejected flag cleared; no status change is made.
+ * Counters are added to `out` when given. Never throws. */
+export async function healGuideRow(
+  admin: SupabaseClient,
+  row: Row,
+  opts: { now?: Date; model?: ModelCall; deadlineMs?: number; guideBrief?: HealDraftOpts['guideBrief']; budget?: HealBudget; skipClaim?: boolean },
+  out: DraftHealResult = emptyResult(),
+): Promise<GuideRowResult> {
+  const now = opts.now ?? new Date()
+  const kind = str(row.kind) as GuideKind
+  const slug = str(row.slug)
+  const path = guidePath(kind, slug)
+  const base: GuideRowResult = { path, kind, slug, action: 'skipped', status: 'not_run', ladder: [], rounds: 0, calls: 0, note: '', problems: [] }
+  try {
+    if (!opts.skipClaim && !(await claimDailyOnce(admin, `heal:guide:${kind}:${slug}`, now))) return { ...base, note: 'already tried today' }
+    out.tried++
+    const parts = await (opts.guideBrief ?? defaultGuideBrief)(row, admin)
+    if (!parts) {
+      out.problems.push(`${path}: could not rebuild its facts`)
+      return { ...base, action: 'failed', note: 'could not rebuild its facts', problems: ['could not rebuild its facts'] }
+    }
+    const guide = composedGuideFromRow(row)
+    const guessed = isGuessedPropertyNote(str(row.quality_notes))
+    const blockers = guideBlockers(guide, parts.ctx)
+    // A gate-clean row (stale held reasons) still goes past the independent judge before it can go live.
+    const healed: Healed<ComposedGuide> = await healComposedGuide(admin, guide, parts.ctx, {
+      kind,
+      slug,
+      path,
+      links: parts.links,
+      now,
+      model: opts.model,
+      budget: opts.budget,
+      requireJudge: blockers.length === 0,
+      deadlineMs: Math.min(Date.now() + PER_ITEM_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER),
+    })
+    out.calls += healed.outcome.calls
+    const before = { ...out, problems: [...out.problems] }
+    const action = await applyHealedRow(admin, 'guides', 'guide', row, path, healed.outcome, healed.logIds, healed.outcome.status === 'healed' ? sectionsColumns(healed.value) : null, guessed, now, out, (note) => ({ quality_notes: note, review_state: 'rejected' }), GUESSED_PROPERTY_NOTE)
+    return {
+      ...base,
+      action,
+      status: healed.outcome.status,
+      ladder: healed.outcome.ladder,
+      rounds: healed.outcome.rounds,
+      calls: healed.outcome.calls,
+      note: healed.outcome.note,
+      problems: out.problems.slice(before.problems.length),
+    }
+  } catch (e) {
+    const why = e instanceof Error ? e.message : 'unknown error'
+    out.problems.push(`${path}: ${why}`)
+    return { ...base, action: 'failed', note: why, problems: [why] }
+  }
 }
 
 /** Gives held guides their go at the heal loop. Never throws. */
@@ -195,24 +277,8 @@ export async function healHeldGuides(admin: SupabaseClient, opts: HealDraftOpts 
     if (!picks.length) return { ...out, note: 'no held guides waiting' }
 
     for (const row of picks) {
-      const kind = str(row.kind) as GuideKind
-      const slug = str(row.slug)
-      const path = guidePath(kind, slug)
-      if (!(await claimDailyOnce(admin, `heal:guide:${kind}:${slug}`, now))) continue
-      out.tried++
-      const parts = await (opts.guideBrief ?? defaultGuideBrief)(row, admin)
-      if (!parts) {
-        out.problems.push(`${path}: could not rebuild its facts`)
-        continue
-      }
-      const guide = composedGuideFromRow(row)
-      const guessed = isGuessedPropertyNote(str(row.quality_notes))
-      const blockers = guideBlockers(guide, parts.ctx)
-      // A gate-clean row (stale held reasons) still goes past the independent judge before it can go live.
-      const healed: Healed<ComposedGuide> = await healComposedGuide(admin, guide, parts.ctx, { kind, slug, path, links: parts.links, now, model: opts.model, requireJudge: blockers.length === 0, deadlineMs: Math.min(Date.now() + PER_ITEM_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER) })
-      out.calls += healed.outcome.calls
-      await applyHealedRow(admin, 'guides', 'guide', row, path, healed.outcome, healed.logIds, healed.outcome.status === 'healed' ? sectionsColumns(healed.value) : null, guessed, now, out, (note) => ({ quality_notes: note, review_state: 'rejected' }), GUESSED_PROPERTY_NOTE)
-      if (out.published && healed.outcome.status === 'healed') await pingIndexNow([path, '/sitemap.xml']).catch(() => undefined)
+      const r = await healGuideRow(admin, row, { now, model: opts.model, deadlineMs: opts.deadlineMs, guideBrief: opts.guideBrief, budget: opts.budget }, out)
+      if (r.action === 'published') await pingIndexNow([r.path, '/sitemap.xml']).catch(() => undefined)
     }
     out.note = `held guides: ${out.tried} re-checked, ${out.published} published, ${out.healedDraft} healed but kept as drafts, ${out.rejected} rejected, ${out.deferred} waiting`
     return out
@@ -262,7 +328,9 @@ export async function healHeldCopy(admin: SupabaseClient, opts: HealDraftOpts = 
   }
 }
 
-/** Saves what the heal decided for one row (see the file comment). `columns` is the healed text, or null when nothing was healed. */
+/** Saves what the heal decided for one row (see the file comment). `columns` is the healed text, or null when nothing was healed.
+ * Returns what happened to the row. A row that is already live (a published guide marked rejected) gets the healed text and loses its
+ * rejected flag, with no status change. A healed safe page is published with the safe-page note in quality_notes. */
 async function applyHealedRow(
   admin: SupabaseClient,
   table: 'guides' | 'page_copy',
@@ -277,13 +345,15 @@ async function applyHealedRow(
   out: DraftHealResult,
   rejectedPatch: (note: string) => Row,
   guessedNote: string,
-): Promise<void> {
+): Promise<GuideRowAction> {
   const id = str(row.id)
   const stamp = { updated_at: now.toISOString() }
+  const rowStatus = str(row.status) || 'draft'
+  const safeNote = outcome.status === 'healed' && outcome.ladder.includes('safe-page') ? SAFE_PAGE_NOTE : null
   if (outcome.status === 'deferred') {
     // Not a failure: the heal could not reach it today (out of budget or time, the AI down). It is tried again.
     out.deferred++
-    return
+    return 'deferred'
   }
   if (outcome.status === 'rejected_by_heal') {
     out.rejected++
@@ -295,39 +365,53 @@ async function applyHealedRow(
       void _drop
       ;({ error } = await guarded(admin.from(table).update({ ...rest, ...stamp }).eq('id', id), row.updated_at))
     }
-    if (error) out.problems.push(`${path}: could not mark it rejected (${error.message})`)
-    return
+    if (error) {
+      out.problems.push(`${path}: could not mark it rejected (${error.message})`)
+      return 'failed'
+    }
+    return 'rejected'
   }
   // healed, or already clean
   let expected: unknown = row.updated_at
   if (outcome.status === 'healed' && columns) {
-    const { data, error } = await guarded(admin.from(table).update({ ...columns, ...stamp }).eq('id', id).eq('status', 'draft'), expected).select('id')
+    const { data, error } = await guarded(admin.from(table).update({ ...columns, ...stamp }).eq('id', id).eq('status', rowStatus), expected).select('id')
     if (error || !data?.length) {
       // Nothing was written: take the audit rows back. Zero rows means a person changed or published the row meanwhile: skip it.
       await deleteEdits(admin, logIds).catch(() => undefined)
       out.problems.push(error ? `${path}: could not save the healed text (${error.message})` : `${path}: changed by someone else while the heal was working, so the heal left it alone`)
-      return
+      return 'failed'
     }
     expected = stamp.updated_at
   }
+  const clearRejected = table === 'guides' && row.review_state ? { review_state: null } : {}
   if (guessed) {
     // A name taken from a trip title is never published by the heal; the text is better, the page still waits for a person to check the name.
     if (outcome.status === 'healed') {
-      await guarded(admin.from(table).update({ quality_notes: guessedNote, ...stamp }).eq('id', id), expected)
+      await guarded(admin.from(table).update({ quality_notes: guessedNote, ...clearRejected, ...stamp }).eq('id', id), expected)
       await finalizeEdits(admin, logIds, { id, path, published: false })
       out.healedDraft++
+      return 'healed_draft'
     }
-    return
+    return 'clean'
   }
-  const problem = await publishLogged(admin, table, type, row, path, logIds, now, expected)
+  if (rowStatus === 'published') {
+    // Already live (a published guide that was marked rejected): the healed text is saved above; the rejected flag goes.
+    await guarded(admin.from(table).update({ quality_notes: safeNote, ...clearRejected, ...stamp }).eq('id', id), expected)
+    await finalizeEdits(admin, logIds, { id, path, published: true })
+    out.healedDraft++
+    return 'healed_live'
+  }
+  const problem = await publishLogged(admin, table, type, row, path, logIds, now, expected, safeNote)
   if (problem) {
     out.problems.push(`${path}: ${problem}`)
     // The text repair (if any) is real and stays; the page just is not published this time.
     if (outcome.status === 'healed') {
       await finalizeEdits(admin, logIds, { id, path, published: false })
       out.healedDraft++
+      return 'healed_draft'
     }
-    return
+    return 'failed'
   }
   out.published++
+  return 'published'
 }

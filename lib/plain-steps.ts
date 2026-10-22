@@ -272,7 +272,7 @@ export function plainAction(i: Issue): PlainAction {
       steps: [
         'Open Supabase and sign in, then open your project.',
         'Click "Table Editor" on the left, then the table called app_settings.',
-        'Look for a row whose key is heal_loop_calls_per_day. If its value is not a whole number from 0 to 60, change it to 20 and click Save.',
+        'Look for a row whose key is heal_loop_calls_per_day. If its value is not a whole number from 0 to 60, change it to 40 and click Save.',
         'Look for rows whose key starts with heal_loop_calls_used. Their value must be a whole number. If one is not, delete that row.',
         'If the table cannot be opened at all, the database is down or paused. Wait a few minutes and try again.',
         'Open the Content Autopilot page and click "Heal now" on the Self-healing card. The warning goes away when it can read the numbers.',

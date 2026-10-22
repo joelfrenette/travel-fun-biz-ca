@@ -53,8 +53,13 @@ import {
 //   (a) deterministic removal of the offending sentences / paragraphs (plain code), then judge again;
 //   (b) regenerate just the offending section(s) from the brief, then judge again;
 //   (c) blog posts only: regenerate the whole post once with the failure reasons as constraints, then judge again.
-// If the item is still not clean after the ladder it is NOT published: it is marked rejected_by_heal with the reasons,
-// its slot is freed, and the pipeline moves on to the next topic or guide by itself.
+// heal-relax additions (all optional hooks on the HealTarget, so posts and page copy behave as before):
+//   (0) before any model call, and again every round: the kind's plain-code repairs (guides: the opening names the subject, "what we
+//       offer / arrange" sentences become one approved help line, flagged headings lose the flagged word);
+//   (d) last rung, 'safe-page': a minimal page built only from stored facts that passes the kind's gate, flagged so a later enrichment
+//       can improve it. It is used only when the AI and the QA review both answered and everything above failed for real.
+// If the item is still not clean after the ladder (and it has no safe page) it is NOT published: it is marked rejected_by_heal with the
+// reasons, its slot is freed, and the pipeline moves on to the next topic or guide by itself.
 //
 // HARD SAFETY (all enforced in code, not only in the prompts):
 //   1. Text that fails the deterministic gate is never accepted. The judge runs only after the gate is clean, and its
@@ -62,7 +67,7 @@ import {
 //   2. A rewrite is thrown away if it is longer, or adds a number, name, link, price or date (validateRewrite).
 //      A regenerated section must satisfy the same sentence rules, may link only to the pages the brief allows, and
 //      contains no price, date, named person, experience claim or web address.
-//   3. Budget: HEAL_MAX_ROUNDS per item, a daily cap on model calls (setting heal_loop_calls_per_day, default 20, hard
+//   3. Budget: HEAL_MAX_ROUNDS per item, a daily cap on model calls (setting heal_loop_calls_per_day, default 40, hard
 //      max 60), each call bounded by max_tokens. A counter that cannot be read means NO call (fail closed). When the
 //      cap is reached the item waits for the next day; that is a plain note on the Autopilot page, not an error.
 //   4. Every change is returned as content_edits rows that the caller writes BEFORE applying them, so Undo works.
@@ -71,9 +76,11 @@ import {
 //      scripts/check-heal-loop.ts checks it.
 
 export const HEAL_CALLS_KEY = 'heal_loop_calls_per_day'
-export const HEAL_CALLS_DEFAULT = 20
+// heal-relax: the code default is 40 (it was 20). The setting still decides: a stored value wins, up to the hard max of 60.
+export const HEAL_CALLS_DEFAULT = 40
 export const HEAL_CALLS_HARD_MAX = 60
-export const HEAL_MAX_ROUNDS = 3
+// heal-relax: five suggester + QA rounds (it was three). Rounds 3 to 5 ask for progressively plainer, safer wording (see roundRules).
+export const HEAL_MAX_ROUNDS = 5
 /** max_tokens per kind of call. */
 export const SUGGEST_MAX_TOKENS = 3000
 export const JUDGE_MAX_TOKENS = 1500
@@ -107,6 +114,22 @@ export function parseHealCap(raw: string | null | undefined): number {
 export async function setHealCap(admin: SupabaseClient, n: number): Promise<{ error?: string }> {
   if (!Number.isInteger(n) || n < 0 || n > HEAL_CALLS_HARD_MAX) return { error: `the heal limit must be a whole number from 0 to ${HEAL_CALLS_HARD_MAX}` }
   return setSetting(admin, HEAL_CALLS_KEY, String(n))
+}
+
+/** A budget held in memory only (nothing is written to app_settings): for an admin script that sets its own explicit cap. */
+export function memoryBudget(cap: number): HealBudget {
+  const budget: HealBudget = {
+    cap,
+    used: 0,
+    readable: true,
+    remaining: () => Math.max(0, cap - budget.used),
+    take: async (n = 1) => {
+      if (budget.used + n > cap) return false
+      budget.used += n
+      return true
+    },
+  }
+  return budget
 }
 
 export interface HealBudget {
@@ -180,7 +203,8 @@ export async function openBudget(admin: SupabaseClient, now: Date = new Date()):
 // ---------------------------------------------------------------------------------------------------
 
 export type HealStatus = 'already_clean' | 'healed' | 'rejected_by_heal' | 'deferred'
-export type LadderStep = 'suggest' | 'strip' | 'section' | 'whole'
+/** 'repair' = plain-code repairs with no model call; 'safe-page' = the last rung, a page built only from stored facts. */
+export type LadderStep = 'repair' | 'suggest' | 'strip' | 'section' | 'whole' | 'safe-page'
 
 export interface HealTarget {
   type: ContentType
@@ -193,6 +217,14 @@ export interface HealTarget {
   brief: string
   /** Ladder (c), blog posts only: write the whole post again with these reasons as constraints. Null when it could not. */
   regenerateWhole?: (reasons: string[]) => Promise<RepairFields | null>
+  /** Plain-code repairs run before any model call and again each round (guides: the opening names the subject, agency "what we offer"
+   * sentences become the approved line, flagged headings are softened). Must add no fact. Returns the same object when nothing applied. */
+  repair?: (fields: RepairFields, blockers: string[], tracker: Tracker) => RepairFields
+  /** A looser deletion the strip rung may use when the shared rule refuses (the only sentence of a paragraph, a whole section). Never rewords. */
+  deleteFallback?: (fields: RepairFields, offender: Offender) => RepairFields | null
+  /** The last rung: a minimal page built only from stored facts that passes the gate. Null when none can be built. Healed this way the
+   * item is flagged with the 'safe-page' ladder step so a later enrichment can improve it. */
+  safePage?: () => RepairFields | null
 }
 
 export interface HealDeps {
@@ -411,11 +443,19 @@ export function fixStaleYear(f: RepairFields, blockers: string[], currentYear: s
 const BRIEF_MAX = 6000
 const clipBrief = (s: string) => (s.length > BRIEF_MAX ? s.slice(0, BRIEF_MAX) : s)
 
-function suggesterPrompt(brief: string, offenders: Offender[], otherBlockers: string[], qaNotes: string[]): string {
+/** Extra instructions for the later rounds: each asks for plainer, more generic, safer wording than the one before. Round 1 and 2: none. */
+export function roundRules(round: number): string {
+  if (round <= 2) return ''
+  if (round === 3) return '\n\nTHIS IS ATTEMPT 3. Earlier wording was refused, so use plainer, more generic words and shorter sentences.'
+  if (round === 4) return '\n\nTHIS IS ATTEMPT 4. Write shorter sentences. Use no numbers at all. Make no claim beyond the FACTS. Only restate things that are stored in the FACTS, in the plainest words; otherwise delete the sentence.'
+  return '\n\nFINAL ATTEMPT 5. Reduce each item to one short, plain sentence that only restates a stored fact, with no numbers, names, ratings or claims of any kind. If an item cannot be reduced that way, delete it ({"id":N,"delete":true}). Deleting is always acceptable.'
+}
+
+function suggesterPrompt(brief: string, offenders: Offender[], otherBlockers: string[], qaNotes: string[], round = 1): string {
   const list = offenders.map((o, i) => `${i}. [${o.why}] ${o.text.slice(o.prefix.length)}`).join('\n')
   const other = otherBlockers.length ? `\n\nTHE AUTOMATIC CHECKS ALSO SAID (information only; fix what you can by rewording the numbered items):\n${otherBlockers.map((b) => `- ${b}`).join('\n')}` : ''
   const notes = qaNotes.length ? `\n\nNOTES FROM THE LAST TRY (a reviewer or a check refused it for these reasons; do not repeat them):\n${qaNotes.map((n) => `- ${n}`).join('\n')}` : ''
-  return `You are repairing sentences on a Canadian travel agency web page so that it passes a strict publishing check. You may only SHORTEN, SOFTEN or DELETE. You must never add a fact, name, number, date, price, count, claim or link.\n\nFACTS (the only source for any fact; nothing outside them may be stated as fact):\n${clipBrief(brief)}\n\nNUMBERED TEXTS TO FIX (each has its problem in square brackets):\n${list}${other}${notes}\n\nRules: fix each numbered item in one of two ways: (a) rewrite it so it no longer has the problem, or (b) delete it, when rewording cannot fix it. A rewrite must not be longer than the original. Use only words that already appear in the original sentence, plus plain joining words (a, the, and, with, well known, many, often). Where a flagged word, number or name goes, drop it or leave the idea out. Keep markdown formatting. Never use the long dash character. Never write in the first person ("I", "we visited", "our guests loved").\n\nReturn ONLY minified JSON: {"rewrites":[{"id":0,"text":"..."},{"id":1,"delete":true}]}`
+  return `You are repairing sentences on a Canadian travel agency web page so that it passes a strict publishing check. You may only SHORTEN, SOFTEN or DELETE. You must never add a fact, name, number, date, price, count, claim or link.\n\nFACTS (the only source for any fact; nothing outside them may be stated as fact):\n${clipBrief(brief)}\n\nNUMBERED TEXTS TO FIX (each has its problem in square brackets):\n${list}${other}${notes}\n\nRules: fix each numbered item in one of two ways: (a) rewrite it so it no longer has the problem, or (b) delete it, when rewording cannot fix it. A rewrite must not be longer than the original. Use only words that already appear in the original sentence, plus plain joining words (a, the, and, with, well known, many, often). Where a flagged word, number or name goes, drop it or leave the idea out. Keep markdown formatting. Never use the long dash character. Never write in the first person ("I", "we visited", "our guests loved").${roundRules(round)}\n\nReturn ONLY minified JSON: {"rewrites":[{"id":0,"text":"..."},{"id":1,"delete":true}]}`
 }
 
 const QA_RULES = [
@@ -608,10 +648,27 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
 
   // A row the gate now calls clean (its held reasons are out of date) is still read by the independent judge before it can
   // go live: a person may have parked it, and a clean gate alone is not enough to publish text nobody has reviewed.
+  /** The kind's plain-code repairs (no model call). Records the 'repair' rung once, the first time it changes anything. */
+  const runRepair = (f: RepairFields): RepairFields => {
+    if (!target.repair) return f
+    let next = f
+    try {
+      next = target.repair(f, item.gate(f), tracker)
+    } catch {
+      return f
+    }
+    if (!sameFields(next, f) && !ladder.includes('repair')) ladder.push('repair')
+    return next
+  }
+
   if (startBlockers.length === 0) {
-    const first = await acceptState(original)
-    if (first.ok) return finish('already_clean', original, [], 'already clean and the QA review passed', 0)
+    // Plain-code repairs first: they may take out the very wording the independent reviewer would refuse, and cost no call.
+    const repaired = runRepair(original)
+    const changed = !sameFields(repaired, original)
+    const first = await acceptState(repaired)
+    if (first.ok) return changed ? finish('healed', repaired, [], 'healed by plain-code repairs (no model rewrite needed)', 0) : finish('already_clean', original, [], 'already clean and the QA review passed', 0)
     if (first.judged === 'unreadable') return finish('deferred', original, first.reasons, `${first.reasons[0]}, so this waits for the next run`, 0)
+    if (item.gate(repaired).length === 0) cur = repaired
     qaNotes = first.reasons.slice(0, 8)
   }
 
@@ -621,6 +678,10 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
   for (let round = 1; round <= HEAL_MAX_ROUNDS; round++) {
     if (st.stop) break
     rounds = round
+    // The kind's plain-code repairs come before any model call in every round.
+    const repairedNow = runRepair(cur)
+    const repairApplied = !sameFields(repairedNow, cur)
+    cur = repairedNow
     let blockers = item.gate(cur)
     // Plain code first: it needs no model and cannot add a fact.
     if (blockers.length) {
@@ -629,12 +690,12 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
       blockers = item.gate(cur)
     }
     const offenders = collect(cur, blockers).slice(0, MAX_REPAIR_SENTENCES)
-    const entry: HealRoundLog = { n: round, offenders: offenders.length, applied: 0, gate: blockers.length, judge: 'skipped' }
+    const entry: HealRoundLog = { n: round, offenders: offenders.length, applied: repairApplied ? 1 : 0, gate: blockers.length, judge: 'skipped' }
     log.push(entry)
 
     if (offenders.length) {
       if (!ladder.includes('suggest')) ladder.push('suggest')
-      const answer = await bound(suggesterPrompt(target.brief, offenders, blockers.slice(0, 6), qaNotes), SUGGEST_MAX_TOKENS, CALL_TIMEOUT_MS)
+      const answer = await bound(suggesterPrompt(target.brief, offenders, blockers.slice(0, 6), qaNotes, round), SUGGEST_MAX_TOKENS, CALL_TIMEOUT_MS)
       const parsed = answer ? parseModelJson<{ rewrites?: { id?: number; text?: unknown; delete?: unknown }[] }>(answer) : null
       const rewrites = parsed && Array.isArray(parsed.rewrites) ? parsed.rewrites : []
       const refused: string[] = []
@@ -728,7 +789,7 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
       const offs = collect(f, blockers).filter((o) => !/^\s*#{1,6}\s/.test(o.text))
       let progressed = false
       for (const o of offs) {
-        const next = deterministicFix(f, o, ctx, item.limits) ?? deleteParagraph(f, o)
+        const next = deterministicFix(f, o, ctx, item.limits) ?? deleteParagraph(f, o) ?? target.deleteFallback?.(f, o) ?? null
         if (!next) continue
         touch(o, 'delete', `removed: ${o.why.split(';')[0].slice(0, 110)}`)
         f = applyFixers(next, item.gate(next), item, tracker)
@@ -737,7 +798,8 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
       }
       if (!progressed) break
     }
-    return f
+    // A removal can take out the sentence that named the subject or the help line: the kind's repairs put them back.
+    return runRepair(f)
   }
 
   // (a) strip
@@ -826,6 +888,23 @@ export async function healLoop(target: HealTarget, deps: HealDeps): Promise<Heal
   if (st.stop || modelDown || judgeDown) {
     const why = st.stop === 'time' ? 'ran out of time' : st.stop === 'budget' ? "today's heal limit is used up" : modelDown ? 'the AI did not answer' : 'the QA review could not be reached'
     return finish('deferred', original, [why, ...lastReasons].slice(0, 6), `${why}, so this waits for the next run`, rounds)
+  }
+  // The last rung. Every rung above failed for real (the AI and the review answered), so instead of rejecting, the page is replaced by
+  // a minimal one built only from stored facts. It needs no model and no review: the kind's own gate is the law, and it is checked here.
+  // It is flagged with the 'safe-page' ladder step so the caller can note it and a later enrichment can improve it.
+  if (target.safePage) {
+    let page: RepairFields | null = null
+    try {
+      page = target.safePage()
+    } catch {
+      page = null
+    }
+    if (page && item.gate(page).length === 0) {
+      ladder.push('safe-page')
+      for (const field of ['body', 'meta_title', 'meta_description', 'og_title', 'og_description', 'faq', 'key_takeaways'] as const) tracker.touch(field, 'generate', 'replaced the page with a safe page built only from stored facts')
+      log.push({ n: rounds + 4, offenders: 0, applied: 1, gate: 0, judge: 'skipped' })
+      return finish('healed', page, [], 'healed with a safe page built only from stored facts (a later enrichment can improve it)', rounds)
+    }
   }
   return finish('rejected_by_heal', original, lastReasons.slice(0, 6), `could not be made to pass: ${lastReasons[0] ?? 'unknown'}`, rounds)
 }

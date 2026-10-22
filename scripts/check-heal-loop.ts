@@ -164,9 +164,10 @@ const allText = (f: RepairFields) => `${f.summary ?? ''}\n${f.body}`
 
 async function main() {
   // ---- parse and the pure pieces ----
-  check('1: the default daily cap is 20 and the hard max is 60', HEAL_CALLS_DEFAULT === 20 && HEAL_CALLS_HARD_MAX === 60)
-  check('1: an unset or unreadable setting means 20, a big number is cut to 60, 0 means off', parseHealCap(null) === 20 && parseHealCap('') === 20 && parseHealCap('abc') === 20 && parseHealCap('-3') === 20 && parseHealCap('2.5') === 20 && parseHealCap('35') === 35 && parseHealCap('500') === 60 && parseHealCap('0') === 0)
-  check('1: three rounds is the per-item limit', HEAL_MAX_ROUNDS === 3)
+  // heal-relax: the code default moved from 20 to 40 and the round limit from 3 to 5 (fixtures updated here).
+  check('1: the default daily cap is 40 and the hard max is 60', HEAL_CALLS_DEFAULT === 40 && HEAL_CALLS_HARD_MAX === 60)
+  check('1: an unset or unreadable setting means 40, a big number is cut to 60, 0 means off', parseHealCap(null) === 40 && parseHealCap('') === 40 && parseHealCap('abc') === 40 && parseHealCap('-3') === 40 && parseHealCap('2.5') === 40 && parseHealCap('35') === 35 && parseHealCap('500') === 60 && parseHealCap('0') === 0)
+  check('1: five rounds is the per-item limit', HEAL_MAX_ROUNDS === 5)
 
   // ---- A: the loop passes on round 2 (judge adds a failure, suggester fixes it, judge passes) ----
   {
@@ -609,7 +610,10 @@ async function main() {
     const bad = scripted({ judge: () => '{"pass":false,"failures":[{"quote":"Narrow lanes open onto small squares.","reason":"unsupported"}]}', suggest: deleteFirst })
     const d3 = base()
     const r3 = await healHeldGuides(fakeAdmin(d3), { now, model: bad.model, guideBrief })
-    check('M4: a judge that keeps failing a gate-clean guide never lets it go live', d3.tables.guides[0].status === 'draft' && r3.published === 0, JSON.stringify(r3))
+    // heal-relax: the text the judge keeps refusing still never goes live. The last rung replaces it with a safe page built only from
+    // stored facts (flagged in quality_notes), which is what is published.
+    const row3 = d3.tables.guides[0]
+    check('M4: a judge that keeps failing a gate-clean guide never lets THAT TEXT go live (a flagged safe page replaces it)', !String(row3.body).includes('Narrow lanes open onto small squares.') && (row3.status === 'draft' || (row3.status === 'published' && String(row3.quality_notes).startsWith('safe-page:') && r3.published === 1)), JSON.stringify({ r3, notes: row3.quality_notes }))
     const created = new Date(Date.now() - 86_400_000)
     const parked = cleanRow({ created_at: created.toISOString(), updated_at: new Date(created.getTime() + 3_600_000).toISOString() })
     check('M4: a row an admin touched after the writer saved it is skipped', !isHealDraftCandidate(parked, now, []) && isHealDraftCandidate(cleanRow({ created_at: created.toISOString(), updated_at: new Date(created.getTime() + 5_000).toISOString() }), now, []))

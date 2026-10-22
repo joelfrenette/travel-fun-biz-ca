@@ -150,7 +150,7 @@ export function SelfHealingCard() {
           <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Heal loop: nothing is held for you</h3>
             <p className="text-xs text-muted-foreground">
-              A held draft is rewritten by one AI and checked by a second, independent AI plus the site&apos;s own rules, up to 3 rounds. If that is not enough it removes the offending sentences, rewrites that section from the facts, and for blog posts writes the whole post again once. It only ever publishes text that passes the rules and the review. Otherwise the draft is marked rejected, its slot is freed and the next topic or guide is picked by itself. It never adds a fact.
+              A held draft is rewritten by one AI and checked by a second, independent AI plus the site&apos;s own rules, up to 5 rounds, with plainer wording asked for in the later rounds. If that is not enough it removes the offending sentences, rewrites that section from the facts, and for blog posts writes the whole post again once. For guides the last step is a short safe page built only from stored facts (published, with a safe-page note so it can be improved later). It only ever publishes text that passes the rules. Otherwise the draft is marked rejected, its slot is freed and the next topic or guide is picked by itself. It never adds a fact.
             </p>
             <div className="grid gap-2 text-sm sm:grid-cols-4">
               <Stat label="AI calls used today" value={`${card.loop.used} / ${card.loop.cap}`} hint="the daily limit for the heal loop" />
@@ -160,7 +160,7 @@ export function SelfHealingCard() {
             </div>
             {card.loop.waiting && <p className="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-xs">{card.loop.waiting}</p>}
             <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              Daily limit (0 to 60 AI calls, 20 is the default):
+              Daily limit (0 to 60 AI calls, 40 is the default):
               <input
                 type="number"
                 min={0}
