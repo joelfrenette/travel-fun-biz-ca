@@ -5,6 +5,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { takeRankingSnapshot } from '@/lib/rankings-snapshot'
 import { connectKeywordsToRankingPages } from '@/lib/keyword-pages'
 import { runCronWatchdog } from '@/lib/cron-watchdog'
+import { runAiTripwire } from '@/lib/ai-tripwire'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
 // CRON_SECRET must be set (cronUnauthorized 503s until then), and Search Console itself must be
@@ -38,7 +39,16 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] watchdog failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}` })
+    // AI spend tripwire: one email a day at most if the last 24 hours cost more than ai_daily_ceiling_usd.
+    // Alert only, never blocks anything; runAiTripwire never throws.
+    let tripwire = ''
+    try {
+      const t = await runAiTripwire(getSupabaseAdmin())
+      if (t) tripwire = `; ${t}`
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] ai tripwire failed:', e)
+    }
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found
