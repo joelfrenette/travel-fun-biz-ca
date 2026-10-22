@@ -192,11 +192,11 @@ const unsortedTools: AdminNavItem[] = [
     href: null,
   },
   {
-    title: "Travel News Auto-Poster",
-    description: "Automatically post the latest travel news, events, and industry updates to the blog.",
+    title: "News (Feeds and Briefs)",
+    description: "The travel news auto-poster: which feeds are read and switched on, the Off/Draft/Publish mode, and every item with what became of it.",
     icon: Newspaper,
-    status: "Coming Soon",
-    href: null,
+    status: "Active",
+    href: "/admin/news",
   },
 ]
 

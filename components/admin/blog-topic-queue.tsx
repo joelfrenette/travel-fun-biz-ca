@@ -9,6 +9,7 @@ import { Loader2, Sparkles, Check, X, Trash2, Play } from "lucide-react"
 import type { BlogTopicQueueRow } from "@/lib/blog-topics"
 import type { AutoblogMode } from "@/lib/autoblog-run"
 import { PUBLISH_DAYS } from "@/lib/autoblog-cadence"
+import { describeAutoblogPlan, parseLastRun, type LastRun } from "@/lib/autoblog-summary"
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -41,6 +42,10 @@ export default function BlogTopicQueue() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [runNote, setRunNote] = useState("")
+  const [paused, setPaused] = useState(false)
+  const [todayWeekday, setTodayWeekday] = useState(new Date().getDay())
+  const [lastRun, setLastRun] = useState<LastRun | null>(null)
+  const [lastRunSource, setLastRunSource] = useState("")
 
   function load() {
     setLoading(true)
@@ -53,6 +58,14 @@ export default function BlogTopicQueue() {
         setPostsPerWeek(typeof data.postsPerWeek === "number" ? data.postsPerWeek : 3)
         setAiImageFallback(!!data.aiImageFallback)
         setAiImageConfigured(!!data.aiImageConfigured)
+        setPaused(!!data.paused)
+        if (typeof data.todayWeekday === "number") setTodayWeekday(data.todayWeekday)
+        const ab = parseLastRun(data.lastAutoblogRun)
+        const ap = parseLastRun(data.lastAutopilotRun)
+        // The autoblog step may run from its own cron or from Content Autopilot; show whichever ran most recently.
+        const newest = ab && ap ? (Date.parse(ap.at) > Date.parse(ab.at) ? ap : ab) : ab ?? ap
+        setLastRun(newest)
+        setLastRunSource(newest && newest === ap && newest !== ab ? "Content Autopilot" : "autoblog schedule")
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -133,10 +146,28 @@ export default function BlogTopicQueue() {
   const suggested = topics.filter((t) => t.status === "suggested")
   const approved = topics.filter((t) => t.status === "approved")
   const done = topics.filter((t) => t.status === "used" || t.status === "rejected")
+  const lastWritten = topics.filter((t) => t.status === "used" && t.used_at).sort((a, b) => Date.parse(b.used_at as string) - Date.parse(a.used_at as string))[0]
+  const plan = describeAutoblogPlan({ mode, paused, postsPerWeek, todayWeekday, approvedTopics: approved.length })
 
   return (
     <div className="space-y-4">
       {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+
+      <Card>
+        <CardContent className="space-y-2 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold">What autoblog is doing</p>
+            <Badge variant={mode === "off" ? "secondary" : "default"}>Mode: {mode}</Badge>
+            <Badge variant="outline">{cadenceLabel(postsPerWeek)}</Badge>
+            {paused && <Badge variant="destructive">Paused by kill switch</Badge>}
+          </div>
+          <p className="text-sm">{plan}</p>
+          <p className="text-xs text-muted-foreground">
+            Last scheduled run: {lastRun ? `${new Date(lastRun.at).toLocaleString("en-CA")} (${lastRunSource}, ${lastRun.ok ? "ok" : "reported a problem"}${lastRun.note ? `: ${lastRun.note}` : ""})` : "no run recorded yet"}
+            {" · "}Last post written: {lastWritten ? `${new Date(lastWritten.used_at as string).toLocaleDateString("en-CA")}${lastWritten.used_slug ? ` (/blog/${lastWritten.used_slug})` : ""}` : "none from the topic queue yet"}
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="flex flex-wrap items-center gap-3 p-4">
