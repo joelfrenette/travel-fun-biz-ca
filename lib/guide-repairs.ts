@@ -15,7 +15,7 @@ import {
   type Tracker,
 } from '@/lib/content-repair'
 import { deleteParagraph } from '@/lib/heal-loop'
-import { guideKinds, type GuideKind } from '@/lib/guides'
+import { guideKinds, SAFE_PAGE_NOTE, isSafePageNote, type GuideKind } from '@/lib/guides'
 
 // Growth loop "heal-relax": plain-code repairs for guides (no model call, nothing added that is not already stored) and a last-resort
 // "safe page" built only from stored facts. Both are used by the heal loop (lib/heal-loop.ts) through the optional hooks on a
@@ -37,8 +37,7 @@ export const APPROVED_CTA_PLAIN = 'We can help you plan this trip, so reach out 
 export const APPROVED_CTA_SHORT = 'Our team can help you plan this trip.'
 
 /** The note a published safe page carries in quality_notes, so a later enrichment pass can find it and improve it. */
-export const SAFE_PAGE_NOTE = 'safe-page: built only from stored facts and general planning text; a later enrichment can improve it'
-export const isSafePageNote = (note: string | null | undefined): boolean => !!note && note.startsWith('safe-page:')
+export { SAFE_PAGE_NOTE, isSafePageNote }
 
 export interface GuideRepairCfg {
   kind: GuideKind
@@ -113,6 +112,18 @@ export function isAgencySelling(sentence: string): boolean {
   return agencyClaims(sentence).length > 0 || AGENCY_SELLING.test(plainOf(sentence))
 }
 
+/** A sentence that limits, denies or discloses ("we do not provide refunds", "we are not responsible for", "we earn a commission", "we
+ * are registered with ..."). It matches the "what we offer" wording but is not a sales claim, and it may matter legally, so the plain-code
+ * repair never swaps it for the help line and never deletes it on its own. Pure. */
+const PROTECTED_SENTENCE =
+  /\b(?:not|never|no|cannot|without|neither|nor|except)\b|n['’]t\b|\b(?:responsible|liable|liability|guarantee[sd]?|warrant(?:y|ies)?|registered|licen[cs]e[sd]?|insur(?:ance|ed)|refunds?|terms|conditions|disclaimers?|disclos\w*|commissions?|affiliates?|compensat\w*|paid|fees?|cancell?ations?|regulat\w*|TICO|FSA|CIRA)\b/i
+export function isProtectedSentence(sentence: string): boolean {
+  return PROTECTED_SENTENCE.test(plainOf(sentence))
+}
+
+/** A flagged agency sentence the plain-code repair may change: selling wording and not a protected (limiting or legal) sentence. */
+const repairableAgency = (sentence: string) => isAgencySelling(sentence) && !isProtectedSentence(sentence)
+
 function sentenceCountOfBlock(text: string, needle: string): number {
   for (const block of text.split(/\n\s*\n/)) if (block.includes(needle)) return bodySentences(block).filter((s) => !s.heading).length
   return 0
@@ -177,7 +188,7 @@ export function fixAgencySentences(f: RepairFields, cfg: GuideRepairCfg, t: Trac
       const text = cur[field]
       if (!text) continue
       for (const s of bodySentences(text)) {
-        if (s.heading || !isAgencySelling(s.text)) continue
+        if (s.heading || !repairableAgency(s.text)) continue
         const o = offenderOf(field, s, 'says what the agency offers, arranges or does')
         let next: RepairFields | null = null
         if (field === 'summary') next = looseDelete(cur, o, cfg.limits, cfg)
@@ -199,10 +210,10 @@ export function fixAgencySentences(f: RepairFields, cfg: GuideRepairCfg, t: Trac
   const faq = cur.faq.map((p) => ({ ...p }))
   let faqChanged = false
   for (let i = faq.length - 1; i >= 0; i--) {
-    if (isAgencySelling(faq[i].q)) {
+    if (repairableAgency(faq[i].q)) {
       faq.splice(i, 1)
       faqChanged = true
-    } else if (isAgencySelling(faq[i].a)) {
+    } else if (repairableAgency(faq[i].a)) {
       faq[i].a = APPROVED_CTA_PLAIN
       faqChanged = true
     }
@@ -211,7 +222,7 @@ export function fixAgencySentences(f: RepairFields, cfg: GuideRepairCfg, t: Trac
     cur = { ...cur, faq }
     t.touch('faq', 'fixer', 'replaced an answer about what the agency offers with the approved help line (or dropped it)')
   }
-  const take = cur.key_takeaways.filter((x) => !isAgencySelling(x))
+  const take = cur.key_takeaways.filter((x) => !repairableAgency(x))
   if (take.length !== cur.key_takeaways.length) {
     cur = { ...cur, key_takeaways: take }
     t.touch('key_takeaways', 'delete', 'removed a takeaway about what the agency offers')
@@ -348,7 +359,7 @@ export function guideOffenders(f: RepairFields, cfg: GuideRepairCfg, blockers: s
   for (const field of ['summary', 'body'] as const) {
     const text = f[field]
     if (!text) continue
-    for (const s of bodySentences(text)) if (!s.heading && isAgencySelling(s.text) && !out.some((o) => o.field === field && o.text === s.text)) out.push(offenderOf(field, s, 'says what the agency offers, arranges or does'))
+    for (const s of bodySentences(text)) if (!s.heading && repairableAgency(s.text) && !out.some((o) => o.field === field && o.text === s.text)) out.push(offenderOf(field, s, 'says what the agency offers, arranges or does'))
   }
   return out
 }
@@ -411,7 +422,7 @@ export function safePool(kind: GuideKind, name: string): { faq: { q: string; a: 
       { q: `What is ${name}?`, a: `${name} is ${p.article}. This page is a short introduction built from the details on file, so check specifics with the provider before you book.` },
       { q: `How do I plan ${p.going} with ${name}?`, a: 'Start with your dates, your budget range and the people travelling. Then compare what is included, ask about cancellation rules and write down the answers before you pay.' },
       { q: `What should I ask before booking ${name}?`, a: 'Ask what is included in the price, what costs extra, how changes and cancellations work and what support is available if plans change.' },
-      { q: `Can a travel advisor help with ${name}?`, a: 'Yes. An advisor can explain the options, compare choices and help with the booking steps. You can reach out through the contact form to start the conversation.' },
+      { q: `Can a travel advisor help with ${name}?`, a: 'An advisor can talk through your options and help you compare choices. You can reach out through the contact form to start the conversation.' },
       { q: `Is this page the final word on ${name}?`, a: 'No. It is a general starting point. Details change, so confirm current information with the provider and official sources.' },
     ],
     takeaways: [
@@ -419,7 +430,7 @@ export function safePool(kind: GuideKind, name: string): { faq: { q: string; a: 
       'Agree dates, budget and style before anyone pays a deposit.',
       'Ask what is included, what costs extra and how changes work.',
       'Confirm current details with the provider before you book.',
-      'A travel advisor can help you compare your options.',
+      'A travel advisor can help you talk through your options.',
     ],
   }
 }
@@ -531,7 +542,7 @@ export function assembleSafePage(input: SafePageInput, gateCtx: GateContext): Re
     {
       heading: 'How to get help planning',
       paras: [
-        `Planning ${p.going} can feel like a lot, and you do not have to do it alone. A travel advisor can listen to what you want, explain the choices and handle the booking steps with you. Bring your questions, your rough dates and your budget range, and you will get more from the conversation.`,
+        `Planning ${p.going} can feel like a lot, and you do not have to do it alone. A travel advisor can listen to what you want, explain the choices and talk through the next steps with you. Bring your questions, your rough dates and your budget range, and you will get more from the conversation.`,
         cta,
       ],
     },
