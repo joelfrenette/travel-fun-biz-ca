@@ -38,7 +38,8 @@ export async function POST(request: Request) {
     else await recordLead(data, result) // the early save failed: record it now, as before
     // Instant lead reply (OFF by default, see lib/lead-ack.ts). Only for a saved, non-test lead; it never throws
     // and its result is ignored, so it cannot change what the visitor sees.
-    if (leadId) await sendLeadAck({ email: data.email, name: data.name, isTest: isTestPerson(data) }).catch(() => undefined)
+    // Fire-and-forget like announceLead in lib/leads.ts, so even the setting read never delays the visitor.
+    if (leadId) void sendLeadAck({ email: data.email, name: data.name, isTest: isTestPerson(data) }).catch(() => undefined)
     // Saved means the visitor sees success even if GoHighLevel failed: the row stays unforwarded and
     // lib/heal.ts retries it, and Needs attention shows it.
     const outcome = resolveLeadResponse({ saved: !!leadId, ghlOk: result.ok, ghlError: result.ok ? undefined : result.error })

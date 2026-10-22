@@ -1,7 +1,7 @@
 // Offline check: the instant lead reply (default OFF, one per email per 24h, never throws).
 // Run: pnpm dlx tsx scripts/check-lead-ack.ts   (exit 1 on a failure)
 import { readFileSync } from 'node:fs'
-import { sendLeadAck, buildLeadAckEmail, isValidAckEmail, ackFirstName, ackSentKey, isRateLimited, LEAD_ACK_SETTING_KEY } from '../lib/lead-ack'
+import { sendLeadAck, buildLeadAckEmail, isValidAckEmail, ackFirstName, ackSentKey, isRateLimited, LEAD_ACK_SETTING_KEY, LEAD_ACK_DAILY_CAP } from '../lib/lead-ack'
 
 let failures = 0
 function expect(name: string, ok: boolean, detail = '') {
@@ -64,6 +64,29 @@ async function main() {
     process.env.LEAD_ACK_FROM_EMAIL = 'hello@mail.example.org'
   }
 
+  // reply_to and the daily cap
+  {
+    process.env.NOTIFY_TO_EMAIL = 'owner@example.org'
+    delete process.env.LEAD_ACK_REPLY_TO
+    const r = rig(true)
+    await sendLeadAck(lead, r.deps)
+    expect('reply_to defaults to the alert address', (r.sent[0] as unknown as { reply_to?: string }).reply_to === 'owner@example.org')
+    process.env.LEAD_ACK_REPLY_TO = 'replies@example.org'
+    const r2 = rig(true)
+    await sendLeadAck(lead, r2.deps)
+    expect('LEAD_ACK_REPLY_TO overrides', (r2.sent[0] as unknown as { reply_to?: string }).reply_to === 'replies@example.org')
+    delete process.env.LEAD_ACK_REPLY_TO
+    const r3 = rig(true)
+    r3.store.set('lead_ack_day', `2026-10-20:${LEAD_ACK_DAILY_CAP}`)
+    expect('over the daily cap skips silently', (await sendLeadAck(lead, r3.deps)) === 'cap' && r3.sent.length === 0)
+    const r4 = rig(true)
+    r4.store.set('lead_ack_day', `2026-10-20:${LEAD_ACK_DAILY_CAP - 1}`)
+    expect('50th is allowed and counted', (await sendLeadAck(lead, r4.deps)) === 'sent' && r4.store.get('lead_ack_day') === `2026-10-20:${LEAD_ACK_DAILY_CAP}`)
+    const r5 = rig(true)
+    r5.store.set('lead_ack_day', `2026-10-19:${LEAD_ACK_DAILY_CAP}`)
+    expect('a new day resets the cap', (await sendLeadAck(lead, r5.deps)) === 'sent')
+  }
+
   // Copy
   const mail = buildLeadAckEmail('Jane Doe')
   expect('greets by first name', mail.text.startsWith('Hi Jane,'))
@@ -79,7 +102,7 @@ async function main() {
   const copy = readFileSync('lib/lead-ack-copy.ts', 'utf8')
   expect('copy file marked DRAFT pending CASL review', /DRAFT.*CASL review/.test(copy.split('\n')[0]))
   const route = readFileSync('app/api/submit-lead/route.ts', 'utf8')
-  expect('submit-lead calls the ack after the save, guarded by leadId', /if \(leadId\) await sendLeadAck/.test(route))
+  expect('submit-lead calls the ack after the save, guarded by leadId', /if \(leadId\) void sendLeadAck/.test(route) && !/await sendLeadAck/.test(route))
 
   console.log(failures ? `\n${failures} FAILED` : '\nAll passed')
   process.exit(failures ? 1 : 0)

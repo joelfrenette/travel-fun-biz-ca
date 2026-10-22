@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { parseDayCount, notifyTo } from '@/lib/alerts'
 import { LEAD_ACK_SUBJECT, LEAD_ACK_PARAGRAPHS, LEAD_ACK_SIGNOFF, leadAckFooterLines } from '@/lib/lead-ack-copy'
 
 // Instant lead reply: a short "we got your message" email to the lead, sent through Resend right after the lead
@@ -10,7 +11,10 @@ export const LEAD_ACK_SETTING_KEY = 'lead_ack_email'
 const SENT_PREFIX = 'lead_ack_sent_'
 export const LEAD_ACK_WINDOW_MS = 24 * 60 * 60 * 1000
 
-export type LeadAckResult = 'sent' | 'off' | 'test' | 'invalid-email' | 'rate-limited' | 'not-configured' | 'failed'
+export const LEAD_ACK_DAILY_CAP = 50
+const LEAD_ACK_DAY_KEY = 'lead_ack_day'
+
+export type LeadAckResult = 'cap' | 'sent' | 'off' | 'test' | 'invalid-email' | 'rate-limited' | 'not-configured' | 'failed'
 
 export interface LeadAckInput {
   email: string
@@ -82,13 +86,19 @@ export async function sendLeadAck(input: LeadAckInput, deps: LeadAckDeps = {}): 
     const now = deps.now?.() ?? new Date()
     const sentKey = ackSentKey(email)
     if (isRateLimited(await get(sentKey), now)) return 'rate-limited'
+    // Global daily cap: over it, skip silently.
+    const today = now.toISOString().slice(0, 10)
+    const sentToday = parseDayCount(await get(LEAD_ACK_DAY_KEY), today)
+    if (sentToday >= LEAD_ACK_DAILY_CAP) return 'cap'
     // Claim first: a retry or a double submit can never send two.
     await set(sentKey, now.toISOString())
+    await set(LEAD_ACK_DAY_KEY, `${today}:${sentToday + 1}`)
+    const replyTo = process.env.LEAD_ACK_REPLY_TO?.trim() || notifyTo()
     const mail = buildLeadAckEmail(input.name)
     const res = await (deps.fetchImpl ?? fetch)('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: [email], subject: mail.subject, text: mail.text }),
+      body: JSON.stringify({ from, to: [email], subject: mail.subject, text: mail.text, ...(replyTo ? { reply_to: replyTo } : {}) }),
       signal: AbortSignal.timeout(5_000),
     })
     return res.ok ? 'sent' : 'failed'
