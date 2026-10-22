@@ -13,7 +13,8 @@ function check(label: string, ok: boolean) {
 }
 
 const DAY = 86_400_000
-const now = Date.parse('2026-10-19T12:00:00Z')
+// Real clock on purpose: listGuideCandidates reads Date.now(), so a fixed date here goes stale and breaks the candidate checks.
+const now = Date.now()
 const ago = (days: number) => new Date(now - days * DAY).toISOString()
 
 // ---- the pure decision
