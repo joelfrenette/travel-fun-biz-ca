@@ -89,7 +89,22 @@ export interface LinkGuide {
   kind: GuideKind
   slug: string
   name: string
+  /** The name of the destination this guide sits under (its parent), when known. A guide whose destination
+   * also appears in the topic is picked before one whose destination does not. */
+  destination?: string | null
 }
+/** A guide name shorter than this is never matched by name (too easy to hit by accident). 4 keeps real
+ * places such as Rome, Bali and Fiji linkable. */
+export const MIN_GUIDE_NAME_LENGTH = 4
+/** Names too generic to mean one place or line, even when long enough. A guide with exactly such a name is skipped. */
+const GENERIC_GUIDE_NAMES = new Set(['cruise', 'cruises', 'travel', 'tours', 'tour', 'trips', 'trip', 'river', 'ocean', 'island', 'islands', 'beach', 'beaches', 'hotel', 'hotels', 'resort', 'resorts', 'world', 'europe tours', 'guide', 'guides', 'vacation', 'vacations', 'holiday', 'holidays', 'ship', 'ships', 'port', 'ports', 'luxury', 'family', 'adventure'])
+
+/** Pure: may this guide be matched by its name at all? */
+export function guideNameMatchable(name: string | null | undefined): boolean {
+  const n = (name ?? '').trim()
+  return n.length >= MIN_GUIDE_NAME_LENGTH && !GENERIC_GUIDE_NAMES.has(n.toLowerCase())
+}
+
 export interface LinkPost {
   slug: string
   title: string
@@ -107,10 +122,15 @@ export function pickGuideAndPostLinks(topic: LinkTopic, guides: LinkGuide[], pos
   const text = [topic.angle, topic.keyword, ...(topic.keywords ?? []), ...topicTags].filter(Boolean).join(' | ')
   const out: AllowedLink[] = []
   const seen = new Set<string>()
-  for (const g of guides) {
+  // Only guides whose full name (long enough, not a generic word) appears as a whole word. Those whose
+  // destination also appears in the text come first; otherwise the given order is kept (stable sort).
+  const matched = (guides ?? [])
+    .filter((g) => !!g && guideNameMatchable(g.name) && isGuideKind(g.kind) && !!g.slug && hasWholeWord(text, g.name))
+    .map((g, i) => ({ g, i, near: !!g.destination && guideNameMatchable(g.destination) && hasWholeWord(text, g.destination) ? 0 : 1 }))
+    .sort((a, b) => a.near - b.near || a.i - b.i)
+    .map((m) => m.g)
+  for (const g of matched) {
     if (out.length >= MAX_GUIDE_LINKS) break
-    if (!g?.name || !isGuideKind(g.kind) || !g.slug) continue
-    if (!hasWholeWord(text, g.name)) continue
     const path = guidePath(g.kind, g.slug)
     if (seen.has(path)) continue
     seen.add(path)
@@ -151,6 +171,13 @@ export function mergeAllowedLinks(base: AllowedLink[], extra: AllowedLink[]): Al
   return out
 }
 
+/** Published guides, each carrying the name of its parent destination guide (when it has one). Throws like the reader it wraps. */
+async function readGuidesWithDestination(): Promise<LinkGuide[]> {
+  const all = await listPublishedGuideLinks()
+  const byDest = new Map(all.filter((g) => g.kind === 'destinations').map((g) => [g.slug, g.name]))
+  return all.map((g) => ({ kind: g.kind, slug: g.slug, name: g.name, destination: g.parent_slug ? (byDest.get(g.parent_slug) ?? null) : null }))
+}
+
 /** Adds the guide and post links to `base`. Any read error (or a throw from the readers) returns `base` unchanged. */
 export async function withGuideAndPostLinks(
   base: AllowedLink[],
@@ -175,7 +202,7 @@ export async function withGuideAndPostLinks(
  * links, so the writer cannot reach for a page that is not there. Never throws. */
 async function buildAllowedLinks(admin: ReturnType<typeof getSupabaseAdmin>, pkg: PackageGrounding | null, topic: TopicIdea, posts: Post[]): Promise<AllowedLink[]> {
   const base = await buildPackageLinks(admin, pkg)
-  return withGuideAndPostLinks(base, topic, listPublishedGuideLinks, async () => posts)
+  return withGuideAndPostLinks(base, topic, readGuidesWithDestination, async () => posts)
 }
 
 async function buildPackageLinks(admin: ReturnType<typeof getSupabaseAdmin>, pkg: PackageGrounding | null): Promise<AllowedLink[]> {
