@@ -10,6 +10,7 @@ import { judgePrompt, openBudget, type HealBudget } from '@/lib/heal-loop'
 import type { QueryPagePair } from '@/lib/rankings'
 import { getQueryPagePairs, isSearchConsoleConfigured } from '@/lib/search-console'
 import { site } from '@/lib/site'
+import { belowMedianCtr } from '@/lib/optimizer'
 
 // The title and meta click-rate loop and the cannibalisation detector (hub row 2). It runs INSIDE the daily heal-content
 // step (lib/content-heal-run.ts): no new cron, and every model call is taken from the heal loop's own daily call budget
@@ -658,7 +659,11 @@ export async function runCtrLoop(admin: SupabaseClient, opts: CtrLoopOpts = {}):
       if (perf.problem) out.problems.push(`click-rate test: ${perf.problem}`)
       return finish(out, lines)
     }
-    const weak = findUnderperformers(perf.rows)
+    // Pages the position-based rule misses but whose click rate is clearly under the site median (at least 100 impressions, and only
+    // when there are enough such pages for a trustworthy median). Same daily slots, budget and rest rules apply to them.
+    const weak = [...findUnderperformers(perf.rows)]
+    const weakPaths = new Set(weak.map((w) => w.path))
+    for (const c of belowMedianCtr(perf.rows)) if (!weakPaths.has(c.path)) weak.push(c)
     if (weak.length === 0) return finish(out, lines)
 
     const tried = await readTried(admin)

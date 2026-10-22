@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { steeredRotate } from '@/lib/optimizer-run'
 import { tagVariant } from '@/lib/content-variants'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { findPortraitPhoto } from '@/lib/pexels'
@@ -232,7 +233,8 @@ export async function gateCarouselCover(admin: SupabaseClient, post: { slug: str
 export async function generateAndSaveCarousel(admin: SupabaseClient, post: { slug: string; title: string; body: string }): Promise<CarouselSlide[] | null> {
   // Rotate slide 1's hook style and the last slide's CTA style over the last 5 carousels.
   // Fan-out calendar (lib/fanout-plan.ts): the cover hook is the title as a question or a contrast, and the last slide asks a question.
-  const hookStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_hook', 12), FANOUT_CAROUSEL_HOOKS)
+  // The optimizer may leave out a retired hook and, with enough data, favour a winner (it fails open to this same rotation).
+  const hookStyle = await steeredRotate(admin, 'all', 'carousel', await readRecentVariantValues(admin, 'carousel_hook', 12), FANOUT_CAROUSEL_HOOKS)
   const ctaStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_cta', 12), FANOUT_CAROUSEL_CTAS)
   const deck = await generateCarouselDeck(post.title, post.body, { hookStyle, ctaStyle })
   if (!deck) return null

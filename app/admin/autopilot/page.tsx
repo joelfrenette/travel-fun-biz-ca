@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast"
 import { PostingCard } from "@/components/admin/posting-card"
 import { WhatIsWorkingCard } from "@/components/admin/what-is-working-card"
 import { GrowthDigestCard } from "@/components/admin/growth-digest-card"
+import { OptimizerCard } from "@/components/admin/optimizer-card"
 import { GuidesPanel } from "@/components/admin/guides-panel"
 import { PageCopyPanel } from "@/components/admin/page-copy-panel"
 import { SelfHealingCard } from "@/components/admin/self-healing-card"
@@ -319,6 +320,8 @@ export default function AutopilotPage() {
         </Card>
 
         <GrowthDigestCard />
+
+        <OptimizerCard />
 
         <WhatIsWorkingCard />
 

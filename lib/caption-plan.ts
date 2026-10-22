@@ -22,20 +22,42 @@ export function hasGroundableNumber(sourceText: string): boolean {
   return /\b\d+\b/.test(text) || NUMBER_WORD.test(text)
 }
 
+/** What the optimizer may do to the choice (see makeHookSteer in lib/optimizer.ts). Both parts are optional and must fail open. */
+export interface HookSteer {
+  /** The styles this network may still use (retired ones left out). */
+  allowed?: (network: string, styles: readonly HookStyle[]) => readonly HookStyle[]
+  /** A learned pick from the given styles, or null to use the rotation. */
+  pick?: (network: string, free: readonly HookStyle[]) => HookStyle | null
+}
+
 /** One style per network for ONE post. For each network in order: the least-recently-used style of that network's own history (rotateStyle),
  * chosen only from styles no earlier network of this post took, so no two networks share a style while there are enough styles
  * (7, or 6 without "number"). "number" is left out when `hasNumber` is false. Deterministic: same input, same output. */
 export function assignHookStyles(
   networks: ReadonlyArray<string>,
   historyFor: (network: string) => readonly string[],
-  opts: { hasNumber: boolean; offset?: number } = { hasNumber: true },
+  opts: { hasNumber: boolean; offset?: number; steer?: HookSteer } = { hasNumber: true },
 ): Record<string, HookStyle> {
   const catalogue: HookStyle[] = HOOK_STYLES.filter((s) => opts.hasNumber || s !== 'number')
   const out: Record<string, HookStyle> = {}
   let free: HookStyle[] = [...catalogue]
   networks.forEach((n, i) => {
     if (free.length === 0) free = [...catalogue] // more networks than styles: start another lap
-    const pick = rotateStyle(historyFor(n), free, i + (opts.offset ?? 0))
+    // The optimizer (lib/optimizer.ts) may drop styles it retired for this network and, once it has enough data, pick a learned one.
+    // It only ever chooses from the styles that are still free, so "number" stays out without a groundable number. Any problem falls back to the rotation.
+    let pool: HookStyle[] = free
+    let learned: HookStyle | null = null
+    try {
+      const allowed = opts.steer?.allowed?.(n, free)
+      if (allowed && allowed.length) pool = free.filter((s) => allowed.includes(s))
+      if (!pool.length) pool = free
+      const pickedStyle = opts.steer?.pick?.(n, pool) ?? null
+      learned = pickedStyle && pool.includes(pickedStyle) ? pickedStyle : null
+    } catch {
+      pool = free
+      learned = null
+    }
+    const pick = learned ?? rotateStyle(historyFor(n), pool, i + (opts.offset ?? 0))
     out[n] = pick
     free = free.filter((s) => s !== pick)
   })

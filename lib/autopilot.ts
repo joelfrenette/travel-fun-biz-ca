@@ -14,6 +14,7 @@ import { recordGateEvents, type GateEvent } from '@/lib/visual-gate-stats'
 import { visualTags } from '@/lib/cover-gate'
 import { generateVideoScript, capScriptDuration, reelCoverTitleFor, detectHookFormula, HOOK_FORMULAS } from '@/lib/video-script'
 import { photoIdOf } from '@/lib/social-cover'
+import { steeredRotate } from '@/lib/optimizer-run'
 import { tagVariant } from '@/lib/content-variants'
 import { rotateStyle, hashtagCapFor, readRecentVariantValues, readVariantTag } from '@/lib/hook-styles'
 import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, REEL_COVER_TEMPLATE, type BeatVisual } from '@/lib/shotstack'
@@ -393,7 +394,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       } else if (post) {
         try {
           // The hook formula rotates over the last 5 videos so consecutive videos do not open the same way.
-          const preferred = rotateStyle(await readRecentVariantValues(admin, 'video_hook', 12), HOOK_FORMULAS)
+          const preferred = await steeredRotate(admin, 'all', 'reel', await readRecentVariantValues(admin, 'video_hook', 12), HOOK_FORMULAS)
           const script = await generateVideoScript(post.title, post.meta_description || '', preferred, buildGroundingText(post.key_takeaways, post.faq) || undefined, { body: post.body, primaryKeyword: post.primary_keyword })
           if (!script) {
             await fail(row, 'video', 'could not write a video script', false)
