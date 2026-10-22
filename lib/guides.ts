@@ -92,14 +92,29 @@ export interface Guide {
   updated_at: string
 }
 
-/** What a visitor gets: no admin notes, no source. */
-export type PublicGuide = Omit<Guide, 'quality_notes' | 'source' | 'review_state'>
+/** The note a published "safe page" carries in quality_notes (a page the heal rebuilt only from stored facts). Such a page is live but
+ * thin: it is kept out of search (robots noindex), the sitemap, llms.txt and the related-guide feeds until a later enrichment replaces
+ * the note. Kept here, not in lib/guide-repairs.ts, so the public reads stay light. */
+export const SAFE_PAGE_NOTE = 'safe-page: built only from stored facts and general planning text; a later enrichment can improve it'
+export const isSafePageNote = (note: string | null | undefined): boolean => typeof note === 'string' && note.trim().startsWith('safe-page:')
+
+/** Drops safe pages from rows that carry quality_notes, and removes the notes (they are admin text). Pure. */
+export function withoutThinPages<T extends { quality_notes?: string | null }>(rows: T[]): Omit<T, 'quality_notes'>[] {
+  return rows.filter((r) => !isSafePageNote(r.quality_notes)).map((r) => {
+    const { quality_notes: _notes, ...rest } = r
+    void _notes
+    return rest
+  })
+}
+
+/** What a visitor gets: no admin notes, no source. `thin` is true for a safe page (keep it out of search). */
+export type PublicGuide = Omit<Guide, 'quality_notes' | 'source' | 'review_state'> & { thin?: boolean }
 
 // Migration 0041 adds `scope` and `review_state`. Until it is applied, a select that names them fails with a
 // "column does not exist" error, which would 404 every guide page. So every read tries the new columns first and,
 // only on that one error, retries with the old list. The page then falls back to inferring the scope from the name.
 const PUBLIC_COLUMNS_OLD =
-  'id, kind, slug, name, parent_slug, summary, body, sections, faq, key_takeaways, hero_image_url, hero_alt, meta_title, meta_description, og_title, og_description, primary_keyword, secondary_keywords, related_package_ids, status, created_at, updated_at'
+  'id, kind, slug, name, parent_slug, summary, body, sections, faq, key_takeaways, hero_image_url, hero_alt, meta_title, meta_description, og_title, og_description, primary_keyword, secondary_keywords, related_package_ids, status, quality_notes, created_at, updated_at'
 const PUBLIC_COLUMNS = `${PUBLIC_COLUMNS_OLD}, scope`
 
 /** What an index page or an admin list needs, without the long body. */
@@ -136,8 +151,10 @@ export async function getPublishedGuide(kind: GuideKind, slug: string): Promise<
     console.error('[guides] fetch failed:', error.message)
     return null
   }
-  const row = data as unknown as PublicGuide | null
-  return row ? { ...row, scope: parseScope(row.scope) } : null
+  const row = data as unknown as (PublicGuide & { quality_notes?: string | null }) | null
+  if (!row) return null
+  const { quality_notes: notes, ...rest } = row
+  return { ...rest, scope: parseScope(row.scope), thin: isSafePageNote(notes) }
 }
 
 /** Published guides, newest first, optionally for one kind. Never throws: a read error is an empty list. */
@@ -156,12 +173,13 @@ export async function listPublishedGuides(kind?: GuideKind): Promise<GuideSummar
 
 /** Every published guide's address and last update, for the sitemap. */
 export async function getPublishedGuidePaths(): Promise<{ kind: GuideKind; slug: string; updated_at: string }[]> {
-  const { data, error } = await supabase.from('guides').select('kind, slug, updated_at').eq('status', 'published')
+  const { data, error } = await supabase.from('guides').select('kind, slug, updated_at, quality_notes').eq('status', 'published')
   if (error) {
     console.error('[guides] sitemap read failed:', error.message)
     return []
   }
-  return ((data ?? []) as { kind: GuideKind; slug: string; updated_at: string }[]).filter((g) => isGuideKind(g.kind))
+  // A safe page is live but not listed for search until it is enriched (its safe-page note is removed).
+  return withoutThinPages((data ?? []) as { kind: GuideKind; slug: string; updated_at: string; quality_notes: string | null }[]).filter((g) => isGuideKind(g.kind))
 }
 
 /** The real published packages a guide points at, as cards. A package unpublished since is silently left out. */
@@ -212,7 +230,7 @@ export async function getTripFactsByIds(ids: string[]): Promise<TripFact[]> {
 /** The few columns a link needs. */
 export type GuideLink = Pick<Guide, 'id' | 'kind' | 'slug' | 'name' | 'parent_slug' | 'summary' | 'related_package_ids'> & { scope?: GuideScope | null }
 
-const LINK_COLUMNS_OLD = 'id, kind, slug, name, parent_slug, summary, related_package_ids'
+const LINK_COLUMNS_OLD = 'id, kind, slug, name, parent_slug, summary, related_package_ids, quality_notes'
 const LINK_COLUMNS = `${LINK_COLUMNS_OLD}, scope`
 
 /** Every published guide as a link row, newest first. Never throws: a read error is an empty list. */
@@ -222,7 +240,8 @@ export async function listPublishedGuideLinks(): Promise<GuideLink[]> {
     console.error('[guides] link list failed:', error.message)
     return []
   }
-  return ((data ?? []) as unknown as GuideLink[]).filter((g) => isGuideKind(g.kind))
+  // Safe pages are left out of every link feed (related guides, llms.txt, autoblog links) until they are enriched.
+  return withoutThinPages((data ?? []) as unknown as (GuideLink & { quality_notes?: string | null })[]).filter((g) => isGuideKind(g.kind)) as GuideLink[]
 }
 
 /** One line for a card: the first sentence of the summary, cut at 160 characters. */
@@ -434,7 +453,7 @@ export async function listPropertyGuidesForDestination(destinationSlug: string):
     console.error('[guides] destination property list failed:', error.message)
     return []
   }
-  return (data ?? []) as unknown as GuideLink[]
+  return withoutThinPages((data ?? []) as unknown as (GuideLink & { quality_notes?: string | null })[]) as GuideLink[]
 }
 
 // ---------------------------------------------------------------------------------------------------

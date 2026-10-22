@@ -39,7 +39,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // A published guide for this destination supplies the title, description and social text (growth loop
   // WP4). Without one the page is exactly what it was: a trip listing.
   const [page, guide] = await Promise.all([getDestinationPage(params.slug), getPublishedGuide("destinations", params.slug)])
-  if (guide) return guideMetadata("destinations", params.slug)
+  // A thin safe-page guide never supplies search metadata: the page falls back to its trip listing, or is kept out of search.
+  if (guide && !guide.thin) return guideMetadata("destinations", params.slug)
+  if (guide && !page) return guideMetadata("destinations", params.slug)
   if (!page) return { title: `Destination not found | ${SITE_NAME}`, robots: { index: false } }
 
   const title = `${page.destination} Trips | ${SITE_NAME}`

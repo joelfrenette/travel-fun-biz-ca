@@ -10,7 +10,7 @@ import { composeGuide, guideBlockers, groundingText, type GuideBrief, type Brief
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedGuide } from '@/lib/content-repair-adapters'
 import { healComposedGuide, healNoteOf } from '@/lib/heal-targets'
-import { SAFE_PAGE_NOTE } from '@/lib/guide-repairs'
+import { SAFE_PAGE_NOTE, isSafePageNote } from '@/lib/guide-repairs'
 import { freedBySince, rejectLimitReached, type HealOutcome } from '@/lib/heal-loop'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
 import { inferScope } from '@/lib/guide-scope'
@@ -408,7 +408,8 @@ export async function writeGuide(
     await finalizeEdits(admin, repairLogIds, { id: saved.id, path: guidePath(saved.kind, saved.slug), published: publishing })
     // A published guide is enrolled for social posting (one guide a day, mode-gated; never throws).
     if (publishing) await enrollGuideIfDue(admin, saved)
-    if (publishing) await pingIndexNow([guidePath(saved.kind, saved.slug), info.urlPrefix, '/sitemap.xml'])
+    // A safe page is kept out of search (noindex, no sitemap entry), so it is not announced to search engines either.
+    if (publishing && !isSafePageNote(saved.quality_notes)) await pingIndexNow([guidePath(saved.kind, saved.slug), info.urlPrefix, '/sitemap.xml'])
   } catch {
     // housekeeping only
   }

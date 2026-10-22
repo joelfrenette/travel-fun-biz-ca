@@ -138,6 +138,8 @@ export async function guideMetadata(kind: GuideKind, slug: string): Promise<Meta
     title,
     description,
     alternates: { canonical: url },
+    // A safe page (built only from stored facts) is live for visitors but kept out of search until it is enriched.
+    ...(guide.thin ? { robots: { index: false, follow: true } } : {}),
     keywords: [guide.primary_keyword, ...guide.secondary_keywords].filter((k): k is string => !!k),
     openGraph: { title: ogTitle, description: ogDescription, url, type: "article", locale: SITE_LOCALE, siteName: SITE_NAME, images: [image] },
     twitter: { card: "summary_large_image", title: ogTitle, description: ogDescription, images: [image.url] },
