@@ -24,6 +24,7 @@ interface Facts {
   backfill: { state: "none" | "running" | "cancelled" | "done"; written: number; waiting: number }
   safePages: { count: number; attemptsUsed: number; maxAttempts: number; usedUp: number; ready: number } | null
   orphans: { count: number; checked: number; at: string } | null
+  photosNeeded: number | null
 }
 
 /** The Automation card on Posts: Guides. It reports what runs on its own and holds the two admin-only actions that cost something
@@ -115,6 +116,9 @@ export default function GuidesAutomationCard({ refreshKey = 0, onChanged }: { re
               <li>
                 Orphans (live pages nothing links to):{" "}
                 {data.orphans ? <Link href="/admin/guides?filter=orphans" className="underline">{data.orphans.count}</Link> : "could not be counted"}
+              </li>
+              <li>
+                Guides with duplicate or missing photos: {typeof data.photosNeeded === "number" ? data.photosNeeded : "could not be read"} (the daily heal gives up to 3 a day a fresh photo; every change can be undone from Content edits)
               </li>
               <li>
                 Social posting: {DISTRIBUTION_MODE_TEXT[data.distributionMode]} · <Link href="/admin/distribution" className="underline">Post Distribution</Link>

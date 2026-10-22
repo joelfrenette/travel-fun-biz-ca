@@ -23,7 +23,7 @@ export async function setAutoblogAiImageFallback(admin: SupabaseClient, on: bool
   return setSetting(admin, AI_IMAGE_FALLBACK_KEY, on ? 'on' : 'off')
 }
 
-async function uploadCoverImage(
+export async function uploadCoverImage(
   admin: SupabaseClient,
   buf: ArrayBuffer | Buffer,
   slugForFilename: string,
