@@ -6,6 +6,7 @@ import { pingIndexNow } from '@/lib/indexnow'
 import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { SITE_ID } from '@/lib/site'
 import { generateSlug } from '@/lib/utils'
+import { planCountryName } from '@/lib/guide-plan'
 import { composeGuide, guideBlockers, groundingText, type GuideBrief, type BriefPackage } from '@/lib/guide-composer'
 import { deleteEdits } from '@/lib/content-edits'
 import { finalizeEdits, repairComposedGuide } from '@/lib/content-repair-adapters'
@@ -140,7 +141,7 @@ export async function buildBrief(admin: SupabaseClient, cand: GuideCandidate): P
 
   // The parent's display name: a package destination, or a published destination guide.
   let parentName: string | null = null
-  if (cand.parent_slug) parentName = allDestinations.get(cand.parent_slug) ?? guides.find((g) => g.kind === 'destinations' && g.slug === cand.parent_slug)?.name ?? null
+  if (cand.parent_slug) parentName = allDestinations.get(cand.parent_slug) ?? guides.find((g) => g.kind === 'destinations' && g.slug === cand.parent_slug)?.name ?? planCountryName(cand.parent_slug)
 
   const escaped = cand.name.replace(/[%_,()]/g, ' ').trim()
   const { data: kwData } = escaped
@@ -185,7 +186,7 @@ export async function buildBrief(admin: SupabaseClient, cand: GuideCandidate): P
   }))
 
   return {
-    brief: { kind: cand.kind, name: cand.name, parentName, packages: briefPackages, keywords, blurb, links },
+    brief: { kind: cand.kind, name: cand.name, parentName, packages: briefPackages, keywords, blurb, links, ...(cand.planned ? { planned: true } : {}) },
     relatedPackageIds: matched.map((p) => p.id),
     allowedPaths,
   }

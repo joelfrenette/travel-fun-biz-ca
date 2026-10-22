@@ -10,6 +10,7 @@ import { readGuideSpend } from '@/lib/guide-spend'
 import { getAutoblogMaxPerDay } from '@/lib/autoblog-cadence'
 import { ENRICH_MAX_ATTEMPTS, listSafePages } from '@/lib/safe-enrich'
 import { readOrphanAudit } from '@/lib/guide-orphans'
+import { listUnguidedCompanies, readPlanStatus } from '@/lib/guide-plan-status'
 import { countGuidesNeedingPhoto } from '@/lib/guide-photo-run'
 import { TRIP_SOCIAL_KEY, TRIP_ENROLMENTS_PER_WEEK, TRIP_HOLD_HOURS } from '@/lib/trip-social'
 import { PROMOTION_GAP_DAYS } from '@/lib/promotion'
@@ -92,7 +93,7 @@ type Admin = ReturnType<typeof getSupabaseAdmin>
 
 // Guides: every number here is read from what the pipeline already stores. A read that fails shows as null, never as a made-up zero.
 async function guidesFacts(admin: Admin) {
-  const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused, spend, photoCount] = await Promise.all([
+  const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused, spend, photoCount, plan, companies] = await Promise.all([
     getGuidePublishMode(admin).catch(() => null),
     getGuideCaps(admin).catch(() => null),
     readCapUsage(admin).catch(() => null),
@@ -106,6 +107,8 @@ async function guidesFacts(admin: Admin) {
     isAutomationPaused(admin).catch(() => false),
     readGuideSpend(admin).catch(() => null),
     countGuidesNeedingPhoto(admin).catch(() => null),
+    readPlanStatus(admin).catch(() => null),
+    listUnguidedCompanies(admin).catch(() => null),
   ])
   const backfill =!backfillState
     ? { state: 'none' as const, written: 0, waiting: 0 }
@@ -132,6 +135,10 @@ async function guidesFacts(admin: Admin) {
     orphans: orphanAudit ? { count: orphanAudit.orphans.length, checked: orphanAudit.checked, at: orphanAudit.at } : null,
     // Published guides whose hero is a duplicate, missing, tiny or a wrong subject (the daily heal fixes up to 3 a day). Null = could not be read.
     photosNeeded: photoCount,
+    // Planned destination guides (lib/guide-plan.ts): totals and one row per place. Null = could not be read.
+    planned: plan,
+    // Companies and hotels in stored package data that have no guide yet. Null = could not be read.
+    companies: companies ? { count: companies.candidates.length, items: companies.candidates.slice(0, 40).map((c) => ({ kind: c.kind, name: c.name })), unmapped: companies.unmapped.slice(0, 40) } : null,
   }
 }
 

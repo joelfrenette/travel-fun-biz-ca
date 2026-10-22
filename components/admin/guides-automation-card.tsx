@@ -27,7 +27,11 @@ interface Facts {
   orphans: { count: number; checked: number; at: string } | null
   spend: GuideSpend | null
   photosNeeded: number | null
+  planned: { rows: { name: string; slug: string; scope: string; country: string; status: "published" | "draft" | "waiting" | "excluded" }[]; summary: { total: number; written: number; waiting: number; excluded: number } } | null
+  companies: { count: number; items: { kind: string; name: string }[]; unmapped: string[] } | null
 }
+
+const PLAN_SCOPE_LABEL: Record<string, string> = { country: "Country", city: "City", port: "Port of call", attraction: "Attraction" }
 
 /** The Automation card on Posts: Guides. It reports what runs on its own and holds the two admin-only actions that cost something
  * or change what gets posted: the old-guide social catch-up switch and the global Heal now. Everything else is read only here; the
@@ -124,9 +128,47 @@ export default function GuidesAutomationCard({ refreshKey = 0, onChanged }: { re
                 Guides with duplicate or missing photos: {typeof data.photosNeeded === "number" ? data.photosNeeded : "could not be read"} (the daily heal gives up to 3 a day a fresh photo; every change can be undone from Content edits)
               </li>
               <li>
+                Planned guides: {data.planned ? `${data.planned.summary.written} written, ${data.planned.summary.waiting} waiting${data.planned.summary.excluded ? `, ${data.planned.summary.excluded} excluded` : ""}` : "could not be read"} (places from the planned-trips list; the full list is below)
+              </li>
+              <li>
+                Companies and hotels in your trips with no guide yet:{" "}
+                {data.companies ? `${data.companies.count}${data.companies.count ? ` (${data.companies.items.slice(0, 6).map((c) => c.name).join(", ")}${data.companies.count > 6 ? ", ..." : ""})` : ""}` : "could not be read"}
+              </li>
+              <li>
                 Social posting: {DISTRIBUTION_MODE_TEXT[data.distributionMode]} · <Link href="/admin/distribution" className="underline">Post Distribution</Link>
               </li>
             </ul>
+            <details className="rounded-lg border p-3 text-xs">
+              <summary className="cursor-pointer text-sm font-medium">Planned destination guides{data.planned ? ` (${data.planned.summary.total})` : ""}</summary>
+              {!data.planned ? (
+                <p className="mt-2 text-muted-foreground">The planned list could not be read.</p>
+              ) : (
+                <div className="mt-2 max-h-96 overflow-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="py-1 pr-3 font-medium">Place</th>
+                        <th className="py-1 pr-3 font-medium">Type</th>
+                        <th className="py-1 pr-3 font-medium">Country</th>
+                        <th className="py-1 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.planned.rows.map((r) => (
+                        <tr key={r.slug} className="border-b last:border-0">
+                          <td className="py-1 pr-3">{r.name}</td>
+                          <td className="py-1 pr-3">{PLAN_SCOPE_LABEL[r.scope] ?? r.scope}</td>
+                          <td className="py-1 pr-3">{r.scope === "country" ? "" : r.country}</td>
+                          <td className="py-1">
+                            <Badge variant={r.status === "published" ? "default" : r.status === "draft" ? "secondary" : "outline"}>{r.status}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </details>
             <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3">
               <p className="min-w-[240px] flex-1 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">Post old guides to social: {data.catchup.enabled ? "on" : "off"}. </span>

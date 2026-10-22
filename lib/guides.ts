@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { generateSlug } from '@/lib/utils'
 import { GUIDE_SEEDS } from '@/lib/guide-seeds'
 import { GUIDE_BACKFILL_KEY, parseBackfillState } from '@/lib/guide-backfill'
+import { companyCandidatesFromSuppliers, orderPlannedPlaces, plannedAsCandidate, slugCovers } from '@/lib/guide-plan'
 import { readGuideFailures } from '@/lib/guide-failures'
 import type { TripFact } from '@/lib/guide-facts'
 import { groupChildren, inferScope, parentChain, parseScope, type GuideScope } from '@/lib/guide-scope'
@@ -573,6 +574,8 @@ export interface GuideCandidate {
   /** True while "Promote this package" has put this guide at the front of the line (30 days). A priority guide is
    * picked before the normal rotation, even when its origin is 'package'. It still goes through the quality gate. */
   priority?: boolean
+  /** True for a place from the planned destination list (lib/guide-plan.ts). The writer is told a planned trip is not a visit. */
+  planned?: boolean
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -688,7 +691,7 @@ export function rejectionCountFor(failureN: number | undefined): number {
  * curated names in lib/guide-seeds.ts. Real data first (destinations, then package names), seeds last. */
 export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideCandidate[]> {
   const [{ data: pkgs, error: pkgError }, { data: existing, error: guideError }] = await Promise.all([
-    admin.from('travel_packages').select('name, destination, category').eq('status', 'published'),
+    admin.from('travel_packages').select('name, destination, category, supplier').eq('status', 'published'),
     withScopeFallback((v) => admin.from('guides').select(v === 'new' ? 'kind, slug, status, review_state, updated_at, quality_notes' : 'kind, slug, status, updated_at')),
   ])
   if (pkgError) throw new Error(`Could not read packages: ${pkgError.message}`)
@@ -729,7 +732,7 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
     out.push(c)
   }
 
-  const rows = (pkgs ?? []) as { name: string | null; destination: string | null; category: string | null }[]
+  const rows = (pkgs ?? []) as { name: string | null; destination: string | null; category: string | null; supplier: string | null }[]
   for (const p of rows) {
     const destination = p.destination?.trim()
     if (destination) add({ kind: 'destinations', name: destination, slug: generateSlug(destination), parent_slug: null, origin: 'destination', scope: inferScope('destinations', destination) })
@@ -743,6 +746,12 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
     const parent = (kind === 'hotels' || kind === 'resorts') && p.destination ? generateSlug(p.destination) : null
     add({ kind, name, slug: generateSlug(name), parent_slug: parent || null, origin: 'package', scope: inferScope(kind, name) })
   }
+  // Companies and hotels named in the stored `supplier` field of published packages (cruise lines, river lines, hotels, resorts).
+  // Same origin as the package-name candidates above: they are suggestions, written only through the backfill or "Promote this
+  // package", and a name from stored data is never reworded. A supplier whose name does not say what it is is skipped.
+  for (const c of companyCandidatesFromSuppliers(rows).candidates) {
+    add({ kind: c.kind, name: c.name, slug: c.slug, parent_slug: c.parent_slug, origin: 'package', scope: inferScope(c.kind, c.name) })
+  }
   // A curated destination is skipped when a real destination already covers it ("cancun" vs "cancun-mexico").
   const realDestinations = [
     ...out.filter((c) => c.kind === 'destinations' && c.origin === 'destination').map((c) => c.slug),
@@ -753,6 +762,26 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
     const seedWords = seedSlug.split('-').join(' ')
     if (seed.kind === 'destinations' && realDestinations.some((r) => r === seedSlug || ` ${r.split('-').join(' ')} `.includes(` ${seedWords} `))) continue
     add({ kind: seed.kind, name: seed.name, slug: seedSlug, parent_slug: seed.parent_slug ?? null, origin: 'seed', scope: seed.scope ?? inferScope(seed.kind, seed.name) })
+  }
+
+  // The planned destination list (lib/guide-plan.ts): countries first, then cities and ports under countries that already have a
+  // page, then the rest of the cities and ports, then attractions. A place is skipped when a guide, a real destination or the
+  // owner's do-not-recreate list already covers it (same slug, an alias, or "cancun-mexico" for "cancun"). A place a curated seed
+  // already queued keeps its position and only gains the country it sits under.
+  const writtenDestinations = new Set(existingRows.filter((g) => g.kind === 'destinations').map((g) => g.slug))
+  const coveredSlugs = [...realDestinations, ...writtenDestinations]
+  for (const place of orderPlannedPlaces(writtenDestinations)) {
+    const key = `destinations:${place.slug}`
+    const queued = out.find((c) => c.kind === 'destinations' && c.slug === place.slug)
+    if (queued) {
+      if (!queued.parent_slug && place.parent_slug) queued.parent_slug = place.parent_slug
+      if (!queued.scope) queued.scope = plannedAsCandidate(place).scope
+      queued.planned = true
+      continue
+    }
+    // An exact slug is handled by `taken` (a rejected draft that may retry is not in it); variants are handled here.
+    if (taken.has(key) || coveredSlugs.some((r) => r !== place.slug && slugCovers(place, r))) continue
+    add(plannedAsCandidate(place))
   }
 
   // A one-time backfill (WP16): its listed pages are marked so the guides step writes them before the normal rotation.

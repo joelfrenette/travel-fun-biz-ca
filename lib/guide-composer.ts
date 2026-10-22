@@ -1,5 +1,6 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { guideKinds, type GuideKind, type GuideSection, type GuideFaq } from '@/lib/guides'
+import { PLANNED_PLACE_RULE } from '@/lib/guide-plan'
 import { isGeographyPhrase, isPlaceNameOrModifier } from '@/lib/geography'
 
 // Writes one guide page (destination, hotel, resort, cruise line, ship, river cruise, yacht) from a grounded
@@ -33,6 +34,8 @@ export interface GuideBrief {
   blurb: string | null
   /** Real pages the article may link to (published packages, destination pages, guides, index pages). */
   links: { path: string; label: string }[]
+  /** True for a place from the planned destination list (lib/guide-plan.ts): a planned trip is not a visit, and the prompt says so. */
+  planned?: boolean
 }
 
 export interface ComposedGuide {
@@ -91,6 +94,11 @@ export function groundingText(brief: GuideBrief): string {
   return lines.join('\n')
 }
 
+/** The extra rule for a planned place, on its own paragraph; an empty line when the brief is not for one. */
+function plannedRule(brief: GuideBrief): string {
+  return brief.planned ? `\n${PLANNED_PLACE_RULE}\n` : ''
+}
+
 function linksBlock(brief: GuideBrief): string {
   return brief.links.map((l) => `- ${l.path}  (${l.label})`).join('\n')
 }
@@ -104,7 +112,7 @@ GROUNDING (the only specific facts you may use):
 ${groundingText(brief)}
 
 ${NO_FABRICATION}
-
+${plannedRule(brief)}
 ${BANNED_WORDS_RULE}
 
 Write 1200 to 1800 words in markdown, warm, practical and plain English (Canadian spelling). Structure:
@@ -128,7 +136,7 @@ GROUNDING (the only specific facts you may use):
 ${groundingText(brief)}
 
 ${NO_FABRICATION}
-
+${plannedRule(brief)}
 ${BANNED_WORDS_RULE}
 
 ARTICLE:
