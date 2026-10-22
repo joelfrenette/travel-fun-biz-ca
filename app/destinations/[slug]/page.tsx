@@ -17,7 +17,7 @@ import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { getDestinationPage } from "@/lib/destinations"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { getPublicBlurb } from "@/lib/destination-blurbs"
-import { getPublishedGuide, listPropertyGuidesForDestination, listPublishedGuideLinks, guideTrail, childGroups, getTripFactsByIds, listPostsForGuide, pickRelatedGuides, relatedGuideCards, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
+import { getPublishedGuide, listPropertyGuidesForDestination, listPublishedGuideLinks, guideTrail, childGroups, getTripFactsByIds, listPostsForGuide, pickRelatedWithCoverage, relatedGuideCards, oneLineSummary, guideKinds, guidePath } from "@/lib/guides"
 import { scopeOf } from "@/lib/guide-scope"
 import { GuideCta } from "@/components/guide-cta"
 import { GuideThingsToDo } from "@/components/guide-things-to-do"
@@ -97,7 +97,7 @@ export default async function DestinationPage({ params }: Props) {
   const trail = guide ? guideTrail(guide, allGuides) : []
   const tripFacts = guide ? await getTripFactsByIds(guide.related_package_ids) : []
   // Same internal links as every other guide page: up to 6 related guides and up to 3 blog posts about this place.
-  const relatedGuides = guide ? pickRelatedGuides(guide, allGuides, 6) : []
+  const relatedGuides = guide ? pickRelatedWithCoverage(guide, allGuides, 6) : []
   const stories = guide ? await listPostsForGuide(guide, 3) : []
   const parentStep = trail.length > 1 ? trail[trail.length - 2] : null
   const factsInput: FactsInput = {

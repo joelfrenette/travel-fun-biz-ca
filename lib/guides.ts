@@ -281,6 +281,37 @@ export function pickRelatedGuides(current: Pick<GuideLink, 'kind' | 'slug' | 'pa
   return out
 }
 
+/** How many "coverage" links every related-guides block carries. Each guide is linked from the two guides before it in the
+ * ring, so every indexable guide has at least two inbound related links, however unpopular. */
+export const COVERAGE_LINKS = 2
+
+/** The stable ring all indexable guides sit in: by kind, then parent, then slug, so siblings sit side by side. Pure. */
+function coverageRing<T extends Pick<GuideLink, 'kind' | 'slug' | 'parent_slug'>>(candidates: T[]): T[] {
+  return [...candidates].sort(
+    (a, b) => a.kind.localeCompare(b.kind) || (a.parent_slug ?? '').localeCompare(b.parent_slug ?? '') || a.slug.localeCompare(b.slug),
+  )
+}
+
+/** The guides `current` must link to so that no page is ever left without inbound links: the next `count` guides after it in
+ * the ring. Empty when `current` is not one of the candidates (a safe page or a draft needs no coverage). Pure. */
+export function pickCoverageGuides<T extends Pick<GuideLink, 'kind' | 'slug' | 'parent_slug'>>(current: Pick<GuideLink, 'kind' | 'slug'>, candidates: T[], count = COVERAGE_LINKS): T[] {
+  const ring = coverageRing(candidates)
+  const i = ring.findIndex((g) => g.kind === current.kind && g.slug === current.slug)
+  if (i < 0 || ring.length < 2) return []
+  const out: T[] = []
+  for (let step = 1; step < ring.length && out.length < count; step++) out.push(ring[(i + step) % ring.length])
+  return out
+}
+
+/** The related-guides block of a page: the best matches (pickRelatedGuides) first, then the coverage links, at most `limit` in all.
+ * The page and the orphan audit both use this, so they cannot disagree. `candidates` must be published and not thin. Pure. */
+export function pickRelatedWithCoverage(current: Pick<GuideLink, 'kind' | 'slug' | 'parent_slug' | 'related_package_ids'>, candidates: GuideLink[], limit = 6): GuideLink[] {
+  const cover = pickCoverageGuides(current, candidates, Math.min(COVERAGE_LINKS, limit))
+  const coverIds = new Set(cover.map((g) => g.id))
+  const best = pickRelatedGuides(current, candidates, limit).filter((g) => !coverIds.has(g.id)).slice(0, Math.max(0, limit - cover.length))
+  return [...best, ...cover]
+}
+
 const normPhrase = (s: string) => ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `
 
 /** Up to `limit` guides that a blog post is really about. A guide counts when the post's destination (from its
@@ -419,7 +450,7 @@ export async function listGuidesForPackage(pkg: { id: string; destination: strin
 
 /** Related published guides for a guide page. Never throws. */
 export async function listRelatedGuides(current: Pick<GuideLink, 'kind' | 'slug' | 'parent_slug' | 'related_package_ids'>, limit = 6): Promise<GuideLink[]> {
-  return pickRelatedGuides(current, await listPublishedGuideLinks(), limit)
+  return pickRelatedWithCoverage(current, await listPublishedGuideLinks(), limit)
 }
 
 /** Published guides a blog post is about (see pickGuidesForPost). The destination comes only from the post's
