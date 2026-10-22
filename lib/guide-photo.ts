@@ -159,7 +159,10 @@ export function collectUsed(covers: readonly (string | null | undefined)[]): Use
   return { keys, ids }
 }
 
-export type RejectWhy = 'invalid' | 'banned' | 'too-small' | 'not-landscape' | 'already-used' | 'wrong-subject'
+/** Photos a person ruled out by eye: they show another company's named vessel or property. Add the Pexels id here to never use one. */
+export const BLOCKED_PHOTO_IDS: ReadonlySet<number> = new Set([36104392])
+
+export type RejectWhy ='invalid' | 'banned' | 'too-small' | 'not-landscape' | 'already-used' | 'wrong-subject'
 
 /** Why a candidate is not acceptable, or null when it is. A photo is accepted only when:
  *  - its description is not a banned subject (laptop, office ...),
@@ -173,7 +176,7 @@ export function rejectReason(c: PhotoCandidate, subject: SubjectType, query: str
   if (isBannedAlt(alt)) return 'banned'
   if (!(c.width >= GUIDE_PHOTO_MIN_WIDTH) || !(c.height >= GUIDE_PHOTO_MIN_HEIGHT)) return 'too-small'
   if (!(c.width > c.height)) return 'not-landscape'
-  if (used.ids.has(c.id) || used.keys.has(coverKey(c.url))) return 'already-used'
+  if (used.ids.has(c.id) || used.keys.has(coverKey(c.url)) || BLOCKED_PHOTO_IDS.has(c.id)) return 'already-used'
   const words = SUBJECT_WORDS[subject]
   if (alt ? !words.test(alt) : !words.test(query)) return 'wrong-subject'
   return null
