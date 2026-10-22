@@ -28,6 +28,19 @@ async function main() {
   expect('match on a keyword in the set', pickGuideAndPostLinks({ angle: 'x', keyword: 'y', keywords: ['cancun resorts'] }, guides, []).some((l) => l.path === '/destinations/cancun'))
   expect('match on a topic tag', pickGuideAndPostLinks({ angle: 'x', keyword: 'y', tags: ['Rome'] }, guides, []).some((l) => l.path === '/destinations/rome'))
 
+  // Precision: short or generic names never match; a name must match in full; the destination in the post is preferred.
+  const g = (name: string, slug: string, destination?: string): LinkGuide => ({ kind: 'destinations', slug, name, destination })
+  expect('a name under the minimum length never matches', pickGuideAndPostLinks({ angle: 'Why Oz is a great pick', keyword: 'oz' }, [g('Oz', 'oz')], []).length === 0)
+  expect('a generic word as a guide name never matches', pickGuideAndPostLinks({ angle: 'The best beach holiday cruise', keyword: 'cruise' }, [g('Cruise', 'cruise'), g('Beach', 'beach')], []).length === 0)
+  expect('a part of a multi-word name does not match', pickGuideAndPostLinks({ angle: 'A river cruise on the Danube', keyword: 'avalon' }, guides, []).length === 0)
+  expect('the full multi-word name matches, case-insensitively', pickGuideAndPostLinks({ angle: 'avalon WATERWAYS review', keyword: 'x' }, guides, []).some((l) => l.path === '/cruise-lines/avalon-waterways'))
+  expect('no match inside a longer word (Romeo is not Rome)', pickGuideAndPostLinks({ angle: 'Romeo and Juliet tour', keyword: 'x' }, guides, []).length === 0)
+  const nearGuides: LinkGuide[] = [g('Colosseum', 'colosseum', 'Rome'), g('Pantheon', 'pantheon', 'Athens'), g('Forum', 'forum', 'Rome'), g('Acropolis', 'acropolis', 'Athens'), g('Trevi', 'trevi', 'Rome')]
+  const near = pickGuideAndPostLinks({ angle: 'Colosseum, Pantheon, Forum, Acropolis and Trevi in Rome', keyword: 'rome' }, nearGuides, [])
+  expect('guides whose destination is also in the post win the 3 slots', near.map((l) => l.path).join() === '/destinations/colosseum,/destinations/forum,/destinations/trevi', near.map((l) => l.path).join())
+  const farOnly = pickGuideAndPostLinks({ angle: 'The Pantheon', keyword: 'x' }, [g('Pantheon', 'pantheon', 'Athens')], [])
+  expect('a matching guide is still picked when its destination is absent', farOnly.length === 1)
+
   // No match adds nothing and does not throw.
   const none = pickGuideAndPostLinks({ angle: 'Packing tips for a weekend away', keyword: 'packing list' }, guides, posts)
   expect('no match adds nothing', none.length === 0, JSON.stringify(none))

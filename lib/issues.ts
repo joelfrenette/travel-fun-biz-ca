@@ -12,7 +12,7 @@ import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { healLoopCard } from '@/lib/heal-loop'
 import { orderWebhookFailureCount } from '@/lib/webhook-order-result'
-import { AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, ORDER_WEBHOOK_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { AI_SPEND_ISSUE_ID, AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, ORDER_WEBHOOK_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
 import { failingSources, newsTableReady } from '@/lib/news-ingest'
 import { getNewsMode } from '@/lib/news-settings'
 import { sourceByKey } from '@/lib/news-sources'
@@ -23,6 +23,7 @@ import { completenessScore } from '@/lib/package-completeness'
 import { openFindings, dismissFindings } from '@/lib/source-watch'
 import { checkPastTripsForRecap } from '@/lib/content-drift'
 import { pastTripSlugs } from '@/lib/past-trip'
+import { readStoredAiSpend, overCeiling, usd } from '@/lib/ai-tripwire'
 import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
@@ -492,6 +493,23 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
         detail: `${guidesRes.count} guide page${guidesRes.count === 1 ? ' is' : 's are'} live, but no affiliate partner is active, so the "Fun things to do" box is hidden on all of them.`,
         fix: 'Open Affiliate Links in the admin, add a partner (name, partner ID and the search link from its dashboard), and set it to Active.',
         link: { label: 'Open Affiliate Links', href: '/admin/affiliate-links' },
+      })
+    }
+  } catch {
+    // an optional nudge is never worth failing the list
+  }
+
+  // AI use above the daily limit (alert only, nothing is blocked). Area 'setup' so it never triggers the generic alert
+  // email; the daily tripwire sends its own single email. Silent when the spend cannot be read.
+  try {
+    const { spend, ceiling } = await readStoredAiSpend(admin)
+    if (spend !== null && overCeiling(spend, ceiling)) {
+      issues.push({
+        id: AI_SPEND_ISSUE_ID,
+        area: 'setup',
+        title: `AI use is above your daily limit (about ${usd(spend)} in 24 hours)`,
+        detail: `The limit is ${usd(ceiling)}. The cost is an estimate from the AI meter, not the bill. Nothing was stopped.`,
+        fix: 'Check the Anthropic console Usage page. If it looks wrong, turn Autopilot off and tell Claude. If it looks fine, raise ai_daily_ceiling_usd in the app_settings table.',
       })
     }
   } catch {

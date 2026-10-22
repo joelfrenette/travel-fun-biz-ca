@@ -49,6 +49,10 @@ export const NEWS_SETUP_ISSUE_ID = 'setup:news-migration'
 /** The informational setup item shown while guides are published but no affiliate partner is active (WP21). Amber, never an alert email. */
 export const AFFILIATE_PARTNER_ISSUE_ID = 'setup:affiliate-partner'
 
+/** The informational item shown while the last 24 hours of AI use is above the daily limit (ai_daily_ceiling_usd). Area 'setup'
+ * (amber), so it never sends the generic alert email; the tripwire sends its own single email. Same reason as above for living here. */
+export const AI_SPEND_ISSUE_ID = 'setup:ai-spend'
+
 /** The page anchor of one issue on the Content Autopilot page, so an email can link straight to it. */
 export const issueAnchor = (id: string) => `issue-${id.replace(/[^a-z0-9]+/gi, '-')}`
 
@@ -247,6 +251,17 @@ export function plainAction(i: Issue): PlainAction {
       url: 'https://supabase.com/dashboard',
       urlLabel: 'Open Supabase',
       paste: 'Please give me the contents of supabase/migrations/0047_news_items.sql so I can run it in the Supabase SQL editor.',
+    }
+  }
+  if (i.id === AI_SPEND_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'The site uses AI to write pages and posts, and each call costs a little money. In the last day it used more than the limit you set. Nothing was stopped. The number is a close guess, not the bill.',
+      steps: ['Open the Anthropic console with the link below and click Usage. Look at the last day.', 'Open the Value page in the admin to see which job used the most.', 'If it looks wrong, set Autopilot to off for now and copy the message below to Claude.', 'If it looks fine, raise the limit: open Supabase, then the app_settings table, and set the row ai_daily_ceiling_usd to a bigger number, like 10.', 'This note goes away by itself when a day is back under the limit.'],
+      url: 'https://console.anthropic.com/settings/usage',
+      urlLabel: 'Open the Anthropic console',
+      paste,
     }
   }
   if (i.id === HEAL_LOOP_ISSUE_ID) {
