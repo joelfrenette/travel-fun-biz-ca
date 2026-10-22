@@ -17,7 +17,8 @@ import { photoIdOf } from '@/lib/social-cover'
 import { tagVariant } from '@/lib/content-variants'
 import { rotateStyle, hashtagCapFor, readRecentVariantValues, readVariantTag } from '@/lib/hook-styles'
 import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, REEL_COVER_TEMPLATE, type BeatVisual } from '@/lib/shotstack'
-import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
+import { findBrollForBeats, isPexelsConfigured } from '@/lib/pexels'
+import { gateReelFrames } from '@/lib/reel-frame-gate'
 import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
 import { resolvePostingTarget, getProvider, platformsFor, sentPlatformsOf, type PostingTarget } from '@/lib/social-provider'
 import { ghlSocialMissing } from '@/lib/ghl-social'
@@ -408,7 +409,9 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
               await tagVariant(admin, row.slug, visualTags('reel', REEL_COVER_TEMPLATE, { ok: false, reasons: reelCover.reasons }, photoIdOf(post.cover_image_url)))
               continue
             }
-            const clips = await Promise.all(capped.beats.map((b) => findBrollClip(b.brollSearchTerms.join(' '))))
+            // One clip per beat: searches name the post's subject type (river cruise, ship deck, old town ...), unrelated clips are
+            // rejected, and no clip repeats inside the reel or from the last reels (lib/broll-select.ts).
+            const clips = await findBrollForBeats(capped.beats, { keyword: post.primary_keyword, title: post.title })
             const visuals: BeatVisual[] = clips.map((c) => ({ videoUrl: c?.url }))
             const submitted = await submitRender(buildVideoEdit(capped, visuals, post.cover_image_url ?? undefined, reelCover.title, SITE_NAME.toUpperCase(), { platform: !target || target.videoPlatforms.length === 0 || target.videoPlatforms.some((p) => !networkSupportsLinks(p)) ? 'instagram' : 'youtube' }))
             if (submitted.ok && submitted.renderId) {
@@ -434,6 +437,15 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
     if (row.video_stage === 'rendering' && row.render_id) {
       const status = await getRenderStatus(row.render_id)
       if (status.ok && status.status === 'done' && status.url) {
+        // Post-render frame gate: look at the poster (cover) and the end card still Shotstack saved with the render. A failing cover
+        // is never posted. The credit is already spent, so this is a silent, counted skip (the Visual quality tile), never an
+        // alert. No still, or a fetch that fails twice, means "unknown": the reel goes on as before.
+        const frames = shotstackEnv() === 'v1' ? await gateReelFrames({ posterUrl: status.poster, endUrl: status.thumbnail }) : null
+        if (frames && frames.verdict === 'fail') {
+          await save(row, { video_stage: 'skipped', last_error: null })
+          await recordGateEvents(admin, ['skip'], { slug: row.slug, surface: 'reel', reason: frames.reasons.join('; ') })
+          continue
+        }
         // Sandbox renders carry Shotstack's watermark: keep the URL for review, never post it.
         await save(row, { video_url: status.url, video_stage: shotstackEnv() === 'v1' ? 'rendered' : 'sandbox' })
       } else if (status.ok && status.status === 'failed') {

@@ -16,6 +16,8 @@ import {
   endCardCta,
   beatLine,
   reelTextBoxes,
+  reelTiming,
+  captionCollisions,
   type ReelPlatform,
   CAPTION_MIN_FONT,
   REEL_RED,
@@ -59,7 +61,9 @@ const shape = clips(edit).find((c) => assetType(c) === 'shape')
 check('the cover overlay is a rectangle shape with a fill', !!shape && shape.asset.shape === 'rectangle' && typeof (shape.asset.fill as { opacity: number }).opacity === 'number')
 
 // ---- cover frame (0 to 3 seconds) ----
-const coverClips = clips(edit).filter((c) => Number(c.start) === 0 && Number(c.length) === 3)
+const coverEnd = reelTiming(script('Cancun or Tulum')).coverEnd
+check('the cover window is the hook beat (3 seconds at least, longer for a longer hook)', coverEnd >= 3 && coverEnd <= 4, String(coverEnd))
+const coverClips = clips(edit).filter((c) => Number(c.start) === 0 && Math.abs(Number(c.length) - coverEnd) < 0.01 && assetType(c) !== 'text-to-speech' && assetType(c) !== 'rich-caption')
 const block = coverClips.find((c) => assetType(c) === 'rich-text' && (c.asset.background as { color?: string } | undefined)?.color === REEL_RED)
 check('cover has the red #d81f26 block', !!block)
 check('red block is solid (opacity 1, square corners)', !!block && (block.asset.background as { opacity: number; borderRadius: number }).opacity === 1 && (block.asset.background as { borderRadius: number }).borderRadius === 0)
@@ -146,7 +150,12 @@ for (const [name, e] of samples) {
   check(`${name}: every text is at least 44px`, boxes.every((b) => b.fontSize >= REEL_MIN_FONT), JSON.stringify(boxes.map((b) => b.fontSize)))
   check(`${name}: burned-in text is readable (stroke on captions and beat text, or a solid or dark block behind it)`, clips(e).filter((c) => assetType(c) === 'rich-text' || assetType(c) === 'rich-caption').every((c) => !!c.asset.stroke || !!c.asset.background))
   // 4. hook in the first second, beats short, end card
-  check(`${name}: hook text is on screen from frame 0 (within the first second)`, boxes.some((b) => b.kind === 'rich-text' && b.start <= 1 && b.text.length > 0) && boxes.some((b) => b.kind === 'rich-caption' && b.start <= 1))
+  check(`${name}: the cover headline is on screen from frame 0 (within the first second)`, boxes.some((b) => b.kind === 'rich-text' && b.start <= 1 && b.text.length > 0))
+  const coverBoxes = boxes.filter((b) => b.kind === 'rich-text' && b.start <= 0.01)
+  const coverUntil = Math.max(...coverBoxes.map((b) => b.end))
+  check(`${name}: the hook is the only text for the first 2 seconds (no caption, no beat text)`, coverUntil >= 2 && boxes.filter((b) => b.start < 2 - 0.01).every((b) => b.kind === 'rich-text' && b.start <= 0.01), JSON.stringify(boxes.filter((b) => b.start < 2).map((b) => [b.kind, b.start])))
+  check(`${name}: no burned caption overlaps the cover headline block or the end card at any moment they share`, captionCollisions(e).length === 0, JSON.stringify(captionCollisions(e).map((c) => [c.caption.start, c.caption.end, c.with.text])))
+  check(`${name}: captions start after the cover window and stop before the end card`, boxes.filter((b) => b.kind === 'rich-caption').every((b) => b.start >= coverUntil - 0.01 && b.end <= total - END_CARD_SECONDS + 0.01))
   const beatBoxes = boxes.filter((b) => b.kind === 'rich-text' && b.start >= 3 && b.end < total - END_CARD_SECONDS + 0.01)
   check(`${name}: beat text is 7 words at most`, beatBoxes.length > 0 && beatBoxes.every((b) => b.text.split(/\s+/).length <= REEL_BEAT_MAX_WORDS), JSON.stringify(beatBoxes.map((b) => b.text)))
   const end = boxes.filter((b) => b.kind === 'rich-text' && Math.abs(b.end - total) < 0.01)
@@ -188,6 +197,58 @@ check('beatLine cuts to 7 words and drops trailing punctuation', beatLine('One t
 check('the end card text has no em dash', !JSON.stringify(samples.map(([, e]) => e)).includes(String.fromCharCode(8212)))
 const yt = sample('Hook?', [['A', 'B c d.']], 'Cancun or Tulum', undefined, 'youtube')
 check('a youtube reel ends on the short URL, not link in bio', clips(yt).some((c) => assetType(c) === 'rich-text' && String(c.asset.text) === `Plan your trip: ${REEL_SHORT_URL}`) && !clips(yt).some((c) => /link in bio/i.test(String(c.asset.text ?? ''))))
+
+// ---- captions never run over the cover headline or the end card (real defect seen in the 21 Oct reel frames) ----
+// docs/factory/evidence/reel-2026-10-21-frames.png: the burned caption (title plus first sentence, 4 to 5 lines) sat on top of
+// the red cover block for the first 3 seconds, hiding "COLOGNE TO BASEL BY RIVER". The caption box in that render reached from
+// y 250 down to about 560 of 1280 while the red block started at about 490.
+{
+  const evidenceScript: VideoScript = {
+    hook: 'Is a Rhine river cruise right for you?',
+    coverTitle: 'Cologne to Basel by river',
+    title: 'Viking River Cruise Germany: A Rhine guide for solo travelers',
+    description: 'd',
+    hashtags: [],
+    beats: [
+      { scene: 'ship', onScreenText: 'A floating hotel', voiceover: 'A floating hotel that docks right in the heart of each town.', brollSearchTerms: ['river cruise ship'] },
+      { scene: 'route', onScreenText: 'Grand cities to quiet villages', voiceover: 'This route builds gently from grand cities to quiet villages.', brollSearchTerms: ['rhine old town'] },
+      { scene: 'x', onScreenText: 'Nobody tells you this', voiceover: 'Wait, nobody tells you this.', brollSearchTerms: ['river'] },
+      { scene: 'price', onScreenText: 'Compare what is included', voiceover: 'Before judging on price, compare what each fare includes.', brollSearchTerms: ['river cruise deck'] },
+      { scene: 'solo', onScreenText: 'Solo travel, made easy', voiceover: 'Solo travel is easy because the ship does the planning.', brollSearchTerms: ['rhine castle'] },
+      { scene: 'a', onScreenText: 'Castles at every bend', voiceover: 'You pass castles on the hillsides almost every hour.', brollSearchTerms: ['rhine castle'] },
+      { scene: 'b', onScreenText: 'Unpack once', voiceover: 'You unpack one time and wake up somewhere new.', brollSearchTerms: ['river cruise cabin'] },
+      { scene: 'c', onScreenText: 'Which one are you?', voiceover: 'Boat or boots: which one are you?', brollSearchTerms: ['river cruise'] },
+    ],
+  }
+  const vids = evidenceScript.beats.map((_, i) => ({ videoUrl: `https://v.test/${i}.mp4` }))
+  const built = buildVideoEdit(evidenceScript, vids, 'https://i.test/cologne.jpg', 'Cologne to Basel by river', 'TRAVELFUNBIZ.CA', { platform: 'instagram' })
+  const t = reelTiming(evidenceScript)
+  const total = Math.max(...clips(built).map((c) => Number(c.start) + Number(c.length)))
+  check('reelTiming agrees with the built edit (cover end, end card start, total)', Math.abs(t.total - total) < 0.01 && Math.abs(t.endStart - (total - END_CARD_SECONDS)) < 0.01, JSON.stringify(t))
+
+  // The reconstructed old layout: the same reel, but the caption sits in the upper part from frame 0 and the cover block is centred.
+  const old = JSON.parse(JSON.stringify(built)) as ShotstackEdit
+  const oldCaption = clips(old).find((c) => assetType(c) === 'rich-caption')!
+  oldCaption.position = 'top'
+  oldCaption.offset = { y: -0.25 }
+  oldCaption.start = 0
+  oldCaption.length = total
+  const oldBlock = clips(old).find((c) => assetType(c) === 'rich-text' && (c.asset.background as { color?: string } | undefined)?.color === REEL_RED && Number(c.start) === 0)!
+  oldBlock.offset = { y: 0 }
+  check('the detector flags the real 21 Oct layout (caption over the cover block)', captionCollisions(old).length > 0, String(captionCollisions(old).length))
+
+  // The current builder: no caption box shares time and space with the cover or end card.
+  check('21 Oct fixture: no burned caption overlaps the cover headline or the end card', captionCollisions(built).length === 0, JSON.stringify(captionCollisions(built).map((c) => [c.caption.start, c.caption.end, c.with.text])))
+  const bBoxes = reelTextBoxes(built)
+  const bCaptions = bBoxes.filter((b) => b.kind === 'rich-caption')
+  check('captions start after the cover window and end before the end card', bCaptions.length > 0 && bCaptions.every((b) => b.start >= t.coverEnd - 0.01 && b.end <= t.endStart + 0.01), JSON.stringify(bCaptions.map((b) => [b.start, b.end])))
+  const textAt = (sec: number) => bBoxes.filter((b) => b.start <= sec && sec < b.end).map((b) => b.text || 'captions')
+  check('the hook beat shows only the cover headline and the brand strip (0.4s and 2.5s)', [0.4, 1, 2, 2.5].every((s) => JSON.stringify(textAt(s).sort()) === JSON.stringify(['COLOGNE TO BASEL BY RIVER', 'TRAVELFUNBIZ.CA'].sort())), JSON.stringify([0.4, 2.5].map(textAt)))
+  check('the cover window equals the hook beat: cover text, cover photo and the first beat line up', clips(built).filter((c) => Number(c.start) === 0 && assetType(c) !== 'text-to-speech' && assetType(c) !== 'shape' && assetType(c) !== 'rich-caption').every((c) => Math.abs(Number(c.length) - t.coverEnd) < 0.01) && clips(built).some((c) => assetType(c) === 'video' && Math.abs(Number(c.start) - t.coverEnd) < 0.01))
+  const tts = clips(built).filter((c) => assetType(c) === 'text-to-speech')
+  check('the hook is spoken alone during the cover, the beats are read from their own clip that the captions follow', tts.length === 2 && String(tts[0].asset.text) === evidenceScript.hook && Math.abs(Number(tts[0].length) - t.coverEnd) < 0.01 && tts[1].alias === 'narration' && !String(tts[1].asset.text).includes(evidenceScript.hook) && Math.abs(Number(tts[1].start) - t.coverEnd) < 0.01 && Math.abs(Number(bCaptions[0] ? clips(built).find((c) => assetType(c) === 'rich-caption')!.start : -1) - Number(tts[1].start)) < 0.01)
+  check('no burned text or narration starts with the blog title', ![...bBoxes.map((b) => b.text), ...tts.map((c) => String(c.asset.text))].some((x) => x.toLowerCase().startsWith('viking river cruise')) && !JSON.stringify(built).includes('Picture'))
+}
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`)
 process.exit(failures === 0 ? 0 : 1)
