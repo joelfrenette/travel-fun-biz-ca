@@ -15,6 +15,7 @@ import {
   MIN_MEAN_SATURATION,
   MIN_LUMA_STD,
   MIN_PHOTO_DETAIL,
+  CENTRE_TOLERANCE_SHARE,
   type GateKind,
   type GateResult,
 } from '../lib/visual-gate'
@@ -104,8 +105,8 @@ async function realPhoto(file: string): Promise<Img> {
 }
 
 /** Letter-like white rectangles (44 wide, 86 tall, 14 gap) centred on `cx`, `lines` rows, inside a block box. */
-function drawHeadlineText(img: Img, x0: number, y0: number, x1: number, lines: number, lineH = 130, letterH = 86) {
-  const cx = (x0 + x1) / 2
+function drawHeadlineText(img: Img, x0: number, y0: number, x1: number, lines: number, lineH = 130, letterH = 86, shift = 0) {
+  const cx = (x0 + x1) / 2 + shift
   for (let l = 0; l < lines; l++) {
     const letters = Math.max(3, Math.floor(((x1 - x0) * 0.8) / 58) - l * 2)
     const lw = letters * 58 - 14
@@ -129,6 +130,8 @@ interface CoverOpts {
   noStrip?: boolean
   edgeText?: boolean
   blockHeight?: number
+  /** Moves the words sideways inside the block (pixels at 1080 wide) without moving the block. */
+  textShift?: number
 }
 
 /** A cover as the route draws it: photo, red block with text, brand strip. Options break one thing at a time. */
@@ -141,7 +144,7 @@ function cover(o: CoverOpts = {}): Img {
   const bh = o.blockHeight ?? lines * 130 + 52
   if (!o.noBlock) {
     rect(img, left, top, right, top + bh, RED)
-    if (!o.noText) drawHeadlineText(img, left, top, right, lines)
+    if (!o.noText) drawHeadlineText(img, left, top, right, lines, 130, 86, o.textShift ?? 0)
   }
   if (o.edgeText) {
     // A word cut by the frame: white letters touching a red strip at the very left edge.
@@ -221,6 +224,25 @@ async function main() {
   await expectFail('flat grey photo', cover({ photo: grey }), 'cover', 'flat or dull')
   await expectFail('gradient only (the photo did not load)', cover({ photo: gradientOnly() }), 'cover', 'no photo detail')
   await expectFail('wrong size', solid(600, 600, [10, 10, 10]), 'cover', 'unexpected image size')
+
+  // ---- centring (block centre and text centre of mass within 4% of the frame centre) ----
+  console.log(`centring tolerance: ${CENTRE_TOLERANCE_SHARE * 100}% of the width (${Math.round(CENTRE_TOLERANCE_SHARE * W)}px at ${W}px)`)
+  const centred = await gate(cover(), 'cover')
+  check('good: a centred cover has block and text offsets near 0', Math.abs(centred.metrics?.blockCentreOffset ?? 1) < 0.005 && Math.abs(centred.metrics?.textCentreOffset ?? 1) < 0.01, JSON.stringify([centred.metrics?.blockCentreOffset, centred.metrics?.textCentreOffset]))
+  await expectFail('block pushed to the left but inside the margins', cover({ left: 100, right: 640 }), 'cover', 'title block is off centre')
+  await expectFail('block pushed to the right but inside the margins', cover({ left: 440, right: 980 }), 'cover', 'title block is off centre')
+  await expectFail('centred block with the words pushed right', cover({ textShift: 120 }), 'cover', 'title text is off centre')
+  await expectFail('centred block with the words pushed left', cover({ textShift: -120 }), 'cover', 'title text is off centre')
+  await expectPass('block 3% off centre is still fine (anti-aliasing and rounding slack)', cover({ lines: 2, left: 190, right: 950 }), 'cover')
+  await expectPass('words 2.5% off centre are still fine', cover({ textShift: 27 }), 'cover')
+  await expectFail('block 6% off centre fails', cover({ lines: 2, left: 260, right: 960 }), 'cover', 'off centre')
+  // The real live cover, when a sample is on this machine (optional).
+  const realCover = 'C:\\Users\\joelfrenette\\AppData\\Local\\Temp\\c.png'
+  if (fs.existsSync(realCover)) {
+    const r = await checkVisual(fs.readFileSync(realCover), 'cover')
+    check('good: the real live cover sample (c.png) passes, centring included', r.ok && !r.infra, gateSummary(r))
+    console.log(`      real cover centring: block ${(((r.metrics?.blockCentreOffset ?? 0) * 100)).toFixed(2)}%, text ${(((r.metrics?.textCentreOffset ?? 0) * 100)).toFixed(2)}%`)
+  } else console.log('      (no real cover sample at c.png, skipped)')
 
   // A smaller render of the same design still passes (distances are scaled).
   const half = await sharp(await png(cover())).resize(540, 675).png().toBuffer()

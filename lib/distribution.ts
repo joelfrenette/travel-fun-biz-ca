@@ -4,7 +4,7 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { uploadPostGetStatus } from '@/lib/upload-post'
 import { resolvePostingTarget, platformsFor, PLATFORM_ACCEPTS, type PostingTarget } from '@/lib/social-provider'
 import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
-import { utmLink, canonicalNetwork } from '@/lib/utm'
+import { socialLink, type SocialSurface } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource, packageSlugFromPath } from '@/lib/guide-post-source'
 import { pickPostImage, type SocialCoverKind } from '@/lib/social-cover'
@@ -331,7 +331,9 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const { data: post } = isGuideRow ? { data: guideSource } : await admin.from('posts').select('title, cover_image_url, meta_description, faq, key_takeaways, tags').eq('slug', row.slug).maybeSingle()
       const pageUrl = isGuideRow ? absoluteUrl(row.path as string) : `${SITE_URL}/blog/${row.slug}`
       // Each network gets its own link: utm_source is that network's canonical name (twitter is x).
-      const networkLink = (p: string) => utmLink(pageUrl, { source: canonicalNetwork(p), medium: 'social', campaign: row.slug, content: 'fallback' })
+      // utm_content is "<surface>-<variant>" (post, guide, trip or news; fallback or the hook style), so no two surfaces share one value.
+      const surface: SocialSurface = isNewsRow ? 'news' : isGuideRow ? ((row.path as string).startsWith('/packages/') ? 'trip' : 'guide') : 'post'
+      const networkLink = (p: string) => socialLink(pageUrl, p, row.slug, surface, 'fallback')
       const title = post?.title || row.title
       // Only networks that accept this kind of post, and never ones this post already reached.
       // The image a photo post goes out with is the TITLED cover (app/social-cover), never the bare photo: a bare
@@ -466,7 +468,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           // account the same opening style.
           hookStyles[p] = rotateStyle(valuesFromRows(variantRows, `hook_style:${p}`, 12), HOOK_STYLES, i)
           ctaStyles[p] = rotateStyle(valuesFromRows(variantRows, `cta_style:${p}`, 12), CTA_STYLES, i)
-          links[p] = utmLink(pageUrl, { source: canonicalNetwork(p), medium: 'social', campaign: row.slug, content: hookStyles[p] })
+          links[p] = socialLink(pageUrl, p, row.slug, surface, hookStyles[p])
         }
         tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding: isGuideRow ? guideSource?.grounding : await loadGrounding(admin, row.slug) })
         // Record only the styles that actually reached a caption (a dropped caption used none).

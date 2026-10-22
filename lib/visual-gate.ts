@@ -55,7 +55,11 @@ export const TEAL_SHARE_MIN = 0.45
 export const CARD_TEXT_SHARE_MIN = 0.01
 export const CARD_TEXT_SHARE_MAX = 0.5
 
-export type GateKind = 'cover' | 'news' | 'fact'
+/** Centring: the red block's centre and the centre of mass of its white text must sit within this share of the frame width
+ * of the frame's horizontal centre (4% of 1080 = 43px). A title pushed to one side is a defect even when it is clear of the margins. */
+export const CENTRE_TOLERANCE_SHARE = 0.04
+
+export type GateKind ='cover' | 'news' | 'fact'
 
 export interface GateMetrics {
   width: number
@@ -66,6 +70,9 @@ export interface GateMetrics {
   photoDetail?: number
   textShare?: number
   contrast?: number
+  /** Horizontal distance of the block centre / the text centre of mass from the frame centre, as a share of the frame width (signed, right is positive). */
+  blockCentreOffset?: number
+  textCentreOffset?: number
   brandLightPixels?: number
   edgeBadPixels?: number
   tealShare?: number
@@ -247,6 +254,10 @@ export function analysePixels(data: Uint8Array | Uint8ClampedArray | Buffer, wid
       if (top < edge || bottom > h - 1 - edge) reasons.push('the red block touches the top or bottom edge')
       if (areaShare < BLOCK_AREA_MIN) reasons.push(`the red block is too small (${(areaShare * 100).toFixed(1)}% of the frame)`)
       if (areaShare > BLOCK_AREA_MAX) reasons.push(`the red block is too big (${(areaShare * 100).toFixed(1)}% of the frame)`)
+      // Centred title block: its centre must be within 4% of the frame width of the frame centre.
+      const blockOffset = (left + right) / 2 / (w - 1) - 0.5
+      metrics.blockCentreOffset = blockOffset
+      if (Math.abs(blockOffset) > CENTRE_TOLERANCE_SHARE) reasons.push(`the title block is off centre (${(blockOffset * 100).toFixed(1)}% of the width, at most ${CENTRE_TOLERANCE_SHARE * 100}%)`)
 
       // ---- text on the block, and its contrast (d) ----
       let whiteN = 0
@@ -257,6 +268,7 @@ export function analysePixels(data: Uint8Array | Uint8ClampedArray | Buffer, wid
       let rr = 0
       let rg = 0
       let rb = 0
+      let whiteX = 0
       for (let y = top; y <= bottom; y++) {
         for (let x = left; x <= right; x++) {
           const i = (y * w + x) * ch
@@ -265,6 +277,7 @@ export function analysePixels(data: Uint8Array | Uint8ClampedArray | Buffer, wid
           const b = data[i + 2]
           if (isWhite(r, g, b)) {
             whiteN++
+            whiteX += x
             wr += r
             wg += g
             wb += b
@@ -278,6 +291,13 @@ export function analysePixels(data: Uint8Array | Uint8ClampedArray | Buffer, wid
       }
       const textShare = whiteN / (bw * blockRows)
       metrics.textShare = textShare
+      // Centred text: the centre of mass of the white letters, measured from the frame centre (not the block, so a block
+      // that is centred but holds left-aligned words is caught too).
+      if (whiteN > 0) {
+        const textOffset = whiteX / whiteN / (w - 1) - 0.5
+        metrics.textCentreOffset = textOffset
+        if (Math.abs(textOffset) > CENTRE_TOLERANCE_SHARE) reasons.push(`the title text is off centre (${(textOffset * 100).toFixed(1)}% of the width, at most ${CENTRE_TOLERANCE_SHARE * 100}%)`)
+      }
       if (textShare < TEXT_SHARE_MIN) reasons.push('the red block has no readable text in it')
       else if (textShare > TEXT_SHARE_MAX) reasons.push('the red block is mostly white (text is not readable)')
       else if (whiteN > 0 && redN > 0) {

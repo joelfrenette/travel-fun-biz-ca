@@ -1,6 +1,7 @@
 // Offline checks for the WP2 caption gate and style rotation. No network, no database.
 // Run: pnpm dlx tsx scripts/check-captions.ts   (exits 1 on the first failed expectation)
-import { captionProblems } from '../lib/social-captions'
+import { captionProblems, repairCaptionCta, buildVideoCaption, WORD_OF_MOUTH_LINE, FALLBACK_CTA_LINE, BIO_CTA_LINE, VIDEO_CTA_LINE } from '../lib/social-captions'
+import { socialLink, socialContent, canonicalNetwork, type SocialSurface } from '../lib/utm'
 import { rotateStyle, HOOK_STYLES, valuesFromRows, ungroundedNumbers } from '../lib/hook-styles'
 
 let failures = 0
@@ -63,6 +64,53 @@ expect('weak opener caption flagged', shape(`Discover the Rhine\n\nPlain words a
 expect('three emojis flagged', shape(good.replace('first big trip', 'first big trip \u{1F30A}\u{1F6F3}\u{2600}\u{FE0F}')).includes('too many emojis'))
 expect('hashtag spam flagged', shape(`${good}\n${Array.from({ length: 11 }, (_, i) => `#t${String.fromCharCode(97 + i)}`).join(' ')}`).includes('hashtag spam'))
 expect('four lines without a break flagged', shape(`Is it for you?\nOne.\nTwo.\nThree.\n\nRead the full guide:\n${link}`).includes('paragraph wall'))
+
+// ---- Call to action and link per platform (docs/factory/SOCIAL-QUALITY-LOOP.md part 2) ----
+const SITE = 'https://travelfunbiz.ca/blog/rhine-river-cruise'
+const NETWORKS = ['instagram', 'tiktok', 'facebook', 'linkedin', 'threads', 'bluesky', 'pinterest', 'x', 'youtube']
+const linkOf = (n: string, surface: SocialSurface = 'post', variant = 'question') => socialLink(SITE, n, 'rhine-river-cruise', surface, variant)
+const bodyOnly = 'Is a river cruise right for your first big trip?\n\nThis guide walks through what a 7 day Rhine sailing is like for a first timer.'
+for (const n of NETWORKS) {
+  const l = linkOf(n)
+  const ctx = { title: base.title, summary: base.summary, network: n, link: l, grounding: null as string | null }
+  const bare = bodyOnly
+  const flagged = captionProblems(bare, ctx)
+  expect(`${n}: a caption with no link and no CTA is flagged`, flagged.some((p) => p === 'call to action is missing' || p === 'link is missing'), flagged.join('; '))
+  const fixed = repairCaptionCta(bare, { network: n, link: l })
+  expect(`${n}: repair appends the CTA and leaves no problem`, captionProblems(fixed, ctx).length === 0, `${captionProblems(fixed, ctx).join('; ')} :: ${fixed}`)
+  expect(`${n}: repair is idempotent`, repairCaptionCta(fixed, { network: n, link: l }) === fixed)
+  expect(`${n}: first line is still the hook`, fixed.split('\n')[0] === bodyOnly.split('\n')[0])
+  if (n === 'instagram' || n === 'tiktok') {
+    expect(`${n}: says link in bio, adds the short line, no clickable URL`, /link in (our )?bio/i.test(fixed) && fixed.includes(WORD_OF_MOUTH_LINE) && !/https?:\/\//.test(fixed))
+  } else {
+    expect(`${n}: carries its own UTM link (utm_source=${canonicalNetwork(n)})`, fixed.includes(l) && l.includes(`utm_source=${canonicalNetwork(n)}`) && l.includes('utm_medium=social') && l.includes('utm_campaign=rhine-river-cruise'))
+  }
+}
+const withTags = `${bodyOnly}\n\n#Rhine #Cruise`
+const repairedTags = repairCaptionCta(withTags, { network: 'facebook', link: linkOf('facebook') })
+expect('repair puts the CTA and link before the hashtags', repairedTags.indexOf(linkOf('facebook')) < repairedTags.indexOf('#Rhine') && repairedTags.endsWith('#Rhine #Cruise'))
+const tightIg = repairCaptionCta(`${bodyOnly} ${'More words here. '.repeat(200)}`, { network: 'instagram', link: linkOf('instagram'), limit: 2200 })
+expect('a long caption is cut, never the bio line', tightIg.length <= 2200 && /link in (our )?bio/i.test(tightIg) && tightIg.includes(WORD_OF_MOUTH_LINE))
+const tightX = repairCaptionCta(`${bodyOnly} ${'More words here. '.repeat(50)}`, { network: 'x', link: linkOf('x'), limit: 280 })
+expect('x: a long caption is cut, the link stays whole', tightX.length <= 280 && tightX.includes(linkOf('x')))
+expect('the standard CTA lines contain no em dash', ![FALLBACK_CTA_LINE, BIO_CTA_LINE, WORD_OF_MOUTH_LINE, VIDEO_CTA_LINE].some((s) => s.includes(String.fromCharCode(8212))))
+
+// Distinct utm_content per post surface and per variant; one utm_source per network
+const contents = (['post', 'guide', 'trip', 'news', 'carousel', 'video', 'bio'] as SocialSurface[]).map((s) => socialContent(s, 'question'))
+expect('every surface has its own utm_content', new Set(contents).size === contents.length, contents.join(','))
+expect('variants differ within a surface', socialContent('post', 'story') !== socialContent('post', 'question') && socialContent('post', 'fallback') !== socialContent('post', 'story'))
+expect('twitter is tagged as x', linkOf('twitter').includes('utm_source=x&'))
+expect('two posts never share utm_campaign', socialLink(SITE, 'facebook', 'a', 'post', 'x') !== socialLink(SITE, 'facebook', 'b', 'post', 'x'))
+
+// Pinterest: the caption is the pin text. The pin title is its first line (100 characters at most) and the destination is the UTM page URL.
+const pin = repairCaptionCta(bodyOnly, { network: 'pinterest', link: linkOf('pinterest', 'post', 'fallback') })
+expect('pinterest: pin title (first line) fits 100 characters and the destination has utm_source=pinterest', pin.split('\n')[0].length <= 100 && pin.includes('utm_source=pinterest') && pin.includes('utm_content=post-fallback'))
+
+// The shared reel caption: bio words, then the tagged link, hashtags last, and a long description never cuts either.
+const vcap = buildVideoCaption({ title: 'Cancun or Tulum', description: 'x '.repeat(400), hashtags: ['#Cancun', '#Tulum'] }, linkOf('video', 'video', 'question'), 2200)
+expect('reel caption carries link in bio, the UTM link and fits 2200', vcap.length <= 2200 && vcap.includes(VIDEO_CTA_LINE) && vcap.includes(linkOf('video', 'video', 'question')))
+const vcap2 = buildVideoCaption({ title: 'Cancun or Tulum', description: 'Beaches or ruins.', hashtags: ['#Cancun'] }, linkOf('video', 'video', 'question'), 2200)
+expect('reel caption puts hashtags last', vcap2.endsWith('#Cancun') && vcap2.indexOf(VIDEO_CTA_LINE) < vcap2.indexOf('#Cancun'))
 
 console.log(failures ? `\n${failures} failed` : '\nall passed')
 process.exit(failures ? 1 : 0)

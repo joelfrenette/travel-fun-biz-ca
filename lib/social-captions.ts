@@ -99,7 +99,21 @@ const EM_DASH = String.fromCharCode(8212)
 
 /** Networks whose caption link is plain text, not clickable, so a missing link is not a defect. */
 const LINK_NOT_CLICKABLE = ['instagram', 'tiktok']
-const networkSupportsLinks = (network: string) => !LINK_NOT_CLICKABLE.includes(network.toLowerCase())
+export const networkSupportsLinks = (network: string) => !LINK_NOT_CLICKABLE.includes(network.toLowerCase())
+
+/** "link in bio", "link in our bio", "link in my bio" and "link in the bio" all count. */
+const BIO_PHRASE = /\blink\s+in\s+(?:our|my|the)?\s*bio\b/i
+/** A line that tells the reader what to do next (a plain verb or a "full guide" pointer). */
+const CTA_LINE = /\b(?:read|see|plan|get|book|find|start|learn|compare|check|visit|tap|full (?:guide|update)|details|more)\b/i
+
+/** True when the caption has a call to action. Bio networks (Instagram, TikTok) need the "link in bio" words; every other
+ * network needs a line after the hook that is not the link or the hashtags and reads as a next step. */
+export function hasCallToAction(caption: string, network: string, sharedLink?: string): boolean {
+  // A bio network that shares one caption with a clickable network (a mixed carousel send) may carry the tagged link instead.
+  if (!networkSupportsLinks(network) && !(sharedLink && caption.includes(sharedLink) && hasCallToAction(caption, 'facebook'))) return BIO_PHRASE.test(caption)
+  const lines = caption.split('\n').map((l) => l.trim()).filter(Boolean)
+  return lines.slice(1).some((l) => !/^https?:\/\//i.test(l) && !/^(?:#\S+\s*)+$/.test(l) && CTA_LINE.test(l.replace(/https?:\/\/\S+/gi, '')))
+}
 
 const stripUrls = (text: string) => text.replace(/https?:\/\/\S+/gi, ' ')
 const normaliseLine = (s: string) =>
@@ -138,10 +152,70 @@ export function captionProblems(
   if (stripUrls(caption).replace(/#\S+/g, '').trim().length < 25) problems.push('no text besides the link')
 
   if (ctx.link && networkSupportsLinks(ctx.network) && !caption.includes(ctx.link)) problems.push('link is missing')
+  // Call to action: the bio networks must say "link in bio"; every other network needs a plain-words next step line.
+  if (!hasCallToAction(caption, ctx.network, ctx.link)) problems.push('call to action is missing')
   if (caption.includes(EM_DASH)) problems.push('contains an em dash')
   // Hooks-in-content shape rules: weak opener, missing hook line, emoji and hashtag ceilings, shouting, paragraph walls.
   problems.push(...captionShapeProblems(caption, ctx.network))
   return problems
+}
+
+/** The short line people can remember and say out loud, for the networks where a link cannot be tapped. */
+export const WORD_OF_MOUTH_LINE = 'Easy to remember: travelfunbiz.ca'
+
+/** One reel caption goes to Instagram, TikTok, YouTube and Facebook in a single send, so its call to action names both ways in:
+ * the bio link (Instagram, TikTok) and the tagged link right under it (YouTube, Facebook). */
+export const VIDEO_CTA_LINE = 'Plan your trip: link in bio, or tap here:'
+
+/** The shared reel caption: title, description, call to action, the UTM link, hashtags last. Only the text is ever cut; the CTA and link stay. */
+export function buildVideoCaption(parts: { title: string; description?: string; hashtags?: string[] }, link: string, limit: number): string {
+  const body = [parts.title, parts.description].map((s) => (s ?? '').trim()).filter(Boolean).join('\n\n')
+  const tags = (parts.hashtags ?? []).join(' ').trim()
+  const tail = `${VIDEO_CTA_LINE}\n${link}`
+  const withTags = tags ? `${tail}\n\n${tags}` : tail
+  const chosen = withTags.length + 2 + Math.min(body.length, 40) <= limit ? withTags : tail
+  return fitCaptionWithLink(body, chosen, limit)
+}
+
+/** Splits trailing hashtag-only lines off a caption so a call to action can go in before them. */
+function splitTrailingHashtags(caption: string): { body: string; tags: string } {
+  const lines = caption.trimEnd().split('\n')
+  let i = lines.length
+  while (i > 0 && (!lines[i - 1].trim() || /^(?:#[\p{L}\p{N}_]+\s*)+$/u.test(lines[i - 1].trim()))) i--
+  return { body: lines.slice(0, i).join('\n').trimEnd(), tags: lines.slice(i).join('\n').trim() }
+}
+
+/** Deterministic repair of a caption that has no call to action or no link: appends the standard CTA line (and the link on
+ * networks where it is clickable, or "link in bio" plus the word-of-mouth line on Instagram and TikTok) before the hashtags,
+ * then fits the limit without cutting the CTA or the link. The post is repaired, never dropped for this. Idempotent. */
+export function repairCaptionCta(caption: string, ctx: { network: string; link: string; kind?: 'news' | null; limit?: number }): string {
+  const limit = ctx.limit ?? PLATFORM_CHAR_LIMITS[ctx.network.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
+  const text = caption.trim()
+  if (!networkSupportsLinks(ctx.network)) {
+    const { body, tags } = splitTrailingHashtags(text)
+    const hasBio = BIO_PHRASE.test(text)
+    const hasName = /travelfunbiz\.ca/i.test(text.replace(/https?:\/\/\S+/gi, ''))
+    if (hasBio && hasName) return text
+    const bioLine = ctx.kind === 'news' ? NEWS_BIO_CTA_LINE : BIO_CTA_LINE
+    const block = [hasBio ? '' : bioLine, hasName ? '' : WORD_OF_MOUTH_LINE].filter(Boolean).join('\n')
+    const tail = [block, tags].filter(Boolean).join('\n\n')
+    const whole = [body, tail].filter(Boolean).join('\n\n')
+    if (whole.length <= limit) return whole
+    const shortTail = block
+    return fitCaptionWithLink(body, shortTail, limit)
+  }
+  const link = ctx.link.trim()
+  if (!link) return text
+  const ctaLine = ctx.kind === 'news' ? NEWS_CTA_LINE : FALLBACK_CTA_LINE
+  let out = text
+  if (!out.includes(link)) {
+    const { body, tags } = splitTrailingHashtags(out)
+    const withCta = hasCallToAction(body, ctx.network) ? body : `${body}\n\n${ctaLine}`
+    out = [withCta, link, tags].filter(Boolean).join('\n\n').replace(`${ctaLine}\n\n${link}`, `${ctaLine}\n${link}`)
+  } else if (!hasCallToAction(out, ctx.network)) {
+    out = out.replace(link, `${ctaLine}\n${link}`)
+  }
+  return fitKeepingLink(out, link, limit)
 }
 
 /** Stored facts the no-AI fallback caption is built from. Nothing here is invented: every field is read from the post or guide. */
@@ -201,7 +275,7 @@ export function buildFallbackCaption(
   const build = (body: string, hashtags: string) =>
     cta.includeLink
       ? [[hook, body, cta.line].filter(Boolean).join('\n'), `${link0}${hashtags ? `\n\n${hashtags}` : ''}`].join('\n\n')
-      : [[hook, body, cta.line].filter(Boolean).join('\n'), hashtags].filter(Boolean).join('\n\n')
+      : [[hook, body, cta.line].filter(Boolean).join('\n'), WORD_OF_MOUTH_LINE, hashtags].filter(Boolean).join('\n\n')
   let caption = build(bodyFull, tags)
   if (caption.length > limit) caption = build(bodyFull, '')
   if (caption.length > limit && bodyFull) {
@@ -246,7 +320,8 @@ export function buildNetworkFallbacks(
       continue
     }
     const body = [facts.title, facts.metaDescription].filter(Boolean).join('\n\n')
-    out[p] = fitCaptionWithLink(body, link, limit)
+    // Last resort still carries the platform's call to action: "link in bio" plus the short line, or the UTM link.
+    out[p] = repairCaptionCta(networkSupportsLinks(p) ? fitCaptionWithLink(body, link, limit) : body, { network: p, link, kind: facts.kind, limit })
   }
   return out
 }
@@ -342,8 +417,13 @@ export async function generatePlatformCaptions(
       const limit = PLATFORM_CHAR_LIMITS[p.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
       // An em dash is repaired rather than failed: swapping it for a comma changes no fact.
       const cleaned = repairDashes(raw.trim())
-      const fitted = fitKeepingLink(cleaned, linkFor(p), limit)
-      const problems = captionProblems(fitted, { title: postTitle, summary: postDescription, network: p, link: linkFor(p), grounding: opts.grounding })
+      let fitted = fitKeepingLink(cleaned, linkFor(p), limit)
+      const ctx = { title: postTitle, summary: postDescription, network: p, link: linkFor(p), grounding: opts.grounding }
+      // A missing link or call to action is repaired with the standard CTA line (never a reason to drop the caption).
+      if (captionProblems(fitted, ctx).some((x) => x === 'link is missing' || x === 'call to action is missing')) {
+        fitted = repairCaptionCta(fitted, { network: p, link: linkFor(p), limit })
+      }
+      const problems = captionProblems(fitted, ctx)
       if (problems.length === 0) result[p] = fitted
       else console.warn(`[social-captions] ${p} caption dropped, using the shared caption: ${problems.join('; ')}`)
     }

@@ -110,25 +110,46 @@ export interface BeatVisual {
 }
 
 const COVER_SECONDS = 3
-const TAIL_SECONDS = 1.5
+/** The closing end card (red block with the site name, one call to action line, brand strip): the final 2 to 3 seconds. It also
+ * serves as the margin so a slower real voice is not cut mid-sentence. */
+export const END_CARD_SECONDS = 2.5
 const SECONDS_PER_WORD = 1 / 2.5
-// The output is 9:16 "hd" = 720 x 1280. Every burned-in text box is 560 wide (80px margins each side) and wraps
-// inside that box, so nothing is cut off at the edges. Captions stay 220px clear of the bottom, the strip that
-// Instagram and TikTok cover with their own buttons and caption.
+// The output is 9:16 "hd" = 720 x 1280. Every burned-in text box is 560 wide (80px margins each side, centred) and wraps
+// inside that box, so nothing is cut off at the edges. Instagram covers the top 250px and the bottom 340px of a 1080 x 1920 reel
+// with its own buttons and caption; on this 720 x 1280 canvas that is 250 x 2/3 = 167px and 340 x 2/3 = 227px. All text stays between them.
 export const REEL_WIDTH = 720
 export const REEL_HEIGHT = 1280
 export const REEL_SAFE_SIDE = 80
-export const REEL_SAFE_BOTTOM = 220
+export const REEL_SAFE_TOP = Math.ceil((250 * REEL_WIDTH) / 1080)
+export const REEL_SAFE_BOTTOM = Math.ceil((340 * REEL_WIDTH) / 1080)
 export const TEXT_WIDTH = REEL_WIDTH - REEL_SAFE_SIDE * 2
 /** Burned-in captions are at least this big, with a stroke. */
 export const CAPTION_FONT = 48
 export const CAPTION_MIN_FONT = 44
 export const CAPTION_STROKE = 4
-/** The cover (frame 0) matches the feed cover: red block in the upper third, uppercase bold white headline (5 words at most), brand strip at the bottom. */
+/** Every burned-in text (cover headline, beat text, brand strip, call to action) is at least this size. */
+export const REEL_MIN_FONT = 44
+/** A beat's on-screen text is a short line: 7 words at most. */
+export const REEL_BEAT_MAX_WORDS = 7
+/** The cover (frame 0) matches the feed cover: red block in the upper part, uppercase bold white headline (5 words at most), brand strip below it. */
 export const REEL_RED = '#d81f26'
 export const REEL_COVER_TEMPLATE = 'reel-red-v1'
-/** Centre of the red block, as a share of the frame height from the top (the feed cover puts its block about 20% down). */
-const COVER_BLOCK_CENTER = 0.2
+/** Centre of the red block, as a share of the frame height from the top. 27% keeps even a 3 line headline (about 340px tall)
+ * below the 167px top safe zone. */
+const COVER_BLOCK_CENTER = 0.27
+/** Centre of the brand strip (cover) and of the call to action strip (end card): the same spot on both, clear of the
+ * red block above and of the caption track below. */
+const STRIP_CENTER = 0.56
+/** The call to action on the end card. Instagram and TikTok cannot tap a caption link, so they get "link in bio"; the others the short URL. */
+export type ReelPlatform = 'instagram' | 'tiktok' | 'youtube' | 'facebook' | 'generic'
+export const REEL_SHORT_URL = 'travelfunbiz.ca/links'
+export function endCardCta(platform: ReelPlatform = 'instagram', shortUrl = REEL_SHORT_URL): string {
+  return platform === 'instagram' || platform === 'tiktok' ? 'Plan your trip: link in bio' : `Plan your trip: ${shortUrl}`
+}
+/** A beat's on-screen text cut to a short line: 7 words at most, no trailing punctuation. */
+export function beatLine(text: string): string {
+  return text.trim().split(/\s+/).filter(Boolean).slice(0, REEL_BEAT_MAX_WORDS).join(' ').replace(/[,:;\-\s]+$/, '')
+}
 /** Light overlay on the cover photo; b-roll under the captions is darkened harder (filter: darken). */
 const COVER_OVERLAY_OPACITY = 0.12
 const FONT = 'Open Sans'
@@ -155,7 +176,14 @@ export function reelCoverFontSize(title: string): number {
  * seconds, short on-screen text per beat, the visuals (cover image then stock video per beat), and
  * one continuous text-to-speech clip the captions read from. Beat timing is estimated by word count
  * (2.5 words/sec) because a hosted render has nothing to measure until it exists. */
-export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], coverImageUrl?: string, coverTitle?: string, brand = 'TRAVELFUNBIZ.CA'): ShotstackEdit {
+export function buildVideoEdit(
+  script: VideoScript,
+  visuals: BeatVisual[] = [],
+  coverImageUrl?: string,
+  coverTitle?: string,
+  brand = 'TRAVELFUNBIZ.CA',
+  opts: { platform?: ReelPlatform; shortUrl?: string } = {},
+): ShotstackEdit {
   // The cover headline must pass the feed cover rules and the 5 word reel limit (lib/cover-headline.ts); a failing one is
   // replaced by a whole phrase of the title. If nothing valid exists (the autopilot refuses to render then) it is cut to 5 words.
   const picked = pickReelCoverTitle([coverTitle, script.coverTitle], script.title || script.hook, `${script.title ?? ''} ${script.hook}`)
@@ -187,8 +215,9 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
     } else if (v?.imageUrl || coverImageUrl) {
       visualClips.push({ asset: { type: 'image', src: v?.imageUrl || coverImageUrl }, start: cursor, length, fit: 'cover', effect: 'zoomIn', filter: 'darken' })
     }
+    // A short line (7 words at most), centred, starting 20% down: clear of the 167px top safe zone and far above the caption track.
     textClips.push({
-      asset: richText(beat.onScreenText, 50, { background: '#000000', bgOpacity: 0.55, stroke: 2 }),
+      asset: richText(beatLine(beat.onScreenText), 50, { background: '#000000', bgOpacity: 0.55, stroke: 2 }),
       start: cursor,
       length,
       width: TEXT_WIDTH,
@@ -197,8 +226,14 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
     })
     cursor += length
   })
-  // Tail margin so a slower real voice is not cut mid-sentence.
-  const totalLength = cursor + TAIL_SECONDS
+  // The end card takes the last 2.5 seconds, which is also the margin so a slower real voice is not cut mid-sentence.
+  const endStart = cursor
+  const totalLength = cursor + END_CARD_SECONDS
+  // End card photo: the post's own cover (not darkened; the red block and the strip carry the words).
+  if (coverImageUrl) visualClips.push({ asset: { type: 'image', src: coverImageUrl }, start: endStart, length: END_CARD_SECONDS, fit: 'cover', effect: 'zoomIn' })
+  else if (visuals[0]?.videoUrl) visualClips.push({ asset: { type: 'video', src: visuals[0].videoUrl, volume: 0 }, start: endStart, length: END_CARD_SECONDS, fit: 'cover' })
+  const endBlockSize = fitText(brand.toUpperCase(), { innerWidth: TEXT_WIDTH - 2 * 24, maxSize: 72, minSize: 48, maxLines: 2, widthRatio: CAPS_WIDTH_RATIO }).fontSize
+  const endCta = endCardCta(opts.platform, opts.shortUrl)
 
   const tracks: ShotstackTrack[] = [
     // Captions, transcribed from the narration (src aliases the TTS clip below), kept to the lower
@@ -214,7 +249,7 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
             font: { family: FONT, size: CAPTION_FONT, weight: '700', color: '#ffffff' },
             stroke: { width: CAPTION_STROKE, color: '#000000' },
             padding: { top: 12, right: 12, bottom: 12, left: 12 },
-            align: { vertical: 'middle' },
+            align: { horizontal: 'center', vertical: 'middle' },
           },
           start: 0,
           length: totalLength,
@@ -229,7 +264,11 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
     {
       clips: [
         { asset: richText(headline, reelCoverFontSize(headline), { background: REEL_RED, bgOpacity: 1, uppercase: true, radius: 0, padding: 24 }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - COVER_BLOCK_CENTER } },
-        { asset: richText(brand, 30, { background: '#000000', bgOpacity: 0.55, radius: 24, padding: 12 }), start: 0, length: COVER_SECONDS, width: 420, position: 'bottom', offset: { y: 0.07 } },
+        // Brand strip under the red block, mid frame: the bottom 227px belong to Instagram's own UI and the caption track.
+        { asset: richText(brand, REEL_MIN_FONT, { background: '#000000', bgOpacity: 0.55, radius: 24, padding: 12 }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - STRIP_CENTER } },
+        // End card: the same red block with the site name, one call to action line in the strip spot.
+        { asset: richText(brand.toUpperCase(), endBlockSize, { background: REEL_RED, bgOpacity: 1, uppercase: true, radius: 0, padding: 24 }), start: endStart, length: END_CARD_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - COVER_BLOCK_CENTER } },
+        { asset: richText(endCta, REEL_MIN_FONT, { background: '#000000', bgOpacity: 0.55, radius: 24, padding: 12 }), start: endStart, length: END_CARD_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - STRIP_CENTER } },
       ],
     },
     // Light overlay over the cover photo (not a dim): just enough that white words read on a bright photo.
@@ -239,6 +278,12 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
           asset: { type: 'shape', shape: 'rectangle', rectangle: { width: REEL_WIDTH, height: REEL_HEIGHT }, fill: { color: '#000000', opacity: COVER_OVERLAY_OPACITY } },
           start: 0,
           length: COVER_SECONDS,
+          position: 'center',
+        },
+        {
+          asset: { type: 'shape', shape: 'rectangle', rectangle: { width: REEL_WIDTH, height: REEL_HEIGHT }, fill: { color: '#000000', opacity: COVER_OVERLAY_OPACITY } },
+          start: endStart,
+          length: END_CARD_SECONDS,
           position: 'center',
         },
       ],
@@ -254,6 +299,64 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
     timeline: { background: '#000000', tracks },
     output: { format: 'mp4', resolution: 'hd', aspectRatio: '9:16' },
   }
+}
+
+/** Estimated on-screen box of one burned-in text clip, in output pixels (0,0 is the top left corner), plus its time span. */
+export interface ReelTextBox {
+  kind: 'rich-text' | 'rich-caption'
+  text: string
+  start: number
+  end: number
+  left: number
+  right: number
+  top: number
+  bottom: number
+  fontSize: number
+}
+
+/** Estimates where each burned-in text clip lands, with no render: the clip's width (a text clip is centred on the frame
+ * by its position), its wrapped line count from the font size, and its vertical place from `position` and `offset.y`
+ * (Shotstack: a positive y offset moves the clip UP, as a share of the frame height). The rich-caption track shows about 2
+ * lines at a time. The estimate is deliberately a little generous (capitals count 0.7 of the font size per letter). */
+export function reelTextBoxes(edit: ShotstackEdit): ReelTextBox[] {
+  const out: ReelTextBox[] = []
+  for (const clip of edit.timeline.tracks.flatMap((t) => t.clips)) {
+    const type = String(clip.asset.type)
+    if (type !== 'rich-text' && type !== 'rich-caption') continue
+    const font = clip.asset.font as { size: number }
+    const size = font.size
+    const padRaw = clip.asset.padding
+    const pad = typeof padRaw === 'number' ? padRaw : padRaw && typeof padRaw === 'object' ? Number((padRaw as { top?: number }).top ?? 0) : 0
+    const width = Number(clip.width ?? REEL_WIDTH)
+    const upper = (clip.asset.style as { textTransform?: string } | undefined)?.textTransform === 'uppercase'
+    const text = type === 'rich-text' ? String(clip.asset.text) : ''
+    const ratio = upper ? CAPS_WIDTH_RATIO : 0.6
+    const maxChars = Math.max(1, Math.floor((width - 2 * pad) / (size * ratio)))
+    const lines = type === 'rich-caption' ? 2 : Math.max(1, wrapLineCount(text, maxChars))
+    const height = lines * size * 1.15 + 2 * pad
+    const y = Number((clip.offset as { y?: number } | undefined)?.y ?? 0) * REEL_HEIGHT
+    let top: number
+    if (clip.position === 'top') top = -y
+    else if (clip.position === 'bottom') top = REEL_HEIGHT - y - height
+    else top = REEL_HEIGHT / 2 - y - height / 2
+    const start = Number(clip.start)
+    out.push({ kind: type, text, start, end: start + Number(clip.length), left: (REEL_WIDTH - width) / 2, right: (REEL_WIDTH + width) / 2, top, bottom: top + height, fontSize: size })
+  }
+  return out
+}
+
+function wrapLineCount(text: string, maxChars: number): number {
+  let lines = 1
+  let len = 0
+  for (const w of text.split(/\s+/).filter(Boolean)) {
+    if (len === 0) len = w.length
+    else if (len + 1 + w.length <= maxChars) len += 1 + w.length
+    else {
+      lines++
+      len = w.length
+    }
+  }
+  return lines
 }
 
 export interface ShotstackRenderResult {

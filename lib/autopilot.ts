@@ -17,8 +17,8 @@ import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
 import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
 import { resolvePostingTarget, getProvider, platformsFor, sentPlatformsOf, type PostingTarget } from '@/lib/social-provider'
 import { ghlSocialMissing } from '@/lib/ghl-social'
-import { fitCaptionWithLink, tightestLimit, buildFallbackCaption } from '@/lib/social-captions'
-import { utmLink } from '@/lib/utm'
+import { fitCaptionWithLink, tightestLimit, buildFallbackCaption, buildVideoCaption, repairCaptionCta, networkSupportsLinks } from '@/lib/social-captions'
+import { socialLink } from '@/lib/utm'
 import { SITE_URL, SITE_NAME, absoluteUrl } from '@/lib/site'
 import { isAiConfigured } from '@/lib/ai-verify'
 import { isImageAiConfigured } from '@/lib/image-ai-gen'
@@ -195,7 +195,7 @@ async function postingTarget(admin: SupabaseClient): Promise<AutopilotTarget | n
 // or video style that produced it. The network is not tagged: a carousel or video goes to all its
 // networks in ONE send with ONE caption, so the network is not known when the caption is built.
 const postLink = (slug: string, format: 'carousel' | 'video', variant?: string | null) =>
-  utmLink(`${SITE_URL}/blog/${slug}`, { source: format, medium: 'social', campaign: slug, content: variant ? `${format}-${variant}` : format })
+  socialLink(`${SITE_URL}/blog/${slug}`, format, slug, format === 'video' ? 'video' : 'carousel', variant)
 
 
 /** Housekeeping, independent of the Autopilot switch: deletes Shotstack's hosted files for any
@@ -322,7 +322,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
         const carouselLink = postLink(row.slug, 'carousel', await readVariantTag(admin, row.slug, 'carousel_cta'))
         const carouselLimit = tightestLimit(carouselTargets)
         // Hook, one description line, fixed call to action, link and up to 3 hashtags; the old title + description text if that is not possible.
-        const caption =
+        const captionBase =
           buildFallbackCaption(
             {
               title: post.title,
@@ -335,6 +335,9 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             carouselLink,
             { networks: carouselTargets, limit: carouselLimit, hashtagCap: Math.min(...carouselTargets.map(hashtagCapFor)) },
           ) ?? fitCaptionWithLink([post.title, post.meta_description].filter(Boolean).join('\n\n'), carouselLink, carouselLimit)
+        // Whatever text was built, a missing link or call to action is repaired with the standard CTA line (a shared send with any
+        // clickable network keeps the link; bio-only targets get "link in bio").
+        const caption = repairCaptionCta(captionBase, { network: carouselTargets.find(networkSupportsLinks) ?? carouselTargets[0], link: carouselLink, limit: carouselLimit })
         const result = await target.target.sendPhotos(carouselTargets, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
         await settlePost(row, 'carousel', result, carouselTargets, save, fail, notes)
       }
@@ -364,12 +367,11 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             }
             const clips = await Promise.all(capped.beats.map((b) => findBrollClip(b.brollSearchTerms.join(' '))))
             const visuals: BeatVisual[] = clips.map((c) => ({ videoUrl: c?.url }))
-            const submitted = await submitRender(buildVideoEdit(capped, visuals, post.cover_image_url ?? undefined, reelCover.title, SITE_NAME.toUpperCase()))
+            const submitted = await submitRender(buildVideoEdit(capped, visuals, post.cover_image_url ?? undefined, reelCover.title, SITE_NAME.toUpperCase(), { platform: !target || target.videoPlatforms.length === 0 || target.videoPlatforms.some((p) => !networkSupportsLinks(p)) ? 'instagram' : 'youtube' }))
             if (submitted.ok && submitted.renderId) {
               videoSlots--
-              const tail = [capped.title, capped.description, capped.hashtags.join(' ')].filter(Boolean).join('\n\n')
               const hookUsed = capped.usedFallback ? 'fallback' : (detectHookFormula(capped.hook, preferred) ?? 'fallback')
-              await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: fitCaptionWithLink(tail, postLink(row.slug, 'video', hookUsed), tightestLimit(VIDEO_PLATFORMS)) })
+              await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: buildVideoCaption({ title: capped.title, description: capped.description, hashtags: capped.hashtags }, postLink(row.slug, 'video', hookUsed), tightestLimit(VIDEO_PLATFORMS)) })
               await tagVariant(admin, row.slug, { video_hook: hookUsed, hook_style_at: new Date().toISOString(), ...visualTags('reel', REEL_COVER_TEMPLATE, { ok: true, reasons: [] }, photoIdOf(post.cover_image_url)) })
               await recordGateEvents(admin, ['pass'])
             } else if (submitted.status === 401 || submitted.status === 403) {

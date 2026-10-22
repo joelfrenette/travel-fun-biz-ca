@@ -68,3 +68,19 @@ export function utmLink(url: string, tags: UtmTags, opts: { overwrite?: boolean 
     return url
   }
 }
+
+/** Where a social post points: each surface gets its own utm_content prefix, so a blog photo post, a guide post, a trip post,
+ * a news post, a carousel, a reel and the bio link page never share one content value. */
+export type SocialSurface = 'post' | 'guide' | 'trip' | 'news' | 'carousel' | 'video' | 'bio'
+
+/** utm_content for a social link: "<surface>-<variant>" (variant = the hook style, the CTA variant or "fallback"). One per post per surface
+ * per variant, since utm_campaign is already the post's own slug and utm_source the network. */
+export function socialContent(surface: SocialSurface, variant?: string | null): string {
+  const v = slugifyUtm(variant)
+  return v ? `${surface}-${v}` : surface
+}
+
+/** The UTM-tagged link for one network and one post surface. */
+export function socialLink(url: string, network: string, campaign: string, surface: SocialSurface, variant?: string | null): string {
+  return utmLink(url, { source: canonicalNetwork(network), medium: 'social', campaign, content: socialContent(surface, variant) })
+}
