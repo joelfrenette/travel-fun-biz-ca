@@ -39,6 +39,8 @@ interface State {
   lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "guides" | "copy" | "news" | "post" | "repurpose" | "heal-content" | "heal" | "debrief" | "performance" | "source-watch" | "indexnow" | "visit-purge"; ok: boolean; note: string }[] } | null
   keyword: { budget: number; configured: boolean; lastRunAt: string | null; log: { at: string; spentUsd: number; added: number; seeds: string[] }[]; autoApproved?: { total: number; last7: number } }
   visualQuality?: { windowDays: number; available: boolean; totals: { pass: number; retry: number; skip: number; deferred: number }; recentSkips: { at: string; slug: string; surface: string; reason: string }[] }
+  /** The last 10 captions that really went out (read only): network, hook style, first 120 characters. */
+  recentCaptions?: { at: string; slug: string; network: string; format: string; style: string; preview: string }[]
   issues: { id: string; area: "post" | "carousel" | "video" | "system" | "setup"; title: string; detail: string; fix?: string; actions?: { label: string; kind: string; slug?: string }[]; link?: { label: string; href: string } }[]
   rows: Row[]
 }
@@ -297,6 +299,23 @@ export default function AutopilotPage() {
             </CardContent>
           </Card>
         )}
+
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <h2 className="font-semibold">Recent captions</h2>
+            {state.recentCaptions && state.recentCaptions.length > 0 ? (
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {state.recentCaptions.map((c, i) => (
+                  <li key={`${c.slug}-${c.network}-${c.at}-${i}`}>
+                    <span className="font-medium text-foreground">{c.network}</span> · {c.format} · <Badge variant="outline">{c.style}</Badge> {c.preview}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No captions saved yet. Each caption sent from now on is kept here (last 200), with the hook style it used, so you can see what really went out.</p>
+            )}
+          </CardContent>
+        </Card>
 
         <WhatIsWorkingCard />
 

@@ -1,5 +1,6 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { captionShapeProblems, captionFormatRules } from '@/lib/hook-rules'
+import { firstLineProblems, wantsCommentPrompt, HOOK_LINE_MAX_CHARS } from '@/lib/caption-plan'
 import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, hashtagCapFor, normaliseHashtags, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
 // Per-platform caption generation + mechanical limit enforcement (factory spec: "one model call
@@ -92,6 +93,12 @@ export interface CaptionOpts {
   links?: Record<string, string>
   /** The post's FAQ and key takeaways as plain text. Only used so numbers in them count as real. */
   grounding?: string
+  /** Networks whose first line must end with a question mark (at least half of them, see lib/caption-plan.ts). */
+  questionFirstLine?: Record<string, boolean>
+  /** One comment prompt line (a question that invites a reply) for the networks that carry one: Instagram, Facebook, Threads. */
+  commentPrompts?: Record<string, string>
+  /** The post's primary keyword: the first line should contain it when that reads naturally (asked in the prompt, not enforced). */
+  keyword?: string | null
 }
 
 /** The long dash character, built from its code so this file never contains one itself. */
@@ -257,12 +264,13 @@ export function buildFallbackCaption(
   facts: FallbackCaptionFacts,
   network: string,
   link: string,
-  opts: { limit?: number; hashtagCap?: number; networks?: ReadonlyArray<string> } = {},
+  opts: { limit?: number; hashtagCap?: number; networks?: ReadonlyArray<string>; commentPrompt?: string | null } = {},
 ): string | null {
   const limit = opts.limit ?? PLATFORM_CHAR_LIMITS[network.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
   const questions = (facts.faqQuestions ?? []).map(cleanLine).filter((q) => q && q.length <= HOOK_MAX)
   const takeaways = (facts.keyTakeaways ?? []).map(cleanLine).filter((t) => t && t.length <= HOOK_MAX)
-  const hook = questions[0] ?? takeaways[0]
+  // The first line is read in the feed preview, so a short stored question (80 characters) is preferred over a longer one.
+  const hook = questions.find((q) => q.length <= HOOK_LINE_MAX_CHARS) ?? questions[0] ?? takeaways.find((t) => t.length <= HOOK_LINE_MAX_CHARS) ?? takeaways[0]
   const link0 = link.trim()
   if (!hook || !link0) return null
 
@@ -272,15 +280,19 @@ export function buildFallbackCaption(
   const tags = normaliseHashtags([facts.category, ...(facts.tags ?? [])], cap).join(' ')
 
   const cta = fallbackCtaFor(opts.networks?.length ? opts.networks : [network], facts.kind)
-  const build = (body: string, hashtags: string) =>
-    cta.includeLink
-      ? [[hook, body, cta.line].filter(Boolean).join('\n'), `${link0}${hashtags ? `\n\n${hashtags}` : ''}`].join('\n\n')
-      : [[hook, body, cta.line].filter(Boolean).join('\n'), WORD_OF_MOUTH_LINE, hashtags].filter(Boolean).join('\n\n')
+  // One comment prompt line (Instagram, Facebook, Threads) is its own block between the hook block and the call to action, so no block
+  // is more than 3 lines. It is the first thing dropped when the caption does not fit.
+  const prompt = (opts.commentPrompt ?? '').trim()
+  const build = (body: string, hashtags: string, withPrompt = !!prompt) => {
+    const head = withPrompt ? [[hook, body].filter(Boolean).join('\n'), prompt, cta.line].join('\n\n') : [hook, body, cta.line].filter(Boolean).join('\n')
+    return cta.includeLink ? [head, `${link0}${hashtags ? `\n\n${hashtags}` : ''}`].join('\n\n') : [head, WORD_OF_MOUTH_LINE, hashtags].filter(Boolean).join('\n\n')
+  }
   let caption = build(bodyFull, tags)
   if (caption.length > limit) caption = build(bodyFull, '')
+  if (caption.length > limit && prompt) caption = build(bodyFull, '', false)
   if (caption.length > limit && bodyFull) {
-    const room = limit - build('', '').length - 1
-    caption = room >= 30 ? build(fitCaption(bodyFull, room), '') : build('', '')
+    const room = limit - build('', '', false).length - 1
+    caption = room >= 30 ? build(fitCaption(bodyFull, room), '', false) : build('', '', false)
   }
   if (caption.length > limit) return null
 
@@ -309,12 +321,13 @@ export function buildNetworkFallbacks(
   facts: FallbackCaptionFacts,
   platforms: ReadonlyArray<string>,
   linkFor: (network: string) => string,
+  commentPromptFor?: (network: string) => string | null | undefined,
 ): Record<string, string> {
   const out: Record<string, string> = {}
   for (const p of platforms) {
     const limit = PLATFORM_CHAR_LIMITS[p.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
     const link = linkFor(p)
-    const built = buildFallbackCaption(facts, p, link, { networks: [p], limit, hashtagCap: hashtagCapFor(p) })
+    const built = buildFallbackCaption(facts, p, link, { networks: [p], limit, hashtagCap: hashtagCapFor(p), commentPrompt: wantsCommentPrompt(p) ? commentPromptFor?.(p) : null })
     if (built) {
       out[p] = built
       continue
@@ -353,9 +366,12 @@ export function buildCaptionPrompt(
       const hook = opts.hookStyles?.[p]
       const cta = opts.ctaStyles?.[p]
       const hashtags = HASHTAG_RULES[key]
+      const commentPrompt = opts.commentPrompts?.[p]
       return [
         `- ${p}: under ${limit} characters. Voice: ${voice}.`,
         hook ? `  Hook style (first line): ${hook}, meaning ${HOOK_STYLE_PROMPTS[hook]}.` : '',
+        `  First line: at most ${HOOK_LINE_MAX_CHARS} characters${opts.keyword ? `, and it contains the phrase "${opts.keyword}" when that reads naturally` : ''}${opts.questionFirstLine?.[p] ? ', and it ENDS WITH A QUESTION MARK' : ''}.`,
+        commentPrompt ? `  Body: include this comment prompt as its own short block, word for word: ${commentPrompt}` : '',
         cta ? `  Call to action style: ${cta}, meaning ${CTA_STYLE_PROMPTS[cta]}.` : '',
         hashtags ? `  Hashtags: ${hashtags}.` : '',
         `  Link to include for ${p}, copied exactly as written: ${linkFor(p)}`,
@@ -423,7 +439,14 @@ export async function generatePlatformCaptions(
       if (captionProblems(fitted, ctx).some((x) => x === 'link is missing' || x === 'call to action is missing')) {
         fitted = repairCaptionCta(fitted, { network: p, link: linkFor(p), limit })
       }
-      const problems = captionProblems(fitted, ctx)
+      // A comment prompt line the writer left out is added as its own block after the first block, when it still fits the limit.
+      const wanted = opts.commentPrompts?.[p]
+      if (wanted && wantsCommentPrompt(p) && !fitted.includes(wanted)) {
+        const blocks = fitted.split('\n\n')
+        const withPrompt = [blocks[0], wanted, ...blocks.slice(1)].join('\n\n')
+        if (blocks.length > 1 && withPrompt.length <= limit) fitted = withPrompt
+      }
+      const problems = [...captionProblems(fitted, ctx), ...firstLineProblems(fitted, { requireQuestion: !!opts.questionFirstLine?.[p] })]
       if (problems.length === 0) result[p] = fitted
       else console.warn(`[social-captions] ${p} caption dropped, using the shared caption: ${problems.join('; ')}`)
     }

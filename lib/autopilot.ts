@@ -2,6 +2,10 @@ import { buildGroundingText } from '@/lib/post-grounding'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused, setAutomationPaused } from '@/lib/automation-kill-switch'
+import { isDue, recapsDue, recapSlug, recapFacts, RECAP_LAST_DAY } from '@/lib/fanout-plan'
+import { allEnrolmentsSince, utcDayStart, SOCIAL_ENROLMENTS_PER_DAY_CEILING } from '@/lib/news-distribution'
+import { recordCaptions } from '@/lib/caption-log'
+import { commentPromptLine } from '@/lib/reel-questions'
 import { AUTOBLOG_MODE_KEY } from '@/lib/autoblog-run'
 import { setAutoblogAiImageFallback } from '@/lib/blog-image'
 import { getDistributionMode, setDistributionMode, getDistributionAccounts, getDistributionPlatforms, setTailoredCaptionsEnabled } from '@/lib/distribution'
@@ -161,13 +165,47 @@ interface PostFacts {
   body: string
   cover_image_url: string | null
   meta_description: string | null
+  publish_date?: string | null
+  primary_keyword?: string | null
   faq?: unknown
   key_takeaways?: unknown
   tags?: unknown
 }
 
+/** Day 7 of the fan-out calendar: enrols ONE recap post ("you asked, here is the answer") for a post published 7 to 10 days ago that has a real FAQ
+ * answer. It is a text post in the normal distribution ledger (slug recap-<post slug>), so every existing gate applies: distribution mode (prepare
+ * holds it), the kill switch, caption problems and the shared daily enrolment ceiling. At most one recap a day, never above the ceiling, so no
+ * posting cap is raised. Never throws. Returns a short note, or '' when nothing was enrolled. */
+export async function enrollFanoutRecaps(admin: SupabaseClient, now: Date = new Date()): Promise<string> {
+  try {
+    const mode = await getDistributionMode(admin)
+    if (mode === 'off' || (await isAutomationPaused(admin))) return ''
+    const dayStart = utcDayStart(now)
+    const { count: recapsToday, error: recapErr } = await admin.from('post_distribution').select('slug', { count: 'exact', head: true }).like('slug', 'recap-%').gte('created_at', dayStart)
+    if (recapErr || (recapsToday ?? 0) >= 1) return ''
+    const all = await allEnrolmentsSince(admin, dayStart)
+    if (all === null || all >= SOCIAL_ENROLMENTS_PER_DAY_CEILING) return ''
+    const from = new Date(now.getTime() - RECAP_LAST_DAY * 86_400_000).toISOString().slice(0, 10)
+    const to = new Date(now.getTime() - 7 * 86_400_000).toISOString().slice(0, 10)
+    const { data } = await admin.from('posts').select('slug, title, publish_date, faq, tags').eq('status', 'published').gte('publish_date', from).lte('publish_date', to)
+    const posts = ((data ?? []) as Array<{ slug: string; title: string; publish_date: string | null; faq: unknown; tags: unknown }>).filter((p) => !!recapFacts(p))
+    if (!posts.length) return ''
+    const { data: existing } = await admin.from('post_distribution').select('slug').in('slug', posts.map((p) => recapSlug(p.slug)))
+    const taken = new Set(((existing ?? []) as Array<{ slug: string }>).map((r) => r.slug))
+    const pick = recapsDue(posts.map((p) => ({ slug: p.slug, publishedAt: p.publish_date })), new Set(taken), now, 1)[0]
+    if (!pick) return ''
+    const post = posts.find((p) => p.slug === pick)
+    if (!post) return ''
+    const { error } = await admin.from('post_distribution').insert({ content_type: 'post', slug: recapSlug(pick), title: post.title, stage: mode === 'prepare' ? 'held' : 'queued' })
+    return error ? '' : `recap post enrolled for ${pick}`
+  } catch (err) {
+    console.error('[autopilot] recap enrol failed:', err instanceof Error ? err.message : err)
+    return ''
+  }
+}
+
 async function loadPost(admin: SupabaseClient, slug: string): Promise<PostFacts | null> {
-  const { data } = await admin.from('posts').select('slug, title, body, cover_image_url, meta_description, faq, key_takeaways, tags, status').eq('slug', slug).maybeSingle()
+  const { data } = await admin.from('posts').select('slug, title, body, cover_image_url, meta_description, publish_date, primary_keyword, faq, key_takeaways, tags, status').eq('slug', slug).maybeSingle()
   return data && data.status === 'published' ? (data as PostFacts) : null
 }
 
@@ -234,6 +272,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
   if (await isAutomationPaused(admin)) return { note: 'automation is paused', problems: [] }
 
   const enrolled = await enrollRecentPosts(admin)
+  const recapNote = await enrollFanoutRecaps(admin)
   const { data: rowsRaw } = await admin
     .from('content_pipeline')
     .select('*')
@@ -242,7 +281,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
     .order('created_at', { ascending: true })
     .limit(20)
   const rows = (rowsRaw ?? []) as PipelineRow[]
-  if (!rows.length) return { note: `${enrolled} enrolled, nothing to do`, problems: [] }
+  if (!rows.length) return { note: `${enrolled} enrolled, nothing to do${recapNote ? `; ${recapNote}` : ''}`, problems: [] }
 
   const target = await postingTarget(admin)
   const notes: string[] = []
@@ -319,7 +358,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       const raw = gatePassed ? await getSetting(admin, carouselKey(row.slug)) : null
       const slides = raw ? (JSON.parse(raw) as CarouselSlide[]) : []
       if (post && gatePassed && slides.length) {
-        const carouselLink = postLink(row.slug, 'carousel', await readVariantTag(admin, row.slug, 'carousel_cta'))
+        const carouselLink = postLink(row.slug, 'carousel', await readVariantTag(admin, row.slug, 'carousel_hook'))
         const carouselLimit = tightestLimit(carouselTargets)
         // Hook, one description line, fixed call to action, link and up to 3 hashtags; the old title + description text if that is not possible.
         const captionBase =
@@ -340,6 +379,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
         const caption = repairCaptionCta(captionBase, { network: carouselTargets.find(networkSupportsLinks) ?? carouselTargets[0], link: carouselLink, limit: carouselLimit })
         const result = await target.target.sendPhotos(carouselTargets, caption, slides.map((_, i) => absoluteUrl(`/carousel/${row.slug}/${i + 1}`)))
         await settlePost(row, 'carousel', result, carouselTargets, save, fail, notes)
+        if (result.ok) await recordCaptions(admin, [{ slug: row.slug, network: carouselTargets.join('/'), format: 'carousel', style: (await readVariantTag(admin, row.slug, 'carousel_hook')) ?? 'fallback', text: caption }])
       }
     }
 
@@ -347,11 +387,14 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
     if (row.video_stage === 'pending' && isShotstackConfigured() && isAiConfigured() && videoSlots > 0 && videoSubmitBudget > 0 && Date.now() - startedAt < SOFT_DEADLINE_MS) {
       videoSubmitBudget--
       const post = await loadPost(admin, row.slug)
-      if (post) {
+      // Fan-out calendar: the reel is due on day 2 after publishing (inside 72 hours). Not due yet means the row waits, no budget is used.
+      if (post && !isDue({ slug: post.slug, publishedAt: post.publish_date }, 'reel', new Date())) {
+        videoSubmitBudget++
+      } else if (post) {
         try {
           // The hook formula rotates over the last 5 videos so consecutive videos do not open the same way.
           const preferred = rotateStyle(await readRecentVariantValues(admin, 'video_hook', 12), HOOK_FORMULAS)
-          const script = await generateVideoScript(post.title, post.meta_description || '', preferred, buildGroundingText(post.key_takeaways, post.faq) || undefined)
+          const script = await generateVideoScript(post.title, post.meta_description || '', preferred, buildGroundingText(post.key_takeaways, post.faq) || undefined, { body: post.body, primaryKeyword: post.primary_keyword })
           if (!script) {
             await fail(row, 'video', 'could not write a video script', false)
           } else {
@@ -371,7 +414,7 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             if (submitted.ok && submitted.renderId) {
               videoSlots--
               const hookUsed = capped.usedFallback ? 'fallback' : (detectHookFormula(capped.hook, preferred) ?? 'fallback')
-              await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: buildVideoCaption({ title: capped.title, description: capped.description, hashtags: capped.hashtags }, postLink(row.slug, 'video', hookUsed), tightestLimit(VIDEO_PLATFORMS)) })
+              await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: buildVideoCaption({ title: capped.title, description: [capped.description, commentPromptLine({ title: post.title, keyword: post.primary_keyword })].filter(Boolean).join('\n\n'), hashtags: capped.hashtags }, postLink(row.slug, 'video', hookUsed), tightestLimit(VIDEO_PLATFORMS)) })
               await tagVariant(admin, row.slug, { video_hook: hookUsed, hook_style_at: new Date().toISOString(), ...visualTags('reel', REEL_COVER_TEMPLATE, { ok: true, reasons: [] }, photoIdOf(post.cover_image_url)) })
               await recordGateEvents(admin, ['pass'])
             } else if (submitted.status === 401 || submitted.status === 403) {
@@ -406,10 +449,11 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
     if (row.video_stage === 'rendered' && row.video_url && target && videoTargets.length && Date.now() - startedAt < SOFT_DEADLINE_MS) {
       const result = await target.target.sendVideo(videoTargets, row.video_caption ?? row.slug, row.video_url)
       await settlePost(row, 'video', result, videoTargets, save, fail, notes)
+      if (result.ok) await recordCaptions(admin, [{ slug: row.slug, network: videoTargets.join('/'), format: 'video', style: (await readVariantTag(admin, row.slug, 'video_hook')) ?? 'fallback', text: row.video_caption ?? row.slug }])
     }
   }
 
-  return { note: `${enrolled} enrolled, ${rows.length} active${notes.length ? `; problems: ${notes.join(' | ')}` : ''}`, problems: notes }
+  return { note: `${enrolled} enrolled, ${rows.length} active${recapNote ? `; ${recapNote}` : ''}${notes.length ? `; problems: ${notes.join(' | ')}` : ''}`, problems: notes }
 }
 
 async function settlePost(

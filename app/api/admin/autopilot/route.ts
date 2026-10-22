@@ -16,6 +16,7 @@ import { getDistributionMode } from '@/lib/distribution'
 import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeCron } from '@/lib/cron-health'
 import { readVisualQuality } from '@/lib/visual-gate-stats'
+import { readRecentCaptions } from '@/lib/caption-log'
 
 export const maxDuration = 300
 
@@ -56,6 +57,8 @@ export async function GET(request: Request) {
       issues,
       // Counts of image quality checks over the last 7 days. Reads fail open (available: false), never an error.
       visualQuality: await readVisualQuality(admin),
+      // Read only: the last 10 captions that went out (network, hook style, first 120 characters). [] when none or unreadable.
+      recentCaptions: await readRecentCaptions(admin, 10),
       keyword: { budget: keywordBudget, configured: isKeywordDataConfigured(), lastRunAt: keywordInfo.lastRunAt, log: keywordInfo.log, autoApproved: summariseAutoApprovals(await readAutoApprovals(admin)) },
       cron: judgeCron('autopilot', runs.autopilot),
       rows: (pipeline.data ?? []).map((r: Record<string, unknown>) => ({

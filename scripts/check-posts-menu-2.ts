@@ -24,7 +24,7 @@ const read = (p: string) => readFileSync(join(root, p), 'utf8')
 // --- the two switches: only the exact text 'true' is on ---
 expect('only exact "true" is on', isExactTrue('true') && !isExactTrue('TRUE') && !isExactTrue('True') && !isExactTrue('on') && !isExactTrue('1') && !isExactTrue('yes') && !isExactTrue('') && !isExactTrue(null) && !isExactTrue(undefined))
 expect('same rule as the trip pipeline parser', ['true', 'TRUE', 'on', '1', '', null, undefined, 'false'].every((v) => isExactTrue(v as string | null | undefined) === parseTripSocial(v as string | null | undefined)))
-expect('the toggle keys are the real pipeline keys', TOGGLE_KEYS.includes(GUIDE_CATCHUP_KEY as never) && TOGGLE_KEYS.includes(TRIP_SOCIAL_KEY as never) && TOGGLE_KEYS.length === 2)
+expect('the toggle keys are the real pipeline keys', TOGGLE_KEYS.includes(GUIDE_CATCHUP_KEY as never) && TOGGLE_KEYS.includes(TRIP_SOCIAL_KEY as never) && TOGGLE_KEYS.includes('news_social_posts' as never) && TOGGLE_KEYS.length === 3)
 const ok1 = parseToggleRequest({ setting: 'trip_social_posts', enabled: true })
 const ok2 = parseToggleRequest({ setting: 'guide_catchup_posts', enabled: false })
 expect('a real boolean stores the exact text true or false', ok1.ok && ok1.value === 'true' && ok2.ok && ok2.value === 'false')

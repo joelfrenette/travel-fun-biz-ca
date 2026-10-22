@@ -16,7 +16,12 @@ import { fitCaption, tightestLimit, generatePlatformCaptions, buildFallbackCapti
 import type { UploadPostSendResult } from '@/lib/upload-post'
 import { buildGroundingText } from '@/lib/post-grounding'
 import { tagVariant } from '@/lib/content-variants'
-import { HOOK_STYLES, CTA_STYLES, hashtagCapFor, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { CTA_STYLES, hashtagCapFor, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { assignHookStyles, questionNetworks, hasGroundableNumber, wantsCommentPrompt } from '@/lib/caption-plan'
+import { recordCaptions } from '@/lib/caption-log'
+import { commentPromptLine } from '@/lib/reel-questions'
+import { getNewsSocialEnabled, NEWS_SOCIAL_SKIP_NOTE } from '@/lib/news-settings'
+import { isRecapSlug, baseSlugOfRecap, recapFacts } from '@/lib/fanout-plan'
 
 /** The post's FAQ and key takeaways as plain text, so numbers in them count as real when captions
  * are checked. Those columns arrive with a later migration, so this tolerates them not existing
@@ -227,12 +232,15 @@ async function sendTailored(
   baseCaptions: Record<string, string>,
   sharedCaption: string,
   provider: string,
-): Promise<UploadPostSendResult & { sent: string[] }> {
+): Promise<UploadPostSendResult & { sent: string[]; texts: Record<string, string> }> {
+  // What each network was really sent, kept for the caption log.
+  const texts: Record<string, string> = {}
   const tailoredPlatforms = platforms.filter((p) => captions?.[p])
   const fallbackPlatforms = platforms.filter((p) => !captions?.[p])
 
   const calls: Promise<{ platforms: string[]; result: UploadPostSendResult }>[] = []
   for (const p of tailoredPlatforms) {
+    texts[p] = captions![p]
     calls.push(send([p], captions![p]).then((result) => ({ platforms: [p], result })))
   }
   // Each non-tailored network has its own caption (own limit, hashtag cap, UTM source). GoHighLevel already
@@ -242,6 +250,7 @@ async function sendTailored(
   const groups = provider === 'ghl' ? fallbackPlatforms.map((p) => [p]) : groupNetworksForSend(fallbackPlatforms)
   for (const group of groups) {
     const text = baseCaptions[group[0]] || sharedCaption
+    for (const g of group) texts[g] = text
     calls.push(send(group, text).then((result) => ({ platforms: group, result })))
   }
   const outcomes = await Promise.all(calls)
@@ -273,6 +282,7 @@ async function sendTailored(
     if (result.jobId) jobIds.push(result.jobId)
   }
   return {
+    texts,
     sent: outcomes.flatMap((o) => o.platforms.filter((p) => (o.result.results && p in o.result.results ? o.result.results[p].ok : o.result.ok))),
     ok,
     confirmed,
@@ -308,6 +318,9 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
   let needsReview = 0
   let visualSkipped = 0
   let deferred = 0
+  let newsSkipped = 0
+  // News is only posted to social when app_settings.news_social_posts is exactly 'true' (default off, fail closed). Read once, and only when a news row is in this batch.
+  const newsSocialOn = (rows as DistributionRow[]).some((r) => typeof r.path !== 'string' && r.slug.startsWith('news-')) ? await getNewsSocialEnabled(admin) : false
   const passStart = Date.now()
   for (const row of rows as DistributionRow[]) {
     try {
@@ -319,6 +332,15 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // A travel news post (slug "news-...", WP20) never gets AI-written tailored captions: its facts are checked word by
       // word against the feed item, so only the deterministic caption built from the saved hook is ever sent.
       const isNewsRow = !isGuideRow && row.slug.startsWith('news-')
+      if (isNewsRow && !newsSocialOn) {
+        // News is not posted to social unless the admin turned it on: the row is closed as done with a plain note, never failed.
+        newsSkipped++
+        await admin.from('post_distribution').update({ stage: 'done', last_error: NEWS_SOCIAL_SKIP_NOTE, updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
+        continue
+      }
+      // A recap row (day 7 of the fan-out calendar, slug recap-<post slug>) is a TEXT post about the same blog post, built from one real FAQ answer.
+      const isRecapRow = !isGuideRow && !isNewsRow && isRecapSlug(row.slug)
+      const postSlug = isRecapRow ? baseSlugOfRecap(row.slug) : row.slug
       const guideSource = isGuideRow ? await loadGuidePostSource(admin, row.path as string) : null
       if (isGuideRow && !guideSource) {
         await admin
@@ -328,12 +350,12 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           .eq('slug', row.slug)
         continue
       }
-      const { data: post } = isGuideRow ? { data: guideSource } : await admin.from('posts').select('title, cover_image_url, meta_description, faq, key_takeaways, tags').eq('slug', row.slug).maybeSingle()
-      const pageUrl = isGuideRow ? absoluteUrl(row.path as string) : `${SITE_URL}/blog/${row.slug}`
+      const { data: post } = isGuideRow ? { data: guideSource } : await admin.from('posts').select('title, cover_image_url, meta_description, primary_keyword, faq, key_takeaways, tags').eq('slug', postSlug).maybeSingle()
+      const pageUrl = isGuideRow ? absoluteUrl(row.path as string) : `${SITE_URL}/blog/${postSlug}`
       // Each network gets its own link: utm_source is that network's canonical name (twitter is x).
       // utm_content is "<surface>-<variant>" (post, guide, trip or news; fallback or the hook style), so no two surfaces share one value.
-      const surface: SocialSurface = isNewsRow ? 'news' : isGuideRow ? ((row.path as string).startsWith('/packages/') ? 'trip' : 'guide') : 'post'
-      const networkLink = (p: string) => socialLink(pageUrl, p, row.slug, surface, 'fallback')
+      const surface: SocialSurface = isNewsRow ? 'news' : isRecapRow ? 'recap' : isGuideRow ? ((row.path as string).startsWith('/packages/') ? 'trip' : 'guide') : 'post'
+      const networkLink = (p: string) => socialLink(pageUrl, p, postSlug, surface, 'fallback')
       const title = post?.title || row.title
       // Only networks that accept this kind of post, and never ones this post already reached.
       // The image a photo post goes out with is the TITLED cover (app/social-cover), never the bare photo: a bare
@@ -347,7 +369,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // posting. The bare photo is never sent any more. If the check itself cannot run, the row waits for the next tick.
       let sendImage: string | null = null
       let gateTagPatch: Record<string, unknown> | null = null
-      if (post?.cover_image_url || isNewsRow) {
+      // A recap is a text post: no image, so the same cover is not posted twice in a week.
+      if ((post?.cover_image_url || isNewsRow) && !isRecapRow) {
         const picked = pickPostImage({ base: SITE_URL, kind: coverKind, slug: coverSlug, title, coverUrl: post?.cover_image_url })
         if (picked.composed && picked.url) {
           const overBudget = Date.now() - passStart > VERIFY_BUDGET_MS
@@ -427,7 +450,13 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const takeawaysRaw: unknown = (post as { key_takeaways?: unknown } | null)?.key_takeaways
       const tagsRaw: unknown = (post as { tags?: unknown } | null)?.tags
       const guideFacts = isGuideRow ? guideSource : null
-      const captionFacts = {
+      // A recap caption is "You asked: <a real FAQ question>" plus the first sentence of that FAQ answer. A post with no usable FAQ answer has no recap.
+      const recap = isRecapRow ? recapFacts({ title, faq: faqRaw, tags: tagsRaw }) : null
+      if (isRecapRow && !recap) {
+        await admin.from('post_distribution').update({ stage: 'done', last_error: 'Skipped: this post has no FAQ answer to recap, so nothing was posted.', updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
+        continue
+      }
+      const captionFacts = recap ?? {
         title,
         metaDescription: post?.meta_description,
         faqQuestions: guideFacts?.faqQuestions ?? (Array.isArray(faqRaw) ? (faqRaw as Array<{ q?: unknown }>).map((f) => f?.q) : []),
@@ -436,9 +465,12 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         // Travel news (WP20) uses its own call to action line ("Read the full update and the official source:").
         kind: isNewsRow ? ('news' as const) : null,
       }
+      // One comment prompt line (a question from the post) in the body of Instagram, Facebook and Threads captions. Not for news or a recap, whose hook is already a question.
+      const primaryKeyword = (post as { primary_keyword?: string | null } | null)?.primary_keyword ?? null
+      const promptLine = !isNewsRow && !isRecapRow ? commentPromptLine({ title, keyword: primaryKeyword }) : null
       // Per-network captions (own limit, hashtag cap and UTM source). The old single caption below stays as the
       // last-resort fallback for any network with no entry.
-      const baseCaptions = buildNetworkFallbacks(captionFacts, platforms, networkLink)
+      const baseCaptions = buildNetworkFallbacks(captionFacts, platforms, networkLink, () => promptLine)
       const link = networkLink(platforms[0])
       const fallbackCaption = buildFallbackCaption(captionFacts, platforms[0], link, {
         networks: platforms,
@@ -458,19 +490,27 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // and each network gets its own UTM-tagged link (source = network, content = hook style). This
       // only changes the TEXT handed to the same single send per network below.
       let tailored: PlatformCaptions | null = null
-      if (tailoredCaptionsOn && !isNewsRow) {
+      let hookStylesUsed: Record<string, HookStyle> = {}
+      if (tailoredCaptionsOn && !isNewsRow && !isRecapRow) {
         const hookStyles: Record<string, HookStyle> = {}
         const ctaStyles: Record<string, CtaStyle> = {}
         const links: Record<string, string> = {}
+        const grounding = isGuideRow ? guideSource?.grounding : await loadGrounding(admin, row.slug)
+        // One style per network for THIS post, round-robin over each network's own history, so no two networks share a style where possible;
+        // "number" is only a choice when the post has a number it can quote. At least half the networks must end the first line with a question.
+        Object.assign(hookStyles, assignHookStyles(platforms, (p) => valuesFromRows(variantRows, `hook_style:${p}`, 12), { hasNumber: hasGroundableNumber(`${title} ${post?.meta_description ?? ''} ${grounding ?? ''}`) }))
+        const questionFirstLine = questionNetworks(platforms, hookStyles)
+        const commentPrompts: Record<string, string> = {}
         for (const [i, p] of platforms.entries()) {
           // 12 values of history: only the last 5 count for "least used", the rest breaks ties by age.
           // The network's position offsets the tie-break so an empty history does not give every
-          // account the same opening style.
-          hookStyles[p] = rotateStyle(valuesFromRows(variantRows, `hook_style:${p}`, 12), HOOK_STYLES, i)
+          // account the same call to action.
           ctaStyles[p] = rotateStyle(valuesFromRows(variantRows, `cta_style:${p}`, 12), CTA_STYLES, i)
           links[p] = socialLink(pageUrl, p, row.slug, surface, hookStyles[p])
+          if (promptLine && wantsCommentPrompt(p)) commentPrompts[p] = promptLine
         }
-        tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding: isGuideRow ? guideSource?.grounding : await loadGrounding(admin, row.slug) })
+        hookStylesUsed = hookStyles
+        tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding, questionFirstLine, commentPrompts, keyword: primaryKeyword })
         // Record only the styles that actually reached a caption (a dropped caption used none).
         const patch: Record<string, string> = {}
         for (const p of platforms) {
@@ -490,6 +530,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         sendImage ? target.sendPhotos(p, text, [sendImage]) : target.sendText(p, text)
       const result = await sendTailored(send, platforms, tailored, baseCaptions, sharedCaption, target.provider)
       const sentPlatforms = [...new Set([...already, ...result.sent])]
+      // The caption text each reached network really got, with the style it used ("fallback" when it was built without one), for the admin list and the loop.
+      await recordCaptions(admin, result.sent.map((p) => ({ slug: row.slug, network: p, format: isRecapRow ? ('recap' as const) : ('post' as const), style: tailored?.[p] ? (hookStylesUsed[p] ?? 'fallback') : 'fallback', text: result.texts[p] ?? '' })))
 
       if (result.ok && result.confirmed === false) {
         // Upload-Post accepted the request (202 / job_id / scheduled) but hasn't confirmed it
@@ -546,7 +588,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         .eq('slug', row.slug)
     }
   }
-  const gateNote = (visualSkipped ? `, ${visualSkipped} skipped by the image check` : '') + (deferred ? `, ${deferred} waiting (image check could not run)` : '')
+  const gateNote = (newsSkipped ? `, ${newsSkipped} news skipped (news is not posted to social)` : '') + (visualSkipped ? `, ${visualSkipped} skipped by the image check` : '') + (deferred ? `, ${deferred} waiting (image check could not run)` : '')
   return `${posted} posted, ${failed} failed, ${needsReview} needs review${gateNote}, ${rows.length} attempted`
 }
 

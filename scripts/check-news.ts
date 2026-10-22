@@ -797,7 +797,7 @@ async function part3() {
     check('M6: on Instagram and TikTok the news line says link in our bio', !!bio && bio.includes('Full update and the official source: link in our bio.') && !bio.includes(link))
     check('M6: the news caption passes the caption gate', !!news && captionProblems(news, { title: facts.title, summary: facts.metaDescription, network: 'facebook', link, grounding: facts.keyTakeaways.join(' ') }).length === 0)
     const dist = fs.readFileSync(path.join(ROOT, 'lib/distribution.ts'), 'utf8')
-    check('M6: lib/distribution.ts skips the tailored (AI) captions for rows whose slug starts "news-"', /isNewsRow = !isGuideRow && row\.slug\.startsWith\('news-'\)/.test(dist) && /if \(tailoredCaptionsOn && !isNewsRow\)/.test(dist) && /kind: isNewsRow/.test(dist))
+    check('M6: lib/distribution.ts skips the tailored (AI) captions for rows whose slug starts "news-"', /isNewsRow = !isGuideRow && row\.slug\.startsWith\('news-'\)/.test(dist) && /if \(tailoredCaptionsOn && !isNewsRow\b/.test(dist) && /kind: isNewsRow/.test(dist))
   }
 
   // ---- m1: atomic per-day slots ----

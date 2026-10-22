@@ -48,7 +48,7 @@ expect('cover prompt bans trailing prepositions', ci.includes('never ending on')
 // ---- Prompt content: captions ----
 const link = 'https://travelfunbiz.ca/blog/rhine-river-cruise?utm_source=instagram'
 const prompt = buildCaptionPrompt('Rhine River Cruise', 'A plain guide.', 'https://travelfunbiz.ca/blog/rhine-river-cruise', ['instagram', 'linkedin'], { links: { instagram: link } })
-expect('caption prompt: hook line first, 90 chars, no emoji', prompt.includes('Line 1 is the hook') && prompt.includes('90 characters') && prompt.includes('no emoji on it'))
+expect('caption prompt: hook line first, 80 chars, no emoji', prompt.includes('Line 1 is the hook') && prompt.includes('80 characters') && prompt.includes('no emoji on it'))
 expect('caption prompt: at most 2 emojis', prompt.includes('At most 2 emojis'))
 expect('caption prompt: grade 6', prompt.includes('grade 6'))
 expect('caption prompt: no unsupported superlatives', prompt.includes('superlatives'))
