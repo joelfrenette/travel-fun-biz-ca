@@ -98,6 +98,11 @@ export interface Guide {
 export const SAFE_PAGE_NOTE = 'safe-page: built only from stored facts and general planning text; a later enrichment can improve it'
 export const isSafePageNote = (note: string | null | undefined): boolean => typeof note === 'string' && note.trim().startsWith('safe-page:')
 
+/** Every audit row an enrichment writes (lib/safe-enrich.ts) has a reason that starts with this. Undoing such an edit puts the old
+ * safe-page text back, so lib/content-edits.ts also puts the safe-page note back: the thin text must never come back indexable. */
+export const ENRICH_REASON_PREFIX = 'enrichment:'
+export const isEnrichReason = (reason: string | null | undefined): boolean => typeof reason === 'string' && reason.startsWith(ENRICH_REASON_PREFIX)
+
 /** Drops safe pages from rows that carry quality_notes, and removes the notes (they are admin text). Pure. */
 export function withoutThinPages<T extends { quality_notes?: string | null }>(rows: T[]): Omit<T, 'quality_notes'>[] {
   return rows.filter((r) => !isSafePageNote(r.quality_notes)).map((r) => {

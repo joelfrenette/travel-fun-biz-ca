@@ -47,6 +47,7 @@ import {
 import { pingIndexNow } from '@/lib/indexnow'
 import { rehealStuckDrafts, rejectedPostSlugs } from '@/lib/blog-reheal'
 import { healHeldCopy, healHeldGuides } from '@/lib/heal-drafts'
+import { runSafeEnrichment } from '@/lib/safe-enrich'
 import { healLoopCard, type HealLoopCard } from '@/lib/heal-loop'
 import { runCtrLoop } from '@/lib/ctr-loop'
 import type { DbPackage } from '@/lib/packages'
@@ -749,6 +750,12 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
     problems.push(...r.problems)
     healedPages += r.published + r.healedDraft
   }
+  // 2d-bis. Safe-page enrichment: at most ONE live safe page a day (3 tries per page, 2 days apart, only when the day's heal budget has
+  // room) is written again in full and replaced when it passes the gate and the independent judge and is clearly fuller. No new cron.
+  const enrich = await runSafeEnrichment(admin, { deadlineMs: opts.deadlineMs })
+  calls += enrich.calls
+  problems.push(...enrich.problems)
+  healedPages += enrich.enriched
   // 2e. The click-rate loop (hub row 2): at most 2 pages a day get a re-worded search title and description (suggester, gate,
   // independent judge; every call comes out of the same heal budget), tests that are 30 days old are compared and undone by
   // themselves if the click rate fell, and search phrases where two of our pages compete are listed. Never throws.
@@ -768,7 +775,7 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
   const lowest = [...everyone].sort((a, b) => a.score - b.score).slice(0, 5).map((s) => ({ type: s.type, path: s.path, score: s.score, reasons: s.reasons.slice(0, 3) }))
   const belowAll = queue.length + trips.scored.filter((t) => t.result.score < HEAL_BELOW).length
   const hardWaiting = await countHardWaiting(admin)
-  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${ctr.active ? `; ${ctr.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
+  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${enrich.tried ? `; ${enrich.note}` : ''}${ctr.active ? `; ${ctr.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
   const summary: HealSummary = { at: new Date().toISOString(), scored: everyone.length, avg, below: belowAll, lowest, healedPages, edits: editCount, hardWaiting, calls, trips: trips.scored.length, tripsFixed: trips.fixed, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }

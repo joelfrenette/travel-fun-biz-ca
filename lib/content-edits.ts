@@ -5,7 +5,7 @@ import { pingIndexNow } from '@/lib/indexnow'
 import { site } from '@/lib/site'
 import { parseArticle } from '@/lib/guide-composer'
 import { linkedPackageSlugs } from '@/lib/page-copy-composer'
-import { guideKinds, GUIDE_KINDS, type GuideKind } from '@/lib/guides'
+import { guideKinds, GUIDE_KINDS, SAFE_PAGE_NOTE, isEnrichReason, type GuideKind } from '@/lib/guides'
 import { EST_COST_USD_PER_CALL, type ContentEdit, type ContentType, type EditField } from '@/lib/content-repair'
 
 // The database side of self-healing content (growth loop WP10): the audit log of every automatic edit, the daily
@@ -343,7 +343,10 @@ export async function revertEdit(admin: SupabaseClient, id: string, opts: { forc
     }
   }
 
-  const { error: updateError } = await admin.from(TABLE[edit.content_type]).update({ ...columns, updated_at: new Date().toISOString() }).eq('id', row.id as string)
+  // Undoing an enrichment (lib/safe-enrich.ts) puts the thin safe-page text back, so the safe-page note comes back with it: the page
+  // goes back to noindex and out of the sitemap instead of showing thin text to search engines.
+  const backToSafe = edit.content_type === 'guide' && isEnrichReason(edit.reason) ? { quality_notes: SAFE_PAGE_NOTE } : {}
+  const { error: updateError } = await admin.from(TABLE[edit.content_type]).update({ ...columns, ...backToSafe, updated_at: new Date().toISOString() }).eq('id', row.id as string)
   if (updateError) return { ok: false, error: updateError.message }
   await admin.from('content_edits').update({ reverted_at: new Date().toISOString() }).eq('id', id)
 
