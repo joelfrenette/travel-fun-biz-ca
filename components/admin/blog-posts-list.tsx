@@ -129,7 +129,7 @@ export default function BlogPostsList({ posts, meta, loading, onPostsChange, onE
     setBusy(true)
     setNote("")
     try {
-      const res = await fetch("/api/admin/blog/bulk", { method: "POST", headers: authHeaders(), body: JSON.stringify({ action, ids }) })
+      const res = await fetch("/api/admin/blog/bulk", { method: "POST", headers: authHeaders(), body: JSON.stringify({ action, ids, ...(action === "delete" ? { confirm: "delete" } : {}) }) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       const results = (data.results || []) as { id: string; ok: boolean; note: string }[]

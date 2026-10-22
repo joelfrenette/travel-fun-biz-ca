@@ -1,6 +1,6 @@
 import {
   derivePostType, buildRow, parsePostQuery, serializePostQuery, filterPosts, sortPosts, paginate, distinctValues,
-  parseBulkRequest, statusPatch, DEFAULT_POST_QUERY, BULK_MAX_IDS, type AdminPostInput, type AdminPostRow, type AdminPostMeta,
+  parseBulkRequest, statusPatch, usesGenericEnrol, DEFAULT_POST_QUERY, BULK_MAX_IDS, type AdminPostInput, type AdminPostRow, type AdminPostMeta,
 } from '../lib/blog-admin-filters'
 import { applySourceToggle, sourceHealth, filterSortItems, countByStatus, DEFAULT_ITEM_QUERY, type NewsItemView } from '../lib/news-admin'
 import { nextWriteDay, describeAutoblogPlan, parseLastRun } from '../lib/autoblog-summary'
@@ -79,9 +79,12 @@ check('bad url values fall back to defaults', JSON.stringify(parsePostQuery(new 
 const ok = parseBulkRequest({ action: 'unpublish', ids: ['abcdef12-3456', 'abcdef12-3456', 'abcdef12-9999'] })
 check('bulk: valid request, duplicates removed', ok.ok && ok.ids.length === 2 && ok.action === 'unpublish')
 check('bulk: unknown action rejected', !parseBulkRequest({ action: 'nuke', ids: ['abcdef12-3456'] }).ok)
-check('bulk: empty ids rejected', !parseBulkRequest({ action: 'delete', ids: [] }).ok)
-check('bulk: bad id rejected', !parseBulkRequest({ action: 'delete', ids: ['abcdef12-3456', "x'; drop"] }).ok)
-check('bulk: too many ids rejected', !parseBulkRequest({ action: 'delete', ids: Array.from({ length: BULK_MAX_IDS + 1 }, (_, i) => `abcdef12-${String(i).padStart(4, '0')}`) }).ok)
+check('bulk: empty ids rejected', !parseBulkRequest({ action: 'delete', confirm: 'delete', ids: [] }).ok)
+check('bulk: delete without confirm rejected', !parseBulkRequest({ action: 'delete', ids: ['abcdef12-3456'] }).ok)
+check('bulk: delete with confirm accepted', parseBulkRequest({ action: 'delete', confirm: 'delete', ids: ['abcdef12-3456'] }).ok)
+check('enrol: news and guide posts skip the generic queue', !usesGenericEnrol({ slug: 'news-x', tags: [], related_package_id: null }) && !usesGenericEnrol({ slug: 'guide-x', tags: [], related_package_id: null }) && usesGenericEnrol({ slug: 'a', tags: [], related_package_id: null }))
+check('bulk: bad id rejected', !parseBulkRequest({ action: 'delete', confirm: 'delete', ids: ['abcdef12-3456', "x'; drop"] }).ok)
+check('bulk: too many ids rejected', !parseBulkRequest({ action: 'delete', confirm: 'delete', ids: Array.from({ length: BULK_MAX_IDS + 1 }, (_, i) => `abcdef12-${String(i).padStart(4, '0')}`) }).ok)
 check('bulk: non-object rejected', !parseBulkRequest(null).ok)
 check('unpublish only sets draft (keeps date)', JSON.stringify(statusPatch('unpublish', { publish_date: '2026-03-10' }, '2026-10-21T00:00:00Z')) === '{"status":"draft"}')
 check('publish keeps an existing date', JSON.stringify(statusPatch('publish', { publish_date: '2026-03-10' }, '2026-10-21T00:00:00Z')) === '{"status":"published"}')

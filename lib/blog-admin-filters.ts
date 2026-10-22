@@ -204,8 +204,10 @@ export const BULK_MAX_IDS = 200
 
 /** Validates a bulk request body. Ids are de-duplicated and must look like uuids. */
 export function parseBulkRequest(body: unknown): { ok: true; action: BulkAction; ids: string[] } | { ok: false; error: string } {
-  const b = (body ?? {}) as { action?: unknown; ids?: unknown }
+  const b = (body ?? {}) as { action?: unknown; ids?: unknown; confirm?: unknown }
   if (typeof b.action !== 'string' || !(BULK_ACTIONS as readonly string[]).includes(b.action)) return { ok: false, error: 'action must be publish, unpublish or delete' }
+  // Delete is irreversible: the caller must say so explicitly, so a stray or replayed request never deletes.
+  if (b.action === 'delete' && b.confirm !== 'delete') return { ok: false, error: 'delete needs confirm: "delete"' }
   if (!Array.isArray(b.ids) || b.ids.length === 0) return { ok: false, error: 'ids must be a non-empty list' }
   const ids = [...new Set(b.ids.filter((x): x is string => typeof x === 'string' && /^[0-9a-f-]{8,64}$/i.test(x)))]
   if (ids.length !== new Set(b.ids).size) return { ok: false, error: 'ids contained an invalid value' }
@@ -217,4 +219,10 @@ export function parseBulkRequest(body: unknown): { ok: true; action: BulkAction;
 export function statusPatch(action: 'publish' | 'unpublish', current: { publish_date: string | null }, todayIso: string): { status: 'published' | 'draft'; publish_date?: string } {
   if (action === 'unpublish') return { status: 'draft' }
   return current.publish_date ? { status: 'published' } : { status: 'published', publish_date: todayIso.slice(0, 10) }
+}
+
+/** News and guide posts have their own social enrolment (daily ceilings), so a manual publish must not put them in the generic queue. */
+export function usesGenericEnrol(p: Pick<AdminPostInput, 'slug' | 'tags' | 'related_package_id'>): boolean {
+  const t = derivePostType(p)
+  return t !== 'news' && t !== 'guide'
 }

@@ -1,5 +1,4 @@
-import { parseSourcesOff } from '@/lib/news-ingest'
-import { FEED_FAIL_LIMIT } from '@/lib/news-feed'
+import { parseSourcesOff, FEED_FAIL_LIMIT } from '@/lib/news-sources'
 
 // Pure helpers for the /admin/news screen. No database, no network.
 
