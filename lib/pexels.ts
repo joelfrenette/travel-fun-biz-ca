@@ -210,7 +210,32 @@ export async function findDestinationPhoto(query: string): Promise<PexelsPhoto |
   }
 }
 
-const PEXELS_VIDEO_SEARCH_URL = 'https://api.pexels.com/videos/search'
+/** Raw landscape candidates for a query, with their original size and a colour check, for the guide photo loop (lib/guide-photo.ts does
+ * the accepting and ranking). Unlike findDestinationPhoto it ranks nothing, writes no history and is not cached. Empty on any failure. */
+export async function searchGuidePhotoCandidates(query: string): Promise<PhotoCandidate[]> {
+  const key = process.env.PEXELS_API_KEY
+  if (!key || !query.trim()) return []
+  try {
+    const url = `${PEXELS_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=15&orientation=landscape`
+    const res = await fetch(url, { headers: { Authorization: key }, cache: 'no-store', signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return []
+    const body = (await res.json().catch(() => ({}))) as { photos?: RawPexelsPhoto[] }
+    const raw = (body.photos ?? []).filter((p) => p && typeof p.id === 'number')
+    const stats = await Promise.all(raw.map((p) => measureColour(p.src?.tiny || p.src?.small || '')))
+    return raw.map((p, i) => ({
+      id: p.id,
+      url: p.src?.large2x || p.src?.large || p.src?.original || '',
+      alt: p.alt || null,
+      width: p.width ?? 0,
+      height: p.height ?? 0,
+      stats: stats[i],
+    }))
+  } catch {
+    return []
+  }
+}
+
+const PEXELS_VIDEO_SEARCH_URL ='https://api.pexels.com/videos/search'
 
 /** One real stock video clip (portrait, MP4) for a search term, for video b-roll. Prefers an HD
  * file between 720 and 1080 px wide: big enough to look sharp at 720x1280 output, small enough for

@@ -10,6 +10,7 @@ import { readGuideSpend } from '@/lib/guide-spend'
 import { getAutoblogMaxPerDay } from '@/lib/autoblog-cadence'
 import { ENRICH_MAX_ATTEMPTS, listSafePages } from '@/lib/safe-enrich'
 import { readOrphanAudit } from '@/lib/guide-orphans'
+import { countGuidesNeedingPhoto } from '@/lib/guide-photo-run'
 import { TRIP_SOCIAL_KEY, TRIP_ENROLMENTS_PER_WEEK, TRIP_HOLD_HOURS } from '@/lib/trip-social'
 import { PROMOTION_GAP_DAYS } from '@/lib/promotion'
 import { pastTripsNeedingRecap } from '@/lib/past-trip'
@@ -87,7 +88,11 @@ type Admin = ReturnType<typeof getSupabaseAdmin>
 
 // Guides: every number here is read from what the pipeline already stores. A read that fails shows as null, never as a made-up zero.
 async function guidesFacts(admin: Admin) {
+<<<<<<< HEAD
   const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused, spend] = await Promise.all([
+=======
+  const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused, photoCount] = await Promise.all([
+>>>>>>> loop-guide-photos
     getGuidePublishMode(admin).catch(() => null),
     getGuideCaps(admin).catch(() => null),
     readCapUsage(admin).catch(() => null),
@@ -99,9 +104,13 @@ async function guidesFacts(admin: Admin) {
     loadBackfillProgress(admin).catch(() => null),
     getDistributionMode(admin).catch(() => 'off' as const),
     isAutomationPaused(admin).catch(() => false),
+<<<<<<< HEAD
     readGuideSpend(admin).catch(() => null),
+=======
+    countGuidesNeedingPhoto(admin).catch(() => null),
+>>>>>>> loop-guide-photos
   ])
-  const backfill = !backfillState
+  const backfill =!backfillState
     ? { state: 'none' as const, written: 0, waiting: 0 }
     : backfillState.cancelled_at
       ? { state: 'cancelled' as const, written: 0, waiting: 0 }
@@ -124,6 +133,8 @@ async function guidesFacts(admin: Admin) {
       : null,
     spend,
     orphans: orphanAudit ? { count: orphanAudit.orphans.length, checked: orphanAudit.checked, at: orphanAudit.at } : null,
+    // Published guides whose hero is a duplicate, missing, tiny or a wrong subject (the daily heal fixes up to 3 a day). Null = could not be read.
+    photosNeeded: photoCount,
   }
 }
 

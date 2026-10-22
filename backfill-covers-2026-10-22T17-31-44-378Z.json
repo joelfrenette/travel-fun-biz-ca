@@ -1,0 +1,263 @@
+[
+  {
+    "table": "guides",
+    "id": "24dd986c-5c2e-47b5-a69b-76ad5cffad6c",
+    "slug": "rhine-river",
+    "before": {
+      "cover": "https://images.pexels.com/photos/38086677/pexels-photo-38086677.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Capture of Boppard with vineyards and historic castles overlooking the Rhine on a sunny day. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "4c204fc4-f05b-439f-a840-45040d820f3c",
+    "slug": "atlantis-paradise-island",
+    "before": {
+      "cover": "https://images.pexels.com/photos/2259226/pexels-photo-2259226.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Relax by the tropical pool at a luxurious resort in Bali, featuring palm trees and serene blue waters. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "d9f1cd29-6d80-4697-9618-c653511f9429",
+    "slug": "beaches-resorts",
+    "before": {
+      "cover": "https://images.pexels.com/photos/6789839/pexels-photo-6789839.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Peaceful tropical beach scene with palm trees, azure sea, and distant mountains. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "85c2da5d-bb9f-4550-9be6-9befc34ade65",
+    "slug": "celebrity-cruises",
+    "before": {
+      "cover": "https://images.pexels.com/photos/32609062/pexels-photo-32609062.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "A breathtaking view of a cruise ship sailing across the ocean with the sun setting in the background. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "2fc0e0a6-14f3-4644-9f61-21d9f4d4193b",
+    "slug": "celebrity-edge",
+    "before": {
+      "cover": "https://images.pexels.com/photos/33270055/pexels-photo-33270055.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "MSC cruise ship navigating waters near Hobart, Tasmania against a dramatic cloudy sky. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "51bf928b-eeac-4d19-bf4a-3d2d7a9bbd1b",
+    "slug": "amawaterways",
+    "before": {
+      "cover": "https://images.pexels.com/photos/19436809/pexels-photo-19436809.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Elegant cruise ship loaded with passengers enjoying scenic views from the top deck. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "0e49c477-36dd-4f4f-8b9b-51d987d8a1d7",
+    "slug": "club-med",
+    "before": {
+      "cover": "https://images.pexels.com/photos/6789839/pexels-photo-6789839.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Peaceful tropical beach scene with palm trees, azure sea, and distant mountains. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "5faf7ffd-2c77-4a59-8f06-ef689c4a3912",
+    "slug": "holland-america-line",
+    "before": {
+      "cover": "https://images.pexels.com/photos/32609062/pexels-photo-32609062.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "A breathtaking view of a cruise ship sailing across the ocean with the sun setting in the background. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "08f701b6-d428-4f28-9a93-a9269c872704",
+    "slug": "disney-wish",
+    "before": {
+      "cover": "https://images.pexels.com/photos/33270055/pexels-photo-33270055.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "MSC cruise ship navigating waters near Hobart, Tasmania against a dramatic cloudy sky. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "9fb72d96-cd1a-4566-906a-0e1bdc946ca1",
+    "slug": "avalon-waterways",
+    "before": {
+      "cover": "https://images.pexels.com/photos/19436809/pexels-photo-19436809.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Elegant cruise ship loaded with passengers enjoying scenic views from the top deck. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "00ff24eb-7126-4d77-b01d-81b3ae2b1b94",
+    "slug": "sea-cloud-cruises",
+    "before": {
+      "cover": "https://images.pexels.com/photos/15141405/pexels-photo-15141405.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "A serene view of a yacht sailing on blue waters with distant coastal hills. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "d5ac74f9-4465-413c-85f0-4e0151dc5d7e",
+    "slug": "royalton-resorts",
+    "before": {
+      "cover": "https://images.pexels.com/photos/6789839/pexels-photo-6789839.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Peaceful tropical beach scene with palm trees, azure sea, and distant mountains. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "313de013-79e6-4709-9e05-a344f90af53e",
+    "slug": "princess-cruises",
+    "before": {
+      "cover": "https://images.pexels.com/photos/32609062/pexels-photo-32609062.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "A breathtaking view of a cruise ship sailing across the ocean with the sun setting in the background. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "60210621-f438-4b4b-998c-3b55b847301e",
+    "slug": "uniworld-boutique-river-cruises",
+    "before": {
+      "cover": "https://images.pexels.com/photos/19436809/pexels-photo-19436809.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Elegant cruise ship loaded with passengers enjoying scenic views from the top deck. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "posts",
+    "id": "e2e1a07c-1b0d-4f13-b71c-d6373206659a",
+    "slug": "news-post-tropical-cyclone-trudy-becomes-a-remnant-low-318ea2",
+    "before": {
+      "cover": null,
+      "alt": null
+    },
+    "set": {
+      "cover": "https://www.travelfunbiz.ca/og/news/news-post-tropical-cyclone-trudy-becomes-a-remnant-low-318ea2",
+      "alt": "Post-Tropical Cyclone Trudy becomes a remnant low"
+    }
+  },
+  {
+    "table": "posts",
+    "id": "21e6f09f-cd86-4936-b08e-1f2286f9bf0d",
+    "slug": "news-hurricane-trudy-starting-to-weaken-rapidly-f7f32e",
+    "before": {
+      "cover": null,
+      "alt": null
+    },
+    "set": {
+      "cover": "https://www.travelfunbiz.ca/og/news/news-hurricane-trudy-starting-to-weaken-rapidly-f7f32e",
+      "alt": "Hurricane Trudy starting to weaken rapidly"
+    }
+  },
+  {
+    "table": "posts",
+    "id": "6d7b92c0-1645-4ff5-969d-a2dc0bc924be",
+    "slug": "news-canada-advisory-updated-for-democratic-republic-of-congo-9466ce",
+    "before": {
+      "cover": null,
+      "alt": null
+    },
+    "set": {
+      "cover": "https://www.travelfunbiz.ca/og/news/news-canada-advisory-updated-for-democratic-republic-of-congo-9466ce",
+      "alt": "Canada advisory updated for Democratic Republic of Congo"
+    }
+  },
+  {
+    "table": "posts",
+    "id": "7321054d-5ff1-4b99-91bd-d27cd635d882",
+    "slug": "news-canada-advisory-for-paraguay-exercise-a-high-degree-of-cauti-de0f93",
+    "before": {
+      "cover": null,
+      "alt": null
+    },
+    "set": {
+      "cover": "https://www.travelfunbiz.ca/og/news/news-canada-advisory-for-paraguay-exercise-a-high-degree-of-cauti-de0f93",
+      "alt": "Canada advisory for Paraguay exercise a high degree of caution"
+    }
+  },
+  {
+    "table": "posts",
+    "id": "6dbcd88c-c27c-4947-b5ad-5da800328f93",
+    "slug": "news-canada-updates-its-travel-advisory-for-saudi-arabia-ef69e6",
+    "before": {
+      "cover": null,
+      "alt": null
+    },
+    "set": {
+      "cover": "https://www.travelfunbiz.ca/og/news/news-canada-updates-its-travel-advisory-for-saudi-arabia-ef69e6",
+      "alt": "Canada updates its travel advisory for Saudi Arabia"
+    }
+  },
+  {
+    "table": "posts",
+    "id": "25ca19c2-c4ae-4612-846a-a301fefd369a",
+    "slug": "news-subtropical-storm-josephine-advisory-number-2-with-maximum-s-34c415",
+    "before": {
+      "cover": null,
+      "alt": null
+    },
+    "set": {
+      "cover": "https://www.travelfunbiz.ca/og/news/news-subtropical-storm-josephine-advisory-number-2-with-maximum-s-34c415",
+      "alt": "Subtropical Storm Josephine advisory number 2 with maximum sustained winds of 65 mph"
+    }
+  },
+  {
+    "table": "posts",
+    "id": "f13cefcf-13b0-4d33-847a-2763b2ec6d3b",
+    "slug": "news-tropical-storm-vance-strengthens-slightly-7d5ae1",
+    "before": {
+      "cover": null,
+      "alt": null
+    },
+    "set": {
+      "cover": "https://www.travelfunbiz.ca/og/news/news-tropical-storm-vance-strengthens-slightly-7d5ae1",
+      "alt": "Tropical Storm Vance strengthens slightly"
+    }
+  },
+  {
+    "table": "guides",
+    "id": "5008da47-ff3f-4846-89bc-ab4c0a7c1864",
+    "slug": "windstar-cruises",
+    "before": {
+      "cover": "https://images.pexels.com/photos/15141405/pexels-photo-15141405.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "A serene view of a yacht sailing on blue waters with distant coastal hills. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "02e48439-c9e8-43e3-8987-b166f5f476c8",
+    "slug": "norwegian-cruise-line",
+    "before": {
+      "cover": "https://images.pexels.com/photos/32609062/pexels-photo-32609062.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "A breathtaking view of a cruise ship sailing across the ocean with the sun setting in the background. (stock photo)"
+    },
+    "set": {}
+  },
+  {
+    "table": "guides",
+    "id": "c7159a99-c94b-451e-9e36-285d672900a7",
+    "slug": "disney-cruise-line",
+    "before": {
+      "cover": "https://images.pexels.com/photos/32609062/pexels-photo-32609062.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "A breathtaking view of a cruise ship sailing across the ocean with the sun setting in the background. (stock photo)"
+    },
+    "set": {}
+  }
+]
