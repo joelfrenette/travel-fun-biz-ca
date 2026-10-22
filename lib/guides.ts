@@ -707,6 +707,14 @@ export async function listGuideCandidates(admin: SupabaseClient): Promise<GuideC
       .filter((g) => !isRetryableRejected(g, nowMs, rejectionCountFor(failureCounts[`${g.kind}:${g.slug}`])))
       .map((g) => `${g.kind}:${g.slug}`),
   )
+  // Names the owner removed on purpose (a JSON list of "kind:slug" in app_settings key guide_excluded) are never offered again.
+  try {
+    const { data: ex } = await admin.from('app_settings').select('value').eq('key', 'guide_excluded').maybeSingle()
+    const list = ex?.value ? JSON.parse(String(ex.value)) : []
+    if (Array.isArray(list)) for (const k of list) if (typeof k === 'string') taken.add(k)
+  } catch {
+    // a missing or unreadable list excludes nothing
+  }
   const out: GuideCandidate[] = []
   const add = (c: GuideCandidate) => {
     if (!c.slug) return
