@@ -10,7 +10,7 @@ import { pickHeaderFeature, type HeaderPastTrip } from "@/lib/guide-header"
 import { isPastTrip } from "@/lib/past-trip"
 import { dbPackageToTravelPackage } from "@/lib/packages"
 import type { TravelPackage } from "@/types/travel"
-import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedGuides, guideTrail, childGroups, relatedGuideCards, getPublishedTripRowsByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
+import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRelatedWithCoverage, guideTrail, childGroups, relatedGuideCards, getPublishedTripRowsByIds, getTripFactsByIds, guideKinds, guidePath, type PublicGuide, type GuideKind, type TrailStep } from "@/lib/guides"
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
 import { GuideCta } from "@/components/guide-cta"
 import { StickyCta } from "@/components/sticky-cta"
@@ -191,7 +191,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   const parentDestination = guide.parent_slug ? destinations.find((d) => d.slug === guide.parent_slug) : undefined
   const parentName = parentGuide?.name ?? parentDestination?.destination ?? null
   // Up to 6 other published guides: same parent first, then the same kind, then ones sharing a trip.
-  const relatedGuides = pickRelatedGuides(guide, allGuides, 6)
+  const relatedGuides = pickRelatedWithCoverage(guide, allGuides, 6)
   // Breadcrumb: the parents (a country, then a city, then a port), then this page. A parent with trips but no guide still gets a link.
   const trail = guideTrail(guide, allGuides, guide.parent_slug && parentName ? { slug: guide.parent_slug, name: parentName } : null)
   const children = childGroups(guide, allGuides)

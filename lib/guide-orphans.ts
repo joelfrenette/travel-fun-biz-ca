@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { internalLinkPathsOf } from '@/lib/seo-score'
 import { resolveParent } from '@/lib/guide-scope'
-import { guidePath, pickGuidesForPost, pickRelatedGuides, pickTopDestinationGuides, isGuideKind, type GuideKind, type GuideLink } from '@/lib/guides'
+import { guidePath, pickGuidesForPost, pickRelatedWithCoverage, pickTopDestinationGuides, isGuideKind, isSafePageNote, type GuideKind, type GuideLink } from '@/lib/guides'
 import { generateSlug } from '@/lib/utils'
 
 // Orphan-page audit (growth loop WP16, part 4). An orphan is a published guide page that no other page of the site
@@ -24,6 +24,9 @@ export interface AuditGuide {
   related_package_ids: string[]
   summary: string
   body: string
+  /** A safe page: live but noindex, left out of every link feed. It cannot be an orphan and gives no related links. */
+  thin?: boolean
+  quality_notes?: string | null
 }
 
 export interface AuditPost {
@@ -47,7 +50,9 @@ const keyOf = (g: { kind: string; slug: string }) => `${g.kind}:${g.slug}`
 export function inboundSources(guides: AuditGuide[], posts: AuditPost[], trips: AuditTrip[]): Map<string, string[]> {
   const sources = new Map<string, Set<string>>()
   for (const g of guides) sources.set(keyOf(g), new Set())
-  const byPath = new Map(guides.map((g) => [guidePath(g.kind, g.slug), g]))
+  // The pages only ever link to indexable guides (the public link feed drops safe pages), so the audit does the same.
+  const live = guides.filter((g) => !g.thin)
+  const byPath = new Map(live.map((g) => [guidePath(g.kind, g.slug), g]))
   const add = (target: { kind: string; slug: string }, source: string) => {
     const set = sources.get(keyOf(target))
     if (set && source !== `guide:${keyOf(target)}`) set.add(source)
@@ -74,23 +79,23 @@ export function inboundSources(guides: AuditGuide[], posts: AuditPost[], trips: 
   }
 
   // 2. Parent and child: the parent page lists its children, and a child's breadcrumb links up to its parent.
-  const nodes = guides.map((g) => ({ kind: g.kind, slug: g.slug, name: g.name, parent_slug: g.parent_slug }))
+  const nodes = live.map((g) => ({ kind: g.kind, slug: g.slug, name: g.name, parent_slug: g.parent_slug }))
   for (const g of guides) {
     const parent = resolveParent(g, nodes)
     if (!parent) continue
-    add(g, `parent:${keyOf(parent)}`)
+    if (!g.thin) add(g, `parent:${keyOf(parent)}`)
     add(parent, `child:${keyOf(g)}`)
   }
 
-  // 3. The pages a blog post shows as "about this story", and the related-guides block of every guide.
-  const links: GuideLink[] = guides.map((g) => ({ id: g.id, kind: g.kind, slug: g.slug, name: g.name, parent_slug: g.parent_slug, summary: g.summary, related_package_ids: g.related_package_ids }))
+  // 3. The pages a blog post shows as "about this story", and the related-guides block of every guide (the same function the pages call).
+  const links: GuideLink[] = live.map((g) => ({ id: g.id, kind: g.kind, slug: g.slug, name: g.name, parent_slug: g.parent_slug, summary: g.summary, related_package_ids: g.related_package_ids }))
   const destByPackageId = new Map(trips.map((t) => [t.id, t.destination ? generateSlug(t.destination) || null : null]))
   for (const p of posts) {
     const destinationSlug = p.related_package_id ? destByPackageId.get(p.related_package_id) ?? null : null
     for (const hit of pickGuidesForPost({ title: p.title, tags: p.tags, destinationSlug }, links, 3)) add(hit, `story:${p.slug}`)
   }
-  for (const g of links) {
-    for (const hit of pickRelatedGuides(g, links, 6)) add(hit, `related:${keyOf(g)}`)
+  for (const g of guides) {
+    for (const hit of pickRelatedWithCoverage(g, links, 6)) add(hit, `related:${keyOf(g)}`)
   }
 
   // 4. The home page's top-destinations block.
@@ -110,7 +115,7 @@ export interface Orphan {
 export function findOrphans(guides: AuditGuide[], posts: AuditPost[], trips: AuditTrip[]): Orphan[] {
   const inbound = inboundSources(guides, posts, trips)
   return guides
-    .filter((g) => (inbound.get(keyOf(g)) ?? []).length === 0)
+    .filter((g) => !g.thin && (inbound.get(keyOf(g)) ?? []).length === 0)
     .map((g) => ({ kind: g.kind, slug: g.slug, name: g.name, path: guidePath(g.kind, g.slug) }))
     .sort((a, b) => a.path.localeCompare(b.path))
 }
@@ -137,7 +142,7 @@ export interface AuditInputs {
 /** Reads what the audit needs. Returns null when any read failed, so an unreadable table is never reported as "no links". */
 export async function loadAuditInputs(admin: SupabaseClient): Promise<AuditInputs | null> {
   const [g, extras] = await Promise.all([
-    admin.from('guides').select('id, kind, slug, name, parent_slug, related_package_ids, summary, body').eq('status', 'published'),
+    admin.from('guides').select('id, kind, slug, name, parent_slug, related_package_ids, summary, body, quality_notes').eq('status', 'published'),
     loadPostsAndTrips(admin),
   ])
   if (g.error || !extras) return null
@@ -148,7 +153,7 @@ export async function loadAuditInputs(admin: SupabaseClient): Promise<AuditInput
 export function toAuditGuides(rows: AuditGuide[]): AuditGuide[] {
   return rows
     .filter((x) => isGuideKind(x.kind))
-    .map((x) => ({ id: x.id, kind: x.kind, slug: x.slug, name: x.name, parent_slug: x.parent_slug ?? null, related_package_ids: x.related_package_ids ?? [], summary: x.summary ?? '', body: x.body ?? '' }))
+    .map((x) => ({ id: x.id, kind: x.kind, slug: x.slug, name: x.name, parent_slug: x.parent_slug ?? null, related_package_ids: x.related_package_ids ?? [], summary: x.summary ?? '', body: x.body ?? '', thin: x.thin === true || isSafePageNote(x.quality_notes) }))
 }
 
 /** The published posts and trips the audit counts links from. Null when either read failed. */
@@ -185,6 +190,7 @@ export async function readOrphanAudit(admin: SupabaseClient, now: Date = new Dat
     const inputs = await loadAuditInputs(admin)
     if (!inputs) return null
     const audit: OrphanAudit = { at: now.toISOString(), checked: inputs.guides.length, orphans: findOrphans(inputs.guides, inputs.posts, inputs.trips) }
+    audit.checked = inputs.guides.filter((g) => !g.thin).length
     await setSetting(admin, ORPHAN_AUDIT_KEY, JSON.stringify(audit))
     return audit
   } catch {

@@ -31,7 +31,7 @@ for (const [label, src] of [['guide-page', guidePage], ['destination page', dest
 }
 expect('guide-page no longer defines the sections inline', !/id="related-guides-heading"|id="stories-heading"/.test(guidePage))
 expect('destination page calls listPostsForGuide(guide, 3)', /listPostsForGuide\(guide, 3\)/.test(dest))
-expect('destination page calls pickRelatedGuides(guide, allGuides, 6)', /pickRelatedGuides\(guide, allGuides, 6\)/.test(dest))
+expect('destination page calls pickRelatedWithCoverage(guide, allGuides, 6)', /pickRelatedWithCoverage\(guide, allGuides, 6\)/.test(dest))
 expect('destination page renders the header call-to-action panel', /<GuideHeaderActions name=\{destination\}/.test(dest))
 expect('guide page renders the header call-to-action panel', /<GuideHeaderActions name=\{guide\.name\}/.test(guidePage))
 expect('destination time uses updated_at', /dateTime=\{guide\.updated_at\}/.test(dest))
