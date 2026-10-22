@@ -88,11 +88,7 @@ type Admin = ReturnType<typeof getSupabaseAdmin>
 
 // Guides: every number here is read from what the pipeline already stores. A read that fails shows as null, never as a made-up zero.
 async function guidesFacts(admin: Admin) {
-<<<<<<< HEAD
-  const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused, spend] = await Promise.all([
-=======
-  const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused, photoCount] = await Promise.all([
->>>>>>> loop-guide-photos
+  const [publishMode, caps, usage, heal, catchup, safe, orphanAudit, backfillState, backfillActive, distributionMode, paused, spend, photoCount] = await Promise.all([
     getGuidePublishMode(admin).catch(() => null),
     getGuideCaps(admin).catch(() => null),
     readCapUsage(admin).catch(() => null),
@@ -104,11 +100,8 @@ async function guidesFacts(admin: Admin) {
     loadBackfillProgress(admin).catch(() => null),
     getDistributionMode(admin).catch(() => 'off' as const),
     isAutomationPaused(admin).catch(() => false),
-<<<<<<< HEAD
     readGuideSpend(admin).catch(() => null),
-=======
     countGuidesNeedingPhoto(admin).catch(() => null),
->>>>>>> loop-guide-photos
   ])
   const backfill =!backfillState
     ? { state: 'none' as const, written: 0, waiting: 0 }
