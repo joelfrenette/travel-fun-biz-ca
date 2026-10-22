@@ -49,6 +49,11 @@ import { PromotePanel } from "@/components/admin/promote-panel"
 import { PackageWizard } from "@/components/package-wizard"
 import { adminApi } from "@/components/package-wizard-api"
 import { AgentInvitesCard } from "@/components/admin/agent-invites-card"
+import PostsPageHeader from "@/components/admin/posts-page-header"
+import TripsAutomationCard from "@/components/admin/trips-automation-card"
+import { PostThumb } from "@/components/admin/post-thumb"
+import { isPastTrip } from "@/lib/past-trip"
+import { EMPTY_TRIP_FILTER, distinctTripValues, filterTripsExtra, tripTotals, type TripFilterInput } from "@/lib/posts-menu-2"
 
 // The add-a-trip wizard (WP13) talks to the admin routes through this; it reads the admin token when a call is made.
 const wizardApi = adminApi()
@@ -1557,9 +1562,7 @@ function PackageTable({
             <tr key={pkg.id} className="hover:bg-muted/30">
               <td className="p-3"><Checkbox checked={selectedIds.has(pkg.id)} onCheckedChange={() => onSelectToggle(pkg.id)} /></td>
               <td className="p-3">
-                <div className="h-10 w-14 overflow-hidden rounded bg-muted">
-                  {pkg.image_url ? <img src={pkg.image_url} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-[8px]">No img</div>}
-                </div>
+                <PostThumb type="trip" src={pkg.image_url} alt="" />
               </td>
               <td className="p-3">
                 <div className="flex items-center gap-2">
@@ -1629,6 +1632,8 @@ export default function PackagesAdminPage() {
   const [filterText, setFilterText] = useState("")
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [filterCategory, setFilterCategory] = useState<string>("all")
+  // Posts menu: supplier, country and start-date filters (the rules live in lib/posts-menu-2.ts so the offline check covers them).
+  const [extraFilter, setExtraFilter] = useState<TripFilterInput>(EMPTY_TRIP_FILTER)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
@@ -1694,6 +1699,7 @@ export default function PackagesAdminPage() {
     }
     if (filterStatus !== "all") result = result.filter((p) => p.status === filterStatus)
     if (filterCategory !== "all") result = result.filter((p) => p.category === filterCategory)
+    result = filterTripsExtra(result, extraFilter)
     result.sort((a, b) => {
       let aVal: any = sortField === "completeness" ? completenessScore(a).score : a[sortField]
       let bVal: any = sortField === "completeness" ? completenessScore(b).score : b[sortField]
@@ -1705,7 +1711,11 @@ export default function PackagesAdminPage() {
       return 0
     })
     return result
-  }, [packages, filterText, filterStatus, filterCategory, sortField, sortDir])
+  }, [packages, filterText, filterStatus, filterCategory, extraFilter, sortField, sortDir])
+
+  const suppliers = useMemo(() => distinctTripValues(packages, "supplier"), [packages])
+  const countries = useMemo(() => distinctTripValues(packages, "country"), [packages])
+  const totals = useMemo(() => tripTotals(packages, (p) => isPastTrip(p as unknown as DbPackage)), [packages])
 
   function handleSort(field: SortField) {
     if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc")
@@ -1849,18 +1859,29 @@ export default function PackagesAdminPage() {
 
   return (
     <div>
-      <div className="border-b bg-card/30">
-        <div className="container mx-auto flex items-center justify-between px-4 py-4">
-          <h1 className="text-xl font-bold">Posts: Trips</h1>
-          <div className="flex flex-wrap gap-2">
+      <PostsPageHeader
+        title="Posts: Trips"
+        purpose="The trips you sell. Each published trip has its own page, and can be promoted to social media."
+        loading={loading}
+        cells={[
+          { label: "Total", value: totals.total },
+          { label: "Published", value: totals.published },
+          { label: "Drafts", value: totals.drafts },
+          { label: "Archived", value: totals.archived },
+          { label: "Past trips", value: totals.past },
+        ]}
+        actions={
+          <>
             <Button variant="outline" onClick={handleSync} disabled={syncing} title="Import any new trips from travelfunbiz.com as drafts">
               {syncing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
               {syncing ? "Syncing…" : "Sync from TravelFunBiz.com"}
             </Button>
             <Button onClick={() => setShowAddModal(true)}><Plus className="mr-1 h-4 w-4" />Add Package</Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
+
+      <TripsAutomationCard />
 
       <div className="border-b bg-card/30">
         <div className="container mx-auto flex flex-wrap items-center gap-3 px-4 py-3">
@@ -1881,6 +1902,25 @@ export default function PackagesAdminPage() {
               {categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
+          <select className="h-10 rounded-md border bg-background px-3 text-sm" value={extraFilter.supplier} onChange={(e) => setExtraFilter((f) => ({ ...f, supplier: e.target.value }))} aria-label="Supplier">
+            <option value="">All suppliers</option>
+            {suppliers.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="h-10 rounded-md border bg-background px-3 text-sm" value={extraFilter.country} onChange={(e) => setExtraFilter((f) => ({ ...f, country: e.target.value }))} aria-label="Country">
+            <option value="">All countries</option>
+            {countries.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            Starts from
+            <Input type="date" className="h-10 w-[150px]" value={extraFilter.from} onChange={(e) => setExtraFilter((f) => ({ ...f, from: e.target.value }))} aria-label="Starts on or after" />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            to
+            <Input type="date" className="h-10 w-[150px]" value={extraFilter.to} onChange={(e) => setExtraFilter((f) => ({ ...f, to: e.target.value }))} aria-label="Starts on or before" />
+          </label>
+          {(extraFilter.supplier || extraFilter.country || extraFilter.from || extraFilter.to) && (
+            <Button variant="ghost" size="sm" onClick={() => setExtraFilter(EMPTY_TRIP_FILTER)}>Clear</Button>
+          )}
 
           {/* Bulk Actions — shown when items are selected */}
           {selectedIds.size > 0 && (

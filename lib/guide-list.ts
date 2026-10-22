@@ -1,4 +1,5 @@
 import { REVIEW_KINDS } from '@/lib/guide-backfill'
+import { matchesGuideFlag, parseGuideFlag, type GuideFlag } from '@/lib/posts-menu-2'
 import { SCOPE_LABEL, parseScope, scopeOf, GUIDE_SCOPES, type GuideScope } from '@/lib/guide-scope'
 
 // The admin "Pages" list at /admin/guides (growth loop WP16, part 3): one table of every guide, with search, sort,
@@ -36,6 +37,8 @@ export interface GuideListRow {
   /** Public path, for the View link. */
   path: string
   primary_keyword: string | null
+  /** The guide's own picture, for the list thumbnail. Optional: the default art shows when it is blank. */
+  hero_image_url?: string | null
 }
 
 export interface ListQuery {
@@ -47,11 +50,15 @@ export interface ListQuery {
   status: ListStatus
   /** Only live pages that nothing links to (inbound is 0). A page whose links could not be counted (inbound -1) is not listed. */
   orphans: boolean
+  /** Only pages under this parent (parent_slug), for example every hotel of one destination. */
+  parent: string
+  /** Posts menu: safe pages, held-back pages, or pages whose name was guessed from a trip title. */
+  flag: GuideFlag
   page: number
   pageSize: number
 }
 
-export const DEFAULT_QUERY: ListQuery = { q: '', sort: 'updated', dir: 'desc', kind: '', scope: '', status: 'all', orphans: false, page: 1, pageSize: 50 }
+export const DEFAULT_QUERY: ListQuery = { q: '', sort: 'updated', dir: 'desc', kind: '', scope: '', status: 'all', orphans: false, parent: '', flag: '', page: 1, pageSize: 50 }
 
 type Params = { get(name: string): string | null }
 
@@ -65,7 +72,7 @@ export function parseListQuery(params: Params, validKinds: readonly string[]): L
   const scope: ListQuery['scope'] = rawScope === 'none' ? 'none' : parseScope(rawScope) ?? ''
   const pageSize = PAGE_SIZES.find((n) => n === Number(get('pageSize'))) ?? DEFAULT_QUERY.pageSize
   const page = Math.max(1, Math.min(10_000, Math.floor(Number(get('page'))) || 1))
-  return { q: get('q').trim().slice(0, 80), sort, dir: get('dir') === 'asc' ? 'asc' : get('dir') === 'desc' ? 'desc' : defaultDir(sort), kind, scope, status, orphans: get('orphans') === '1', page, pageSize }
+  return { q: get('q').trim().slice(0, 80), sort, dir: get('dir') === 'asc' ? 'asc' : get('dir') === 'desc' ? 'desc' : defaultDir(sort), kind, scope, status, orphans: get('orphans') === '1', parent: get('parent').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 80), flag: parseGuideFlag(get('flag')), page, pageSize }
 }
 
 /** Names and dates read best A to Z / newest first; numbers read best biggest first. */
@@ -93,6 +100,8 @@ function searchText(row: GuideListRow, kindLabel: (kind: string) => string): str
 function matchesFilters(row: GuideListRow, q: ListQuery, kindLabel: (kind: string) => string): boolean {
   if (q.kind && row.kind !== q.kind) return false
   if (q.scope === 'none' ? scopeOf(row) !== null : q.scope && scopeOf(row) !== q.scope) return false
+  if (q.parent && (row.parent_slug ?? '') !== q.parent) return false
+  if (!matchesGuideFlag(row, q.flag)) return false
   if (q.orphans && !(row.status === 'published' && row.inbound === 0)) return false
   if (q.status === 'published' && row.status !== 'published') return false
   if (q.status === 'draft' && row.status !== 'draft') return false

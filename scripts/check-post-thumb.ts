@@ -65,6 +65,12 @@ expect('the blog page uses the shared header and the automation card', /PostsPag
 expect('the news items table shows a thumbnail', /<PostThumb type="news"/.test(read('app/admin/news/page.tsx')))
 expect('the public blog list and post page use the default image', /publicPostImage/.test(read('app/blog/page.tsx')) && /publicPostImage/.test(read('app/blog/[slug]/page.tsx')))
 expect('the thumbnail falls back when the image fails to load', /onError/.test(read('components/admin/post-thumb.tsx')) && /loading="lazy"/.test(read('components/admin/post-thumb.tsx')))
+// phase 2: the Guides and Trips pages use the same family
+expect('the guides list shows a guide thumbnail (hero image, else the guide default)', /<PostThumb type="guide" src=\{r\.hero_image_url\}/.test(read('app/admin/guides/page.tsx')) && defaultThumb('guide') === DEFAULT_THUMBS.guide)
+expect('the trips table shows a trip thumbnail (image_url, else the trip default)', /<PostThumb type="trip" src=\{pkg\.image_url\}/.test(read('app/admin/packages/page.tsx')) && resolveThumb({ image_url: null }, 'trip').src === DEFAULT_THUMBS.trip)
+expect('a guide with a hero image keeps it, one without gets the guide default', resolveThumb({ hero_image_url: 'https://a.test/h.jpg' }, 'guide').src === 'https://a.test/h.jpg' && resolveThumb({ hero_image_url: '' }, 'guide').src === DEFAULT_THUMBS.guide)
+expect('the guides and trips pages use the shared header and their automation card', /PostsPageHeader/.test(read('app/admin/guides/page.tsx')) && /GuidesAutomationCard/.test(read('app/admin/guides/page.tsx')) && /PostsPageHeader/.test(read('app/admin/packages/page.tsx')) && /TripsAutomationCard/.test(read('app/admin/packages/page.tsx')))
+expect('the shared header can show custom cells', /cells\?:/.test(read('components/admin/posts-page-header.tsx')))
 for (const f of ['app/api/admin/posts/automation/route.ts', 'app/api/admin/news/feeds/route.ts']) {
   expect(`${f} checks isAuthorized first in every handler`, (() => { const s = read(f); const handlers = (s.match(/export async function (GET|POST)/g) ?? []).length; return handlers > 0 && (s.match(/if \(!isAuthorized\(request\)\)/g) ?? []).length === handlers })())
 }
@@ -73,7 +79,7 @@ for (const f of ['app/api/admin/posts/automation/route.ts', 'app/api/admin/news/
 const EM = String.fromCharCode(0x2014)
 const files = [
   'lib/post-defaults.ts', 'lib/posts-page-summary.ts', 'components/admin/post-thumb.tsx', 'components/admin/posts-page-header.tsx', 'components/admin/posts-automation-card.tsx',
-  'app/api/admin/posts/automation/route.ts', 'scripts/check-post-thumb.ts', 'public/assets/defaults/blog.svg', 'public/assets/defaults/news.svg', 'public/assets/defaults/guide.svg', 'public/assets/defaults/trip.svg',
+  'app/api/admin/posts/automation/route.ts', 'components/admin/guides-automation-card.tsx', 'components/admin/trips-automation-card.tsx', 'lib/posts-menu-2.ts', 'scripts/check-post-thumb.ts', 'public/assets/defaults/blog.svg', 'public/assets/defaults/news.svg', 'public/assets/defaults/guide.svg', 'public/assets/defaults/trip.svg',
 ]
 for (const f of files) expect(`no em dash in ${f}`, !read(f).includes(EM))
 const navSrc = read('lib/admin-nav.ts')

@@ -4,7 +4,8 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { GUIDE_KINDS, guideKinds, guidePath, isGuideKind, setGuideStatus, isMissingScopeColumn, type GuideKind } from '@/lib/guides'
 import { parseScope, SCOPE_LABEL, GUIDE_SCOPES, scopeOf } from '@/lib/guide-scope'
 import { bulkPublishable, parseListQuery, queryGuideRows, wordCountOf, inReviewQueue, type GuideListRow } from '@/lib/guide-list'
-import { inboundCounts, loadPostsAndTrips, toAuditGuides, type AuditGuide } from '@/lib/guide-orphans'
+import { findOrphans, inboundCounts, loadPostsAndTrips, toAuditGuides, type AuditGuide } from '@/lib/guide-orphans'
+import { guideTotals } from '@/lib/posts-menu-2'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
 import { pingIndexNow } from '@/lib/indexnow'
 import { PERFORMANCE_TABLE } from '@/lib/content-performance'
@@ -28,11 +29,12 @@ type DbRow = {
   seo_score?: number | null
   primary_keyword: string | null
   related_package_ids: string[] | null
+  hero_image_url?: string | null
 }
 
 // Only what the list needs (not the FAQ, sections or hero fields). If a column is missing (migration 0041 or 0033 not
 // applied) the read is repeated with every column, so the list still loads and can tell the page what is missing.
-const LIST_COLUMNS = 'id, kind, slug, name, parent_slug, scope, status, source, review_state, quality_notes, updated_at, summary, body, seo_score, primary_keyword, related_package_ids'
+const LIST_COLUMNS = 'id, kind, slug, name, parent_slug, scope, status, source, review_state, quality_notes, updated_at, summary, body, seo_score, primary_keyword, related_package_ids, hero_image_url'
 
 async function readGuideRows(admin: ReturnType<typeof getSupabaseAdmin>, ids?: string[]): Promise<{ rows: DbRow[]; error?: string }> {
   const run = (columns: string) => (ids ? admin.from('guides').select(columns).in('id', ids) : admin.from('guides').select(columns))
@@ -98,14 +100,21 @@ export async function GET(request: Request) {
           clicks: clicks.get(path) ?? null,
           path,
           primary_keyword: r.primary_keyword,
+          hero_image_url: r.hero_image_url ?? null,
         }
       })
+
+    // Header counts cover every guide, not the filtered list. Orphans use the same rule as Needs attention (safe pages are not counted).
+    const totals = { ...guideTotals(list), orphans: extras ? findOrphans(published, extras.posts, extras.trips).length : null }
+    const parents = [...new Set(list.map((r) => r.parent_slug).filter((p): p is string => !!p))].sort()
 
     const result = queryGuideRows(list, query, (k) => (isGuideKind(k) ? guideKinds[k].plural : k))
     return NextResponse.json({
       ...result,
       query,
       inboundKnown: inbound !== null,
+      totals,
+      parents,
       kinds: GUIDE_KINDS.map((k) => ({ kind: k, label: guideKinds[k].plural })),
       scopes: GUIDE_SCOPES.map((s) => ({ scope: s, label: SCOPE_LABEL[s] })),
       shownScope: Object.fromEntries(result.rows.map((r) => [r.id, scopeOf(r)])),

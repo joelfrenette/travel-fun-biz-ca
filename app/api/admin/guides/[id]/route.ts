@@ -7,6 +7,8 @@ import { deleteEdits, editsLoggable, insertEdits, storedValue } from '@/lib/cont
 import type { ContentEdit } from '@/lib/content-repair'
 import { pingIndexNow } from '@/lib/indexnow'
 import { enrollGuideIfDue } from '@/lib/guide-distribution'
+import { getSettingStrict, setSetting } from '@/lib/app-settings'
+import { GUIDE_EXCLUDED_KEY, addExcluded, guidePublishBlock } from '@/lib/posts-menu-2'
 
 type Props = { params: { id: string } }
 
@@ -73,6 +75,14 @@ export async function PATCH(request: Request, { params }: Props) {
   // audit log first, so the Content edits screen can Undo them.
   if (body.status === undefined) return editGuide(params.id, body)
   if (body.status !== 'published' && body.status !== 'draft') return NextResponse.json({ error: 'status must be "published" or "draft".' }, { status: 400 })
+  // A page whose business name was guessed from a trip title can never be published from here (it is checked again on the server,
+  // not only in the button). Unpublishing is never blocked.
+  if (body.status === 'published') {
+    const current = await getGuideById(getSupabaseAdmin(), params.id)
+    if (!current) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const blocked = guidePublishBlock(current)
+    if (blocked) return NextResponse.json({ error: blocked }, { status: 409 })
+  }
   const result = await setGuideStatus(getSupabaseAdmin(), params.id, body.status)
   if (result.error || !result.guide) return NextResponse.json({ error: result.error ?? 'Not found' }, { status: 500 })
   // Publishing enrols the guide for social posting (one guide a day, mode-gated; never throws). Unpublishing does not enrol.
@@ -81,10 +91,34 @@ export async function PATCH(request: Request, { params }: Props) {
   return NextResponse.json({ ok: true, guide: result.guide })
 }
 
+// DELETE, optionally with a JSON body { doNotRecreate: true }. With it, the guide's 'kind:slug' is added to the app_settings list
+// guide_excluded BEFORE the delete, so the pipeline (listGuideCandidates) can never offer the name again. If the delete then fails,
+// the list is put back as it was.
 export async function DELETE(request: Request, { params }: Props) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!UUID.test(params.id)) return NextResponse.json({ error: 'Not a guide id.' }, { status: 400 })
-  const { error } = await deleteGuide(getSupabaseAdmin(), params.id)
-  if (error) return NextResponse.json({ error }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  const body = await request.json().catch(() => ({}))
+  const admin = getSupabaseAdmin()
+  let restore: string | null | undefined
+  let excluded = false
+  if (body && body.doNotRecreate === true) {
+    const guide = await getGuideById(admin, params.id)
+    if (!guide) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const before = await getSettingStrict(admin, GUIDE_EXCLUDED_KEY)
+    if (before.error) return NextResponse.json({ error: `Could not read the do-not-recreate list, so nothing was deleted (${before.error}).` }, { status: 500 })
+    const next = addExcluded(before.value, guide.kind, guide.slug)
+    if (!next.ok) return NextResponse.json({ error: next.error }, { status: 400 })
+    if (next.added) {
+      const saved = await setSetting(admin, GUIDE_EXCLUDED_KEY, next.value)
+      if (saved.error) return NextResponse.json({ error: `Could not save the do-not-recreate list, so nothing was deleted (${saved.error}).` }, { status: 500 })
+      restore = before.value
+    }
+    excluded = true
+  }
+  const { error } = await deleteGuide(admin, params.id)
+  if (error) {
+    if (restore !== undefined) await setSetting(admin, GUIDE_EXCLUDED_KEY, restore ?? '[]').catch(() => undefined)
+    return NextResponse.json({ error }, { status: 500 })
+  }
+  return NextResponse.json({ ok: true, excluded })
 }

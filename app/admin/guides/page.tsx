@@ -10,7 +10,13 @@ import { useToast } from "@/hooks/use-toast"
 import { GuidesBackfillCard } from "@/components/admin/guides-backfill"
 import { GuidesPanel } from "@/components/admin/guides-panel"
 import { GuidesEnrichmentCard } from "@/components/admin/guides-enrichment"
-import { Loader2, Eye, Pencil, ExternalLink, ArrowDown, ArrowUp, Check, X, RotateCcw } from "lucide-react"
+import GuidesAutomationCard from "@/components/admin/guides-automation-card"
+import PostsPageHeader from "@/components/admin/posts-page-header"
+import { PostThumb } from "@/components/admin/post-thumb"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { guidePublishBlock, type GuideFlag } from "@/lib/posts-menu-2"
+import { Loader2, Eye, EyeOff, Pencil, ExternalLink, ArrowDown, ArrowUp, Check, X, RotateCcw, Trash2, Wrench } from "lucide-react"
 
 // The Pages list (growth loop WP16): every guide page in one searchable, sortable, filterable table, with a review
 // queue for drafts the site wrote but would not publish by itself. Search, sort, filters and paging all run on the
@@ -36,9 +42,13 @@ interface Row {
   inbound: number
   clicks: number | null
   path: string
+  parent_slug: string | null
+  hero_image_url: string | null
 }
 
 interface ListData {
+  totals: { total: number; live: number; drafts: number; review: number; rejected: number; held: number; safe: number; orphans: number | null }
+  parents: string[]
   rows: Row[]
   total: number
   page: number
@@ -91,6 +101,12 @@ export default function GuidesListPage() {
   const [scope, setScope] = useState("")
   const [status, setStatus] = useState<Status>("all")
   const [orphans, setOrphans] = useState(false)
+  const [flag, setFlag] = useState<GuideFlag>("")
+  const [parent, setParent] = useState("")
+  const [autoKey, setAutoKey] = useState(0)
+  // Delete asks first; "do not recreate" is ON by default so the site does not write the same page again.
+  const [toDelete, setToDelete] = useState<Row | null>(null)
+  const [doNotRecreate, setDoNotRecreate] = useState(true)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const first = useRef(true)
@@ -115,6 +131,8 @@ export default function GuidesListPage() {
     if (kind) params.set("kind", kind)
     if (scope) params.set("scope", scope)
     if (orphans) params.set("orphans", "1")
+    if (flag) params.set("flag", flag)
+    if (parent) params.set("parent", parent)
     setLoading(true)
     fetch(`/api/admin/guides/list?${params}`, { headers: authHeaders() })
       .then(async (r) => ({ ok: r.ok, body: await r.json().catch(() => ({})) }))
@@ -125,9 +143,46 @@ export default function GuidesListPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load the pages"))
       .finally(() => setLoading(false))
-  }, [q, sort, dir, kind, scope, status, orphans, page, pageSize])
+  }, [q, sort, dir, kind, scope, status, orphans, flag, parent, page, pageSize])
   useEffect(() => { load() }, [load])
-  useEffect(() => { if (first.current) first.current = false; else setSelected(new Set()) }, [q, sort, dir, kind, scope, status, orphans, page, pageSize])
+  useEffect(() => { if (first.current) first.current = false; else setSelected(new Set()) }, [q, sort, dir, kind, scope, status, orphans, flag, parent, page, pageSize])
+
+  // One row's action (publish, unpublish, heal, delete). The server decides; errors come back as a message and nothing is hidden.
+  async function rowAction(r: Row, key: string, url: string, init: RequestInit, okTitle: string) {
+    setBusy(`${key}:${r.id}`)
+    try {
+      const res = await fetch(url, { ...init, headers: authHeaders() })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      toast({ title: okTitle, description: body.note })
+      load()
+      setAutoKey((k) => k + 1)
+      return true
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" })
+      return false
+    } finally {
+      setBusy("")
+    }
+  }
+  const setLive = (r: Row, live: boolean) => {
+    if (live) {
+      const blocked = guidePublishBlock(r)
+      if (blocked) { toast({ title: "Cannot publish", description: blocked, variant: "destructive" }); return }
+      if (r.quality_notes && !confirm(`The checks held this page back:\n${r.quality_notes}\n\nPublish it anyway?`)) return
+    }
+    return rowAction(r, "s", `/api/admin/guides/${r.id}`, { method: "PATCH", body: JSON.stringify({ status: live ? "published" : "draft" }) }, live ? "Published" : "Unpublished")
+  }
+  const healOne = (r: Row) => {
+    if (!confirm(`Heal "${r.name}" now? The AI rewrites what the checks flag, uses today's AI-call limit, and every change can be undone from Content edits. It can take a few minutes.`)) return
+    return rowAction(r, "h", `/api/admin/guides/${r.id}/heal`, { method: "POST" }, "Heal finished")
+  }
+  async function confirmDelete() {
+    if (!toDelete) return
+    const r = toDelete
+    const ok = await rowAction(r, "d", `/api/admin/guides/${r.id}`, { method: "DELETE", body: JSON.stringify({ doNotRecreate }) }, doNotRecreate ? "Deleted, and the site will not write it again" : "Deleted")
+    if (ok) setToDelete(null)
+  }
 
   function clickSort(next: Sort) {
     if (next === sort) setDir(dir === "asc" ? "desc" : "asc")
@@ -161,14 +216,24 @@ export default function GuidesListPage() {
   const scopeLabel = (id: string) => data?.scopes.find((s) => s.scope === id)?.label ?? id
 
   return (
+    <div>
+      <PostsPageHeader
+        title="Posts: Guides"
+        purpose="Destination, hotel, resort, cruise line, ship, river cruise and yacht pages, written to rank on Google and to be quoted by AI answers, each with a call to action that turns visitors into enquiries."
+        loading={!data}
+        cells={[
+          { label: "Total", value: data?.totals.total ?? null },
+          { label: "Live", value: data?.totals.live ?? null },
+          { label: "Drafts", value: data?.totals.drafts ?? null },
+          { label: "Review queue", value: data?.totals.review ?? null },
+          { label: "Held back", value: data?.totals.held ?? null },
+          { label: "Rejected", value: data?.totals.rejected ?? null },
+          { label: "Safe pages", value: data?.totals.safe ?? null },
+          { label: "Orphans", value: data?.totals.orphans ?? null },
+        ]}
+      />
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Posts: Guides</h1>
-        <p className="text-sm text-muted-foreground">
-          The site creates, improves and publishes destination, hotel, resort, cruise line, ship, river cruise and yacht pages, written to rank on Google and to be quoted by AI answers (SEO, AEO and GEO), each with a call to action that turns visitors into enquiries.
-          Below: the one-time backfill, writing and ideas, then the searchable list of every page. Pages the site wrote but would not publish by itself wait in the Review queue.
-        </p>
-      </div>
+      <GuidesAutomationCard refreshKey={autoKey} onChanged={load} />
 
       <GuidesBackfillCard onChanged={load} />
 
@@ -209,6 +274,20 @@ export default function GuidesListPage() {
               {(data?.scopes ?? []).map((s) => <option key={s.scope} value={s.scope}>{s.label}</option>)}
               <option value="none">No scope</option>
             </select>
+            <select className="h-9 rounded-md border bg-card px-3 text-sm" value={parent} onChange={(e) => { setParent(e.target.value); setPage(1) }} aria-label="Parent page">
+              <option value="">Any parent</option>
+              {(data?.parents ?? []).map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select className="h-9 rounded-md border bg-card px-3 text-sm" value={flag} onChange={(e) => { setFlag(e.target.value as GuideFlag); setPage(1) }} aria-label="Special pages">
+              <option value="">All pages</option>
+              <option value="safe">Safe pages only</option>
+              <option value="held">Held back only</option>
+              <option value="guessed">Guessed names only</option>
+            </select>
+            <label className="flex items-center gap-1.5 text-sm">
+              <Checkbox checked={orphans} onCheckedChange={(v) => { setOrphans(v === true); setPage(1) }} aria-label="Only pages nothing links to" />
+              Orphans only
+            </label>
             <select className="h-9 rounded-md border bg-card px-3 text-sm" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} aria-label="Rows per page">
               {[25, 50, 100].map((n) => <option key={n} value={n}>{n} per page</option>)}
             </select>
@@ -237,6 +316,7 @@ export default function GuidesListPage() {
                 <th className="w-8 p-3">
                   <input type="checkbox" aria-label="Select all on this page" checked={allOnPage} onChange={(e) => setSelected(e.target.checked ? new Set(rows.map((r) => r.id)) : new Set())} />
                 </th>
+                <th className="w-20 p-3 text-xs font-semibold uppercase">Image</th>
                 {COLUMNS.map((c) => (
                   <th key={c.sort} className={`p-3 ${c.className ?? ""}`}>
                     <button type="button" className="inline-flex items-center gap-1 font-semibold uppercase hover:text-foreground" onClick={() => clickSort(c.sort)}>
@@ -252,15 +332,18 @@ export default function GuidesListPage() {
               {rows.map((r) => {
                 const shown = data?.shownScope[r.id] ?? null
                 const inQueue = r.status === "draft" && r.source === "ai" && r.review_state !== "rejected"
+                const publishBlock = guidePublishBlock(r)
                 return (
                   <tr key={r.id} className="border-b align-top hover:bg-muted/30">
                     <td className="p-3">
                       <input type="checkbox" aria-label={`Select ${r.name}`} checked={selected.has(r.id)} onChange={(e) => setSelected((s) => { const n = new Set(s); if (e.target.checked) n.add(r.id); else n.delete(r.id); return n })} />
                     </td>
+                    <td className="p-3"><PostThumb type="guide" src={r.hero_image_url} alt="" /></td>
                     <td className="max-w-[260px] p-3">
                       <Link href={`/admin/guides/${r.id}`} className="font-medium text-foreground hover:underline">{r.name}</Link>
                       <p className="truncate text-xs text-muted-foreground">{r.path}</p>
                       {r.status === "draft" && r.quality_notes && <p className="mt-0.5 text-xs text-destructive">{r.quality_notes}</p>}
+                      {publishBlock && <p className="mt-0.5 text-xs text-destructive">Cannot be published from here: the name was guessed from a trip title. Check it is a real property first.</p>}
                     </td>
                     <td className="p-3">{data?.kinds.find((k) => k.kind === r.kind)?.label ?? r.kind}</td>
                     <td className="p-3">{shown ? <span title={r.scope ? "Set by hand or when written" : "Worked out from the name"}>{scopeLabel(shown)}{r.scope ? "" : "*"}</span> : <span className="text-muted-foreground">Not set</span>}</td>
@@ -274,15 +357,30 @@ export default function GuidesListPage() {
                     <td className="p-3 text-right">{r.clicks ?? <span className="text-muted-foreground">-</span>}</td>
                     <td className="whitespace-nowrap p-3 text-right">
                       <Button size="sm" variant="outline" asChild><Link href={`/admin/guides/${r.id}`}>{inQueue ? <Eye className="mr-1 h-4 w-4" /> : <Pencil className="mr-1 h-4 w-4" />}{inQueue ? "Review" : "Edit"}</Link></Button>
-                      {r.status === "published" && (
-                        <Button size="sm" variant="ghost" asChild><a href={r.path} target="_blank" rel="noopener noreferrer" aria-label={`View ${r.name}`}><ExternalLink className="h-4 w-4" /></a></Button>
+                      {r.status === "published" ? (
+                        <Button size="sm" variant="outline" className="ml-1" disabled={!!busy} onClick={() => setLive(r, false)}>
+                          {busy === `s:${r.id}` ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <EyeOff className="mr-1 h-4 w-4" />}Unpublish
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" className="ml-1" disabled={!!busy || !!publishBlock} title={publishBlock ?? undefined} onClick={() => setLive(r, true)}>
+                          {busy === `s:${r.id}` ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Eye className="mr-1 h-4 w-4" />}Publish
+                        </Button>
                       )}
+                      {r.status === "published" && (
+                        <Button size="sm" variant="ghost" asChild><a href={r.path} target="_blank" rel="noopener noreferrer" aria-label={`View ${r.name} on the site`} title="View on site"><ExternalLink className="h-4 w-4" /></a></Button>
+                      )}
+                      <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => healOne(r)} title="Heal now: rewrite what the checks flag on this page (admin-triggered, uses today's AI-call limit)" aria-label={`Heal ${r.name} now`}>
+                        {busy === `h:${r.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => { setDoNotRecreate(true); setToDelete(r) }} title="Delete this page" aria-label={`Delete ${r.name}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </td>
                   </tr>
                 )
               })}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={11} className="p-6 text-center text-muted-foreground">No pages match. Clear the search or the filters.</td></tr>
+                <tr><td colSpan={12}className="p-6 text-center text-muted-foreground">No pages match. Clear the search or the filters.</td></tr>
               )}
             </tbody>
           </table>
@@ -304,6 +402,32 @@ export default function GuidesListPage() {
         </div>
       )}
 
+      <Dialog open={!!toDelete} onOpenChange={(open) => { if (!open && !busy) setToDelete(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this page?</DialogTitle>
+            <DialogDescription>
+              {toDelete ? `"${toDelete.name}" (${toDelete.path}) is deleted for good. ` : ""}
+              {toDelete?.status === "published" ? "It is live now, so its address will stop working. " : ""}
+              This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox className="mt-0.5" checked={doNotRecreate} onCheckedChange={(v) => setDoNotRecreate(v === true)} aria-label="Do not recreate this page" />
+            <span>
+              Do not recreate it. The site will never write a page with this kind and address again (the name goes on the do-not-recreate list). Untick it only if you want the site to be free to write the page again later.
+            </span>
+          </label>
+          <DialogFooter>
+            <Button variant="outline" disabled={!!busy} onClick={() => setToDelete(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={!!busy} onClick={confirmDelete}>
+              {busy.startsWith("d:") ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1 h-4 w-4" />}Delete page
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+    </div>
     </div>
   )
 }
