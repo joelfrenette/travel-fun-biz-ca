@@ -21,6 +21,7 @@ import { listGuidesForPost, guideKinds, guidePath } from "@/lib/guides"
 import { blogFaq, blogTakeaways, blogFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { publicPostImage } from "@/lib/post-defaults"
 import { isNewsPost, newsArchived, newsHeading, newsSourceFromBody } from "@/lib/news-post"
 
 export const revalidate = 300
@@ -168,10 +169,9 @@ export default async function BlogPostPage({ params }: Props) {
             </div>
           </header>
 
-          {post.cover_image_url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={post.cover_image_url} alt={post.alt_text || post.title} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
-          )}
+          {/* A post with no cover of its own shows the on-brand default for its kind (lib/post-defaults.ts), never a blank gap. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={publicPostImage(post)} alt={post.cover_image_url ? post.alt_text || post.title : post.title} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
 
           {takeaways.length > 0 && (
             <aside id="key-takeaways" className="mb-8 rounded-xl border bg-muted/30 p-5">
@@ -211,10 +211,8 @@ export default async function BlogPostPage({ params }: Props) {
                 {morePosts.map((p, i) => (
                   <li key={p.id} className="overflow-hidden rounded-xl border">
                     <Link href={`/blog/${p.slug}`} className="block">
-                      {p.cover_image_url && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.cover_image_url} alt={p.alt_text || p.title} loading="lazy" className="aspect-video w-full object-cover" />
-                      )}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={publicPostImage(p)} alt={p.cover_image_url ? p.alt_text || p.title : p.title} loading="lazy" className="aspect-video w-full object-cover" />
                       <span className="block p-3 font-medium text-foreground hover:underline">{p.title}</span>
                     </Link>
                     {p.meta_description && <p className="px-3 pb-3 text-sm text-muted-foreground line-clamp-2"><AffiliateParts parts={linked.parts(fieldSet.moreStories[i])} /></p>}

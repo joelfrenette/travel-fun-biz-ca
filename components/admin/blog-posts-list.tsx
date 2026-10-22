@@ -9,11 +9,14 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Loader2, Trash2, FileText, Pencil, ExternalLink, Eye, EyeOff, ArrowUp, ArrowDown, X } from "lucide-react"
+import type { ReactNode } from "react"
 import type { Post } from "@/lib/posts"
+import PostThumb from "@/components/admin/post-thumb"
+import { thumbTypeFor, ownImage } from "@/lib/post-defaults"
 import {
   POST_TYPES, TYPE_LABEL, SORTS, PAGE_SIZE, DEFAULT_POST_QUERY,
   buildRow, parsePostQuery, serializePostQuery, filterPosts, sortPosts, paginate, distinctValues, statusPatch,
-  type AdminPostMeta, type AdminPostRow, type PostQuery, type PostSort, type BulkAction,
+  type AdminPostMeta, type AdminPostRow, type PostQuery, type PostSort, type BulkAction, type PostType,
 } from "@/lib/blog-admin-filters"
 
 function authHeaders(): HeadersInit {
@@ -30,13 +33,22 @@ interface Props {
   /** Remove / replace posts locally after an action (no full reload, so filters and scroll stay put). */
   onPostsChange: (next: Post[]) => void
   onError: (message: string) => void
+  /** Show only this kind of post and hide the Type filter (the News page passes "news"). Omit for every kind. */
+  lockedType?: PostType
+  /** Supplier / city / country filters come from a linked trip; a kind that is never linked to one hides them. Default true. */
+  showTripFilters?: boolean
+  /** Extra per-row buttons for one kind of post (for example Approve / Reject on a news brief). Rendered before Edit. */
+  extraActions?: (row: AdminPostRow, busy: boolean) => ReactNode
+  /** Wording for the empty list, so each page can say what a post is called there. */
+  emptyText?: string
 }
 
-export default function BlogPostsList({ posts, meta, loading, onPostsChange, onError }: Props) {
+export default function BlogPostsList({ posts, meta, loading, onPostsChange, onError, lockedType, showTripFilters = true, extraActions, emptyText }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const query = useMemo(() => parsePostQuery(searchParams), [searchParams])
+  const parsedQuery = useMemo(() => parsePostQuery(searchParams), [searchParams])
+  const query = useMemo(() => (lockedType ? { ...parsedQuery, type: lockedType } : parsedQuery), [parsedQuery, lockedType])
 
   // The search box keeps its own text so typing is instant; the URL follows a moment later.
   const [searchText, setSearchText] = useState(query.q)
@@ -49,7 +61,7 @@ export default function BlogPostsList({ posts, meta, loading, onPostsChange, onE
   }, [searchText])
 
   function update(patch: Partial<PostQuery>) {
-    const next = { ...query, ...patch }
+    const next = { ...query, ...patch, ...(lockedType ? { type: "" as const } : {}) }
     const params = serializePostQuery(next)
     const qs = params.toString()
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
@@ -61,7 +73,7 @@ export default function BlogPostsList({ posts, meta, loading, onPostsChange, onE
   const suppliers = useMemo(() => distinctValues(rows, "supplier"), [rows])
   const cities = useMemo(() => distinctValues(rows, "city"), [rows])
   const countries = useMemo(() => distinctValues(rows, "country"), [rows])
-  const filtersActive = serializePostQuery({ ...query, page: 1, sort: DEFAULT_POST_QUERY.sort, dir: DEFAULT_POST_QUERY.dir }).toString() !== ""
+  const filtersActive = serializePostQuery({ ...query, ...(lockedType ? { type: "" as const } : {}), page: 1, sort: DEFAULT_POST_QUERY.sort, dir: DEFAULT_POST_QUERY.dir }).toString() !== ""
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
@@ -164,24 +176,30 @@ export default function BlogPostsList({ posts, meta, loading, onPostsChange, onE
               <option value="published">Published</option>
               <option value="draft">Draft</option>
             </select>
-            <select className={selectClass} value={query.type} onChange={(e) => update({ type: e.target.value as PostQuery["type"], page: 1 })} aria-label="Type">
-              <option value="">All types</option>
-              {POST_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
-            </select>
+            {!lockedType && (
+              <select className={selectClass} value={query.type} onChange={(e) => update({ type: e.target.value as PostQuery["type"], page: 1 })} aria-label="Type">
+                <option value="">All types</option>
+                {POST_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
+              </select>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select className={selectClass} value={query.supplier} onChange={(e) => update({ supplier: e.target.value, page: 1 })} aria-label="Supplier">
-              <option value="">Any supplier</option>
-              {suppliers.map((v) => <option key={v} value={v}>{v}</option>)}
-            </select>
-            <select className={selectClass} value={query.city} onChange={(e) => update({ city: e.target.value, page: 1 })} aria-label="City">
-              <option value="">Any city</option>
-              {cities.map((v) => <option key={v} value={v}>{v}</option>)}
-            </select>
-            <select className={selectClass} value={query.country} onChange={(e) => update({ country: e.target.value, page: 1 })} aria-label="Country">
-              <option value="">Any country</option>
-              {countries.map((v) => <option key={v} value={v}>{v}</option>)}
-            </select>
+            {showTripFilters && (
+              <>
+                <select className={selectClass} value={query.supplier} onChange={(e) => update({ supplier: e.target.value, page: 1 })} aria-label="Supplier">
+                  <option value="">Any supplier</option>
+                  {suppliers.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+                <select className={selectClass} value={query.city} onChange={(e) => update({ city: e.target.value, page: 1 })} aria-label="City">
+                  <option value="">Any city</option>
+                  {cities.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+                <select className={selectClass} value={query.country} onChange={(e) => update({ country: e.target.value, page: 1 })} aria-label="Country">
+                  <option value="">Any country</option>
+                  {countries.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </>
+            )}
             <label className="flex items-center gap-1 text-xs text-muted-foreground">From
               <Input type="date" className="h-9 w-[150px]" value={query.from} onChange={(e) => update({ from: e.target.value, page: 1 })} />
             </label>
@@ -202,7 +220,7 @@ export default function BlogPostsList({ posts, meta, loading, onPostsChange, onE
             ))}
             <span className="ml-auto" aria-live="polite">{loading ? "Loading..." : `${filtered.length} of ${rows.length} post${rows.length === 1 ? "" : "s"}`}</span>
           </div>
-          {(suppliers.length === 0 && cities.length === 0 && countries.length === 0 && rows.length > 0) && (
+          {(showTripFilters && suppliers.length === 0 && cities.length === 0 && countries.length === 0 && rows.length > 0) && (
             <p className="text-xs text-muted-foreground">Supplier, city and country come from the trip a post is linked to. No post is linked to a trip yet, so those filters are empty.</p>
           )}
         </CardContent>
@@ -228,7 +246,7 @@ export default function BlogPostsList({ posts, meta, loading, onPostsChange, onE
       ) : rows.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
           <FileText className="h-8 w-8" />
-          <p>No posts yet. Write your first one.</p>
+          <p>{emptyText ?? "No posts yet. Write your first one."}</p>
         </div>
       ) : filtered.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">No posts match these filters.</p>
@@ -240,15 +258,18 @@ export default function BlogPostsList({ posts, meta, loading, onPostsChange, onE
               <Card key={row.id}>
                 <CardContent className="flex flex-wrap items-center gap-3 p-4">
                   <Checkbox checked={selected.has(row.id)} onCheckedChange={(v) => toggleOne(row.id, v === true)} aria-label={`Select ${row.title}`} />
-                  <div className="min-w-[220px] flex-1">
+                  <Link href={`/admin/blog/${row.id}`} aria-label={`Edit ${row.title}`} className="shrink-0">
+                    <PostThumb src={ownImage(row)} alt={`Thumbnail for ${row.title}`} type={thumbTypeFor(row.type)} size="sm" />
+                  </Link>
+                  <div className="min-w-[200px] flex-1">
                     <Link href={`/admin/blog/${row.id}`} className="font-medium hover:underline">{row.title}</Link>
                     <p className="text-xs text-muted-foreground">
                       /blog/{row.slug}{row.date ? ` · ${row.date}` : ""}
                       {row.tags.length > 0 ? ` · ${row.tags.join(", ")}` : ""}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Supplier: {row.supplier || "-"} · City: {row.city || "-"} · Country: {row.country || "-"}
-                      {row.type === "news" ? ` · Source: ${row.source || "-"}` : ""}
+                      {showTripFilters ? `Supplier: ${row.supplier || "-"} · City: ${row.city || "-"} · Country: ${row.country || "-"}` : ""}
+                      {row.type === "news" ? `${showTripFilters ? " · " : ""}Source: ${row.source || "-"}` : ""}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -258,6 +279,7 @@ export default function BlogPostsList({ posts, meta, loading, onPostsChange, onE
                     ) : (
                       <Badge variant={row.status === "published" ? "default" : "secondary"}>{row.status}</Badge>
                     )}
+                    {extraActions?.(row, busy)}
                     <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Edit"><Link href={`/admin/blog/${row.id}`}><Pencil className="h-4 w-4" /></Link></Button>
                     {row.status === "published" ? (
                       <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busy} onClick={() => setStatus(row, "unpublish")} title="Unpublish"><EyeOff className="h-4 w-4" /></Button>

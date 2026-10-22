@@ -8,6 +8,7 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { excerptFromMarkdown } from "@/lib/markdown"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 import { jsonLdHtml } from "@/lib/jsonld"
+import { publicPostImage } from "@/lib/post-defaults"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { blogIndexFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
@@ -72,7 +73,7 @@ export default async function BlogIndexPage() {
                 <Link key={post.id} href={`/blog/${post.slug}`} className="group flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-lg">
                   <div className="aspect-[16/9] overflow-hidden bg-muted">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={post.cover_image_url || DEFAULT_OG_IMAGE} alt={post.alt_text || post.title} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                    <img src={publicPostImage(post)} alt={post.cover_image_url ? post.alt_text || post.title : post.title} loading="lazy" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
                   </div>
                   <div className="flex flex-1 flex-col gap-2 p-5">
                     {post.tags.length > 0 && (

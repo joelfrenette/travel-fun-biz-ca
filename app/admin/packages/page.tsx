@@ -1851,7 +1851,7 @@ export default function PackagesAdminPage() {
     <div>
       <div className="border-b bg-card/30">
         <div className="container mx-auto flex items-center justify-between px-4 py-4">
-          <h1 className="text-xl font-bold">Travel Packages</h1>
+          <h1 className="text-xl font-bold">Posts: Trips</h1>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={handleSync} disabled={syncing} title="Import any new trips from travelfunbiz.com as drafts">
               {syncing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
