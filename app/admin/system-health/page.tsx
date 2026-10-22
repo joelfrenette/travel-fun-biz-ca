@@ -34,6 +34,9 @@ export default function SystemHealthPage() {
   const [pauseBusy, setPauseBusy] = useState(false)
   const [visitsOn, setVisitsOn] = useState(false)
   const [visitsBusy, setVisitsBusy] = useState(false)
+  const [ackOn, setAckOn] = useState(false)
+  const [ackConfigured, setAckConfigured] = useState(false)
+  const [ackBusy, setAckBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -43,8 +46,13 @@ export default function SystemHealthPage() {
       fetch("/api/admin/cron-health", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
       fetch("/api/admin/automation-kill-switch", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
       fetch("/api/admin/visit-tracking", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
+      fetch("/api/admin/lead-ack", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
     ])
-      .then(([cronRes, pauseRes, visitsRes]) => {
+      .then(([cronRes, pauseRes, visitsRes, ackRes]) => {
+        if (ackRes.ok) {
+          setAckOn(!!ackRes.data.on)
+          setAckConfigured(!!ackRes.data.configured)
+        }
         if (!cronRes.ok) throw new Error(cronRes.data.error || "Could not load")
         setCrons(cronRes.data.crons || [])
         if (pauseRes.ok) setPaused(!!pauseRes.data.paused)
@@ -88,6 +96,22 @@ export default function SystemHealthPage() {
     }
   }
 
+  async function toggleAck() {
+    const next = !ackOn
+    if (next && !confirm("Turn on the instant lead reply? Every new real lead will get a short confirmation email. Do this only after the wording in lib/lead-ack-copy.ts has been approved for CASL.")) return
+    setAckBusy(true)
+    try {
+      const res = await fetch("/api/admin/lead-ack", { method: "POST", headers: authHeaders(), body: JSON.stringify({ on: next }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Could not update")
+      setAckOn(next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update")
+    } finally {
+      setAckBusy(false)
+    }
+  }
+
   return (
     <div>
       <div className="border-b bg-card/30">
@@ -128,6 +152,22 @@ export default function SystemHealthPage() {
             <Button variant={visitsOn ? "outline" : "default"} onClick={toggleVisits} disabled={loading || visitsBusy}>
               {visitsBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               {visitsOn ? "Turn visit counting off" : "Turn visit counting on"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div className="min-w-[220px] flex-1">
+              <p className="font-medium">{ackOn ? "Instant lead reply is ON" : "Instant lead reply is OFF"}</p>
+              <p className="text-sm text-muted-foreground">
+                When on, a new real lead gets one short "we got your message" email (at most one per address per 24 hours). It makes no promise about response time. The wording is a draft in <code>lib/lead-ack-copy.ts</code> and should be approved for CASL before this is turned on.
+                {!ackConfigured && " Not ready yet: set RESEND_API_KEY and LEAD_ACK_FROM_EMAIL (an address on a domain verified in Resend), or nothing will be sent."}
+              </p>
+            </div>
+            <Button variant={ackOn ? "outline" : "default"} onClick={toggleAck} disabled={loading || ackBusy}>
+              {ackBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {ackOn ? "Turn instant reply off" : "Turn instant reply on"}
             </Button>
           </CardContent>
         </Card>

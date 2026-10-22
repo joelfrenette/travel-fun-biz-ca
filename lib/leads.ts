@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import type { ContactSubmission } from '@/lib/schemas/contact'
 import { isTestPerson } from '@/lib/test-data'
 import { notifyNewLead } from '@/lib/alerts'
+import { touchFromAttribution, insertWithTouchFallback } from '@/lib/lead-touch'
 
 // Fire-and-forget: the new lead email can never fail or slow the form (it catches everything itself).
 function announceLead(id: string | undefined | null, isTest: boolean, a: ContactSubmission['attribution'], pkg?: string | null): void {
@@ -19,7 +20,7 @@ function announceLead(id: string | undefined | null, isTest: boolean, a: Contact
 export async function recordLead(lead: ContactSubmission, forwarded: { ok: boolean; error?: string }): Promise<void> {
   try {
     const isTest = isTestPerson(lead)
-    const { data, error } = await getSupabaseAdmin().from('leads').insert({
+    const base = {
       name: lead.name,
       email: lead.email,
       phone: lead.phone || null,
@@ -35,7 +36,11 @@ export async function recordLead(lead: ContactSubmission, forwarded: { ok: boole
       forwarded_to_ghl: forwarded.ok,
       ghl_error: forwarded.ok ? null : (forwarded.error ?? null),
       is_test: isTest,
-    }).select('id').single()
+    }
+    // Referrer host, landing path and utm_term: only present in the payload when the visitor accepted analytics.
+    const { data, error } = await insertWithTouchFallback(base, touchFromAttribution(lead.attribution), (row) =>
+      getSupabaseAdmin().from('leads').insert(row).select('id').single(),
+    )
     if (!error) announceLead((data as { id?: string } | null)?.id, isTest, lead.attribution, lead.package)
   } catch {
     // the backup itself failing is never the visitor's problem
@@ -62,27 +67,27 @@ const PENDING_NOTE = 'Saved here first; the send to GoHighLevel did not finish.'
 export async function saveLeadFirst(lead: LeadBackup): Promise<string | null> {
   try {
     const isTest = isTestPerson(lead)
-    const { data, error } = await getSupabaseAdmin()
-      .from('leads')
-      .insert({
-        name: lead.name,
-        email: lead.email,
-        phone: lead.phone || null,
-        package: lead.package || null,
-        travel_date: lead.travelDate || null,
-        travelers: lead.travelers || null,
-        message: lead.message || null,
-        utm_source: lead.attribution?.utm_source || null,
-        utm_medium: lead.attribution?.utm_medium || null,
-        utm_campaign: lead.attribution?.utm_campaign || null,
-        utm_content: lead.attribution?.utm_content || null,
-        page_path: lead.attribution?.page_path || null,
-        forwarded_to_ghl: false,
-        ghl_error: PENDING_NOTE,
-        is_test: isTest,
-      })
-      .select('id')
-      .single()
+    const base = {
+      name: lead.name,
+      email: lead.email,
+      phone: lead.phone || null,
+      package: lead.package || null,
+      travel_date: lead.travelDate || null,
+      travelers: lead.travelers || null,
+      message: lead.message || null,
+      utm_source: lead.attribution?.utm_source || null,
+      utm_medium: lead.attribution?.utm_medium || null,
+      utm_campaign: lead.attribution?.utm_campaign || null,
+      utm_content: lead.attribution?.utm_content || null,
+      page_path: lead.attribution?.page_path || null,
+      forwarded_to_ghl: false,
+      ghl_error: PENDING_NOTE,
+      is_test: isTest,
+    }
+    // Referrer host, landing path and utm_term: only present in the payload when the visitor accepted analytics.
+    const { data, error } = await insertWithTouchFallback(base, touchFromAttribution(lead.attribution), (row) =>
+      getSupabaseAdmin().from('leads').insert(row).select('id').single(),
+    )
     const id = error ? null : ((data as { id?: string } | null)?.id ?? null)
     announceLead(id, isTest, lead.attribution, lead.package)
     return id
@@ -110,5 +115,12 @@ export interface LeadRow {
   ghl_error: string | null
   /** A made-up person used to try the forms; never counted in any report (lib/test-data.ts). */
   is_test?: boolean
+  /** Consent-gated source fields (migration 0051); null when the visitor did not accept analytics or the column is not there yet. */
+  referrer?: string | null
+  landing_path?: string | null
+  utm_term?: string | null
+  utm_source?: string | null
+  utm_medium?: string | null
+  utm_campaign?: string | null
   created_at: string
 }

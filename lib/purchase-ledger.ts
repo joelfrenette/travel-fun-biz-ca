@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { classifyVisit } from '@/lib/traffic-source'
+import { attributionBasisLabel } from '@/lib/orders-summary'
+
+// The stored basis values stay as they are ('lead_email_match' and so on); this is the plain-English label for them.
+export { attributionBasisLabel }
 
 // Ported from Nomad Escape Plan's lib/purchase-ledger.ts (Factory Phase 4: leads/CRM, inbound
 // side), trimmed to what this site actually sells. Dropped Nomad's product taxonomy entirely

@@ -1,6 +1,6 @@
 // Offline check: orders are attributed to the buyer's first-touch lead channel by email.
 // Run: pnpm dlx tsx scripts/check-order-attribution.ts   (exit 1 on a failure)
-import { pickLeadAttribution, recordOrder, type OrderInput } from '../lib/purchase-ledger'
+import { pickLeadAttribution, recordOrder, attributionBasisLabel, type OrderInput } from '../lib/purchase-ledger'
 
 let failures = 0
 const out: string[] = []
@@ -90,6 +90,9 @@ async function main() {
     await recordOrder(f.client, order({}, null), null)
     expect('no email skips lead lookup', f.state.leadQueries === 0 && f.state.row?.attribution_basis === 'none')
   }
+
+  expect('basis label: lead_email_match reads as first touch', attributionBasisLabel('lead_email_match') === 'First touch (matched by email)')
+  expect('basis label: unknown value is kept, null is not attributed', attributionBasisLabel('other') === 'other' && attributionBasisLabel(null) === 'Not attributed')
 
   const text = out.join('\n')
   expect('output contains no email strings', !/@/.test(text) && !text.includes(EMAIL))
