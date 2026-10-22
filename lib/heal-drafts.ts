@@ -412,6 +412,12 @@ async function applyHealedRow(
     }
     return 'rejected'
   }
+  // A live guide is never replaced by the generic safe page (it would lose its real text and drop out of the index): leave it as it was.
+  if (safeNote && rowStatus === 'published') {
+    await deleteEdits(admin, logIds).catch(() => undefined)
+    out.deferred++
+    return 'deferred'
+  }
   // healed, or already clean
   let expected: unknown = row.updated_at
   if (outcome.status === 'healed' && columns) {
