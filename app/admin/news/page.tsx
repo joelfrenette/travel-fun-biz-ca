@@ -64,7 +64,7 @@ export default function NewsAdminPage() {
 
   function load() {
     setLoading(true)
-    fetch("/api/admin/news", { headers: authHeaders() })
+    fetch("/api/admin/news/feeds", { headers: authHeaders() })
       .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
       .then(({ ok, data }) => {
         if (!ok) throw new Error(data.error || "Could not load")
@@ -82,7 +82,7 @@ export default function NewsAdminPage() {
   useEffect(load, [])
 
   async function post(body: Record<string, unknown>) {
-    const res = await fetch("/api/admin/news", { method: "POST", headers: authHeaders(), body: JSON.stringify(body) })
+    const res = await fetch("/api/admin/news/feeds", { method: "POST", headers: authHeaders(), body: JSON.stringify(body) })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
     return data
