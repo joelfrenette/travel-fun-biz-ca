@@ -80,6 +80,8 @@ export interface ValueData {
   autopilotOn: boolean | null
   /** Partner search clicks from the affiliate click ledger (WP21). Clicks only, never money. null/undefined = not tracked. */
   affiliateClicks?: { total: number; last30: number } | null
+  /** Backlinks the owner recorded on /admin/links-building (app_settings link_earned). null/undefined = could not be read. */
+  backlinks?: number | null
 }
 
 export interface Adjustment {
@@ -431,6 +433,14 @@ export function buildValueReport(d: ValueData, now: Date = new Date()): ValueRep
     tracked: d.affiliateClicks != null, value: d.affiliateClicks ? String(d.affiliateClicks.last30) : null, raw: d.affiliateClicks?.last30 ?? null,
     source: 'Affiliate click ledger (affiliate_clicks)', asOf: today,
     note: d.affiliateClicks ? `${d.affiliateClicks.total} partner clicks in total. Clicks only: commissions are in each partner's dashboard.` : 'Not tracked yet: needs migration 0048 and at least one active partner.',
+  })
+
+  // Backlinks the owner recorded by hand (Link building page). A count of entries, not a measured link profile.
+  add({
+    key: 'backlinks_recorded', group: 'search', label: 'Backlinks recorded',
+    tracked: d.backlinks != null, manual: true, value: d.backlinks != null ? String(d.backlinks) : null, raw: d.backlinks ?? null,
+    source: 'Link building page (entries you typed)', asOf: today,
+    note: d.backlinks != null ? 'Typed in by you on the Link building page. Not a crawl of who links to the site.' : 'Not readable yet: open the Link building page to record links.',
   })
 
   // ----- search -----

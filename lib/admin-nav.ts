@@ -129,6 +129,13 @@ const unsortedTools: AdminNavItem[] = [
     href: "/admin/affiliate-links",
   },
   {
+    title: "Link building",
+    description: "A checklist and copy-ready drafts for earning real backlinks yourself: free listings, partner link requests, reviews, plus a name, address and phone consistency check and a log of links earned.",
+    icon: Link2,
+    status: "Active",
+    href: "/admin/links-building",
+  },
+  {
     title: "AI Voice & Chat Agent",
     description: "Manage travel info and Q&A files for the AI voice agent and chat agent.",
     icon: Bot,
