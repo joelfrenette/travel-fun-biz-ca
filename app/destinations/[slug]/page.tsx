@@ -28,7 +28,8 @@ import type { FactsInput } from "@/lib/guide-facts"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, formatDate } from "@/lib/site"
-import { ogImageEntry } from "@/lib/og-path"
+import { ogImageEntry, structuredImages } from "@/lib/og-path"
+import { heroAlt } from "@/lib/image-quality"
 import { jsonLdHtml } from "@/lib/jsonld"
 
 export const revalidate = 300
@@ -123,6 +124,8 @@ export default async function DestinationPage({ params }: Props) {
       name: `${destination} Trips | ${SITE_NAME}`,
       description: `Upcoming group trips, cruises and singles getaways to ${destination}, plus real recaps from past trips there.`,
       url: pageUrl,
+      // A real picture for the page: the guide's hero when there is one, then the rendered 1200x630 card (never the default SVG).
+      image: structuredImages(guide?.hero_image_url, "destinations", params.slug),
       // With a guide, the guide is the one primary entity of this URL: the trip list points at it.
       ...(guide ? { about: { "@id": pageUrl }, isPartOf: { "@id": pageUrl } } : {}),
       ...(allItems.length > 0
@@ -178,7 +181,11 @@ export default async function DestinationPage({ params }: Props) {
                     src={guide.hero_image_url}
                     srcSet={heroSrcSet(guide.hero_image_url) ?? undefined}
                     sizes={heroSrcSet(guide.hero_image_url) ? HERO_SIZES.page : undefined}
-                    alt={guide.hero_alt || guide.name}
+                    alt={heroAlt(guide.hero_alt, guide.name)}
+                    width={1200}
+                    height={675}
+                    fetchPriority="high"
+                    decoding="async"
                     className="aspect-[16/9] w-full rounded-xl object-cover"
                   />
                   <figcaption className="mt-1.5 text-xs text-muted-foreground">Illustrative stock photo.</figcaption>
@@ -278,7 +285,7 @@ export default async function DestinationPage({ params }: Props) {
                 {recaps.map((pkg) => (
                   <Link key={pkg.id} href={`/packages/${pkg.slug}`} className="group flex items-center gap-4 rounded-xl border bg-card p-4 transition-shadow hover:shadow-lg">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={pkg.image_url || DEFAULT_OG_IMAGE} alt={pkg.name} className="h-16 w-24 shrink-0 rounded object-cover" />
+                    <img src={pkg.image_url || DEFAULT_OG_IMAGE} alt={`${pkg.name}, ${destination}`} width={96} height={64} loading="lazy" decoding="async" className="h-16 w-24 shrink-0 rounded object-cover" />
                     <div className="min-w-0">
                       <p className="truncate font-medium text-foreground group-hover:underline">{pkg.name}</p>
                       {formatDateRange(pkg.available_from, pkg.available_to) && (

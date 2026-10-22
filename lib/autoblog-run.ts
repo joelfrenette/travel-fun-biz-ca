@@ -535,7 +535,7 @@ A first draft of this post was refused by the quality checks for these reasons, 
   try {
     // A draft the heal rejected gets no photo: it is not going anywhere. The photo is filed under the FINAL slug (the heal can
     // rewrite the title, and the slug follows it). It is inside this try so that any failure also takes back the audit rows.
-    const image = rejectedByHeal ? null : await attachAutoblogCoverImage(admin, imageSearchTerm, final.slug)
+    const image = rejectedByHeal ? null : await attachAutoblogCoverImage(admin, imageSearchTerm, final.slug, { destination: groundingPackage?.destination ?? null, title: final.title, cardFallback: true })
     post = await createPost({
       title: final.title,
       slug: final.slug,

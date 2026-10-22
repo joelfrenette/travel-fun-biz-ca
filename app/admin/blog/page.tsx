@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react"
 import PostsPageHeader from "@/components/admin/posts-page-header"
 import PostsAutomationCard from "@/components/admin/posts-automation-card"
-import { countPostStatuses } from "@/lib/posts-page-summary"
+import { countPostStatuses, countPostsWithoutGoodCover, statusCountCells } from "@/lib/posts-page-summary"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -89,13 +89,19 @@ function BlogAdminPageContent() {
   useEffect(load, [])
 
   const counts = useMemo(() => countPostStatuses(posts, new Date().toISOString().slice(0, 10)), [posts])
+  // The four status counts plus one image-quality counter: published posts whose cover is missing, a default thumbnail, an SVG,
+  // tiny, a wrong subject or a repeat. scripts/backfill-covers.ts fixes them.
+  const cells = useMemo(
+    () => [...statusCountCells(counts), { label: "Posts without a good cover", value: countPostsWithoutGoodCover(posts, new Date().toISOString().slice(0, 10)) }],
+    [counts, posts],
+  )
 
   return (
     <div>
       <PostsPageHeader
         title="Posts: Blog"
         purpose="Articles and recaps. Draft posts never show on the public site."
-        counts={counts}
+        cells={cells}
         loading={loading}
         actions={
           <Button asChild>
