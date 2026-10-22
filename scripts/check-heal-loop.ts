@@ -636,7 +636,7 @@ async function main() {
     const auto = src('lib/autoblog-run.ts')
     check('M1: the blog write step ends its heal before the pipeline hard stop', /hardStop = Math\.min\(runStart \+ 285_000, opts\.deadlineMs/.test(auto) && /healDeadline = Math\.min\(runStart \+ 270_000, hardStop\)/.test(auto) && /runAutoblog\(\{ scheduled: !opts\.force, deadlineMs: startedAt \+ 280_000 \}\)/.test(src('lib/pipeline.ts')))
     check('M1: the cover image is inside the try that takes the audit rows back', /try \{\s*\/\/ A draft the heal rejected[\s\S]*?attachAutoblogCoverImage[\s\S]*?createPost\(/.test(auto) && /deleteEdits\(admin, repairLogIds\)/.test(auto))
-    check('M11: the cover image is filed under the final slug', /attachAutoblogCoverImage\(admin, imageSearchTerm, final\.slug\)/.test(auto))
+    check('M11: the cover image is filed under the final slug', /attachAutoblogCoverImage\(admin, imageSearchTerm, final\.slug[,)]/.test(auto))
     check('M9: a blank cap is refused by the route and ignored by the card', /String\(body\.value\)\.trim\(\) === ''/.test(src('app/api/admin/content-edits/route.ts')) && /e\.target\.value\.trim\(\) === ""/.test(src('components/admin/self-healing-card.tsx')))
     check('M13: an unreadable reject list fails the write step; a reached limit is a plain note', /limit\.unreadable \? \{ failed: true \}/.test(auto) && /ok: !result\.failed/.test(src('lib/pipeline.ts')))
   }

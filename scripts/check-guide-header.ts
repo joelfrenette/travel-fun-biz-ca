@@ -47,7 +47,7 @@ expect('past trip without a slug is never chosen', !(pf.kind === 'past' && pf.tr
 // 3. image plus facts fallback
 const ff = pickHeaderFeature<Trip>(guide, [], [])
 expect('image+facts fallback', ff.kind === 'facts')
-expect('facts: image url and alt come from the stored hero', ff.kind === 'facts' && ff.image?.url === guide.hero_image_url && ff.image.alt === 'Dubrovnik walls')
+expect('facts: image url and alt come from the stored hero', ff.kind === 'facts' && ff.image?.url === guide.hero_image_url && ff.image.alt === 'Croatia: Dubrovnik walls')
 expect('facts: at most five bullets, from the stored takeaways only', ff.kind === 'facts' && ff.facts.length === 5 && ff.facts.every((f) => guide.key_takeaways.some((t) => t.startsWith(f.replace(/\.$/, '')))))
 expect('facts: only the first sentence of a line', ff.kind === 'facts' && ff.facts[0] === 'Best in May.')
 expect('facts are not bookable', ff.bookable === false)
@@ -59,9 +59,9 @@ expect('image only (no takeaways) still shows the photo', (() => {
   const f = pickHeaderFeature<Trip>({ ...guide, key_takeaways: [] }, [], [])
   return f.kind === 'facts' && !!f.image && f.facts.length === 0
 })())
-expect('image alt falls back to the guide name', (() => {
+expect('image alt falls back to the guide name plus what the picture is', (() => {
   const f = pickHeaderFeature<Trip>({ ...guide, hero_alt: '' }, [], [])
-  return f.kind === 'facts' && f.image?.alt === 'Croatia'
+  return f.kind === 'facts' && f.image?.alt === 'Croatia: illustrative stock travel photo'
 })())
 expect('overlong or empty lines are dropped, never rewritten', quickFacts(['', '   ', 'x'.repeat(300), 'Short one.']).join('|') === 'Short one.')
 expect('firstSentence keeps a line with no full stop whole', firstSentence('Warm in May') === 'Warm in May')

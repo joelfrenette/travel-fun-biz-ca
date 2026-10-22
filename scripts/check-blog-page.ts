@@ -28,7 +28,7 @@ expect('uses <time dateTime>', src.includes('<time dateTime={post.publish_date}'
 expect('shows Updated only when edited more than a day later', src.includes('Updated <time dateTime={post.updated_at}') && src.includes('24 * 60 * 60 * 1000'))
 expect('JSON-LD is BlogPosting, not Article', src.includes('"@type": "BlogPosting"') && !src.includes('"@type": "Article"'))
 expect('author and publisher carry url absoluteUrl("/")', (src.match(/name: SITE_NAME, url: absoluteUrl\("\/"\)/g) || []).length >= 2)
-expect('image is an array [cover, DEFAULT_OG_IMAGE]', src.includes('image: [image, DEFAULT_OG_IMAGE]'))
+expect('image is an array [cover, 1200x630 card], never the site-wide stock photo', src.includes('image: structuredImages(post.cover_image_url, "blog", post.slug)'))
 expect('about Thing from primary_keyword', src.includes('about: { "@type": "Thing", name: post.primary_keyword }'))
 expect('isPartOf Blog with /blog url', src.includes('isPartOf: { "@type": "Blog", url: absoluteUrl("/blog") }'))
 expect('cover img fetchPriority="high"', src.includes('fetchPriority="high"'))

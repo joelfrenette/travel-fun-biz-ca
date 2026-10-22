@@ -3,6 +3,8 @@ import { findDestinationPhoto, isPexelsConfigured } from '@/lib/pexels'
 import { generateAiImage, isImageAiConfigured } from '@/lib/image-ai-gen'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { tagVariant } from '@/lib/content-variants'
+import { coverAlt } from '@/lib/image-quality'
+import { ogImageUrl } from '@/lib/og-path'
 
 const MAX_BYTES = 8 * 1024 * 1024
 
@@ -56,8 +58,12 @@ export async function attachAutoblogCoverImage(
   admin: SupabaseClient,
   keyword: string,
   slugForFilename: string,
+  opts: { destination?: string | null; title?: string | null; /** Autoblog: never ship with no cover (the manual photo search leaves this off so "no photo found" still says so). */ cardFallback?: boolean } = {},
 ): Promise<{ cover_image_url: string; alt_text: string } | null> {
   if (!keyword.trim()) return null
+  const destination = (opts.destination ?? '').trim()
+  // The place goes into the search so the ranked selector (lib/photo-score.ts) matches photo descriptions against it.
+  const query = destination && !keyword.toLowerCase().includes(destination.toLowerCase()) ? `${destination} ${keyword}` : keyword
 
   // 'post' is the manual Pexels-search route's own fallback (app/api/admin/blog/pexels-photo/
   // route.ts) when the admin searches before a title/slug exists yet - fine for the uploaded
@@ -66,7 +72,7 @@ export async function attachAutoblogCoverImage(
   const hasRealSlug = !!slugForFilename.trim() && slugForFilename !== 'post'
 
   if (isPexelsConfigured()) {
-    const photo = await findDestinationPhoto(keyword)
+    const photo = await findDestinationPhoto(query)
     if (photo) {
       try {
         const res = await fetch(photo.url, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
@@ -77,7 +83,7 @@ export async function attachAutoblogCoverImage(
             const url = await uploadCoverImage(admin, buf, slugForFilename, 'image/jpeg')
             if (url) {
               if (hasRealSlug) await tagVariant(admin, slugForFilename, { coverSource: 'pexels' })
-              return { cover_image_url: url, alt_text: photo.alt || keyword }
+              return { cover_image_url: url, alt_text: coverAlt({ title: opts.title, destination, keyword, photoAlt: photo.alt }) }
             }
           }
         }
@@ -102,5 +108,11 @@ export async function attachAutoblogCoverImage(
     }
   }
 
+  // Last resort: the branded 1200x630 card for this post (drawn at /og/blog/<slug>, no stock photo, no cost). A post is never
+  // published with no cover. The card shows once the post is published (a draft's card is a 404 until then).
+  if (hasRealSlug && opts.cardFallback) {
+    await tagVariant(admin, slugForFilename, { coverSource: 'card' })
+    return { cover_image_url: ogImageUrl('blog', slugForFilename), alt_text: coverAlt({ title: opts.title, destination, keyword }) }
+  }
   return null
 }

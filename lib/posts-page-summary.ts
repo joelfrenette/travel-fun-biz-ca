@@ -1,4 +1,5 @@
 // Pure helpers shared by every "Posts: ..." admin page (Blog, News, and later Guides and Trips).
+import { countWithoutGoodCover } from '@/lib/image-quality'
 
 export interface StatusCounts {
   total: number
@@ -27,6 +28,16 @@ export function statusCountCells(c: StatusCounts): { label: string; value: numbe
     { label: 'Scheduled', value: c.scheduled },
     { label: 'Drafts', value: c.draft },
   ]
+}
+
+/** "Posts without a good cover" for the Posts: Blog header: published posts (not drafts, not scheduled) whose cover fails the image
+ * quality gate (lib/image-quality.ts). A repeated picture counts only on the later post. `today` is a YYYY-MM-DD string. */
+export function countPostsWithoutGoodCover(
+  posts: { status: string; publish_date: string | null; created_at?: string | null; cover_image_url?: string | null; alt_text?: string | null }[],
+  today: string,
+): number {
+  const live = posts.filter((p) => p.status === 'published' && !(p.publish_date && p.publish_date.slice(0, 10) > today))
+  return countWithoutGoodCover(live.map((p) => ({ url: p.cover_image_url, alt: p.alt_text, date: p.publish_date ?? p.created_at ?? null })))
 }
 
 export const DISTRIBUTION_MODE_TEXT: Record<'off' | 'prepare' | 'auto', string> = {

@@ -18,6 +18,8 @@ export const dynamic = 'force-dynamic'
 
 const RED = '#d81f26'
 const DARK = '#1a1515'
+const TEAL = '#0f766e'
+const TEAL_DARK = '#083c38'
 const PHOTO_TIMEOUT_MS = 5000
 const FONT_TIMEOUT_MS = 3000
 const FONT_FAILURE_TTL_MS = 5 * 60 * 1000
@@ -106,24 +108,31 @@ async function loadPhoto(url: string | null): Promise<string | null> {
 
 function render(content: OgContent, photo: string | null, fonts: { name: string; data: ArrayBuffer; weight: 400 | 700; style: 'normal' }[]) {
   const { lines, fontSize } = fitTitle(content.title)
+  // The news card is teal and has no photo, so a storm or an advisory never wears a stock picture of the wrong place.
+  const news = content.theme === 'news'
+  const accent = news ? TEAL : RED
   return new ImageResponse(
     (
-      <div style={{ width: OG_WIDTH, height: OG_HEIGHT, display: 'flex', position: 'relative', backgroundColor: DARK, backgroundImage: `linear-gradient(135deg, ${RED}, ${DARK})`, fontFamily: fonts.length ? 'Inter' : undefined, color: '#ffffff' }}>
+      <div style={{ width: OG_WIDTH, height: OG_HEIGHT, display: 'flex', position: 'relative', backgroundColor: DARK, backgroundImage: `linear-gradient(135deg, ${news ? TEAL : RED}, ${news ? TEAL_DARK : DARK})`, fontFamily: fonts.length ? 'Inter' : undefined, color: '#ffffff' }}>
         {photo && <img src={photo} width={OG_WIDTH} height={OG_HEIGHT} style={{ position: 'absolute', top: 0, left: 0, width: OG_WIDTH, height: OG_HEIGHT, objectFit: 'cover' }} />}
         <div style={{ position: 'absolute', top: 0, left: 0, width: OG_WIDTH, height: OG_HEIGHT, display: 'flex', backgroundImage: photo ? 'linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.45) 40%, rgba(0,0,0,0.90) 100%)' : 'linear-gradient(to bottom, rgba(0,0,0,0.0) 0%, rgba(0,0,0,0.35) 100%)' }} />
 
         <div style={{ position: 'absolute', top: 56, left: 64, right: 64, display: 'flex' }}>
-          <div style={{ display: 'flex', backgroundColor: RED, padding: '10px 22px', borderRadius: 999, fontSize: 26, fontWeight: 700, letterSpacing: 3, textTransform: 'uppercase' }}>{content.kindLabel}</div>
+          <div style={{ display: 'flex', backgroundColor: news ? TEAL_DARK : RED, padding: '10px 22px', borderRadius: 999, fontSize: 26, fontWeight: 700, letterSpacing: 3, textTransform: 'uppercase' }}>{content.kindLabel}</div>
         </div>
 
-        <div style={{ position: 'absolute', left: 64, right: 64, bottom: 120, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'absolute', left: 64, right: 64, bottom: content.sourceLine ? 152 : 120, display: 'flex', flexDirection: 'column' }}>
           {lines.map((line, i) => (
             <div key={i} style={{ display: 'flex', fontSize, fontWeight: 700, lineHeight: 1.12, textShadow: '0 3px 14px rgba(0,0,0,0.55)' }}>{line}</div>
           ))}
         </div>
 
+        {content.sourceLine && (
+          <div style={{ position: 'absolute', left: 64, right: 64, bottom: 102, display: 'flex', fontSize: 28, fontWeight: 400, opacity: 0.92 }}>{content.sourceLine}</div>
+        )}
+
         <div style={{ position: 'absolute', left: 64, right: 64, bottom: 48, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ display: 'flex', width: 56, height: 8, borderRadius: 4, backgroundColor: RED }} />
+          <div style={{ display: 'flex', width: 56, height: 8, borderRadius: 4, backgroundColor: accent }} />
           <div style={{ display: 'flex', fontSize: 30, fontWeight: 700, letterSpacing: 1 }}>{SITE_NAME}</div>
         </div>
       </div>

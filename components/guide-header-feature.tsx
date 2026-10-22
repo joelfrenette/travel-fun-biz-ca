@@ -47,7 +47,7 @@ export function GuideHeaderFeature({
         <Link href={`/packages/${trip.slug}`} className="group block overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-lg">
           <div className="relative h-48 w-full overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={trip.image_url || DEFAULT_OG_IMAGE} alt={trip.name} className="h-full w-full object-cover" />
+            <img src={trip.image_url || DEFAULT_OG_IMAGE} alt={trip.destination ? `${trip.name}, ${trip.destination}` : trip.name} width={384} height={192} fetchPriority="high" decoding="async" className="h-full w-full object-cover" />
             <span className="absolute right-3 top-3 rounded-md bg-muted px-2 py-1 text-xs font-bold uppercase text-foreground">Past trip</span>
           </div>
           <div className="p-6">
@@ -73,6 +73,10 @@ export function GuideHeaderFeature({
               srcSet={srcSet ?? undefined}
               sizes={srcSet ? HERO_SIZES.header : undefined}
               alt={feature.image.alt}
+              width={704}
+              height={528}
+              fetchPriority="high"
+              decoding="async"
               className="aspect-[4/3] w-full object-cover"
             />
             <figcaption className="px-4 pt-1.5 text-xs text-muted-foreground">Illustrative stock photo.</figcaption>

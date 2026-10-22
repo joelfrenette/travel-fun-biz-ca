@@ -2,6 +2,7 @@
 // title wrapping. No database, no network, so scripts/check-og-paths.ts can test them directly.
 // The part that reads the database is lib/og-image.ts.
 import { absoluteUrl, SITE_URL } from '@/lib/site'
+import { isDefaultAssetUrl, isSvgUrl } from '@/lib/image-quality'
 
 export const OG_WIDTH = 1200
 export const OG_HEIGHT = 630
@@ -9,6 +10,7 @@ export const OG_HEIGHT = 630
 /** The first path segment after /og/. Guide kinds use their own URL prefix. */
 export const OG_PREFIXES = [
   'blog',
+  'news',
   'packages',
   'compare',
   'best-time-to-visit',
@@ -49,6 +51,15 @@ export function ogPath(prefix: OgPrefix, slug: string): string {
 /** The absolute URL a page puts in openGraph.images / twitter.images. */
 export function ogImageUrl(prefix: OgPrefix, slug: string): string {
   return absoluteUrl(ogPath(prefix, slug))
+}
+
+/** The `image` list for a page's structured data (JSON-LD): the real cover as an absolute address (never an SVG default), then the
+ * rendered 1200x630 card, which always exists for a published page. Never empty, never the site-wide stock photo. */
+export function structuredImages(cover: string | null | undefined, prefix: OgPrefix, slug: string): string[] {
+  const card = ogImageUrl(prefix, slug)
+  const c = (cover ?? '').trim()
+  const real = c && !isSvgUrl(c) && !isDefaultAssetUrl(c) ? (c.startsWith('/') && !c.startsWith('//') ? absoluteUrl(c) : /^https?:\/\//i.test(c) ? c : '') : ''
+  return real && real !== card ? [real, card] : [card]
 }
 
 /** The openGraph.images entry for a page, with the real size so crawlers do not have to guess. */

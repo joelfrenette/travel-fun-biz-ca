@@ -11,6 +11,9 @@ import { getBestTimeToVisitPage, getBestTimeToVisitSlugs } from '@/lib/best-time
 import { SITE_NAME } from '@/lib/site'
 import { isPastTrip } from '@/lib/past-trip'
 import { cleanTitle, isAllowedPhotoUrl, parseOgPath, type OgTarget } from '@/lib/og-path'
+import { isNewsPost, newsSourceFromBody } from '@/lib/news-post'
+import { buildNewsCard } from '@/lib/news-cover'
+import { isOgCardUrl } from '@/lib/image-quality'
 
 export * from '@/lib/og-path'
 
@@ -19,6 +22,10 @@ export interface OgContent {
   kindLabel: string
   /** An https URL on an allowed host, or null (the renderer then draws the brand background). */
   photoUrl: string | null
+  /** 'news' draws the teal news card (no photo, a source line). Anything else is the red brand card. */
+  theme?: 'news'
+  /** One line under the headline (the news card's source). */
+  sourceLine?: string
 }
 
 // A miss (a made-up slug) must not load every package. The valid slug lists are kept in memory for a few
@@ -50,9 +57,16 @@ async function validSlugs(key: string, load: () => Promise<string[]>): Promise<S
 function firstPhoto(...urls: (string | null | undefined)[]): string | null {
   for (const u of urls) {
     const v = u?.trim()
-    if (v && isAllowedPhotoUrl(v)) return v
+    // Never a rendered card as the background of a card: /og/blog/<slug> would fetch itself.
+    if (v && isAllowedPhotoUrl(v) && !isOgCardUrl(v)) return v
   }
   return null
+}
+
+/** The teal news card for a post tagged travel-news. */
+function newsContent(post: { title: string; tags: unknown; body: string }): OgContent {
+  const card = buildNewsCard({ title: post.title, tags: post.tags, sourceName: newsSourceFromBody(post.body)?.name })
+  return { title: cleanTitle(card.title, SITE_NAME), kindLabel: card.kindLabel, photoUrl: null, theme: 'news', sourceLine: card.sourceLine }
 }
 
 /** What to draw for a parsed target, or null when no published page exists for it. */
@@ -62,7 +76,15 @@ export async function resolveOgTarget(target: OgTarget): Promise<OgContent | nul
   if (prefix === 'blog') {
     const post = await getPublishedPostBySlug(slug)
     if (!post) return null
+    // A news post is never drawn over a stock photo: it gets the news card.
+    if (isNewsPost(post)) return newsContent(post)
     return { title: cleanTitle(post.og_title || post.title, SITE_NAME), kindLabel: 'Blog', photoUrl: firstPhoto(post.cover_image_url) }
+  }
+
+  if (prefix === 'news') {
+    const post = await getPublishedPostBySlug(slug)
+    if (!post || !isNewsPost(post)) return null
+    return newsContent(post)
   }
 
   if (prefix === 'packages') {

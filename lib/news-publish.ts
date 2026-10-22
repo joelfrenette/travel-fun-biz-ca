@@ -5,6 +5,7 @@ import { site } from '@/lib/site'
 import type { NewsBrief, NewsFacts } from '@/lib/news-brief'
 import { NEWS_TAG, buildNewsBody, markSupersededBody, newsSlug, newsTitle } from '@/lib/news-post'
 import type { NewsItemRow } from '@/lib/news-ingest'
+import { newsCoverAlt, newsCoverUrl } from '@/lib/news-cover'
 
 // Growth loop WP20: saving a news brief as a normal blog post. Reuses the blog (posts table, /blog/<slug>): no new page type,
 // no new route. A post goes live only when the caller says so (mode publish AND the brief passed the gate and the judge),
@@ -56,8 +57,11 @@ export function buildNewsPostRow(i: NewsPostInput, phone: string = site.phone ??
     title: newsTitle(i.brief.headline),
     slug,
     body: buildNewsBody({ supersedes: i.supersedes, brief: i.brief, sourceName: i.facts.sourceName, url: i.item.url, reportedAt: i.item.published_at ?? i.item.fetched_at, phone }),
-    cover_image_url: null,
-    alt_text: null,
+    // Every news post gets the branded teal news card (drawn at /og/news/<slug>), never a stock photo: a storm or an advisory
+    // is an event, and a beach photo can show the wrong place. Alt text is the headline. Set for drafts too, so going live later
+    // needs no extra step (the card shows once the post is published; the admin thumbnail falls back to the default until then).
+    cover_image_url: newsCoverUrl(slug),
+    alt_text: newsCoverAlt(i.brief.headline),
     tags: [NEWS_TAG, i.item.category],
     related_package_id: null,
     status: i.publish ? 'published' : 'draft',

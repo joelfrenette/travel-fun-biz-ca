@@ -9,6 +9,7 @@
 // No imports from the app and no network, so scripts/check-guide-header.ts runs offline.
 
 import { telHref, enquiryHref } from './guide-facts'
+import { heroAlt } from './image-quality'
 
 export interface HeaderGuide {
   name: string
@@ -119,7 +120,8 @@ export function pickHeaderFeature<T, P extends HeaderPastTrip = HeaderPastTrip>(
   if (recaps.length > 0) return { kind: 'past', trip: recaps[0], rest: [], bookable: false }
 
   const url = guide?.hero_image_url?.trim() || ''
-  const image = url ? { url, alt: guide?.hero_alt?.trim() || guide?.name || '' } : null
+  // Alt text names the place and what the picture is, never "image" (lib/image-quality.ts).
+  const image = url ? { url, alt: heroAlt(guide?.hero_alt, guide?.name ?? '') } : null
   const facts = quickFacts(guide?.key_takeaways)
   if (image || facts.length > 0) return { kind: 'facts', image, facts, rest: [], bookable: false }
   return { kind: 'none', rest: [], bookable: false }

@@ -30,7 +30,8 @@ import { AffiliateAutoDisclosure, AffiliateParts } from "@/components/affiliate-
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { site, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
-import { ogImageEntry } from "@/lib/og-path"
+import { ogImageEntry, structuredImages, type OgPrefix } from "@/lib/og-path"
+import { heroAlt } from "@/lib/image-quality"
 
 // ONE shared page for every guide kind (destinations, hotels, resorts, cruise lines, ships, river cruises,
 // yachts). The route files under app/<kind>/[slug]/page.tsx are thin wrappers around GuidePage and
@@ -47,7 +48,8 @@ export function guideJsonLd(guide: PublicGuide, trail?: TrailStep[]): object[] {
   const info = guideKinds[guide.kind]
   const url = absoluteUrl(guidePath(guide.kind, guide.slug))
   const description = guide.meta_description || cleanText(guide.summary)
-  const image = guide.hero_image_url || DEFAULT_OG_IMAGE
+  // The real hero (absolute) then the rendered 1200x630 card: never the site-wide stock photo, never an SVG.
+  const image = structuredImages(guide.hero_image_url, guide.kind as OgPrefix, guide.slug)
   // A destination page IS the destination. A page about a named hotel, resort, ship or line is an article ABOUT
   // it: it must not claim to be the business itself (that would read as the business's own listing).
   // One organization object for author and publisher. Dates come only from stored columns and are left out when empty.
@@ -132,7 +134,7 @@ export async function guideMetadata(kind: GuideKind, slug: string): Promise<Meta
   const ogTitle = guide.og_title || title
   const ogDescription = guide.og_description || description
   // The rendered share image (lib/og-image.ts) draws the hero photo, title and site name at 1200x630.
-  const image = ogImageEntry(kind, slug, guide.hero_alt || guide.name)
+  const image = ogImageEntry(kind, slug, heroAlt(guide.hero_alt, guide.name))
   const url = absoluteUrl(guidePath(kind, slug))
   return {
     title,
@@ -248,7 +250,11 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
                 src={guide.hero_image_url}
                 srcSet={heroSrcSet(guide.hero_image_url) ?? undefined}
                 sizes={heroSrcSet(guide.hero_image_url) ? HERO_SIZES.page : undefined}
-                alt={guide.hero_alt || guide.name}
+                alt={heroAlt(guide.hero_alt, guide.name)}
+                width={1200}
+                height={675}
+                fetchPriority="high"
+                decoding="async"
                 className="aspect-[16/9] w-full rounded-xl object-cover"
               />
               <figcaption className="mt-1.5 text-xs text-muted-foreground">Illustrative stock photo.</figcaption>

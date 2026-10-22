@@ -11,8 +11,9 @@ import { getRelatedPackages } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { renderMarkdown, readingTimeMinutes, excerptFromMarkdown } from "@/lib/markdown"
-import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
-import { ogImageEntry } from "@/lib/og-path"
+import { SITE_NAME, SITE_LOCALE, absoluteUrl } from "@/lib/site"
+import { ogImageEntry, structuredImages } from "@/lib/og-path"
+import { isGenericAlt } from "@/lib/image-quality"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { styleById } from "@/lib/content-styles"
 import { PackageCard } from "@/components/package-card"
@@ -55,7 +56,6 @@ export default async function BlogPostPage({ params }: Props) {
 
   const { language, currency } = getVisitorPreferences()
   const pageUrl = absoluteUrl(`/blog/${post.slug}`)
-  const image = post.cover_image_url || DEFAULT_OG_IMAGE
   // The "**Quick answer:**" paragraph the composer writes gets a class so the Article's speakable
   // markup can point at it. Posts without one are left exactly as rendered.
   const renderedBody = renderMarkdown(post.body)
@@ -103,7 +103,7 @@ export default async function BlogPostPage({ params }: Props) {
     "@type": "BlogPosting",
     headline: post.title,
     description: post.meta_description || excerptFromMarkdown(post.body, 160),
-    image: [image, DEFAULT_OG_IMAGE],
+    image: structuredImages(post.cover_image_url, "blog", post.slug),
     url: pageUrl,
     ...(post.publish_date ? { datePublished: post.publish_date } : {}),
     dateModified: post.updated_at,
@@ -172,7 +172,7 @@ export default async function BlogPostPage({ params }: Props) {
           {/* The big hero only shows a real cover. Cards and lists use the on-brand default (lib/post-defaults.ts) so they are never blank. */}
           {post.cover_image_url && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={publicPostImage(post)} alt={post.alt_text || post.title} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
+            <img src={publicPostImage(post)} alt={isGenericAlt(post.alt_text) ? post.title : (post.alt_text as string)} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
           )}
 
           {takeaways.length > 0 && (
@@ -214,7 +214,7 @@ export default async function BlogPostPage({ params }: Props) {
                   <li key={p.id} className="overflow-hidden rounded-xl border">
                     <Link href={`/blog/${p.slug}`} className="block">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={publicPostImage(p)} alt={p.cover_image_url ? p.alt_text || p.title : p.title} loading="lazy" className="aspect-video w-full object-cover" />
+                      <img src={publicPostImage(p)} alt={p.cover_image_url && !isGenericAlt(p.alt_text) ? (p.alt_text as string) : p.title} width={640} height={360} loading="lazy" decoding="async" className="aspect-video w-full object-cover" />
                       <span className="block p-3 font-medium text-foreground hover:underline">{p.title}</span>
                     </Link>
                     {p.meta_description && <p className="px-3 pb-3 text-sm text-muted-foreground line-clamp-2"><AffiliateParts parts={linked.parts(fieldSet.moreStories[i])} /></p>}
