@@ -4,6 +4,7 @@ import { readLastPipelineRun } from '@/lib/pipeline-log'
 import { isAutopilotOn } from '@/lib/autopilot'
 import { readAllPages } from '@/lib/paged-read'
 import { isVisitTrackingOn } from '@/lib/visit-tracking'
+import { EARNED_KEY, parseEarned } from '@/lib/link-building'
 import { latestDayRows, type ContentCount, type Inputs, type ValueData } from '@/lib/value'
 
 // Reads every source the Website Value page needs. Read-only. Each source is read on its own and a
@@ -116,5 +117,9 @@ export async function collectValueData(admin: SupabaseClient, now: Date = new Da
       : null,
     autopilotOn,
     affiliateClicks,
+    backlinks: await safe(async () => {
+      const { data, error } = await admin.from('app_settings').select('value').eq('key', EARNED_KEY).maybeSingle()
+      return error ? null : parseEarned(data?.value ?? null).length
+    }),
   }
 }

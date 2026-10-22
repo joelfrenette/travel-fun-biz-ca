@@ -13,36 +13,20 @@ import { getPublishedTestimonials } from "@/lib/testimonials"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 import { getUsdToRate } from "@/lib/fx"
-import { officeInfo, socialPromos } from "@/content/footer"
 import Link from "next/link"
 import type { Metadata } from "next"
-import { SITE_NAME, absoluteUrl, site, pageAlternates } from "@/lib/site"
+import { site, pageAlternates } from "@/lib/site"
 import { FROM_CITIES, fromPath } from "@/lib/from-cities"
 
 // The layout supplies title and description; the home page adds its own canonical and hreflang (en-CA self, x-default).
 export const metadata: Metadata = { alternates: pageAlternates("/") }
 import { jsonLdHtml } from "@/lib/jsonld"
+import { buildOrganizationJsonLd } from "@/lib/org-jsonld"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { homeFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 
-const organizationJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "TravelAgency",
-  name: SITE_NAME,
-  url: absoluteUrl("/"),
-  logo: absoluteUrl("/logo.png"),
-  ...(officeInfo.phone ? { telephone: officeInfo.phone } : {}),
-  address: {
-    "@type": "PostalAddress",
-    ...(officeInfo.addressLines[0] ? { streetAddress: officeInfo.addressLines[0] } : {}),
-    addressLocality: site.address.locality,
-    addressRegion: site.address.region,
-    ...(site.address.postalCode ? { postalCode: site.address.postalCode } : {}),
-    addressCountry: site.country,
-  },
-  sameAs: socialPromos.map((s) => s.href),
-}
+const organizationJsonLd = buildOrganizationJsonLd()
 
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
