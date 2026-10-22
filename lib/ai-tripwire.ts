@@ -78,15 +78,46 @@ export function buildAiAlert(spend: number, ceiling: number): { subject: string;
   }
 }
 
+/** app_settings key holding the last computed 24 hour spend, written by the daily cron. */
+export const AI_SPEND_KEY = 'ai_spend_24h_usd'
+/** A stored reading older than this is ignored by the Needs attention list. */
+export const AI_SPEND_FRESH_MS = 36 * 3600_000
+
+/** Pure: the stored reading, or null if missing, junk or stale. */
+export function parseStoredSpend(raw: string | null | undefined, now: number = Date.now()): { spend: number; at: number } | null {
+  try {
+    const v = JSON.parse(raw ?? 'null') as { at?: string; spend?: number } | null
+    const at = Date.parse(v?.at ?? '')
+    if (!v || typeof v.spend !== 'number' || !Number.isFinite(v.spend) || !Number.isFinite(at) || now - at > AI_SPEND_FRESH_MS || at - now > 3600_000) return null
+    return { spend: v.spend, at }
+  } catch {
+    return null
+  }
+}
+
+/** For the Needs attention list: ONE settings read, no scan of api_calls. Never throws. */
+export async function readStoredAiSpend(admin: SupabaseClient, now: number = Date.now()): Promise<SpendRead> {
+  try {
+    const stored = parseStoredSpend(await getSetting(admin, AI_SPEND_KEY), now)
+    const ceiling = parseCeiling(await getSetting(admin, AI_CEILING_KEY))
+    return { spend: stored ? stored.spend : null, ceiling }
+  } catch {
+    return { spend: null, ceiling: AI_CEILING_DEFAULT_USD }
+  }
+}
+
 /** Daily check, called from the gsc-snapshot cron. Emails once per day at most. Never throws. */
 export async function runAiTripwire(admin: SupabaseClient, now: number = Date.now()): Promise<string> {
   try {
     const { spend, ceiling } = await readAiSpend(admin, now)
-    if (spend === null || !overCeiling(spend, ceiling)) return ''
+    if (spend === null) return ''
+    // Store the reading (also when under the ceiling, so the item clears) for the admin list to read cheaply.
+    await setSetting(admin, AI_SPEND_KEY, JSON.stringify({ at: new Date(now).toISOString(), spend })).catch(() => undefined)
+    if (!overCeiling(spend, ceiling)) return ''
     const day = new Date(now).toISOString().slice(0, 10)
     if ((await getSetting(admin, AI_ALERTED_DAY_KEY)) === day) return `ai tripwire: ${usd(spend)} over ${usd(ceiling)}, already emailed today`
     const mail = buildAiAlert(spend, ceiling)
-    const sent = await sendThrottledAlert(admin, mail.subject, mail.lines)
+    const sent = await sendThrottledAlert(admin, mail.subject, mail.lines, undefined, { ignoreThrottle: true })
     if (sent === 'sent') await setSetting(admin, AI_ALERTED_DAY_KEY, day)
     return `ai tripwire: ${usd(spend)} over ${usd(ceiling)}, alert ${sent}`
   } catch (e) {

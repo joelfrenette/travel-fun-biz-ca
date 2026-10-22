@@ -1,6 +1,6 @@
 // Offline check: the AI spend tripwire alerts only above the ceiling, once a day, and never throws.
 // Run: pnpm dlx tsx scripts/check-ai-tripwire.ts   (exit 1 on a failure)
-import { parseCeiling, overCeiling, buildAiAlert, readAiSpend, runAiTripwire, AI_CEILING_DEFAULT_USD, AI_ALERTED_DAY_KEY } from '../lib/ai-tripwire'
+import { parseCeiling, overCeiling, buildAiAlert, readAiSpend, runAiTripwire, parseStoredSpend, readStoredAiSpend, AI_SPEND_KEY, AI_CEILING_DEFAULT_USD, AI_ALERTED_DAY_KEY } from '../lib/ai-tripwire'
 import { plainAction, AI_SPEND_ISSUE_ID } from '../lib/plain-steps'
 
 let failures = 0
@@ -83,6 +83,18 @@ async function main() {
   await runAiTripwire(live.client, NOW + 3600_000)
   globalThis.fetch = realFetch
   expect('exactly one email for a noisy day', sends === 1 && live.settings[AI_ALERTED_DAY_KEY] === '2026-10-21')
+
+  expect('the shared 6h alert throttle is not moved by the tripwire email', !('autopilot_last_alert_at' in live.settings))
+  const stored = JSON.parse(live.settings[AI_SPEND_KEY])
+  expect('cron stored the 24h reading', stored.spend === 7 && stored.at === new Date(NOW + 3600_000).toISOString())
+  const fresh = parseStoredSpend(live.settings[AI_SPEND_KEY], NOW + 30 * 3600_000)
+  expect('stored reading is fresh at 30h', fresh?.spend === 7)
+  expect('stored reading is ignored at 40h, junk, and missing', parseStoredSpend(live.settings[AI_SPEND_KEY], NOW + 40 * 3600_000) === null && parseStoredSpend('junk', NOW) === null && parseStoredSpend(null, NOW) === null)
+  const rs = await readStoredAiSpend(live.client, NOW + 3600_000)
+  expect('admin list reads the stored value only', rs.spend === 7 && rs.ceiling === 5)
+  const quiet = fake({ costs: [1] })
+  await runAiTripwire(quiet.client, NOW)
+  expect('under ceiling still stores the reading (so the item clears)', JSON.parse(quiet.settings[AI_SPEND_KEY]).spend === 1)
 
   const pa = plainAction({ id: AI_SPEND_ISSUE_ID, area: 'setup', title: 'AI use is above your daily limit', detail: 'x' })
   expect('plain steps exist, grade-5 style, no em dashes', pa.steps.length >= 4 && !/[—–]/.test(pa.why + pa.steps.join('')) && /ai_daily_ceiling_usd/.test(pa.steps.join(' ')))

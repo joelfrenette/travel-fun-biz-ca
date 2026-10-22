@@ -23,7 +23,7 @@ import { completenessScore } from '@/lib/package-completeness'
 import { openFindings, dismissFindings } from '@/lib/source-watch'
 import { checkPastTripsForRecap } from '@/lib/content-drift'
 import { pastTripSlugs } from '@/lib/past-trip'
-import { readAiSpend, overCeiling, usd } from '@/lib/ai-tripwire'
+import { readStoredAiSpend, overCeiling, usd } from '@/lib/ai-tripwire'
 import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
@@ -502,7 +502,7 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
   // AI use above the daily limit (alert only, nothing is blocked). Area 'setup' so it never triggers the generic alert
   // email; the daily tripwire sends its own single email. Silent when the spend cannot be read.
   try {
-    const { spend, ceiling } = await readAiSpend(admin)
+    const { spend, ceiling } = await readStoredAiSpend(admin)
     if (spend !== null && overCeiling(spend, ceiling)) {
       issues.push({
         id: AI_SPEND_ISSUE_ID,
