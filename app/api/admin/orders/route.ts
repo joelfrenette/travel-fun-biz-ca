@@ -9,7 +9,7 @@ export async function GET(request: Request) {
     const admin = getSupabaseAdmin()
     const { data, error } = await admin
       .from('orders')
-      .select('id, email, package_slug, amount_cents, currency, status, is_test, channel, paid_at, created_at')
+      .select('id, email, package_slug, amount_cents, currency, status, is_test, channel, attribution_basis, paid_at, created_at')
       .order('created_at', { ascending: false })
       .limit(100)
     if (error) throw new Error(error.message)

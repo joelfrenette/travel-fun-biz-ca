@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Receipt } from "lucide-react"
-import { formatCents, type OrderRow, type OrdersSummary } from "@/lib/orders-summary"
+import { formatCents, attributionBasisLabel, type OrderRow, type OrdersSummary } from "@/lib/orders-summary"
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -76,7 +76,7 @@ export default function OrdersPage() {
                     <div className="min-w-[220px] flex-1">
                       <p className="font-medium">{o.package_slug ?? "(no package)"}</p>
                       <p className="text-xs text-muted-foreground">
-                        {o.email ?? "unknown email"} &middot; {o.channel ?? "unknown channel"} &middot; {o.paid_at ? new Date(o.paid_at).toLocaleDateString("en-CA") : new Date(o.created_at).toLocaleDateString("en-CA")}
+                        {o.email ?? "unknown email"} &middot; {o.channel ?? "unknown channel"}{o.attribution_basis && o.attribution_basis !== "none" ? ` (${attributionBasisLabel(o.attribution_basis)})` : ""} &middot; {o.paid_at ? new Date(o.paid_at).toLocaleDateString("en-CA") : new Date(o.created_at).toLocaleDateString("en-CA")}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
