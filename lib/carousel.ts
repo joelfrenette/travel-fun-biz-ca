@@ -3,22 +3,16 @@ import { setSetting } from '@/lib/app-settings'
 import { tagVariant } from '@/lib/content-variants'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { findPortraitPhoto } from '@/lib/pexels'
-import { HOOK_STYLES, CTA_STYLES, HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, rotateStyle, readRecentVariantValues, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { COVER_HOOK_STYLES, CTA_STYLES, HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, rotateStyle, readRecentVariantValues, ungroundedNumbers, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { normaliseSlides, finalizeCoverHeadline, type CarouselSlide } from '@/lib/carousel-slide'
+
+export type { CarouselSlide, SlideType } from '@/lib/carousel-slide'
 
 // Carousels (factory item 4/6): the "missing middle" of the social funnel - reels build reach,
 // carousels build trust (saves/shares are the strongest engagement signal Instagram/LinkedIn
 // give). Cheap to generate from content that already exists: a published post turned into a
 // fixed-length slide deck, each slide a headline + short body GENERATED from the post, not
 // copy-pasted paragraphs.
-export interface CarouselSlide {
-  headline: string
-  body: string
-  /** Stock-photo search words the model chose for this slide (never shown to the viewer). */
-  imageQuery?: string
-  /** The photo behind the slide, resolved when the carousel is saved. */
-  imageUrl?: string
-}
-
 const SLIDE_COUNT = 7 // enough to develop an idea, short enough to finish
 
 /** Which hook style slide 1 uses and which call-to-action style the last slide uses. Both optional:
@@ -29,9 +23,14 @@ export interface CarouselStyles {
 }
 
 function carouselPrompt(postTitle: string, postBody: string, styles: CarouselStyles = {}): string {
-  const hookLine = styles.hookStyle ? `Slide 1's headline must use this hook style: ${styles.hookStyle}, meaning ${HOOK_STYLE_PROMPTS[styles.hookStyle]}. It is a headline, so keep it under 8 words and still true to the post.${styles.hookStyle === 'number' || styles.hookStyle === 'comparison' ? ' Reuse only numbers already in the post body above; if it has none, do not use a number at all.' : ''}` : ''
+  const hookLine = styles.hookStyle ? `Slide 1's headline must use this hook style: ${styles.hookStyle}, meaning ${HOOK_STYLE_PROMPTS[styles.hookStyle]}. It is the cover headline, so keep it to 3 to 6 words and at most 36 characters, and still true to the post.${styles.hookStyle === 'number' || styles.hookStyle === 'comparison' ? ' Reuse only numbers already in the post body above; if it has none, do not use a number at all.' : ''}` : ''
   const ctaLine = styles.ctaStyle ? `The last slide's call to action must use this style: ${styles.ctaStyle}, meaning ${CTA_STYLE_PROMPTS[styles.ctaStyle]}. The slide is a picture, so never print a web address or say "click"; refer to the full post instead.` : ''
-  return `Turn this blog post into a ${SLIDE_COUNT}-slide Instagram/LinkedIn carousel. Each slide needs a punchy headline (under 8 words, the kind that makes someone swipe) and a short body (under 24 words) - write them fresh, summarizing and developing the post's real points, never copy-pasting whole paragraphs verbatim.
+  return `Turn this blog post into a ${SLIDE_COUNT}-slide Instagram/LinkedIn carousel. Each slide needs a type, a headline and a short body (under 24 words) - write them fresh, summarizing and developing the post's real points, never copy-pasting whole paragraphs verbatim.
+
+Slide types:
+- Slide 1 is type "cover". Its headline is printed huge on the cover picture: 3 to 6 words, at most 36 characters, no word over 12 characters, never ending on and, the, to, of, in, a, for, with, or, at or on. It must be a hook of one of these kinds: a question ending in a question mark; "X or Y"; "X vs Y"; "A to B by C"; "X plus Y"; a comma list of 3 or 4 places; a headline containing the word "decoded"; a quiz call to action; or a number that is already in the post. No colon, no dash, no emoji, no full stop at the end. Never start with Discover, Explore, Welcome, Introducing, Ultimate guide, Everything you need, Tips for, Guide to, Why you should or Have you ever wondered. The cover body is not shown on the picture.
+- Use type "fact" for 1 or 2 of slides 2 to 6, and only when the post states a concrete fact or number. A fact slide's headline is ONE claim of at most 14 words, printed very large on a plain teal card (for example a price gap or a number of days taken straight from the post). Its body is a one-line source note, kept short.
+- Every other slide is type "photo": a photo with a short headline (under 8 words) and a body under 24 words.
 
 Post title: ${postTitle}
 
@@ -45,7 +44,7 @@ Every fact, number or claim on any slide must be traceable back to something act
 
 Also give every slide imageQuery: 2 to 4 English words for a stock-photo search that visually fits that slide (a place, activity or mood such as "puerto plata beach" or "cruise ship deck at sunset"; never a person's name). It is only used to find a picture and is never shown.
 
-Return ONLY minified JSON of this exact shape: {"slides":[{"headline":"...","body":"...","imageQuery":"..."},...]} with exactly ${SLIDE_COUNT} entries.`
+Return ONLY minified JSON of this exact shape: {"slides":[{"type":"cover","headline":"...","body":"...","imageQuery":"..."},...]} with exactly ${SLIDE_COUNT} entries.`
 }
 
 /** Every number appearing on a slide must appear in the source post too - same hard gate the
@@ -60,21 +59,28 @@ function enforceNumberGrounding(slides: CarouselSlide[], sourceText: string): Ca
   return slides
 }
 
-type DeckAttempt = { slides: CarouselSlide[] } | 'gate' | null
+/** The one retry for a cover headline that failed the rules: a small model call that returns only a headline. */
+async function askShorterHeadline(instruction: string): Promise<string | null> {
+  const r = await callAnthropic({ max_tokens: 200, messages: [{ role: 'user', content: `${instruction}\n\nReturn ONLY minified JSON of this exact shape: {"headline":"..."}` }] }, { timeoutMs: 20_000, feature: 'carousel' })
+  if (!r || !r.res.ok) return null
+  const parsed = parseModelJson<{ headline?: unknown }>(anthropicText(await r.res.json()))
+  return typeof parsed?.headline === 'string' ? parsed.headline : null
+}
+
+type DeckAttempt ={ slides: CarouselSlide[] } | 'gate' | null
 
 async function attemptDeck(postTitle: string, postBody: string, styles: CarouselStyles): Promise<DeckAttempt> {
   try {
     const r = await callAnthropic({ max_tokens: 2000, messages: [{ role: 'user', content: carouselPrompt(postTitle, postBody, styles) }] }, { timeoutMs: 40_000, feature: 'carousel' })
     if (!r || !r.res.ok) return null
     const parsed = parseModelJson<{ slides?: CarouselSlide[] }>(anthropicText(await r.res.json()))
-    const slides = parsed?.slides
-    if (!Array.isArray(slides) || slides.length === 0) return null
     // Long dashes are swapped for a comma (no fact changes); the number gate below still runs on the result.
-    const valid = slides
-      .filter((s): s is CarouselSlide => !!s && typeof s.headline === 'string' && typeof s.body === 'string' && !!s.headline.trim() && !!s.body.trim())
-      .map((s) => ({ ...s, headline: repairDashes(s.headline), body: repairDashes(s.body) }))
+    const valid = normaliseSlides(parsed?.slides)
     if (valid.length === 0) return null
-    const grounded = enforceNumberGrounding(valid, `${postTitle} ${postBody}`)
+    // Slide 1 must carry a valid cover headline: one retry for a shorter one, then a whole phrase of the post title.
+    const withCover = await finalizeCoverHeadline(valid, postTitle, postBody, askShorterHeadline)
+    if (!withCover) return null
+    const grounded = enforceNumberGrounding(withCover, `${postTitle} ${postBody}`)
     return grounded ? { slides: grounded } : 'gate'
   } catch {
     return null
@@ -107,7 +113,7 @@ export const carouselKey = (slug: string) => `carousel:${slug}`
  * so both behave identically. Returns the slides, or null if generation or grounding failed. */
 export async function generateAndSaveCarousel(admin: SupabaseClient, post: { slug: string; title: string; body: string }): Promise<CarouselSlide[] | null> {
   // Rotate slide 1's hook style and the last slide's CTA style over the last 5 carousels.
-  const hookStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_hook', 12), HOOK_STYLES)
+  const hookStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_hook', 12), COVER_HOOK_STYLES)
   const ctaStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_cta', 12), CTA_STYLES)
   const deck = await generateCarouselDeck(post.title, post.body, { hookStyle, ctaStyle })
   if (!deck) return null
