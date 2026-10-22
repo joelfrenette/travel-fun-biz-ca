@@ -62,7 +62,12 @@ export default function LeadsPage() {
                   <p className="text-xs text-muted-foreground">
                     {l.email}{l.phone ? ` · ${l.phone}` : ""}{l.package ? ` · ${l.package}` : ""} · {new Date(l.created_at).toLocaleString("en-CA")}
                   </p>
-                  {l.ghl_error && <p className="text-xs text-destructive">GHL: {l.ghl_error}</p>}
+                  {(l.utm_source || l.referrer || l.landing_path || l.utm_term) && (
+                    <p className="text-xs text-muted-foreground">
+                      Source: {[l.utm_source && `campaign source ${l.utm_source}`, l.utm_medium && `medium ${l.utm_medium}`, l.utm_term && `term ${l.utm_term}`, l.referrer && `from ${l.referrer}`, l.landing_path && `landed on ${l.landing_path}`].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                  {l.ghl_error &&<p className="text-xs text-destructive">GHL: {l.ghl_error}</p>}
                 </div>
                 <Badge variant={l.forwarded_to_ghl ? "default" : "destructive"}>{l.forwarded_to_ghl ? "sent to GHL" : "failed"}</Badge>
               </CardContent>
