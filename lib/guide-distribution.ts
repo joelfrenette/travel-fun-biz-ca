@@ -4,6 +4,7 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { guideDistributionPath, guideDistributionSlug } from '@/lib/guide-post-source'
 import type { GuideKind } from '@/lib/guides'
 import { autoHoldNote, readReleaseHours } from '@/lib/guide-release'
+import { getSetting } from '@/lib/app-settings'
 
 // Social posts for published guides (growth loop WP7). A published guide is enrolled into the same
 // post_distribution ledger as a blog post (content_type 'post', slug `guide-<kind>-<slug>`, `path` set), and
@@ -154,8 +155,12 @@ export function pickCatchUpGuide(guides: readonly CatchUpGuide[], ledgerSlugs: R
 
 /** One catch-up try, called from the posting pass. Does nothing when today's enrolment is used or unreadable, when
  * no guide qualifies, or when a read fails. Never throws. Returns a short note for the run log, or '' for nothing. */
+export const GUIDE_CATCHUP_KEY = 'guide_catchup_posts'
+
 export async function runGuideCatchUp(admin: SupabaseClient): Promise<string> {
   try {
+    // Off unless the setting is exactly 'true': old guides post as a bare photo until the titled covers are proven.
+    if ((await getSetting(admin, GUIDE_CATCHUP_KEY)) !== 'true') return ''
     const used = await guideEnrolmentsSince(admin, utcDayStart())
     if (used === null || used >= GUIDE_ENROLMENTS_PER_DAY) return ''
     const { data: ledger, error: ledgerError } = await admin.from('post_distribution').select('slug').like('slug', 'guide-%').not('path', 'is', null)

@@ -105,7 +105,7 @@ async function main() {
   // ---- the runner, against the fake ----
   const base = (mode = 'auto'): Db => ({
     tables: {
-      app_settings: [setting('distribution_mode', mode)],
+      app_settings: [setting('distribution_mode', mode), setting('guide_catchup_posts', 'true')],
       post_distribution: [],
       guides: [
         { kind: 'hotels', slug: 'a-hotel', name: 'A Hotel', status: 'published', quality_notes: null, created_at: '2025-06-01T00:00:00Z' },
@@ -159,7 +159,11 @@ async function main() {
   check('no candidates enrols nothing', db.tables.post_distribution.length === 0 && note === '')
 
   const boom = { from: () => { throw new Error('db down') } } as unknown as SupabaseClient
-  check('runner never throws', (await runGuideCatchUp(boom)) === '')
+  db = base()
+  db.tables.app_settings = db.tables.app_settings.filter((r) => r.key !== 'guide_catchup_posts')
+  note = await runGuideCatchUp(fakeAdmin(db))
+  check('catch-up is off unless guide_catchup_posts is true', db.tables.post_distribution.length === 0 && note === '')
+  check('runner never throws',(await runGuideCatchUp(boom)) === '')
 
   // ---- source wiring: called from the existing posting pass, via enrollGuideIfDue, no cron added ----
   const root = join(__dirname, '..')
