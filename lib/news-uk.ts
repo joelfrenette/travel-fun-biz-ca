@@ -1,5 +1,5 @@
 import { removeDashes } from '@/lib/guide-composer'
-import { briefProblems, sentencesOf, wordCount, wordRange, type NewsBrief, type NewsFacts } from '@/lib/news-brief'
+import { TEMPLATE_MIN_WORDS, briefProblems, sentencesOf, wordCount, wordRange, type NewsBrief, type NewsFacts } from '@/lib/news-brief'
 import { UK_FCDO_TITLE_PREFIX } from '@/lib/news-feed'
 
 // Growth loop WP20 tuning: the UK FCDO travel advice update is written by PLAIN CODE, not by a model (same idea as lib/news-nhc.ts).
@@ -11,7 +11,8 @@ import { UK_FCDO_TITLE_PREFIX } from '@/lib/news-feed'
 // Safety: the feed text is untrusted. Nothing from it is ever obeyed; each piece is only QUOTED inside an attributed sentence, and
 // every sentence is run through the SAME gate as a model brief (briefProblems, meansSentenceProblems): a sentence that fails (advice
 // wording, instruction-like text, a name or number the entry does not have) is dropped, and if the finished brief still fails, or is
-// under the tier 1 minimum word count, the item is rejected. The minimum is NOT lowered and nothing is added from outside the entry.
+// under the template minimum word count (TEMPLATE_MIN_WORDS, 20: a template only quotes, so the 40 word floor that stops a MODEL
+// padding does not apply), the item is rejected. Nothing is added from outside the entry.
 
 /** The plain reason for an item whose own text is too short to make a brief that reaches the tier 1 minimum. */
 export const UK_TOO_LITTLE_TEXT_REASON = 'too little text to write a safe brief'
@@ -136,9 +137,9 @@ export function buildUkBrief(f: NewsFacts, sourceKey: string): UkTemplate {
   }
 
   const brief = draft(means)
-  const problems = briefProblems(brief, f)
+  const problems = briefProblems(brief, f, { template: true })
   if (problems.length === 0) return { ok: true, brief, facts: means }
-  const min = wordRange(f.tier).min
+  const min = Math.min(wordRange(f.tier).min, TEMPLATE_MIN_WORDS)
   const shortOnly = problems.every((p) => p.startsWith('length: ')) && wordCount([brief.happened, ...brief.means].join(' ')) < min
   if (shortOnly) return { ok: false, reason: UK_TOO_LITTLE_TEXT_REASON }
   return { ok: false, reason: `the template did not pass the checks: ${problems.slice(0, 2).join('; ')}`.slice(0, 280) }

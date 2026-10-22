@@ -67,6 +67,16 @@ export function minFactWords(tier: NewsTier): number {
   return tier === 1 ? 12 : 40
 }
 
+/** A plain-code template (UK, Canada) only quotes the notice inside fixed framing; it cannot pad or paraphrase, so the "too short to
+ * be safe" floor that guards MODEL briefs does not apply to it. It still needs a real sentence of facts, not just framing. */
+export const TEMPLATE_MIN_WORDS = 20
+
+/** THE ONE list of fixed framing words the plain-code templates (lib/news-uk.ts, lib/news-ca.ts) put around a quoted notice. They
+ * are connective or label words, never a fact (no place, level, number, date, event or effect). The tier 1 "every word is in the
+ * notice" check accepts exactly these in addition to RELAY_WORDS; any other word the notice does not contain is still refused. A
+ * template may only use framing words from this list (scripts/check-news-ca.ts and check-news-uk.ts prove it). */
+export const TEMPLATE_FRAMING_WORDS: readonly string[] = 'travel advice advisory updated update section says source level information official'.split(' ')
+
 export const wordCount = (s: string): number => s.trim().split(/\s+/).filter(Boolean).length
 
 export function factWordCount(f: Pick<NewsFacts, 'title' | 'summary'>): number {
@@ -297,11 +307,12 @@ export function meansSentenceProblems(m: string, f: NewsFacts): string[] {
 /** Words an official-notice relay may use without the notice containing them: plain linking and reporting words, never a fact. */
 const NEUTRAL_WORDS = new Set([
   ...RELAY_WORDS,
+  ...TEMPLATE_FRAMING_WORDS,
   ...'cites citing cited reasons reason source sources says said stays stay remains remain unchanged same following reissued reissue notice notices update updates updated includes include including because causes cause listed lists list wording text statement section sections'.split(' '),
 ])
 
 /** The whole-brief gate. An empty list means clean. Pure. */
-export function briefProblems(b: NewsBrief, f: NewsFacts): string[] {
+export function briefProblems(b: NewsBrief, f: NewsFacts, opts: { template?: boolean } = {}): string[] {
   const out: string[] = []
   const add = (list: string[], label: string) => list.forEach((p) => out.push(`${label}: ${p}`))
 
@@ -322,7 +333,8 @@ export function briefProblems(b: NewsBrief, f: NewsFacts): string[] {
 
   const range = wordRange(f.tier)
   const words = wordCount(briefText(b))
-  if (words < range.min || words > range.max) out.push(`length: ${words} words, it must be ${range.min} to ${range.max}`)
+  const minWords = opts.template ? Math.min(range.min, TEMPLATE_MIN_WORDS) : range.min
+  if (words < minWords || words > range.max) out.push(`length: ${words} words, it must be ${minWords} to ${range.max}`)
 
   // The brief must be about this item: it shares at least two content words with the title and description.
   const itemWords = new Set(contentWords(`${f.title} ${f.summary}`))

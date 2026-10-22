@@ -56,7 +56,9 @@ const textOf = (b: NewsBrief) => `${b.headline} ${b.happened} ${b.means.join(' '
 // The real entry (about 16 words of facts) and a realistic longer update paragraph written as a fixture.
 const REAL_SUMMARY = 'Additional information on demonstrations and strikes (Safety and security).'
 const LONG_SUMMARY = 'Updated information on entry requirements for British passport holders. Details of the passport validity rules and the documents shown at the border have been added. Information on local transport services has also been updated (Entry requirements).'
-const SHORT_NO_SECTION = 'Updated information on entry requirements.'
+// Run 2: the template floor is 20 words, so "Updated information on entry requirements." now builds (see the short line section below);
+// a two word line is still under it.
+const SHORT_NO_SECTION = 'Minor changes.'
 
 async function main() {
   // ---- pieces ----
@@ -238,6 +240,31 @@ async function main() {
     const r1 = await ingestFeeds(admin, { fetchDeps: feedDeps({ [uk.feedUrl]: atom(entry('France', 'france', LONG_SUMMARY)) }, () => NOW), now: new Date(NOW), sources: [uk] })
     const r2 = await ingestFeeds(admin, { fetchDeps: feedDeps({ [uk.feedUrl]: atom(entry('Spain', 'spain', LONG_SUMMARY)) }, () => NOW + 10 * 60_000), now: new Date(NOW + 10 * 60_000), sources: [uk] })
     check('limit: the UK feed is read once, then not again inside 30 minutes', r1.fetched.length === 1 && r2.fetched.length === 0 && r2.waiting.length === 1)
+  }
+
+  // ---- run 2: short update lines (live: Mauritania, France, Turkey were rejected as "too little text") ----
+  {
+    const cases: [string, string][] = [
+      ['Mauritania', 'Updated information on entry requirements.'],
+      ['France', 'Information on strikes and the situation (Safety and security).'],
+      ['Turkey', 'Updated information on the risk of terrorism.'],
+    ]
+    for (const [country, line] of cases) {
+      const facts = mkFacts(country, line)
+      const r = buildUkBrief(facts, 'uk-fcdo')
+      const words = r.ok ? wordCount([r.brief.happened, ...r.brief.means].join(' ')) : 0
+      check(`short line: ${country} now builds (${words} words, template floor 20) and passes the full gate`, r.ok && words >= 20 && briefProblems(r.brief, facts, { template: true }).length === 0, r.ok ? '' : r.reason)
+      if (r.ok) {
+        check(`short line: ${country} is only the framing plus the quoted update line (nothing added)`, r.brief.means[0].toLowerCase().includes(line.replace(/\s*\([^)]*\)/, '').replace(/[.]$/, '').toLowerCase().replace(/^./, (c) => c)) && !NO_DASH.test(textOf(r.brief)), JSON.stringify(r.brief))
+        check(`short line: ${country} is recognised as the template`, isUkTemplateBrief(facts, 'uk-fcdo', r.brief))
+      }
+    }
+    // Still rejected: nothing to quote at all, and a model style brief under 40 words (the model floor is unchanged).
+    const empty = buildUkBrief(mkFacts('Chad', ''), 'uk-fcdo')
+    check('short line: an entry with no update text is still rejected with the plain reason (nothing to quote, nothing invented)', !empty.ok && empty.reason === UK_TOO_LITTLE_TEXT_REASON, empty.ok ? JSON.stringify(empty.brief) : empty.reason)
+    const tiny = buildUkBrief(mkFacts('Chad', 'Fix.'), 'uk-fcdo')
+    check('short line: a one word update line is still too little text', !tiny.ok, tiny.ok ? JSON.stringify(tiny.brief) : tiny.reason)
+    check('short line: the 40 word floor still applies to anything that is not a template brief', briefProblems({ headline: 'UK travel advice update for Chad', happened: 'The UK Foreign, Commonwealth and Development Office updated its travel advice for Chad.', means: ['The source says: updated information on entry requirements.'] }, mkFacts('Chad', 'Updated information on entry requirements.')).some((p) => p.startsWith('length: ')))
   }
 
   if (failed) {

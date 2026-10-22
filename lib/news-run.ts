@@ -12,6 +12,7 @@ import type { FetchDeps } from '@/lib/news-feed'
 import { NO_LONGER_QUALIFIES_REASON, STORM_COVERED_REASON, expireOldItems, ingestFeeds, newsTableReady, reevaluateItems, type IngestResult, type NewsItemRow } from '@/lib/news-ingest'
 import { buildNhcBrief, isNhcPublicAdvisory, isTemplateBrief } from '@/lib/news-nhc'
 import { buildUkBrief, isUkFcdoSource, isUkTemplateBrief } from '@/lib/news-uk'
+import { buildCaBrief, isCaAdvisorySource, isCaTemplateBrief } from '@/lib/news-ca'
 import { createNewsPost, markSuperseded, publishQueuedDraft } from '@/lib/news-publish'
 import { newsTitle, parseNewsBody } from '@/lib/news-post'
 import { STORM_POST_WINDOW_MS, classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, priorityOf, stormKey, stormKeysMatch, stormSignature, titleKey, titleSimilarity, SIMILAR_TITLE_THRESHOLD } from '@/lib/news-relevance'
@@ -229,8 +230,10 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
         }
         const facts = factsOf(item, source)
         const brief: NewsBrief = { headline: p.title.replace(/^News: /, ''), happened: parsed.happened, means: parsed.means }
+        // A draft that is exactly what a plain-code template builds from the item today is judged with the template word floor.
+        const templated = (isNhcSource(item.source_key) && isTemplateBrief(facts, item.source_key, brief)) || (isUkFcdoSource(item.source_key) && isUkTemplateBrief(facts, item.source_key, brief)) || (isCaAdvisorySource(item.source_key) && isCaTemplateBrief(facts, item.source_key, brief))
         const problems = [
-          ...briefProblems(brief, facts),
+          ...briefProblems(brief, facts, { template: templated }),
           ...((p.meta_description ?? '') === parsed.happened ? [] : [`description: it no longer matches the brief${lexicalProblems(p.meta_description ?? '', facts, { mask: isAttributed(p.meta_description ?? '', facts) }).map((x) => `; ${x}`).join('')}`]),
         ]
         if (problems.length) {
@@ -240,7 +243,6 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
         }
         // A hurricane centre draft that is exactly what the plain-code template builds from the item needs no model review: the gate
         // above already passed it and a template cannot paraphrase. Anything else (a model brief, or an edited draft) is reviewed.
-        const templated = (isNhcSource(item.source_key) && isTemplateBrief(facts, item.source_key, brief)) || (isUkFcdoSource(item.source_key) && isUkTemplateBrief(facts, item.source_key, brief))
         if (!templated && !model) {
           notes.push('AI review is not configured, so queued drafts stay drafts')
           break
@@ -281,7 +283,7 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
       const candidates = ((newRows ?? []) as NewsItemRow[]).filter((r) => !itemStale(r, nowMs)).sort((a, b) => rank(a) - rank(b))
       // Hurricane centre Public Advisories (lib/news-nhc.ts) and UK travel advice updates (lib/news-uk.ts) are written by plain code and
       // need no model; everything else does.
-      const needsModel = (c: NewsItemRow) => !(isNhcSource(c.source_key) && isNhcPublicAdvisory(c.source_key, c.title)) && !isUkFcdoSource(c.source_key)
+      const needsModel = (c: NewsItemRow) => !(isNhcSource(c.source_key) && isNhcPublicAdvisory(c.source_key, c.title)) && !isUkFcdoSource(c.source_key) && !isCaAdvisorySource(c.source_key)
       let aiNoteGiven = false
       // UK daily cap (travel_news_uk_per_day, default 2, max 6): the UK feed lists about 200 countries and must not flood the blog.
       // Read lazily and fail closed: if the number or today's UK count cannot be read, no UK brief is written this pass.
@@ -341,7 +343,16 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
               continue
             }
           }
-          const template = isNhcSource(item.source_key) ? buildNhcBrief(facts, item.source_key) : isUkFcdoSource(item.source_key) ? buildUkBrief(facts, item.source_key) : null
+          // Canada travel advisories: plain-code template too (lib/news-ca.ts), no model. A failure is stored with the plain reason.
+          if (isCaAdvisorySource(item.source_key)) {
+            const ca = buildCaBrief(facts, item.source_key)
+            if (!ca.ok) {
+              await setItem(admin, item.id, { status: 'rejected', reject_reason: ca.reason.slice(0, 300) })
+              result.rejected++
+              continue
+            }
+          }
+          const template = isNhcSource(item.source_key) ? buildNhcBrief(facts, item.source_key) : isUkFcdoSource(item.source_key) ? buildUkBrief(facts, item.source_key) : isCaAdvisorySource(item.source_key) ? buildCaBrief(facts, item.source_key) : null
           if (!template?.ok && !model) {
             if (!aiNoteGiven) notes.push(`AI writing is not configured, so ${item.title.slice(0, 50)} was left for later`)
             aiNoteGiven = true
