@@ -9,7 +9,7 @@ import { MODE_HOLD_NOTE } from '@/lib/guide-list'
 import { buildBrief, GUESSED_PROPERTY_NOTE, getGuidePublishMode, isGuessedPropertyNote } from '@/lib/guide-run'
 import { buildCopyBrief, getPageCopyPublishMode } from '@/lib/page-copy-run'
 import { guidePath, isRetryableRejected, rejectionCountFor, type GuideCandidate, type GuideKind } from '@/lib/guides'
-import { bumpRejectionCount, readGuideFailuresChecked } from '@/lib/guide-failures'
+import { bumpRejectionCount, clearGuideFailure, readGuideFailuresChecked } from '@/lib/guide-failures'
 import { healComposedCopy, healComposedGuide, healNoteOf, type Healed } from '@/lib/heal-targets'
 import type { HealBudget, HealOutcome, LadderStep } from '@/lib/heal-loop'
 import { SAFE_PAGE_NOTE, isSafePageNote } from '@/lib/guide-repairs'
@@ -460,5 +460,7 @@ async function applyHealedRow(
     return 'failed'
   }
   out.published++
+  // A guide that is live no longer "could not be written": drop its old failure record so the warning clears.
+  if (table === 'guides') await clearGuideFailure(admin, `${str(row.kind)}:${str(row.slug)}`).catch(() => undefined)
   return 'published'
 }
