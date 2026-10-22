@@ -1,8 +1,8 @@
 // Pure helpers for the "Posts: Guides" and "Posts: Trips" admin pages (posts menu phase 2). No database, no React,
 // no server-only imports, so the browser, the API routes and the offline check all share the same rules.
 
-/** The two on/off switches the Automation cards can flip. Only these two keys are accepted. */
-export const TOGGLE_KEYS = ['guide_catchup_posts', 'trip_social_posts'] as const
+/** The on/off switches the Automation cards can flip (guide catch-up, trip social posts, news social posts). Only these keys are accepted. */
+export const TOGGLE_KEYS = ['guide_catchup_posts', 'trip_social_posts', 'news_social_posts'] as const
 export type ToggleKey = (typeof TOGGLE_KEYS)[number]
 
 /** Only the exact text 'true' means on. Unset, 'TRUE', 'on', '1' and everything else mean off. Same rule the pipeline uses. */

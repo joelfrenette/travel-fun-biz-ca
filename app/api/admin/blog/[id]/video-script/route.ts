@@ -18,7 +18,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   try {
     const post = await getPostById(params.id)
     if (!post) return NextResponse.json({ error: 'Post not found' }, { status: 404 })
-    const script = await generateVideoScript(post.title, post.meta_description || '')
+    const script = await generateVideoScript(post.title, post.meta_description || '', undefined, undefined, { body: post.body, primaryKeyword: (post as { primary_keyword?: string | null }).primary_keyword })
     if (!script) return NextResponse.json({ error: 'Could not generate a script - try again.' }, { status: 502 })
     const capped = capScriptDuration(script)
     await tagVariant(getSupabaseAdmin(), post.slug, { hookFormula: detectHookFormula(capped.hook) ?? 'fallback' })

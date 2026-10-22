@@ -56,7 +56,7 @@ export function countEmojis(text: string): number {
 
 export const CAPTION_MAX_EMOJIS = 2
 export const CAPTION_MAX_HASHTAGS = 10
-export const CAPTION_HOOK_MAX_CHARS = 90
+export const CAPTION_HOOK_MAX_CHARS = 80
 /** The checker allows a longer hook line than the prompt asks for: the no-AI fallback uses a stored FAQ question (up to 140). */
 export const CAPTION_HOOK_HARD_MAX = 140
 export const CAPTION_MAX_PARAGRAPH_LINES = 3

@@ -28,6 +28,8 @@ interface Automation {
   belowQualityBar?: { count: number; total: number } | null
   // news
   perDay?: number | null
+  /** Whether news posts are sent to the social networks (default off). */
+  newsSocial?: boolean
 }
 
 interface Props {
@@ -51,6 +53,21 @@ export default function PostsAutomationCard({ type, refreshKey = 0 }: Props) {
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
       setData((d) => (d ? { ...d, maxPerDay: next } : d))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function toggleNewsSocial(next: boolean) {
+    setSaving(true)
+    setError("")
+    try {
+      const res = await fetch("/api/admin/posts/automation", { method: "POST", headers: authHeaders(), body: JSON.stringify({ setting: "news_social_posts", enabled: next }) })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      setData((d) => (d ? { ...d, newsSocial: next } : d))
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save")
     } finally {
@@ -122,6 +139,22 @@ export default function PostsAutomationCard({ type, refreshKey = 0 }: Props) {
                 {data.mode === "draft" && "News writes short briefs and saves them as drafts. Nothing goes live until you approve it below."}
                 {data.mode === "publish" && "News briefs that pass the quality gate and the judge go live on their own."}
               </p>
+            )}
+            {type === "news" && (
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3">
+                <p className="min-w-[240px] flex-1 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Post news to social networks: {data.newsSocial ? "on" : "off"}. </span>
+                  Off by default: short news briefs are not a fit for a fun-trips account, so they are published on the site only. When off, a news post waiting to go out is closed with the note "Skipped: news not posted to social".
+                </p>
+                <button
+                  type="button"
+                  className="h-8 rounded-md border bg-background px-3 text-sm disabled:opacity-50"
+                  disabled={saving}
+                  onClick={() => toggleNewsSocial(!data.newsSocial)}
+                >
+                  {data.newsSocial ? "Turn off" : "Turn on"}
+                </button>
+              </div>
             )}
             <p className="text-xs text-muted-foreground">
               Social posting: {DISTRIBUTION_MODE_TEXT[data.distributionMode]}

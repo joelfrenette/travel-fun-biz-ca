@@ -104,7 +104,7 @@ expect('two posts never share utm_campaign', socialLink(SITE, 'facebook', 'a', '
 
 // Pinterest: the caption is the pin text. The pin title is its first line (100 characters at most) and the destination is the UTM page URL.
 const pin = repairCaptionCta(bodyOnly, { network: 'pinterest', link: linkOf('pinterest', 'post', 'fallback') })
-expect('pinterest: pin title (first line) fits 100 characters and the destination has utm_source=pinterest', pin.split('\n')[0].length <= 100 && pin.includes('utm_source=pinterest') && pin.includes('utm_content=post-fallback'))
+expect('pinterest: pin title (first line) fits 100 characters and the destination has utm_source=pinterest', pin.split('\n')[0].length <= 100 && pin.includes('utm_source=pinterest') && pin.includes('utm_content=fallback-post'))
 
 // The shared reel caption: bio words, then the tagged link, hashtags last, and a long description never cuts either.
 const vcap = buildVideoCaption({ title: 'Cancun or Tulum', description: 'x '.repeat(400), hashtags: ['#Cancun', '#Tulum'] }, linkOf('video', 'video', 'question'), 2200)

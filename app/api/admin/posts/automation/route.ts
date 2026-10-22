@@ -24,7 +24,7 @@ import { describeAutoblogPlan, parseLastRun } from '@/lib/autoblog-summary'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { cronRunKey } from '@/lib/cron-heartbeat'
 import { getDistributionMode, getTailoredCaptionsEnabled } from '@/lib/distribution'
-import { getNewsMode, getNewsPerDay } from '@/lib/news-settings'
+import { getNewsMode, getNewsPerDay, NEWS_SOCIAL_KEY } from '@/lib/news-settings'
 import { derivePostType } from '@/lib/blog-admin-filters'
 import { pickPostImage } from '@/lib/social-cover'
 import { SITE_URL } from '@/lib/site'
@@ -80,8 +80,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ ...common, mode, postsPerWeek, maxPerDay, approvedTopics: approved, plan, lastRun, belowQualityBar: belowBar })
     }
 
-    const [mode, perDay] = await Promise.all([getNewsMode(admin), getNewsPerDay(admin)])
-    return NextResponse.json({ ...common, mode, perDay })
+    const [mode, perDay, newsSocialRaw] = await Promise.all([getNewsMode(admin), getNewsPerDay(admin), getSetting(admin, NEWS_SOCIAL_KEY).catch(() => null)])
+    // newsSocial: whether news posts go to the social networks. Off unless the stored value is exactly 'true'.
+    return NextResponse.json({ ...common, mode, perDay, newsSocial: isExactTrue(newsSocialRaw) })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
@@ -159,7 +160,7 @@ async function tripsFacts(admin: Admin) {
   }
 }
 
-// POST { setting: 'guide_catchup_posts' | 'trip_social_posts', enabled: true | false }
+// POST { setting: 'guide_catchup_posts' | 'trip_social_posts' | 'news_social_posts', enabled: true | false }
 // Flips one switch. The value must be a real boolean and the setting must be on the short list; it is stored as exactly 'true' or 'false'.
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

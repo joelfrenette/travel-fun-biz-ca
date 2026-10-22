@@ -120,6 +120,17 @@ const samples: Array<[string, ShotstackEdit]> = [
   ['two beats, short cover', sample('Cancun or Tulum, which one fits you?', [['White sand beaches', 'Cancun has long white beaches.'], ['Ruins by the sea', 'Tulum has quiet ruins.']], 'Cancun or Tulum', 'https://i.test/a.jpg')],
   ['long cover title wraps to 3 lines', sample('Is a Rhine cruise worth it?', [['Slow river days', 'The pace is easy.'], ['Castles at every bend', 'You pass castles every hour.'], ['travelfunbiz.ca', 'The full guide is on travelfunbiz.ca.']], 'Cologne to Basel by river', 'https://i.test/b.jpg', 'tiktok')],
   ['very long beat text is cut to 7 words', sample('Five mistakes first timers make', [['One two three four five six seven eight nine ten', 'Words words words words words words.']], 'Five mistakes first timers make', undefined, 'youtube')],
+  ['nine beats of 3 to 4 seconds, a 2 second interrupt at beat 3, a closing question', sample('Boat or boots: which one are you?', [
+    ['Slow river days', 'Slow river days with castles at every single bend.'],
+    ['Hiking is different', 'A hiking trip means early starts and long climbs.'],
+    ['Nobody tells you this', 'Wait, nobody tells you this.'],
+    ['Cabins are unpacked once', 'On a river cruise you unpack your bag one time.'],
+    ['Trails are quiet', 'Trails give you quiet mornings and big open views.'],
+    ['Meals are planned', 'Cruise meals and tours are planned for you daily.'],
+    ['Hikes are flexible', 'A hiking trip lets you change plans on a whim.'],
+    ['Both are great', 'Both can be a great fit for the right traveller.'],
+    ['Which one are you?', 'Boat or boots: which one are you?'],
+  ], 'Boat or boots', 'https://i.test/c.jpg', 'instagram')],
   ['no photo, video only', sample('Reef, outback, cities, fjords', [['Reef days', 'The reef is first.'], ['Outback nights', 'The outback is next.'], ['City lights', 'Then the cities.'], ['Fjords', 'Finally the fjords.']], 'Reef, outback, cities, fjords', undefined, 'facebook')],
 ]
 for (const [name, e] of samples) {
@@ -161,6 +172,16 @@ for (const [name, e] of samples) {
   check(`${name}: b-roll is darkened only under beat text (the cover and end card photos are not)`, darkened.length > 0 && darkened.every((c) => beatBoxes.some((b) => b.start <= Number(c.start) + 0.01 && b.end >= Number(c.start) + Number(c.length) - 0.01)), `${darkened.length}`)
   const brightAtEnds = clips(e).filter((c) => (assetType(c) === 'image' || assetType(c) === 'video') && (Number(c.start) === 0 || Math.abs(Number(c.start) + Number(c.length) - total) < 0.01))
   check(`${name}: the photo or clip under the cover and the end card is not darkened`, brightAtEnds.every((c) => c.filter === undefined))
+}
+// ---- pacing: 8 to 10 beats of 3 to 4 seconds (beat 3 is 2 seconds), one text and one new clip per beat ----
+{
+  const nine = samples.find(([n]) => n.startsWith('nine beats'))![1]
+  const nineTotal = Math.max(...clips(nine).map((c) => Number(c.start) + Number(c.length)))
+  const beatClips = clips(nine).filter((c) => assetType(c) === 'rich-text' && c.position === 'top' && Number(c.start) >= 3 && Number(c.start) + Number(c.length) < nineTotal - END_CARD_SECONDS + 0.01)
+  const lens = beatClips.map((c) => Math.round(Number(c.length) * 10) / 10)
+  check('nine beats make nine beat texts', beatClips.length === 9, String(beatClips.length))
+  check('beats are 3 to 4 seconds and beat 3 is 2 seconds', lens.every((l, i) => (i === 2 ? l === 2 : l >= 3 && l <= 4)), JSON.stringify(lens))
+  check('a reel of nine beats is under 58 seconds with the end card', nineTotal <= 58 && nineTotal >= 25, String(nineTotal))
 }
 check('the CTA is link in bio for Instagram and TikTok, the short URL for the others', endCardCta('instagram') === 'Plan your trip: link in bio' && endCardCta('tiktok') === 'Plan your trip: link in bio' && endCardCta('youtube') === `Plan your trip: ${REEL_SHORT_URL}` && endCardCta('facebook', 'travelfunbiz.ca/go/x') === 'Plan your trip: travelfunbiz.ca/go/x')
 check('beatLine cuts to 7 words and drops trailing punctuation', beatLine('One two three four five six seven eight,') === 'One two three four five six seven' && beatLine('Short line:') === 'Short line')

@@ -3,6 +3,7 @@ import { getSetting, setSetting } from '@/lib/app-settings'
 import type { VideoScript } from '@/lib/video-script'
 import { pickReelCoverTitle, headlineWords, REEL_COVER_MAX_WORDS } from '@/lib/cover-headline'
 import { fitText, CAPS_WIDTH_RATIO } from '@/lib/social-cover'
+import { reelBeatSeconds } from '@/lib/reel-beats'
 
 // Shotstack (shotstack.io) - hosted video-render API. The whole render happens in Shotstack's
 // cloud from a JSON "edit" description; no ffmpeg or video infrastructure here.
@@ -206,8 +207,8 @@ export function buildVideoEdit(
 
   let cursor = beatsStart
   script.beats.forEach((beat, i) => {
-    const words = beat.voiceover.trim().split(/\s+/).filter(Boolean).length
-    const length = Math.max(words * SECONDS_PER_WORD, 1.5)
+    // 3 to 4 seconds a beat (2 for the pattern interrupt at beat 3), following the spoken words so picture and voice stay in step.
+    const length = reelBeatSeconds(beat.voiceover, i)
     const v = visuals[i]
     // Only the b-roll under the captions is darkened, so the white words read over any footage.
     if (v?.videoUrl) {

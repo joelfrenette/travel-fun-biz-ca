@@ -3,7 +3,7 @@ import { getSetting, setSetting } from '@/lib/app-settings'
 import { tagVariant } from '@/lib/content-variants'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { findPortraitPhoto } from '@/lib/pexels'
-import { COVER_HOOK_STYLES, CTA_STYLES, HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, rotateStyle, readRecentVariantValues, ungroundedNumbers, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, rotateStyle, readRecentVariantValues, ungroundedNumbers, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 import { normaliseSlides, finalizeCoverHeadline, resolveSlideType, type CarouselSlide } from '@/lib/carousel-slide'
 import { fallbackCoverHeadline, headlineWords } from '@/lib/cover-headline'
 import { readCoverHeadline } from '@/lib/cover-headline-store'
@@ -17,6 +17,9 @@ export type { CarouselSlide, SlideType } from '@/lib/carousel-slide'
 // give). Cheap to generate from content that already exists: a published post turned into a
 // fixed-length slide deck, each slide a headline + short body GENERATED from the post, not
 // copy-pasted paragraphs.
+/** Carousel cover hooks and last-slide call-to-action styles used by the fan-out calendar: both are questions or contrasts. */
+export const FANOUT_CAROUSEL_HOOKS = ['question', 'comparison'] as const satisfies readonly HookStyle[]
+export const FANOUT_CAROUSEL_CTAS = ['soft-question', 'quiz-style'] as const satisfies readonly CtaStyle[]
 const SLIDE_COUNT = 7 // enough to develop an idea, short enough to finish
 
 /** Which hook style slide 1 uses and which call-to-action style the last slide uses. Both optional:
@@ -228,8 +231,9 @@ export async function gateCarouselCover(admin: SupabaseClient, post: { slug: str
  * so both behave identically. Returns the slides, or null if generation or grounding failed. */
 export async function generateAndSaveCarousel(admin: SupabaseClient, post: { slug: string; title: string; body: string }): Promise<CarouselSlide[] | null> {
   // Rotate slide 1's hook style and the last slide's CTA style over the last 5 carousels.
-  const hookStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_hook', 12), COVER_HOOK_STYLES)
-  const ctaStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_cta', 12), CTA_STYLES)
+  // Fan-out calendar (lib/fanout-plan.ts): the cover hook is the title as a question or a contrast, and the last slide asks a question.
+  const hookStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_hook', 12), FANOUT_CAROUSEL_HOOKS)
+  const ctaStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_cta', 12), FANOUT_CAROUSEL_CTAS)
   const deck = await generateCarouselDeck(post.title, post.body, { hookStyle, ctaStyle })
   if (!deck) return null
   // A cover headline written by the blog title step wins over the one the deck wrote, when it is still valid for this post.

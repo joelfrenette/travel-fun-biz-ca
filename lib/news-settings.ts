@@ -61,3 +61,20 @@ export async function setNewsPerDay(admin: SupabaseClient, n: number): Promise<{
   if (!Number.isInteger(n) || n < 0 || n > NEWS_PER_DAY_HARD_MAX) return { error: `the daily number must be a whole number from 0 to ${NEWS_PER_DAY_HARD_MAX}` }
   return setSetting(admin, NEWS_PER_DAY_KEY, String(n))
 }
+
+/** Whether travel news posts are sent to the social networks. OFF unless app_settings.news_social_posts is exactly 'true' (unset, 'TRUE', 'on', '1' and
+ * everything else mean off): a thin news brief is off-brand for a fun-trips account. News publishing itself is never affected by this. When it is off, the
+ * distribution step marks a news row done with a "Skipped" note; it is never a failure. */
+export const NEWS_SOCIAL_KEY = 'news_social_posts'
+export const NEWS_SOCIAL_SKIP_NOTE = 'Skipped: news not posted to social'
+export const newsSocialEnabled = (raw: string | null | undefined): boolean => raw === 'true'
+
+/** The switch, read fail-closed: a value that cannot be read means off. */
+export async function getNewsSocialEnabled(admin: SupabaseClient): Promise<boolean> {
+  try {
+    const r = await getSettingStrict(admin, NEWS_SOCIAL_KEY)
+    return !r.error && newsSocialEnabled(r.value)
+  } catch {
+    return false
+  }
+}
