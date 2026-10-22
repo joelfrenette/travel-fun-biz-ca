@@ -28,6 +28,7 @@ import {
 // never 500: any failure draws without the photo, and a total failure returns a plain 404/503 the sender detects.
 // For guides the slug is the ledger slug `guide-<kind>-<slug>`; for trips it is the package slug.
 export const dynamic = 'force-dynamic'
+export const maxDuration = 30
 
 const RED = '#d81f26'
 const TEAL = '#0f6f7c'

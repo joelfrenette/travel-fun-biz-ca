@@ -7,7 +7,15 @@
 
 /** Alt text that marks a photo as the wrong subject for a travel brand. A hit is a hard reject: such a photo is
  * never used, not even when nothing else matches. */
-export const BANNED_ALT = /laptop|desk|office|computer|business|meeting|keyboard|notebook|coffee/i
+export const BANNED_ALT = /\b(laptop|desk|office worker|office|computer|business(?:man|woman|people)?|keyboard|notebook|spreadsheet)\b/i
+
+/** Place or landmark phrases that contain a banned word but are real travel subjects ("Post office in Lisbon"). */
+const ALLOWED_PHRASES = /\b(post office|office de tourisme|tourist office|coffee plantations?|meeting of the waters)\b/gi
+
+/** True when the alt text marks the photo as the wrong subject. Allowed travel phrases are removed first. */
+export function isBannedAlt(alt: string): boolean {
+  return BANNED_ALT.test((alt || '').replace(ALLOWED_PHRASES, ' '))
+}
 
 /** Words that carry no place or topic meaning, so matching one proves nothing. */
 const STOP_WORDS = new Set([
@@ -88,7 +96,7 @@ export function scoreCandidate(c: PhotoCandidate, ctx: ScoreContext): ScoredPhot
   const base = { photo: c, score: 0, relevant: false, recent: ctx.recentIds.has(c.id) }
   if (!c || !c.url || !Number.isFinite(c.id)) return { ...base, rejected: 'invalid' }
   const alt = (c.alt ?? '').trim()
-  if (BANNED_ALT.test(alt)) return { ...base, rejected: 'banned-subject' }
+  if (isBannedAlt(alt)) return { ...base, rejected: 'banned-subject' }
   if (!(c.width >= ctx.minWidth) || !(c.height >= ctx.minHeight)) return { ...base, rejected: 'too-small' }
 
   const altLower = alt.toLowerCase()

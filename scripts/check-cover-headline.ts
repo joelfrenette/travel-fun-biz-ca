@@ -86,7 +86,13 @@ async function flow() {
   check('bad retry: one call then deterministic fallback', calls === 1 && fell?.[0].headline === 'Cruise Cabin Types decoded', JSON.stringify(fell?.[0]))
 
   const none = await finalizeCoverHeadline(deck('Your Ultimate Guide To The Best Cruise Ports In Mexico Right Now'), 'The Complete And Utterly Exhaustive Handbook About Everything Cruise Related', '', async () => { throw new Error('boom') })
-  check('everything fails: null (existing failure path)', none === null)
+  check('no valid hook: deck degrades to a whole-phrase cover, not null', none !== null && none[0].type === 'cover' && none[0].headline.split(' ').length >= 3 && none[0].headline.split(' ').length <= 6, JSON.stringify(none?.[0]))
+  const nothing = await finalizeCoverHeadline(deck('x y z'), '', '', async () => null)
+  check('empty title: still fails', nothing === null)
+  const carib = await finalizeCoverHeadline(deck('Your Ultimate Guide To The Best Cruise Ports In Mexico Right Now'), 'Is a Caribbean Cruise Worth It in 2026?', '', async () => null)
+  check('long question title gives a usable cover', carib !== null && carib[0].headline.length > 0 && carib[0].headline.length <= 36, JSON.stringify(carib?.[0]))
+  const bali = await finalizeCoverHeadline(deck('Your Ultimate Guide To The Best Cruise Ports In Mexico Right Now'), 'Best time for Bali', '', async () => null)
+  check('Best time for Bali gives a usable cover', bali !== null && /^best time for bali/i.test(bali[0].headline), JSON.stringify(bali?.[0]))
   check('later slides untouched', good?.[1].headline === 'Two')
 
   const dotted = await finalizeCoverHeadline(deck('Cancun or Tulum.'), 'x', '', async () => null)

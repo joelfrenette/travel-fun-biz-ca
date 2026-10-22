@@ -22,6 +22,7 @@ import {
 
 const PEXELS_SEARCH_URL = 'https://api.pexels.com/v1/search'
 const CACHE_MS = 24 * 60 * 60 * 1000
+const EMPTY_CACHE_MS = 60 * 60 * 1000
 const CANDIDATES = 12
 const RECENT_PHOTOS_KEY = 'pexels_recent_photo_ids'
 
@@ -124,7 +125,8 @@ async function searchRanked(query: string, orientation: 'landscape' | 'portrait'
   if (!key || !query.trim()) return []
   const cacheKey = `${orientation}:${query.trim().toLowerCase()}`
   const hit = cache.get(cacheKey)
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.photos
+  // An empty list (every candidate rejected, or a failed call) is remembered for 1 hour, not 24.
+  if (hit && Date.now() - hit.at < (hit.photos.length === 0 ? EMPTY_CACHE_MS : CACHE_MS)) return hit.photos
 
   try {
     const url = `${PEXELS_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=${CANDIDATES}&orientation=${orientation}`

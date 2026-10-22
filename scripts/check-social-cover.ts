@@ -55,7 +55,11 @@ check('takes a whole phrase before a colon, not a word slice', shortenCoverTitle
 check('drops "Ultimate Guide to" filler', shortenCoverTitle('The Ultimate Guide to Visiting Santorini in Spring') === 'VISITING SANTORINI IN SPRING', shortenCoverTitle('The Ultimate Guide to Visiting Santorini in Spring'))
 check('strips the site name suffix', !shortenCoverTitle('Sandals Royal Barbados | TravelFunBiz.ca', 'TravelFunBiz.ca').includes('TRAVELFUNBIZ'))
 check('empty title gives empty string', shortenCoverTitle('') === '' && shortenCoverTitle('   ') === '')
-check('single word title is kept', shortenCoverTitle('Bali') === 'BALI')
+check('long question title shortens to a usable cover', (() => { const s = shortenCoverTitle('Is a Caribbean Cruise Worth It in 2026?'); return s !== '' && s.length <= 36 && !DANGLING.test(s) })(), shortenCoverTitle('Is a Caribbean Cruise Worth It in 2026?'))
+check('short question keeps its question mark', shortenCoverTitle('Is Tulum worth it?') === 'IS TULUM WORTH IT?')
+check('Best time for Bali', shortenCoverTitle('Best time for Bali') === 'BEST TIME FOR BALI')
+check('two word title is used whole', shortenCoverTitle('Bali Itinerary') === 'BALI ITINERARY')
+check('single word title is kept',shortenCoverTitle('Bali') === 'BALI')
 check('never ends on a preposition after trimming', !DANGLING.test(shortenCoverTitle('Planning Your Trip to the Beautiful Island of Santorini in the Aegean Sea Greece')))
 check('removes emoji', !/[\u{1F000}-\u{1FFFF}]/u.test(shortenCoverTitle('Sun, Sand and Sea \u{1F334} Caribbean Escapes This Winter')))
 

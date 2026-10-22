@@ -2,6 +2,7 @@
 // No network, no database. Run: pnpm dlx tsx scripts/check-photo-score.ts
 import {
   BANNED_ALT,
+  isBannedAlt,
   queryTokens,
   vividnessOf,
   scoreCandidate,
@@ -27,8 +28,13 @@ const ctx = (tokens: string[], recent: number[] = []): ScoreContext => ({ tokens
 const photo = (id: number, alt: string | null, extra: Partial<PhotoCandidate> = {}): PhotoCandidate => ({ id, url: `https://images.pexels.com/photos/${id}/x.jpeg`, alt, width: 1880, height: 1253, ...extra })
 
 // ---- banned subjects ----
-for (const alt of ['Laptop on a wooden table', 'A desk with plants', 'Modern OFFICE interior', 'Computer screen', 'Business people', 'team Meeting', 'Keyboard close up', 'Open notebook and pen', 'cup of Coffee on a table']) {
-  check(`bans alt: ${alt}`, BANNED_ALT.test(alt))
+for (const alt of ['Laptop on a wooden table', 'A desk with plants', 'Modern OFFICE interior', 'Computer screen', 'Business people', 'Businessman on a phone', 'Office worker at a screen', 'Keyboard close up', 'Open notebook and pen', 'Spreadsheet on a monitor']) {
+  check(`bans alt: ${alt}`, isBannedAlt(alt))
+}
+for (const alt of ['Post office in Lisbon', 'Coffee plantation in Colombia', 'Meeting of the Waters, Manaus', 'cup of coffee on a cafe terrace in Rome', 'Friends meeting on a beach', 'Business Bay skyline', 'Deskside view', 'Notebooks']) {
+  // 'Business Bay' and 'Notebooks'/'Deskside' show whole-word matching: only the exact words are banned.
+  const expectBanned = alt === 'Business Bay skyline'
+  check(`${expectBanned ? 'bans' : 'allows'} alt: ${alt}`, isBannedAlt(alt) === expectBanned)
 }
 check('does not ban a beach photo', !BANNED_ALT.test('Aerial view of a white sand beach in Santorini'))
 check('banned photo is rejected even when it names the place', scoreCandidate(photo(1, 'Laptop on a table in Santorini'), ctx(['santorini'])).rejected === 'banned-subject')

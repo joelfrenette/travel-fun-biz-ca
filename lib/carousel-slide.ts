@@ -1,6 +1,7 @@
 import { repairDashes } from '@/lib/hook-styles'
 import { validateCoverHeadline, fallbackCoverHeadline, coverRetryInstruction, headlineWords } from '@/lib/cover-headline'
 import { FACT_MAX_WORDS } from '@/lib/cover-fit'
+import { shortenCoverTitle } from '@/lib/social-cover'
 
 // Pure carousel slide model and the checks that run on a model-written deck. No network, no
 // database, so scripts/check-carousel-slides.ts can test it offline. lib/carousel.ts does the calls.
@@ -72,5 +73,9 @@ export async function finalizeCoverHeadline(slides: CarouselSlide[], postTitle: 
     if (validateCoverHeadline(t, source).ok) return withCover(t)
   }
   const fallback = fallbackCoverHeadline(postTitle, source)
-  return fallback ? withCover(fallback) : null
+  if (fallback) return withCover(fallback)
+  // Degrade instead of failing the whole deck: the whole-phrase title shortener (3 to 6 words, never ends on a
+  // preposition or conjunction, keeps a question mark when the phrase is the question). Only an empty result fails.
+  const degraded = shortenCoverTitle(postTitle)
+  return degraded ? withCover(degraded) : null
 }

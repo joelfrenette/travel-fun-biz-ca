@@ -79,6 +79,9 @@ export function shortenCoverTitle(title: string, siteName = ''): string {
   // Whole-phrase candidates, best first: the whole title, then each segment in order.
   const candidates = [t, ...segments].map((c) => stripDangling(words(c)))
   for (const ws of candidates) if (ws.length >= COVER_TITLE_MIN_WORDS && fits(ws)) return ws.join(' ').toUpperCase()
+  // Two words ("Bali Itinerary") is acceptable when nothing longer fits whole; one word is only kept for a
+  // stored one-word title (a place name), via the trim path below. No words are ever invented.
+  for (const ws of candidates) if (ws.length >= 2 && fits(ws)) return ws.join(' ').toUpperCase()
   // A short lead segment ("Bali") plus the start of the next may still make a phrase: try joining two segments.
   if (segments.length >= 2) {
     const joined = stripDangling(words(`${segments[0]} ${segments[1]}`))
@@ -188,9 +191,11 @@ export function socialCoverUrl(base: string, kind: SocialCoverKind, slug: string
 /** Fetches the composed cover once before it is sent, so a broken route never fails an Instagram post (the
  * network would reject an unreachable image). The request also warms the CDN copy the network then downloads.
  * True only for a 200 PNG/JPEG with a body; never throws. */
-export async function verifyCoverUrl(url: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+export const VERIFY_TIMEOUT_MS = 12_000
+
+export async function verifyCoverUrl(url: string, fetchImpl: typeof fetch = fetch, timeoutMs: number = VERIFY_TIMEOUT_MS): Promise<boolean> {
   try {
-    const res = await fetchImpl(url, { cache: 'no-store', signal: AbortSignal.timeout(25_000) })
+    const res = await fetchImpl(url, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) })
     const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
     if (!res.ok || (type !== 'image/png' && type !== 'image/jpeg')) {
       await res.body?.cancel().catch(() => {})

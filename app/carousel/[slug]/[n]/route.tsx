@@ -59,20 +59,48 @@ const FONT_TIMEOUT_MS = 3000
 
 type FontSpec = { name: string; data: ArrayBuffer; weight: 400 | 700 | 800; style: 'normal' }
 
+const FONT_FAILURE_TTL_MS = 5 * 60 * 1000
+const CACHE_OK = 'public, s-maxage=86400, stale-while-revalidate=604800'
+const CACHE_SHORT = 'public, s-maxage=60'
+
 const fontCache = new Map<string, ArrayBuffer>()
-async function loadGoogleFont(family: string, weight: number): Promise<ArrayBuffer> {
-  const cacheKey = `${family}:${weight}`
-  const cached = fontCache.get(cacheKey)
-  if (cached) return cached
+const fontInFlight = new Map<string, Promise<ArrayBuffer>>()
+const fontFailedAt = new Map<string, number>()
+
+function loadGoogleFont(family: string, weight: number): Promise<ArrayBuffer> {
+  const key = `${family}:${weight}`
+  const cached = fontCache.get(key)
+  if (cached) return Promise.resolve(cached)
+  const failedAt = fontFailedAt.get(key)
+  if (failedAt && Date.now() - failedAt < FONT_FAILURE_TTL_MS) return Promise.reject(new Error('font recently failed'))
+  let pending = fontInFlight.get(key)
+  if (!pending) {
+    pending = fetchGoogleFont(family, weight)
+      .then((buf) => {
+        fontCache.set(key, buf)
+        fontFailedAt.delete(key)
+        return buf
+      })
+      .catch((err) => {
+        fontFailedAt.set(key, Date.now())
+        throw err
+      })
+      .finally(() => {
+        fontInFlight.delete(key)
+      })
+    fontInFlight.set(key, pending)
+  }
+  return pending
+}
+
+async function fetchGoogleFont(family: string, weight: number): Promise<ArrayBuffer> {
   const cssRes = await fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weight}`, { signal: AbortSignal.timeout(FONT_TIMEOUT_MS) })
   const css = await cssRes.text()
   const match = css.match(/src: url\(([^)]+)\) format\('(?:opentype|truetype)'\)/)
   if (!match) throw new Error(`Could not find a TTF/OTF link for ${family} ${weight} in Google Fonts' CSS`)
   const fontRes = await fetch(match[1], { signal: AbortSignal.timeout(FONT_TIMEOUT_MS) })
   if (!fontRes.ok) throw new Error(`Could not download font file (${fontRes.status})`)
-  const buf = await fontRes.arrayBuffer()
-  fontCache.set(cacheKey, buf)
-  return buf
+  return fontRes.arrayBuffer()
 }
 
 /** Inter 800 for headlines (700 stands in if 800 cannot be fetched) and 700 for body text. No fonts at all is allowed: the default font is used. */
@@ -245,7 +273,8 @@ async function renderPng(ctx: Ctx, fonts: FontSpec[]): Promise<ArrayBuffer> {
 
 export async function GET(_request: Request, { params }: { params: { slug: string; n: string } }) {
   const index = Number(params.n) - 1
-  if (!Number.isInteger(index) || index < 0) return new Response('Slide not found', { status: 404 })
+  const notFound = () => new Response('Slide not found', { status: 404, headers: { 'Cache-Control': 'public, s-maxage=60' } })
+  if (!Number.isInteger(index) || index < 0) return notFound()
   const admin = getSupabaseAdmin()
   let slides: CarouselSlide[] | null = null
   try {
@@ -256,7 +285,7 @@ export async function GET(_request: Request, { params }: { params: { slug: strin
     slides = null
   }
   const slide = slides?.[index]
-  if (!slide || !slides || typeof slide.headline !== 'string') return new Response('Slide not found', { status: 404 })
+  if (!slide || !slides || typeof slide.headline !== 'string') return notFound()
 
   // The slide's own photo, else the post's cover image, else the teal gradient. A fact card needs no photo.
   const needsPhoto = resolveSlideType(slide, index) !== 'fact'
@@ -280,7 +309,9 @@ export async function GET(_request: Request, { params }: { params: { slug: strin
   for (const a of attempts) {
     try {
       const png = await renderPng({ ...base, photo: a.photo, hasFonts: a.fonts.length > 0 }, a.fonts)
-      return new Response(png, { headers: { 'Content-Type': 'image/png' } })
+      // Full render: cached a day at the CDN. A degraded render (photo or fonts missing) only briefly, so it heals.
+      const full = a.fonts.length > 0 && (a.photo !== null || !photoUrl)
+      return new Response(png, { headers: { 'Content-Type': 'image/png', 'Cache-Control': full ? CACHE_OK : CACHE_SHORT } })
     } catch (err) {
       console.warn('[carousel] render failed, retrying simpler', params.slug, index + 1, err instanceof Error ? err.message : 'unknown')
     }

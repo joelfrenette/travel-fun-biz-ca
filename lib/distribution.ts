@@ -282,6 +282,12 @@ async function sendTailored(
   }
 }
 
+/** After this long into a pass, no new cover verification starts (the cron function limit is 60 seconds and each
+ * verify can take up to VERIFY_TIMEOUT_MS). */
+const VERIFY_BUDGET_MS = 35_000
+/** Composed cover URLs that verified OK on this warm instance; they may go out unverified once the budget is spent. */
+const verifiedCovers = new Set<string>()
+
 async function runDistributionLocked(admin: SupabaseClient, target: PostingTarget, tailoredCaptionsOn: boolean): Promise<string> {
   const { data: rows, error } = await admin
     .from('post_distribution')
@@ -298,6 +304,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
   let posted = 0
   let failed = 0
   let needsReview = 0
+  const passStart = Date.now()
   for (const row of rows as DistributionRow[]) {
     try {
       // A row with a `path` (migration 0030) is a published guide, not a blog post: its title, summary and hero
@@ -333,8 +340,17 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       if (post?.cover_image_url || isNewsRow) {
         const picked = pickPostImage({ base: SITE_URL, kind: coverKind, slug: coverSlug, title, coverUrl: post?.cover_image_url })
         if (picked.composed && picked.url) {
-          if (await verifyCoverUrl(picked.url)) sendImage = picked.url
-          else {
+          const overBudget = Date.now() - passStart > VERIFY_BUDGET_MS
+          if (overBudget && !verifiedCovers.has(picked.url)) {
+            // The cron function has a 60 second limit. Past the budget a row that was never verified is left
+            // queued for the next tick (it is ordered by age, so nothing is skipped for good).
+            console.warn('[distribution] verify budget spent, leaving', row.slug, 'for the next run')
+            break
+          }
+          if (overBudget || (await verifyCoverUrl(picked.url))) {
+            if (!overBudget) verifiedCovers.add(picked.url)
+            sendImage = picked.url
+          } else {
             sendImage = post?.cover_image_url || null
             console.warn('[distribution] composed cover unavailable for', row.slug, sendImage ? '- sending the raw photo' : '- sending text only')
           }
