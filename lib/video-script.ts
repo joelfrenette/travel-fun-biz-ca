@@ -1,6 +1,6 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { ungroundedNumbers, repairDashes, normaliseHashtags } from '@/lib/hook-styles'
-import { isValidCoverHeadline, fallbackCoverHeadline, shortestWholePhrase } from '@/lib/cover-headline'
+import { isValidCoverHeadline, fallbackCoverHeadline, shortestWholePhrase, pickReelCoverTitle } from '@/lib/cover-headline'
 
 // Short-form video script generation (factory item 1/6, video pipeline): one model call produces
 // a hook, a sequence of beats (scene description + on-screen text + the spoken voiceover line for
@@ -23,7 +23,7 @@ export interface VideoBeat {
 
 export interface VideoScript {
   hook: string
-  /** Short scroll-stopping headline for the opening cover card (3-7 words). */
+  /** Short scroll-stopping headline for the opening cover card (3-5 words, see reelCoverTitleFor). */
   coverTitle?: string
   beats: VideoBeat[]
   title: string
@@ -74,7 +74,7 @@ ${NO_FABRICATION}
 
 The hook is the first spoken line - it has to earn the next 2 seconds of attention. ${formulaNote} A weak hook is a vague scene-setter ("Have you ever wondered about..."); a strong one states something specific and surprising in one breath.
 
-Also write coverTitle: the headline printed big on the opening cover frame of the video, 3 to 7 words, built to stop a thumb mid-scroll (curiosity, contrast or a bold promise), plain words, no emoji, no hashtags. It may only promise what the post itself supports - never invent a price, number, date or place that is not in the title or summary above.
+Also write coverTitle: the headline printed big on the opening cover frame of the video, 3 to 5 words and at most 36 characters, built to stop a thumb mid-scroll (curiosity, contrast or a bold promise), plain words, no emoji, no hashtags, no colon or dash, never ending on and, the, to, of, in, a, for, with, or, at or on. It may only promise what the post itself supports - never invent a price, number, date or place that is not in the title or summary above.
 
 The final beat must be the call to action: the voiceover names one next step in under 12 words (for example: the full guide is on travelfunbiz.ca; do not mention a link in bio or in the description, we do not know one is there) and the on-screen text is travelfunbiz.ca. No urgency, no price or offer claims.
 
@@ -207,6 +207,12 @@ export function capScriptDuration(script: VideoScript, maxSeconds = MAX_DURATION
  * else a whole short phrase of the post's own title (never a word-count slice, which made fragments
  * such as "ERTO PLATA TRIP AND"). If no phrase of the title works, the model's own whole headline is
  * kept as it was, and failing that the shortest whole title phrase. Never invents anything. */
+/** The reel cover headline (frame 0): the model's coverTitle when it passes the cover rules and the 5 word reel limit,
+ * else the post title's own whole phrases (see pickReelCoverTitle). `ok` false means nothing valid exists: do not render. */
+export function reelCoverTitleFor(script: VideoScript, postTitle: string, preferred?: string | null): { title: string; ok: boolean; reasons: string[]; usedFallback: boolean } {
+  return pickReelCoverTitle([preferred, script.coverTitle, coverTitleFor(script, postTitle)], postTitle, `${postTitle} ${script.title ?? ''}`)
+}
+
 export function coverTitleFor(script: VideoScript, postTitle: string): string {
   if (script.coverTitle && isValidCoverHeadline(script.coverTitle, `${postTitle} ${script.title ?? ''}`)) return script.coverTitle
   const fallback = fallbackCoverHeadline(postTitle)

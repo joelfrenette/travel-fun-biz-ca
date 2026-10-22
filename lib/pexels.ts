@@ -237,6 +237,20 @@ export async function findBrollClip(query: string): Promise<{ url: string; durat
   }
 }
 
+/** The `n`th next-best portrait photo for a search (n = 1 is the first one after the best), skipping the photo ids in
+ * `exclude`. Used when the visual quality gate rejects a cover and asks for another picture. The pick is not
+ * recorded in the recent-photo history. Returns null when unconfigured, nothing matches or the request fails. */
+export async function findAlternatePortraitPhoto(query: string, n: number, exclude: Iterable<string> = []): Promise<{ id: string; url: string } | null> {
+  try {
+    const skip = new Set(exclude)
+    const ranked = (await searchRanked(query, 'portrait')).filter((p) => p.portraitUrl && !skip.has(String(p.id)))
+    const pick = ranked[Math.max(0, n - 1)] ?? ranked[ranked.length - 1]
+    return pick?.portraitUrl ? { id: String(pick.id), url: pick.portraitUrl } : null
+  } catch {
+    return null
+  }
+}
+
 /** A portrait stock photo for a carousel slide, skipping any address in `used` so seven slides about
  * the same place do not all get the identical picture. Same selector as findDestinationPhoto (wrong
  * subjects rejected, relevant and vivid preferred, recently used photos last), but the pick is NOT

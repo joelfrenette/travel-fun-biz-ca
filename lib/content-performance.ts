@@ -20,8 +20,9 @@ const MAX_PAGES = 20
 const MAX_GSC_ATTEMPTS = 4
 
 /** Variant tag keys that get a score table. hook_style:<network> and caption_style:<network> match by prefix. */
-const FIXED_KEYS = ['content_style', 'cta_style', 'video_hook', 'carousel_cta', 'carousel_hook'] as const
-const PREFIX_KEYS = ['hook_style:', 'caption_style:'] as const
+const FIXED_KEYS = ['content_style', 'cta_style', 'video_hook', 'carousel_cta', 'carousel_hook', 'cover_template'] as const
+// cover_template:<feed|carousel|reel> compares the picture designs (red-block-v1, teal-fact, news-card, reel-red-v1) per surface.
+const PREFIX_KEYS = ['hook_style:', 'caption_style:', 'cover_template:'] as const
 
 const cleanPath = (raw: string): string => {
   let p = raw.trim()

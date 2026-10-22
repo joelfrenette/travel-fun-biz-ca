@@ -149,6 +149,43 @@ export function fallbackCoverHeadline(postTitle: string, source = ''): string | 
   return null
 }
 
+// ---- Reel cover (frame 0 of a short video) ------------------------------------------------------------------
+
+/** A reel cover headline is shorter than a feed cover: at most 5 words. */
+export const REEL_COVER_MAX_WORDS = 5
+
+/** The cover rules plus the 5 word reel limit. `source` is the post text numbers must be traceable to. */
+export function checkReelCoverTitle(title: string, source = ''): { ok: boolean; reasons: string[] } {
+  const result = validateCoverHeadline(title, source)
+  const reasons = [...result.reasons]
+  const n = headlineWords(title ?? '').length
+  if (n > REEL_COVER_MAX_WORDS) reasons.push(`a reel cover is at most ${REEL_COVER_MAX_WORDS} words, has ${n}`)
+  return { ok: reasons.length === 0, reasons }
+}
+
+/**
+ * The reel cover headline: the first candidate (the model's, then the caller's other choices) that passes the reel check,
+ * else the post title's own whole phrases, then a phrase plus "decoded". `ok` is false only when nothing passes; `title` is
+ * then the best candidate so the caller can show it, and the caller must not render the reel.
+ */
+export function pickReelCoverTitle(candidates: ReadonlyArray<string | null | undefined>, postTitle: string, source = ''): { title: string; ok: boolean; reasons: string[]; usedFallback: boolean } {
+  const src = source || postTitle
+  const tidyCand = (c: string) => c.replace(/\s+/g, ' ').trim()
+  const given = candidates.map((c) => tidyCand(c ?? '')).filter(Boolean)
+  let firstReasons: string[] = []
+  for (const [i, c] of given.entries()) {
+    const check = checkReelCoverTitle(c, src)
+    if (i === 0) firstReasons = check.reasons
+    if (check.ok) return { title: c, ok: true, reasons: [], usedFallback: i > 0 }
+  }
+  const fallbacks: string[] = [...titlePhrases(postTitle)]
+  for (const p of titlePhrases(postTitle)) if (!/\?$/.test(p)) fallbacks.push(`${p} decoded`)
+  for (const f of fallbacks) {
+    if (checkReelCoverTitle(f, src).ok) return { title: f, ok: true, reasons: [], usedFallback: true }
+  }
+  return { title: given[0] ?? shortestWholePhrase(postTitle), ok: false, reasons: firstReasons.length ? firstReasons : ['no valid cover headline could be made from the title'], usedFallback: false }
+}
+
 /** Last resort for callers that must return text: the first phrase that is short enough whole, else ''. */
 export function shortestWholePhrase(postTitle: string): string {
   const fits = titlePhrases(postTitle).filter((p) => p.length <= COVER_MAX_CHARS && !(BANNED_ENDINGS as readonly string[]).includes(bare(headlineWords(p).pop() ?? '').toLowerCase()))

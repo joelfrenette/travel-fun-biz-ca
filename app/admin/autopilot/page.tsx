@@ -38,6 +38,7 @@ interface State {
   cron: { light: "green" | "amber" | "gray"; label: string }
   lastRun: { at: string; trigger: "schedule" | "button"; steps: { step: "keywords" | "write" | "guides" | "copy" | "news" | "post" | "repurpose" | "heal-content" | "heal" | "debrief" | "performance" | "source-watch" | "indexnow" | "visit-purge"; ok: boolean; note: string }[] } | null
   keyword: { budget: number; configured: boolean; lastRunAt: string | null; log: { at: string; spentUsd: number; added: number; seeds: string[] }[]; autoApproved?: { total: number; last7: number } }
+  visualQuality?: { windowDays: number; available: boolean; totals: { pass: number; retry: number; skip: number; deferred: number }; recentSkips: { at: string; slug: string; surface: string; reason: string }[] }
   issues: { id: string; area: "post" | "carousel" | "video" | "system" | "setup"; title: string; detail: string; fix?: string; actions?: { label: string; kind: string; slug?: string }[]; link?: { label: string; href: string } }[]
   rows: Row[]
 }
@@ -270,6 +271,32 @@ export default function AutopilotPage() {
             </select>
           </CardContent>
         </Card>
+
+        {state.visualQuality && (
+          <Card>
+            <CardContent className="space-y-2 p-4">
+              <h2 className="font-semibold">Visual quality</h2>
+              {state.visualQuality.available ? (
+                <>
+                  <p className="text-sm">
+                    Last {state.visualQuality.windowDays} days: <strong>{state.visualQuality.totals.pass}</strong> pictures passed the check, <strong>{state.visualQuality.totals.retry}</strong> retried with another photo or a shorter title, <strong>{state.visualQuality.totals.skip}</strong> skipped (not posted)
+                    {state.visualQuality.totals.deferred ? `, ${state.visualQuality.totals.deferred} waiting because the check could not run` : ""}.
+                  </p>
+                  <p className="text-xs text-muted-foreground">Every cover, carousel slide and video cover is checked for a clipped headline, a missing title block, a dull photo and a missing TRAVELFUNBIZ.CA strip. A picture that fails twice is skipped quietly instead of posted. Skips are not alerts.</p>
+                  {state.visualQuality.recentSkips.length > 0 && (
+                    <ul className="space-y-1 text-xs text-muted-foreground">
+                      {state.visualQuality.recentSkips.slice(0, 5).map((s) => (
+                        <li key={`${s.slug}-${s.at}`}>{new Date(s.at).toLocaleDateString("en-CA")} {s.surface}: {s.slug} ({s.reason})</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">The counter could not be read right now. Posting is not affected.</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <WhatIsWorkingCard />
 

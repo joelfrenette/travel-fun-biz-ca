@@ -5,11 +5,14 @@ import { isAutomationPaused, setAutomationPaused } from '@/lib/automation-kill-s
 import { AUTOBLOG_MODE_KEY } from '@/lib/autoblog-run'
 import { setAutoblogAiImageFallback } from '@/lib/blog-image'
 import { getDistributionMode, setDistributionMode, getDistributionAccounts, getDistributionPlatforms, setTailoredCaptionsEnabled } from '@/lib/distribution'
-import { generateAndSaveCarousel, carouselKey, type CarouselSlide } from '@/lib/carousel'
-import { generateVideoScript, capScriptDuration, coverTitleFor, detectHookFormula, HOOK_FORMULAS } from '@/lib/video-script'
+import { generateAndSaveCarousel, gateCarouselCover, carouselKey, type CarouselSlide } from '@/lib/carousel'
+import { recordGateEvents, type GateEvent } from '@/lib/visual-gate-stats'
+import { visualTags } from '@/lib/cover-gate'
+import { generateVideoScript, capScriptDuration, reelCoverTitleFor, detectHookFormula, HOOK_FORMULAS } from '@/lib/video-script'
+import { photoIdOf } from '@/lib/social-cover'
 import { tagVariant } from '@/lib/content-variants'
 import { rotateStyle, hashtagCapFor, readRecentVariantValues, readVariantTag } from '@/lib/hook-styles'
-import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, type BeatVisual } from '@/lib/shotstack'
+import { buildVideoEdit, submitRender, getRenderStatus, deleteRenderAssets, detectShotstackEnv, isShotstackConfigured, shotstackEnv, REEL_COVER_TEMPLATE, type BeatVisual } from '@/lib/shotstack'
 import { findBrollClip, isPexelsConfigured } from '@/lib/pexels'
 import { uploadPostConfigured, type UploadPostSendResult } from '@/lib/upload-post'
 import { resolvePostingTarget, getProvider, platformsFor, sentPlatformsOf, type PostingTarget } from '@/lib/social-provider'
@@ -292,9 +295,30 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
     }
     if (row.carousel_stage === 'generated' && target && carouselTargets.length && Date.now() - startedAt < SOFT_DEADLINE_MS) {
       const post = await loadPost(admin, row.slug)
-      const raw = await getSetting(admin, carouselKey(row.slug))
+      // Visual quality gate: slide 1 (and any teal fact card) is rendered and checked before the carousel can be posted.
+      // A cover that fails is retried with the next photo and a shorter headline (twice), then the carousel is skipped:
+      // stage 'skipped', never posted. A check that cannot run leaves the stage as it is for the next tick.
+      let gatePassed = false
+      if (post) {
+        const gated = await gateCarouselCover(admin, post, { base: SITE_URL, hasTime: () => Date.now() - startedAt < SOFT_DEADLINE_MS })
+        const retryEvents: GateEvent[] = Array.from({ length: gated.retries }, () => 'retry' as const)
+        if (gated.status === 'skip') {
+          // last_error stays empty on purpose: a skip is counted in the Visual quality tile, it is not a Needs attention item.
+          await save(row, { carousel_stage: 'skipped', last_error: null })
+          await recordGateEvents(admin, [...retryEvents, 'skip'], { slug: row.slug, surface: 'carousel', reason: gated.reasons.join('; ') })
+          await tagVariant(admin, row.slug, visualTags('carousel', 'red-block-v1', { ok: false, reasons: gated.reasons, retries: gated.retries }, gated.photoId))
+        } else if (gated.status === 'pass') {
+          gatePassed = true
+          await recordGateEvents(admin, [...retryEvents, 'pass'])
+          await tagVariant(admin, row.slug, { ...visualTags('carousel', 'red-block-v1', { ok: true, reasons: [], retries: gated.retries }, gated.photoId), ...(gated.hasFact ? { 'fact_template:carousel': 'teal-fact' } : {}) })
+        } else {
+          await recordGateEvents(admin, gated.status === 'deferred' ? [...retryEvents, 'deferred'] : retryEvents)
+        }
+      }
+      // Read after the gate: a retry rewrites slide 1 in the stored deck.
+      const raw = gatePassed ? await getSetting(admin, carouselKey(row.slug)) : null
       const slides = raw ? (JSON.parse(raw) as CarouselSlide[]) : []
-      if (post && slides.length) {
+      if (post && gatePassed && slides.length) {
         const carouselLink = postLink(row.slug, 'carousel', await readVariantTag(admin, row.slug, 'carousel_cta'))
         const carouselLimit = tightestLimit(carouselTargets)
         // Hook, one description line, fixed call to action, link and up to 3 hashtags; the old title + description text if that is not possible.
@@ -329,15 +353,25 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
             await fail(row, 'video', 'could not write a video script', false)
           } else {
             const capped = capScriptDuration(script)
+            // Pre-submit text check: the reel cover headline must pass the cover rules and the 5 word limit (the post title's
+            // own phrases are tried first). If nothing valid exists the reel is skipped before any render credit is spent.
+            const reelCover = reelCoverTitleFor(capped, post.title)
+            if (!reelCover.ok) {
+              await save(row, { video_stage: 'skipped', last_error: null })
+              await recordGateEvents(admin, ['skip'], { slug: row.slug, surface: 'reel', reason: reelCover.reasons.join('; ') })
+              await tagVariant(admin, row.slug, visualTags('reel', REEL_COVER_TEMPLATE, { ok: false, reasons: reelCover.reasons }, photoIdOf(post.cover_image_url)))
+              continue
+            }
             const clips = await Promise.all(capped.beats.map((b) => findBrollClip(b.brollSearchTerms.join(' '))))
             const visuals: BeatVisual[] = clips.map((c) => ({ videoUrl: c?.url }))
-            const submitted = await submitRender(buildVideoEdit(capped, visuals, post.cover_image_url ?? undefined, coverTitleFor(capped, post.title), SITE_NAME.toUpperCase()))
+            const submitted = await submitRender(buildVideoEdit(capped, visuals, post.cover_image_url ?? undefined, reelCover.title, SITE_NAME.toUpperCase()))
             if (submitted.ok && submitted.renderId) {
               videoSlots--
               const tail = [capped.title, capped.description, capped.hashtags.join(' ')].filter(Boolean).join('\n\n')
               const hookUsed = capped.usedFallback ? 'fallback' : (detectHookFormula(capped.hook, preferred) ?? 'fallback')
               await save(row, { video_stage: 'rendering', render_id: submitted.renderId, video_caption: fitCaptionWithLink(tail, postLink(row.slug, 'video', hookUsed), tightestLimit(VIDEO_PLATFORMS)) })
-              await tagVariant(admin, row.slug, { video_hook: hookUsed, hook_style_at: new Date().toISOString() })
+              await tagVariant(admin, row.slug, { video_hook: hookUsed, hook_style_at: new Date().toISOString(), ...visualTags('reel', REEL_COVER_TEMPLATE, { ok: true, reasons: [] }, photoIdOf(post.cover_image_url)) })
+              await recordGateEvents(admin, ['pass'])
             } else if (submitted.status === 401 || submitted.status === 403) {
               await setSetting(admin, VIDEO_BLOCK_KEY, new Date(Date.now() + VIDEO_BLOCK_MS).toISOString())
               notes.push(`Shotstack rejected the API key (${submitted.error}) - check SHOTSTACK_API_KEY. Video steps paused for 6 hours.`)
