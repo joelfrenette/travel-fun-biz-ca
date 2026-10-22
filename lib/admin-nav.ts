@@ -24,14 +24,14 @@ export const dashboardNavItem: AdminNavItem = {
 
 const unsortedTools: AdminNavItem[] = [
   {
-    title: "Travel Packages",
+    title: "Posts: Trips",
     description: "Manage all travel packages: add via AI interview, scrape URLs, paste source material, upload CSV, or enter manually. Full CRUD with sorting and filtering.",
     icon: Package,
     status: "Active",
     href: "/admin/packages",
   },
   {
-    title: "Guide Pages",
+    title: "Posts: Guides",
     description: "Destination, hotel, resort, cruise line, ship, river cruise and yacht pages: the site writes, improves and publishes them for Google, AI answers and enquiries. One screen for the backfill, the review queue and the searchable list.",
     icon: Layers,
     status: "Active",
@@ -59,7 +59,7 @@ const unsortedTools: AdminNavItem[] = [
     href: "/admin/testimonials",
   },
   {
-    title: "Blog",
+    title: "Posts: Blog",
     description: "Write articles and trip recaps in Markdown, with a live preview and image upload. Drafts stay hidden until published.",
     icon: FileText,
     status: "Active",
@@ -136,7 +136,7 @@ const unsortedTools: AdminNavItem[] = [
     href: null,
   },
   {
-    title: "Blog Auto-Writer",
+    title: "Posts: Blog Auto-Writer",
     description: "AI-suggested blog topics queued for your approval, then auto-written into draft posts on schedule. Lives in the Blog tool's \"Topics & Autoblog\" tab.",
     icon: Bot,
     status: "Active",
@@ -192,7 +192,7 @@ const unsortedTools: AdminNavItem[] = [
     href: null,
   },
   {
-    title: "News (Feeds and Briefs)",
+    title: "Posts: News",
     description: "The travel news auto-poster: which feeds are read and switched on, the Off/Draft/Publish mode, and every item with what became of it.",
     icon: Newspaper,
     status: "Active",

@@ -1,13 +1,22 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, RefreshCw, ExternalLink, ArrowUp, ArrowDown } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Loader2, RefreshCw, ExternalLink, ArrowUp, ArrowDown, Check, X } from "lucide-react"
+import type { Post } from "@/lib/posts"
+import { derivePostType, type AdminPostMeta, type AdminPostRow } from "@/lib/blog-admin-filters"
+import BlogPostsList from "@/components/admin/blog-posts-list"
+import PostsPageHeader from "@/components/admin/posts-page-header"
+import PostsAutomationCard from "@/components/admin/posts-automation-card"
+import PostThumb from "@/components/admin/post-thumb"
+import { countPostStatuses } from "@/lib/posts-page-summary"
 import {
   HEALTH_LABEL, NEWS_STATUSES, ITEM_SORTS, DEFAULT_ITEM_QUERY, countByStatus, filterSortItems,
   type SourceHealth, type NewsItemView, type ItemQuery, type ItemSort,
@@ -48,7 +57,27 @@ const healthVariant = (h: SourceHealth): "default" | "secondary" | "destructive"
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" }) : "never")
 
+// useSearchParams() (used by the shared posts list and the tab) needs a Suspense boundary for `next build`.
 export default function NewsAdminPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
+      <NewsAdminPageContent />
+    </Suspense>
+  )
+}
+
+function NewsAdminPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const tab = searchParams.get("tab") === "feeds" ? "feeds" : "posts"
+  function changeTab(value: string) {
+    router.replace(value === "feeds" ? "/admin/news?tab=feeds" : "/admin/news", { scroll: false })
+  }
+
+  const [posts, setPosts] = useState<Post[]>([])
+  const [meta, setMeta] = useState<Record<string, AdminPostMeta>>({})
+  const [postsLoading, setPostsLoading] = useState(true)
+  const [automationKey, setAutomationKey] = useState(0)
   const [mode, setMode] = useState<NewsMode>("draft")
   const [perDay, setPerDay] = useState<number | null>(null)
   const [sources, setSources] = useState<SourceRow[]>([])
@@ -81,6 +110,56 @@ export default function NewsAdminPage() {
   }
   useEffect(load, [])
 
+  function loadPosts() {
+    setPostsLoading(true)
+    fetch("/api/admin/blog", { headers: authHeaders() })
+      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error || "Could not load the news posts")
+        setPosts(data.posts || [])
+        setMeta(data.meta || {})
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load the news posts"))
+      .finally(() => setPostsLoading(false))
+  }
+  useEffect(loadPosts, [])
+
+  // The list component keeps only news posts (lockedType), but the counts in the header need the same filter up here.
+  const newsPosts = useMemo(() => posts.filter((p) => derivePostType(p) === "news"), [posts])
+  const postCounts = useMemo(() => countPostStatuses(newsPosts, new Date().toISOString().slice(0, 10)), [newsPosts])
+  const itemBySlug = useMemo(() => new Map(items.filter((i) => i.post_slug).map((i) => [i.post_slug as string, i])), [items])
+
+  async function approveBrief(row: AdminPostRow) {
+    if (!confirm(`Approve and publish "${row.title}"? It goes live on the public site now and, if social posting is on, is queued for social.`)) return
+    setBusy(true); setError(""); setNote("")
+    try {
+      const data = await post({ action: "approve", slug: row.slug })
+      setPosts((prev) => prev.map((p) => (p.id === row.id ? { ...p, ...data.post } : p)))
+      setNote(`Published "${row.title}".`)
+      load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not publish the brief")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function rejectBrief(row: AdminPostRow) {
+    const item = itemBySlug.get(row.slug)
+    if (!item) return
+    if (!confirm(`Reject this news item? "${item.title}" is marked rejected and is never written about again. The draft post stays a draft until you delete it.`)) return
+    setBusy(true); setError(""); setNote("")
+    try {
+      await post({ action: "reject", id: item.id })
+      setNote("Marked rejected.")
+      load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reject the item")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function post(body: Record<string, unknown>) {
     const res = await fetch("/api/admin/news/feeds", { method: "POST", headers: authHeaders(), body: JSON.stringify(body) })
     const data = await res.json().catch(() => ({}))
@@ -93,6 +172,7 @@ export default function NewsAdminPage() {
     try {
       await post({ action: "mode", mode: next })
       setMode(next)
+      setAutomationKey((k) => k + 1)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not change the mode")
     }
@@ -145,30 +225,19 @@ export default function NewsAdminPage() {
 
   return (
     <div>
-      <div className="border-b bg-card/30">
-        <div className="container mx-auto flex flex-wrap items-center justify-between gap-3 px-4 py-4">
-          <div>
-            <h1 className="text-xl font-bold">News (Feeds and Briefs)</h1>
-            <p className="text-sm text-muted-foreground">Official advisories, storm bulletins and trade news are read from a fixed list of feeds. Short briefs about them become blog posts.</p>
-          </div>
-          <Button variant="outline" onClick={load} disabled={loading}><RefreshCw className="mr-1.5 h-4 w-4" />Refresh</Button>
-        </div>
-      </div>
+      <PostsPageHeader
+        title="Posts: News"
+        purpose="Official advisories, storm bulletins and trade news are read from a fixed list of feeds. Short briefs about them become news posts you can approve here."
+        counts={postCounts}
+        loading={postsLoading}
+        actions={<Button variant="outline" onClick={() => { load(); loadPosts(); setAutomationKey((k) => k + 1) }} disabled={loading || postsLoading}><RefreshCw className="mr-1.5 h-4 w-4" />Refresh</Button>}
+      />
 
       <div className="container mx-auto space-y-4 px-4 py-4">
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
         {tableProblem && <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">The news items table could not be read: {tableProblem}. If it says the table does not exist, migration 0047 has not been applied yet.</div>}
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {NEWS_STATUSES.map((s) => (
-            <Card key={s}>
-              <CardContent className="p-3">
-                <p className="text-2xl font-bold">{counts[s] ?? 0}</p>
-                <p className="text-xs capitalize text-muted-foreground">{s}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <PostsAutomationCard type="news" refreshKey={automationKey} />
 
         <Card>
           <CardContent className="space-y-2 p-4">
@@ -193,6 +262,57 @@ export default function NewsAdminPage() {
           </CardContent>
         </Card>
 
+        <Tabs value={tab} onValueChange={changeTab}>
+          <TabsList>
+            <TabsTrigger value="posts">News posts</TabsTrigger>
+            <TabsTrigger value="feeds">Feeds and items</TabsTrigger>
+          </TabsList>
+          <TabsContent value="posts" className="space-y-3 pt-3">
+            <BlogPostsList
+              posts={posts}
+              meta={meta}
+              loading={postsLoading}
+              onPostsChange={setPosts}
+              onError={setError}
+              lockedType="news"
+              showTripFilters={false}
+              emptyText="No news posts yet. Briefs appear here after the first feed read and write."
+              extraActions={(row, rowBusy) => {
+                const item = itemBySlug.get(row.slug)
+                return (
+                  <>
+                    {row.status === "draft" && (
+                      <Button variant="outline" size="sm" className="h-8" disabled={rowBusy || busy} onClick={() => approveBrief(row)} title="Approve and publish this draft brief">
+                        <Check className="mr-1 h-4 w-4" />Approve and publish
+                      </Button>
+                    )}
+                    {item && item.status !== "published" && item.status !== "rejected" && (
+                      <Button variant="ghost" size="sm" className="h-8 text-destructive" disabled={rowBusy || busy} onClick={() => rejectBrief(row)} title="Reject this news item">
+                        <X className="mr-1 h-4 w-4" />Reject
+                      </Button>
+                    )}
+                    {item && (
+                      <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Open the source notice">
+                        <a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /></a>
+                      </Button>
+                    )}
+                  </>
+                )
+              }}
+            />
+          </TabsContent>
+          <TabsContent value="feeds" className="space-y-4 pt-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {NEWS_STATUSES.map((s) => (
+            <Card key={s}>
+              <CardContent className="p-3">
+                <p className="text-2xl font-bold">{counts[s] ?? 0}</p>
+                <p className="text-xs capitalize text-muted-foreground">{s}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-muted-foreground">Sources</h2>
           <p className="text-xs text-muted-foreground">The list of feeds is fixed in code. The switch only turns a feed off or on without a deploy; use it when a site blocks us.</p>
@@ -212,6 +332,7 @@ export default function NewsAdminPage() {
                   {!s.enabledInCode && <p className="text-xs text-muted-foreground">Disabled in code (lib/news-sources.ts), so it is never read.</p>}
                 </div>
                 <Badge variant={healthVariant(s.health)}>{s.enabledInCode ? HEALTH_LABEL[s.health] : "Disabled in code"}</Badge>
+                {s.enabledInCode && <Badge variant="outline">{s.off ? "Not read" : `Mode: ${MODE_TEXT[mode].label}`}</Badge>}
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" role="switch" checked={!s.off} disabled={!s.enabledInCode} onChange={() => toggleSource(s)} aria-label={`${s.name} ${s.off ? "off" : "on"}`} />
                   {s.off ? "OFF" : "ON"}
@@ -250,6 +371,7 @@ export default function NewsAdminPage() {
             filtered.slice(0, shown).map((i) => (
               <Card key={i.id}>
                 <CardContent className="flex flex-wrap items-center gap-3 p-3">
+                  <PostThumb type="news" alt={`Default news thumbnail for ${i.title}`} size="sm" />
                   <div className="min-w-[240px] flex-1">
                     <a href={i.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-medium hover:underline">{i.title}<ExternalLink className="h-3 w-3" /></a>
                     <p className="text-xs text-muted-foreground">
@@ -269,6 +391,8 @@ export default function NewsAdminPage() {
             <div className="flex justify-center"><Button variant="outline" size="sm" onClick={() => setShown((n) => n + 50)}>Show 50 more</Button></div>
           )}
         </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )

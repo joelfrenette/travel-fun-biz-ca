@@ -6,6 +6,9 @@ import { NEWS_SOURCES } from '@/lib/news-sources'
 import { NEWS_SOURCES_OFF_KEY, ingestFeeds, newsTableReady, parseSourcesOff } from '@/lib/news-ingest'
 import { readFeedState } from '@/lib/news-feed'
 import { getNewsMode, setNewsMode, getNewsPerDay } from '@/lib/news-settings'
+import { enrollNewsIfDue } from '@/lib/news-distribution'
+import { revalidateBlog } from '@/lib/blog-revalidate'
+import { pingIndexNow } from '@/lib/indexnow'
 import { applySourceToggle, sourceHealth, sourceTypeLabel } from '@/lib/news-admin'
 
 export const dynamic = 'force-dynamic'
@@ -101,6 +104,51 @@ export async function POST(request: Request) {
       const { error } = await setSetting(admin, NEWS_SOURCES_OFF_KEY, next)
       if (error) return NextResponse.json({ error }, { status: 500 })
       return NextResponse.json({ key: body.key, off: body.off, value: next })
+    }
+
+    // Reject: marks one feed item rejected so the writer never picks it up again. It does not touch any post: a draft brief that
+    // already exists stays a draft (delete it from the list if it is not wanted). A published item cannot be rejected here.
+    if (body.action === 'reject') {
+      if (typeof body.id !== 'string' || !/^[0-9a-f-]{8,64}$/i.test(body.id)) return NextResponse.json({ error: 'id must be a news item id' }, { status: 400 })
+      const { data: item, error: readError } = await admin.from('news_items').select('id, status').eq('id', body.id).maybeSingle()
+      if (readError) return NextResponse.json({ error: readError.message }, { status: 500 })
+      if (!item) return NextResponse.json({ error: 'news item not found' }, { status: 404 })
+      if ((item as { status: string }).status === 'published') return NextResponse.json({ error: 'this item is already published; unpublish the post instead' }, { status: 409 })
+      const { error } = await admin.from('news_items').update({ status: 'rejected', reject_reason: 'rejected by an admin', decided_at: new Date().toISOString() }).eq('id', body.id)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ id: body.id, status: 'rejected' })
+    }
+
+    // Approve and publish: takes one DRAFT news brief live (the owner has looked at it), marks its feed item published, then does
+    // what the scheduled run does after going live: one social enrolment through the news ledger (a no-op while distribution is off
+    // or paused) and an IndexNow ping.
+    if (body.action === 'approve') {
+      if (typeof body.slug !== 'string' || !/^[a-z0-9-]{3,200}$/.test(body.slug)) return NextResponse.json({ error: 'slug must be a post slug' }, { status: 400 })
+      const slug: string = body.slug
+      const { data: item, error: itemError } = await admin.from('news_items').select('id, status').eq('post_slug', slug).limit(1).maybeSingle()
+      if (itemError) return NextResponse.json({ error: itemError.message }, { status: 500 })
+      if (!item) return NextResponse.json({ error: 'no news item is linked to that post, so it is not a news brief' }, { status: 404 })
+      const { data: post, error: postError } = await admin.from('posts').select('id, title, status, publish_date').eq('slug', slug).maybeSingle()
+      if (postError) return NextResponse.json({ error: postError.message }, { status: 500 })
+      const p = post as { id: string; title: string; status: string; publish_date: string | null } | null
+      if (!p) return NextResponse.json({ error: 'the post no longer exists' }, { status: 404 })
+      if (p.status !== 'draft') return NextResponse.json({ error: `the post is already ${p.status}` }, { status: 409 })
+      const now = new Date()
+      const { data: updated, error } = await admin
+        .from('posts')
+        .update({ status: 'published', publish_date: p.publish_date ?? now.toISOString().slice(0, 10), updated_at: now.toISOString() })
+        .eq('id', p.id)
+        .eq('status', 'draft')
+        .select('*')
+        .maybeSingle()
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (!updated) return NextResponse.json({ error: 'the post changed while you were approving it; reload and try again' }, { status: 409 })
+      await admin.from('news_items').update({ status: 'published', reject_reason: null, decided_at: now.toISOString() }).eq('id', (item as { id: string }).id)
+      revalidateBlog([slug])
+      const perDay = await getNewsPerDay(admin)
+      const social = perDay === null ? 'skipped' : await enrollNewsIfDue(admin, { slug, title: p.title, status: 'published' }, perDay)
+      await pingIndexNow([`/blog/${slug}`, '/blog', '/']).catch(() => undefined)
+      return NextResponse.json({ post: updated, social })
     }
 
     if (body.action === 'fetch') {

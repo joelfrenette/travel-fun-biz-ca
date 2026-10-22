@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="TravelFunBiz.ca trip">
+  <rect width="400" height="300" fill="#fbf3ea"/>
+  <rect x="50" y="52" width="300" height="148" rx="6" fill="#b45309"/>
+  <rect x="70" y="72" width="54" height="10" rx="5" fill="#ffffff" opacity="0.7"/>
+  <rect x="70" y="104" width="220" height="14" rx="7" fill="#ffffff"/>
+  <rect x="70" y="130" width="140" height="14" rx="7" fill="#ffffff"/>
+  <rect x="70" y="164" width="90" height="8" rx="4" fill="#ffffff" opacity="0.7"/>
+  <rect x="262" y="160" width="68" height="16" rx="8" fill="#ffffff"/>
+  <rect x="50" y="212" width="300" height="34" rx="6" fill="#ffffff"/>
+  <text x="200" y="234" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="2" fill="#b45309">TRAVELFUNBIZ.CA</text>
+</svg>

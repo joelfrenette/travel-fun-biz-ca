@@ -163,7 +163,7 @@ export default function GuidesListPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-bold">Guide Pages</h1>
+        <h1 className="text-2xl font-bold">Posts: Guides</h1>
         <p className="text-sm text-muted-foreground">
           The site creates, improves and publishes destination, hotel, resort, cruise line, ship, river cruise and yacht pages, written to rank on Google and to be quoted by AI answers (SEO, AEO and GEO), each with a call to action that turns visitors into enquiries.
           Below: the one-time backfill, writing and ideas, then the searchable list of every page. Pages the site wrote but would not publish by itself wait in the Review queue.

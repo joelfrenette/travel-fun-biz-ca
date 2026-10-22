@@ -22,6 +22,10 @@ export interface AdminPostInput {
   related_package_id: string | null
   primary_keyword?: string | null
   secondary_keywords?: string[] | null
+  /** The post's own picture, for the list thumbnail (a post with none shows the default for its type). */
+  cover_image_url?: string | null
+  hero_image_url?: string | null
+  image_url?: string | null
 }
 
 /** Server-joined facts about a post (all optional, blank when unknown). */

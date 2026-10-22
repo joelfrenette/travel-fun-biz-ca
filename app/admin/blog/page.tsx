@@ -1,6 +1,9 @@
 "use client"
 
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
+import PostsPageHeader from "@/components/admin/posts-page-header"
+import PostsAutomationCard from "@/components/admin/posts-automation-card"
+import { countPostStatuses } from "@/lib/posts-page-summary"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -85,22 +88,26 @@ function BlogAdminPageContent() {
 
   useEffect(load, [])
 
+  const counts = useMemo(() => countPostStatuses(posts, new Date().toISOString().slice(0, 10)), [posts])
+
   return (
     <div>
-      <div className="border-b bg-card/30">
-        <div className="container mx-auto flex flex-wrap items-center justify-between gap-3 px-4 py-4">
-          <div>
-            <h1 className="text-xl font-bold">Blog</h1>
-            <p className="text-sm text-muted-foreground">Articles and recaps. Draft posts never show on the public site.</p>
-          </div>
+      <PostsPageHeader
+        title="Posts: Blog"
+        purpose="Articles and recaps. Draft posts never show on the public site."
+        counts={counts}
+        loading={loading}
+        actions={
           <Button asChild>
             <Link href="/admin/blog/new"><Plus className="mr-1.5 h-4 w-4" />New Post</Link>
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="container mx-auto space-y-3 px-4 py-4">
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+
+        <PostsAutomationCard type="blog" />
 
         <Tabs value={tab} onValueChange={changeTab}>
           <TabsList>

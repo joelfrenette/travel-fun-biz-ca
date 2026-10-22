@@ -42,7 +42,7 @@ expect('limit respected', pickRelatedPosts(base, many, 2).length === 2)
 
 const src = readFileSync(join(__dirname, '..', 'app', 'blog', '[slug]', 'page.tsx'), 'utf8')
 expect('blog page renders More stories guarded by a length check', /morePosts\.length > 0 && \([\s\S]*?More stories/.test(src))
-expect('blog page uses lazy cover thumbnails with alt', /loading="lazy"/.test(src) && /alt=\{p\.alt_text \|\| p\.title\}/.test(src))
+expect('blog page uses lazy cover thumbnails with alt', /loading="lazy"/.test(src) && /alt=\{p\.cover_image_url \? p\.alt_text \|\| p\.title : p\.title\}/.test(src))
 expect('More stories comes after the FAQ section', src.indexOf('faq-heading') < src.indexOf('More stories'))
 expect('no em dashes in new block or helper', !/—/.test(src.slice(src.indexOf('morePosts.length > 0 &&'), src.indexOf('relatedGuides.length > 0 &&'))))
 
