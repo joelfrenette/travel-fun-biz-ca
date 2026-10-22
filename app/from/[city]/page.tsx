@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title,
     description,
     alternates: pageAlternates(fromPath(city)),
-    ...(isFromPageIndexable(trips.length) ? {} : { robots: { index: false, follow: true } }),
+    ...(isFromPageIndexable(trips.length, city.slug) ? {} : { robots: { index: false, follow: true } }),
     openGraph: { title, description, url, type: "website", siteName: SITE_NAME },
     twitter: { card: "summary", title, description },
   }

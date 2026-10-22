@@ -2,7 +2,7 @@
 // Run: pnpm dlx tsx scripts/check-seo-loop1.ts   (exit 1 on a failure)
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { FROM_CITIES, fromCityBySlug, fromDescription, fromFaq, fromHeading, fromLlmsLinks, fromPath, fromTitle, isFromPageIndexable, upcomingTrips } from '../lib/from-cities'
+import { FROM_CITIES, INDEXABLE_FROM_SLUGS, fromCityBySlug, fromDescription, fromFaq, fromHeading, fromLlmsLinks, fromPath, fromTitle, isFromPageIndexable, upcomingTrips } from '../lib/from-cities'
 import { insertFromCanada, tripHeading, tripTitle, wantsFromCanada } from '../lib/package-seo'
 import { buildHreflang, hreflangAlternates, pageAlternates } from '../lib/site'
 import { buildLlmsFull, safeParagraph, type FullGuideRow } from '../lib/llms-full'
@@ -47,7 +47,8 @@ check('city copy has no long dashes', !DASH.test(copy))
 check('faq answers send people to us for prices', faq.some((f) => /contact form/.test(f.a)))
 check('faq is generic: no flight times or fares', !/\b(nonstop|direct flight|hours?|fare)\b/i.test(copy))
 check('zero-trip faq still valid', fromFaq(t, [], '').length >= 2)
-check('llms links are one per city', fromLlmsLinks().length === FROM_CITIES.length && fromLlmsLinks().every((l) => l.path.startsWith('/from/')))
+check('llms links are one per indexable city', fromLlmsLinks().length === INDEXABLE_FROM_SLUGS.length && fromLlmsLinks().every((l) => l.path.startsWith('/from/')))
+check('only Toronto is indexable until cities get their own facts', INDEXABLE_FROM_SLUGS.join(',') === 'toronto' && !isFromPageIndexable(3, 'calgary') && isFromPageIndexable(3, 'toronto'))
 
 // 4. "from Canada" titles
 const anz = { name: 'Australia and New Zealand Tour', short_description: 'Sydney to Queenstown.', full_description: null, meta_title: null }

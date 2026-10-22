@@ -70,7 +70,9 @@ export function upcomingTrips<T extends Pick<TripLite, 'slug' | 'name' | 'availa
 }
 
 /** A city page is indexable only while it has at least one trip to list. */
-export const isFromPageIndexable = (tripCount: number): boolean => tripCount > 0
+/** Only these city pages are indexable until each has real city-specific facts: eight pages that list the same trips would look like doorway pages. */
+export const INDEXABLE_FROM_SLUGS: readonly string[] = ['toronto']
+export const isFromPageIndexable = (tripCount: number, slug?: string): boolean => tripCount > 0 && (slug === undefined || INDEXABLE_FROM_SLUGS.includes(slug))
 
 /** Generic questions, each answerable from site data. No price, date or flight claim; the answers send people to us. */
 export function fromFaq(c: FromCity, trips: Pick<TripLite, 'name'>[], phone: string): { q: string; a: string }[] {
@@ -101,7 +103,7 @@ export const otherCities = (c: Pick<FromCity, 'slug'>): FromCity[] => FROM_CITIE
 
 /** Plain-text list for llms.txt: path and title per city. */
 export function fromLlmsLinks(): { title: string; path: string; summary: string }[] {
-  return FROM_CITIES.map((c) => ({
+  return FROM_CITIES.filter((c) => INDEXABLE_FROM_SLUGS.includes(c.slug)).map((c) => ({
     title: fromHeading(c),
     path: fromPath(c),
     summary: `Hosted group trips and cruises you can plan from ${c.city} (${c.airportCode}).`,

@@ -8,7 +8,7 @@ import { getPublishedGuidePaths, guidePath, guideKinds, GUIDE_KINDS } from '@/li
 import { getPublishedPageCopyPaths, comparePath, bestTimePath } from '@/lib/page-copy'
 import { filterByCopy } from '@/lib/page-copy-index'
 import { getAllPublishedPackages } from '@/lib/package-grouping'
-import { FROM_CITIES, fromPath, upcomingTrips } from '@/lib/from-cities'
+import { FROM_CITIES, INDEXABLE_FROM_SLUGS, fromPath, upcomingTrips } from '@/lib/from-cities'
 import { absoluteUrl } from '@/lib/site'
 import { maxIso, lastModOrUndefined, lastModField } from '@/lib/sitemap-dates'
 
@@ -26,7 +26,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     getAllPublishedPackages().catch(() => []),
   ])
   // The /from/<city> pages are listed only while there is an upcoming trip to put on them (otherwise they are noindex).
-  const fromCityPages = upcomingTrips(publishedRows).length > 0 ? FROM_CITIES : []
+  const fromCityPages = upcomingTrips(publishedRows).length > 0 ? FROM_CITIES.filter((c) => INDEXABLE_FROM_SLUGS.includes(c.slug)) : []
   // Compare and best-time pages are listed only when published copy exists for the path (one query for all);
   // a failed or empty read gives a null set and everything stays listed.
   const bestTimeToVisit = filterByCopy(allBestTime, (d) => bestTimePath(d.slug), copyPaths)
