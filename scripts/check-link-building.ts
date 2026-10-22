@@ -106,7 +106,7 @@ expect('the site phone is the shared number on the live profile', site.phone ===
 
 // ---- route auth: every handler checks isAuthorized before anything else
 const route = readFileSync(join(root, 'app/api/admin/links-building/route.ts'), 'utf8')
-const handlers = [...route.matchAll(/export async function (GET|POST)\(request: Request\) \{\n([^\n]*)/g)]
+const handlers = [...route.matchAll(/export async function (GET|POST)\(request: Request\) \{\r?\n([^\r\n]*)/g)]
 expect('GET and POST both exist and each starts with the isAuthorized check', handlers.map((h) => h[1]).sort().join() === 'GET,POST' && handlers.every((h) => /^\s*if \(!isAuthorized\(request\)\) return NextResponse\.json\(\{ error: 'Unauthorized' \}, \{ status: 401 \}\)/.test(h[2])))
 expect('the route has no other exported handler', (route.match(/export async function/g) ?? []).length === 2)
 expect('the route sends nothing and calls no AI', !/sendMail|fetch\(|anthropic|openai|resend|nodemailer/i.test(route + readFileSync(join(root, 'lib/links-building-data.ts'), 'utf8')))
