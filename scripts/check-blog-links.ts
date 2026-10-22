@@ -93,7 +93,8 @@ async function main() {
   const gate = async (paths: string[]) => {
     const post = { title: 'River cruises for first timers', slug: 'river-cruises-first-timers', body: bodyWith(...paths), seo_title: 'River cruises for first timers', seo_description: 'Plain advice for first timers.', tags: [], faq: [], key_takeaways: [], og_title: '', og_description: '', primary_keyword: 'viking river cruise', secondary_keywords: [], content_style: 'guide' }
     const res = await gateWithRepair(post, new Date(), gateCtx)
-    return res.blockers.filter((b) => /link/i.test(b))
+    // The path checks only; the blog quality bar (3 links, a contact link) has its own checks in check-blog-quality.ts.
+    return res.blockers.filter((b) => /link/i.test(b) && !/^(too few internal links|no contact or trip link)/.test(b))
   }
   const okRes = await gate(['/cruise-lines/viking', '/blog/p-new'])
   expect('guide and post paths are accepted (no link blocker)', okRes.length === 0, okRes.join(' | '))

@@ -6,6 +6,8 @@
 // headings on a compare intro, is left out of both), so a compare page is not punished for having no H2s.
 // Each reason is plain English and says what to change. `failed` carries the check ids for the heal step.
 
+import { isThinPost, MIN_INTERNAL_LINKS, THIN_POST_SCORE_CAP } from '@/lib/blog-quality'
+
 export type SeoCheckId =
   | 'title'
   | 'title-keyword'
@@ -99,6 +101,9 @@ export interface SeoInput {
   takeawaysApply?: boolean
   /** Allowed title length. Default 30 to 60. Page copy titles are shorter (the site name is added). */
   titleRange?: [number, number]
+  /** Blog posts only (loop-blog-quality): hold the score at THIN_POST_SCORE_CAP (80) when the body has fewer than 3 internal links or
+   * no "Quick answer" line, so a thin post stops showing 100. */
+  capThinPost?: boolean
 }
 
 export interface SeoResult {
@@ -277,9 +282,15 @@ export function seoScore(input: SeoInput): SeoResult {
   const applicable = results.filter((r) => r.applies)
   const possible = applicable.reduce((n, r) => n + WEIGHT[r.id], 0)
   const earned = applicable.reduce((n, r) => n + r.earned, 0)
+  let score = possible === 0 ? 100 : Math.round((earned / possible) * 100)
+  const reasons = applicable.filter((r) => r.reason).map((r) => r.reason as string)
+  if (input.capThinPost && score > THIN_POST_SCORE_CAP && isThinPost(body)) {
+    score = THIN_POST_SCORE_CAP
+    reasons.push(`The score is held at ${THIN_POST_SCORE_CAP} because the post has fewer than ${MIN_INTERNAL_LINKS} internal links or no "Quick answer" line.`)
+  }
   return {
-    score: possible === 0 ? 100 : Math.round((earned / possible) * 100),
-    reasons: applicable.filter((r) => r.reason).map((r) => r.reason as string),
+    score,
+    reasons,
     failed: applicable.filter((r) => r.earned < WEIGHT[r.id]).map((r) => r.id),
     earned,
     possible,

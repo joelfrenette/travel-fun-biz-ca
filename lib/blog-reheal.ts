@@ -13,6 +13,15 @@ import { healComposedPost } from '@/lib/heal-targets'
 import { pingIndexNow } from '@/lib/indexnow'
 import { checkCadence, postCadenceKey, postLimits, recordPublish } from '@/lib/publish-cadence'
 import { isNewsSlug } from '@/lib/news-post'
+import { autoPublishBlockers, normalizePost } from '@/lib/blog-composer'
+import { qualityBlockers, internalHrefs, withSiteLinks, type TripDates } from '@/lib/blog-quality'
+import { addRelatedLine, applyQualityRewrites, improves, mechanicalFix, qualityOffenders, qualityRewritePrompt, type FixLink } from '@/lib/blog-quality-fix'
+import { Tracker, buildEdits, modelCallFor, type EditMethod, type LogicalField } from '@/lib/content-repair'
+import { postFields } from '@/lib/content-repair-adapters'
+import { openBudget, type HealBudget } from '@/lib/heal-loop'
+import { styleById } from '@/lib/content-styles'
+import { isAiConfigured, parseModelJson } from '@/lib/ai-verify'
+import { generateSlug } from '@/lib/utils'
 
 // Growth loop WP19: a draft is no longer left for a person. The shared repair runs first (plain code and one cheap call),
 // and a draft that is still blocked goes through the heal loop (lib/heal-loop.ts: suggester, independent QA judge, up to
@@ -152,22 +161,41 @@ export interface RehealResult {
   note: string
 }
 
-async function groundingFor(admin: SupabaseClient, post: ComposedPost): Promise<string> {
+/** The grounding text of a post and, when it links a real trip, that trip's travel dates (for the title-year check). */
+async function groundingAndTrip(admin: SupabaseClient, post: ComposedPost): Promise<{ text: string; tripDates: TripDates | null }> {
   const base = [post.primary_keyword, ...post.secondary_keywords].filter(Boolean).join(' ')
   const slug = firstPackageSlug(post.body)
-  if (!slug) return base
+  if (!slug) return { text: base, tripDates: null }
   const { data } = await admin
     .from('travel_packages')
     .select('name, slug, destination, short_description, full_description, highlights, available_from, available_to')
     .eq('status', 'published')
     .eq('slug', slug)
     .maybeSingle()
-  return data ? `${groundAngleInPackage(base, data as PackageGrounding)} ${base}` : base
+  if (!data) return { text: base, tripDates: null }
+  const pkg = data as PackageGrounding
+  return { text: `${groundAngleInPackage(base, pkg)} ${base}`, tripDates: { from: pkg.available_from, to: pkg.available_to } }
 }
 
 /** Gives stuck autoblog drafts their daily try. `existing` is the set of paths that exist on the site (for the gate's
  * link check). Never throws. */
-export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number }): Promise<RehealResult> {
+export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number; refresh?: boolean }): Promise<RehealResult> {
+  const drafts = await rehealDraftsOnly(admin, opts)
+  // loop-blog-quality: the same daily step also gives the weakest PUBLISHED posts their weekly refresh (no new cron). It never throws and
+  // only touches the result when it did something or had a problem to report.
+  if (opts.refresh === false) return drafts
+  const refresh = await refreshPublishedPosts(admin, { existing: opts.existing, now: opts.now, model: opts.model, deadlineMs: opts.deadlineMs })
+  if (!refresh.ran) return refresh.problems.length ? { ...drafts, problems: [...drafts.problems, ...refresh.problems] } : drafts
+  return {
+    ...drafts,
+    repaired: drafts.repaired + refresh.refreshed + refresh.linked,
+    calls: drafts.calls + refresh.calls,
+    problems: [...drafts.problems, ...refresh.problems],
+    note: `${drafts.note}; ${refresh.note}`,
+  }
+}
+
+async function rehealDraftsOnly(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number }): Promise<RehealResult> {
   const out: RehealResult = { tried: 0, published: 0, rejected: 0, deferred: 0, repaired: 0, calls: 0, problems: [], note: '' }
   const now = opts.now ?? new Date()
   try {
@@ -203,7 +231,8 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
 
       const composed = composedFromRow(row)
       const itemDeadline = Math.min(Date.now() + PER_POST_DEADLINE_MS, opts.deadlineMs ?? Number.MAX_SAFE_INTEGER)
-      const ctx = { allowedPaths: [...opts.existing], groundingText: await groundingFor(admin, composed), deadlineMs: itemDeadline }
+      const grounded = await groundingAndTrip(admin, composed)
+      const ctx = { allowedPaths: [...opts.existing], groundingText: grounded.text, tripDates: grounded.tripDates, deadlineMs: itemDeadline }
       const repaired = await repairComposedPost(admin, composed, now, ctx, { model: opts.model })
       out.calls += repaired.calls
 
@@ -229,7 +258,8 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
           regenerate: async (reasons) => {
             const base = [composed.primary_keyword, ...composed.secondary_keywords].filter(Boolean)
             const angle = `${ctx.groundingText}\n\nA first draft of this post was refused by the quality checks for these reasons, so avoid them: ${reasons.join('; ')}`
-            return composeFullPost(angle, base.length ? base : composed.title, { deadlineMs: healDeadline })
+            // The style and the link list matter now: the quality gate refuses a post with no content style or fewer than 3 links.
+            return composeFullPost(angle, base.length ? base : composed.title, { deadlineMs: healDeadline, style: styleById(composed.content_style) ?? undefined, allowedLinks: withSiteLinks(pkgLinksFor(composed.body)) })
           },
         })
         out.calls += healed.outcome.calls
@@ -338,4 +368,322 @@ async function writeDraft(admin: SupabaseClient, id: string, columns: Row, editI
   }
   await finalizeEdits(admin, editIds, { id, path, published })
   out.repaired++
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Weekly refresh of PUBLISHED posts (loop-blog-quality)
+// ---------------------------------------------------------------------------------------------------
+//
+// The editor audit scored the ten live posts about 5 out of 10. This pass runs inside the same daily heal step as the draft re-check
+// (no new cron). Every published post is scored with the same gates the writer uses (lib/blog-quality.ts); the worst REFRESH_PER_DAY
+// that were not looked at in the last REFRESH_COOLDOWN_DAYS get ONE bounded pass: plain-code fixes first (filler phrases, FAQ
+// meta-language, unverifiable place claims, a stale year, a missing contact link, too few internal links), then at most ONE model call
+// for the exact sentences code cannot mend, drawn from the heal loop's daily call budget (heal_loop_calls_per_day). The change is kept
+// ONLY if the full publish gate shows fewer blockers and no new kind of blocker; it never changes a fact (a rewrite that adds a number
+// or a link is thrown away), and every change is logged in content_edits BEFORE it is applied, so Undo works exactly like the other heals.
+// A post that did not improve is left untouched and not retried for a week. The slug never changes.
+//
+// Hub and spoke: when two published posts are about the same trip, each gets a link to the other (a "Related reading" line, logged and
+// undoable, at most HUB_LINKS_PER_DAY posts a day). The posts table has no canonical column (the page template sets each post's own
+// canonical URL), so no post is marked canonical here: the reciprocal links are the whole mechanism.
+
+export const REFRESH_PER_DAY = 2
+export const REFRESH_COOLDOWN_DAYS = 7
+export const HUB_LINKS_PER_DAY = 2
+const REFRESH_READ_LIMIT = 200
+const REFRESH_CALL_TIMEOUT_MS = 60_000
+const MIN_MS_FOR_REFRESH_CALL = 50_000
+
+export interface RefreshResult {
+  /** False when the pass did nothing at all (nothing weak, or not allowed to run), so the heal note stays quiet. */
+  ran: boolean
+  checked: number
+  weak: number
+  refreshed: number
+  unchanged: number
+  linked: number
+  calls: number
+  problems: string[]
+  note: string
+}
+
+interface PkgRow {
+  id: string
+  slug: string
+  name: string
+  destination: string | null
+  short_description?: string | null
+  full_description?: string | null
+  highlights?: string[] | null
+  available_from?: string | null
+  available_to?: string | null
+}
+
+/** Like groundingAndTrip, from trips already read (the refresh reads them once instead of once per post). Pure. */
+function groundingFromTrips(post: ComposedPost, pkgs: PkgRow[]): { text: string; tripDates: TripDates | null } {
+  const base = [post.primary_keyword, ...post.secondary_keywords].filter(Boolean).join(' ')
+  const slug = firstPackageSlug(post.body)
+  const pkg = slug ? pkgs.find((p) => p.slug === slug) : undefined
+  if (!pkg) return { text: base, tripDates: null }
+  const grounding: PackageGrounding = {
+    name: pkg.name,
+    slug: pkg.slug,
+    destination: pkg.destination ?? '',
+    short_description: pkg.short_description ?? null,
+    full_description: pkg.full_description ?? null,
+    highlights: pkg.highlights ?? null,
+    available_from: pkg.available_from ?? null,
+    available_to: pkg.available_to ?? null,
+  }
+  return { text: `${groundAngleInPackage(base, grounding)} ${base}`, tripDates: { from: grounding.available_from, to: grounding.available_to } }
+}
+
+/** The trip page a post body links to, as writer link material. */
+export function pkgLinksFor(body: string): FixLink[] {
+  const slug = firstPackageSlug(body)
+  return slug ? [{ path: `/packages/${slug}`, label: 'the trip page' }] : []
+}
+
+/** The trip a post is about (its linked package, else its first /packages/ link), or null. Pure. */
+export function tripKeyOf(row: Row, pkgSlugById: Map<string, string>): string | null {
+  const id = str(row.related_package_id)
+  return (id && pkgSlugById.get(id)) || firstPackageSlug(str(row.body)) || null
+}
+
+export interface ScoredPost {
+  row: Row
+  blockers: string[]
+  /** ISO time of the last refresh try, or null. */
+  lastRefresh: string | null
+}
+
+/** The posts to refresh today: weak ones only, not looked at in the last 7 days, worst first (then the longest unchecked, then oldest), at most `limit`. Pure. */
+export function selectRefreshPicks<T extends ScoredPost>(scored: T[], now: Date, limit: number): T[] {
+  const cool = REFRESH_COOLDOWN_DAYS * 86_400_000
+  const ms = (s: string | null | undefined) => Date.parse(s ?? '') || 0
+  return scored
+    .filter((s) => s.blockers.length > 0 && !(s.lastRefresh && now.getTime() - ms(s.lastRefresh) < cool))
+    .sort((a, b) => b.blockers.length - a.blockers.length || ms(a.lastRefresh) - ms(b.lastRefresh) || ms(str(a.row.created_at)) - ms(str(b.row.created_at)))
+    .slice(0, Math.max(0, limit))
+}
+
+/** Real pages a post may be given as related reading, best first: other posts about the same trip, the trip page, the destination page,
+ * then posts that share a tag. Only paths that exist, and never one the body already links. Pure. */
+export function relatedLinksFor(row: Row, published: Row[], pkgs: PkgRow[], existing: Set<string>): FixLink[] {
+  const byId = new Map(pkgs.map((p) => [p.id, p.slug]))
+  const body = str(row.body)
+  const have = new Set(internalHrefs(body))
+  const out: FixLink[] = []
+  const seen = new Set<string>()
+  const add = (path: string, label: string) => {
+    if (!path || seen.has(path) || have.has(path) || !existing.has(path) || label.trim().length < 2) return
+    seen.add(path)
+    out.push({ path, label })
+  }
+  const key = tripKeyOf(row, byId)
+  const pkg = key ? pkgs.find((p) => p.slug === key) : undefined
+  if (key) for (const p of published) if (str(p.slug) !== str(row.slug) && tripKeyOf(p, byId) === key) add(`/blog/${str(p.slug)}`, str(p.title))
+  if (pkg) add(`/packages/${pkg.slug}`, `the ${pkg.name} trip page`)
+  if (pkg?.destination) add(`/destinations/${generateSlug(pkg.destination)}`, `our ${pkg.destination} destination page`)
+  const tags = new Set(strList(row.tags).map((t) => t.toLowerCase()))
+  if (tags.size) for (const p of published) if (str(p.slug) !== str(row.slug) && strList(p.tags).some((t) => tags.has(t.toLowerCase()))) add(`/blog/${str(p.slug)}`, str(p.title))
+  return out
+}
+
+/** Hub and spoke: for every trip with two or more published posts, the posts that do not yet link a sibling, with the sibling links to add (at most 2 each). Pure. */
+export function hubLinkPlan(published: Row[], pkgs: PkgRow[], existing: Set<string>, limit: number): { row: Row; links: FixLink[] }[] {
+  const byId = new Map(pkgs.map((p) => [p.id, p.slug]))
+  const groups = new Map<string, Row[]>()
+  for (const p of published) {
+    const key = tripKeyOf(p, byId)
+    if (key) groups.set(key, [...(groups.get(key) ?? []), p])
+  }
+  const plan: { row: Row; links: FixLink[] }[] = []
+  for (const group of groups.values()) {
+    if (group.length < 2) continue
+    for (const a of group) {
+      const have = new Set(internalHrefs(str(a.body)))
+      const links = group.filter((b) => str(b.slug) !== str(a.slug) && existing.has(`/blog/${str(b.slug)}`) && !have.has(`/blog/${str(b.slug)}`)).slice(0, 2).map((b) => ({ path: `/blog/${str(b.slug)}`, label: str(b.title) }))
+      if (links.length) plan.push({ row: a, links })
+    }
+  }
+  return plan.slice(0, Math.max(0, limit))
+}
+
+/** How many published posts were refresh-tried today (UTC day). Null when it cannot be read: nothing is refreshed then. */
+export async function refreshesToday(admin: SupabaseClient, now: Date): Promise<number | null> {
+  const dayStart = `${now.toISOString().slice(0, 10)}T00:00:00.000Z`
+  const { data, error } = await admin.from('content_variants').select('slug').gte('variant_tags->>refresh_last', dayStart).limit(50)
+  return error ? null : (data ?? []).length
+}
+
+const REFRESH_FIELDS: LogicalField[] = ['title', 'body', 'meta_title', 'meta_description', 'og_title', 'og_description', 'faq', 'key_takeaways']
+
+/** Logs the change, then applies it to the live post ("log, then apply"). Nothing is written if the post was edited meanwhile. True when saved. */
+async function saveRefresh(
+  admin: SupabaseClient,
+  row: Row,
+  before: ComposedPost,
+  after: ComposedPost,
+  tracker: Tracker,
+  calls: number,
+  now: Date,
+  out: { problems: string[] },
+): Promise<boolean> {
+  const id = str(row.id)
+  const path = `/blog/${str(row.slug)}`
+  const edits = buildEdits({ type: 'post', id, path, published: true }, postFields(before), postFields(after), tracker, calls)
+  if (edits.length === 0) return false
+  const logged = await insertEdits(admin, edits)
+  if (logged.error) {
+    out.problems.push(`${path}: could not log the refresh, so nothing was changed (${logged.error})`)
+    return false
+  }
+  const v = postFields(after)
+  const { data: updated, error } = await admin
+    .from('posts')
+    .update({
+      title: v.title,
+      body: v.body,
+      meta_title: v.meta_title || null,
+      meta_description: v.meta_description || null,
+      og_title: v.og_title || null,
+      og_description: v.og_description || null,
+      faq: v.faq,
+      key_takeaways: v.key_takeaways,
+      updated_at: now.toISOString(),
+    })
+    .eq('id', id)
+    .eq('status', 'published')
+    .match(row.updated_at ? { updated_at: row.updated_at as string } : {})
+    .select('id')
+  if (error || !updated?.length) {
+    await deleteEdits(admin, logged.ids).catch(() => undefined)
+    out.problems.push(error ? `${path}: could not save the refresh (${error.message})` : `${path}: changed by someone else while the refresh was working, so it was left alone`)
+    return false
+  }
+  await finalizeEdits(admin, logged.ids, { id, path, published: true })
+  await pingIndexNow([path]).catch(() => undefined)
+  return true
+}
+
+export async function refreshPublishedPosts(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number }): Promise<RefreshResult> {
+  const out: RefreshResult = { ran: false, checked: 0, weak: 0, refreshed: 0, unchanged: 0, linked: 0, calls: 0, problems: [], note: '' }
+  const now = opts.now ?? new Date()
+  try {
+    if ((await getSetting(admin, 'autoblog_mode')) !== 'publish') return out
+    if (await isAutomationPaused(admin)) return out
+    if (!(await editsLoggable(admin))) return out
+
+    const { data: posts, error } = await admin.from('posts').select('*').eq('status', 'published').order('created_at', { ascending: true }).limit(REFRESH_READ_LIMIT)
+    if (error) return { ...out, problems: [`could not read the published posts for the quality refresh (${error.message})`] }
+    const published = ((posts ?? []) as Row[]).filter((r) => !isNewsSlug(str(r.slug)) && (!str(r.publish_date) || str(r.publish_date).slice(0, 10) <= now.toISOString().slice(0, 10)))
+    out.checked = published.length
+    if (!published.length) return out
+
+    const { data: pkgData } = await admin.from('travel_packages').select('id, slug, name, destination, short_description, full_description, highlights, available_from, available_to').eq('status', 'published').limit(300)
+    const pkgs = ((pkgData ?? []) as PkgRow[]).filter((p) => p.slug)
+    const byId = new Map(pkgs.map((p) => [p.id, p.slug]))
+    const { data: tagRows } = await admin.from('content_variants').select('slug, variant_tags').in('slug', published.map((r) => str(r.slug)))
+    const lastBySlug = new Map(((tagRows ?? []) as { slug: string; variant_tags: { refresh_last?: string } | null }[]).map((t) => [t.slug, t.variant_tags?.refresh_last ?? null]))
+
+    // Score every post with the same gates the writer uses.
+    const scored: ScoredPost[] = []
+    const grounded = new Map<string, { text: string; tripDates: TripDates | null }>()
+    for (const row of published) {
+      const post = composedFromRow(row)
+      const g = groundingFromTrips(post, pkgs)
+      grounded.set(str(row.slug), g)
+      scored.push({ row, blockers: qualityBlockers(post, { now, groundingText: g.text, tripDates: g.tripDates }), lastRefresh: lastBySlug.get(str(row.slug)) ?? null })
+    }
+    out.weak = scored.filter((s) => s.blockers.length > 0).length
+
+    const used = await refreshesToday(admin, now)
+    if (used === null) return { ...out, problems: ['blog quality refresh skipped: could not count today\'s refreshes'] }
+    const picks = selectRefreshPicks(scored, now, Math.max(0, REFRESH_PER_DAY - used))
+
+    const model = opts.model ?? (isAiConfigured() ? modelCallFor('blog-refresh') : null)
+    const budget: HealBudget | null = picks.length && model ? await openBudget(admin, now) : null
+    const touched = new Set<string>()
+
+    for (const pick of picks) {
+      const row = pick.row
+      const slug = str(row.slug)
+      if (!(await claimDailyOnce(admin, `refresh:${slug}`, now))) continue
+      out.ran = true
+      touched.add(slug)
+      const before = composedFromRow(row)
+      const g = grounded.get(slug) ?? { text: '', tripDates: null }
+      const key = tripKeyOf(row, byId)
+      const pkg = key ? pkgs.find((p) => p.slug === key) : undefined
+      const ctx = { now, groundingText: g.text, tripDates: g.tripDates, pkg: pkg ? { name: pkg.name, slug: pkg.slug } : null, related: relatedLinksFor(row, published, pkgs, opts.existing) }
+
+      const mech = mechanicalFix(before, ctx)
+      let next = mech.post
+      const aiFields = new Set<LogicalField>()
+      let calls = 0
+
+      // The one bounded model pass: only the exact sentences code could not mend.
+      const offenders = qualityOffenders(next, ctx)
+      const timeLeft = opts.deadlineMs === undefined ? Number.MAX_SAFE_INTEGER : opts.deadlineMs - Date.now()
+      if (offenders.length && model && budget && timeLeft >= MIN_MS_FOR_REFRESH_CALL && (await budget.take(1))) {
+        calls = 1
+        try {
+          const text = await model(qualityRewritePrompt(offenders), 3000, REFRESH_CALL_TIMEOUT_MS)
+          const parsed = text ? parseModelJson<{ rewrites?: { id: number; text: string }[] }>(text) : null
+          if (parsed && Array.isArray(parsed.rewrites)) {
+            const reworded = normalizePost(applyQualityRewrites(next, offenders, parsed.rewrites))
+            for (const f of REFRESH_FIELDS) if (JSON.stringify(postFields(reworded)[f]) !== JSON.stringify(postFields(next)[f])) aiFields.add(f)
+            next = reworded
+          }
+        } catch (e) {
+          out.problems.push(`/blog/${slug}: the refresh rewrite call failed (${e instanceof Error ? e.message : 'unknown error'})`)
+        }
+      }
+      out.calls += calls
+
+      // Keep the change only if the full publish gate shows fewer blockers and nothing new.
+      const gateCtx = { allowedPaths: [...opts.existing], groundingText: g.text, tripDates: g.tripDates }
+      const kept = improves(autoPublishBlockers(before, now, gateCtx), autoPublishBlockers(next, now, gateCtx))
+      const stamp = { refresh_last: now.toISOString() }
+      if (!kept) {
+        out.unchanged++
+        await tagVariant(admin, slug, { ...stamp, refresh_result: 'no safe improvement found' })
+        continue
+      }
+      const tracker = new Tracker()
+      const a = postFields(before)
+      const b = postFields(next)
+      const linkOnly = mech.reasons.every((r) => /link/.test(r))
+      for (const f of REFRESH_FIELDS) {
+        if (JSON.stringify(a[f]) === JSON.stringify(b[f])) continue
+        const method: EditMethod = aiFields.has(f) ? 'ai' : f === 'body' && linkOnly ? 'links' : 'fixer'
+        tracker.touch(f, method, `blog quality refresh: ${[...mech.reasons, ...(aiFields.has(f) ? ['reworded flagged sentences'] : [])].join('; ') || 'quality clean-up'}`)
+      }
+      if (await saveRefresh(admin, row, before, next, tracker, calls, now, out)) {
+        out.refreshed++
+        await tagVariant(admin, slug, { ...stamp, refresh_result: 'refreshed' })
+      } else {
+        await tagVariant(admin, slug, { ...stamp, refresh_result: 'could not save' })
+      }
+    }
+
+    // Hub and spoke: sibling posts about the same trip link to each other.
+    for (const item of hubLinkPlan(published, pkgs, opts.existing, HUB_LINKS_PER_DAY)) {
+      const slug = str(item.row.slug)
+      if (touched.has(slug) || !(await claimDailyOnce(admin, `hub:${slug}`, now))) continue
+      const before = composedFromRow(item.row)
+      const after = { ...before, body: addRelatedLine(before.body, item.links, item.links.length) }
+      if (after.body === before.body) continue
+      out.ran = true
+      const tracker = new Tracker()
+      tracker.touch('body', 'links', 'hub and spoke: linked the other post(s) about the same trip so each points to the other')
+      if (await saveRefresh(admin, item.row, before, after, tracker, 0, now, out)) out.linked++
+    }
+
+    out.note = `blog quality: ${out.weak} of ${out.checked} published posts below the bar, ${out.refreshed} refreshed, ${out.unchanged} left as they were, ${out.linked} sibling links added`
+    return out
+  } catch (e) {
+    return { ...out, problems: [...out.problems, `blog quality refresh failed: ${e instanceof Error ? e.message : 'unknown error'}`] }
+  }
 }

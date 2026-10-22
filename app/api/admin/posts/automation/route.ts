@@ -16,6 +16,7 @@ import { pastTripsNeedingRecap } from '@/lib/past-trip'
 import { checkPublishedPostsForDrift } from '@/lib/content-drift'
 import { isExactTrue, parseToggleRequest } from '@/lib/posts-menu-2'
 import { listTopicQueue } from '@/lib/blog-topics'
+import { postsBelowQualityBar } from '@/lib/blog-quality-count'
 import { getAutoblogMode } from '@/lib/autoblog-run'
 import { getAutoblogPostsPerWeek, currentWeekday } from '@/lib/autoblog-cadence'
 import { describeAutoblogPlan, parseLastRun } from '@/lib/autoblog-summary'
@@ -60,20 +61,22 @@ export async function GET(request: Request) {
     const common = { type, distributionMode, tailoredCaptions, paused, cover }
 
     if (type === 'blog') {
-      const [topics, mode, postsPerWeek, maxPerDay, lastAutoblog, lastAutopilot] = await Promise.all([
+      const [topics, mode, postsPerWeek, maxPerDay, lastAutoblog, lastAutopilot, belowBar] = await Promise.all([
         listTopicQueue(admin).catch(() => []),
         getAutoblogMode(),
         getAutoblogPostsPerWeek(admin),
         getAutoblogMaxPerDay(admin),
         getSetting(admin, cronRunKey('autoblog')).catch(() => null),
         getSetting(admin, cronRunKey('autopilot')).catch(() => null),
+        // Read only; null when it could not be read (the card then says so instead of showing a made-up zero).
+        postsBelowQualityBar(admin).catch(() => null),
       ])
       const approved = topics.filter((t) => t.status === 'approved').length
       const ab = parseLastRun(lastAutoblog)
       const ap = parseLastRun(lastAutopilot)
       const lastRun = ab && ap ? (Date.parse(ap.at) > Date.parse(ab.at) ? ap : ab) : ab ?? ap
       const plan = describeAutoblogPlan({ mode, paused, postsPerWeek, todayWeekday: currentWeekday(), approvedTopics: approved })
-      return NextResponse.json({ ...common, mode, postsPerWeek, maxPerDay, approvedTopics: approved, plan, lastRun })
+      return NextResponse.json({ ...common, mode, postsPerWeek, maxPerDay, approvedTopics: approved, plan, lastRun, belowQualityBar: belowBar })
     }
 
     const [mode, perDay] = await Promise.all([getNewsMode(admin), getNewsPerDay(admin)])

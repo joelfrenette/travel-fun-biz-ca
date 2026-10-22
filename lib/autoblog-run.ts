@@ -2,8 +2,9 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost, type Post } from '@/lib/posts'
 import { listPublishedGuideLinks, guidePath, isGuideKind, type GuideKind } from '@/lib/guides'
-import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, type TopicIdea } from '@/lib/blog-topics'
+import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, checkTopicConflict, rankByGsc, readGscQueries, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
+import { withSiteLinks } from '@/lib/blog-quality'
 import { deleteEdits } from '@/lib/content-edits'
 import { rejectedPostSlugs } from '@/lib/blog-reheal'
 import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters'
@@ -204,8 +205,9 @@ export async function withGuideAndPostLinks(
  * links, so the writer cannot reach for a page that is not there. Never throws. */
 async function buildAllowedLinks(admin: ReturnType<typeof getSupabaseAdmin>, pkg: PackageGrounding | null, topic: TopicIdea, posts: Post[]): Promise<AllowedLink[]> {
   const base = await buildPackageLinks(admin, pkg)
-  return withGuideAndPostLinks(base, topic, readGuidesWithDestination, async () => posts)
+  return withSiteLinks(await withGuideAndPostLinks(base, topic, readGuidesWithDestination, async () => posts))
 }
+
 
 async function buildPackageLinks(admin: ReturnType<typeof getSupabaseAdmin>, pkg: PackageGrounding | null): Promise<AllowedLink[]> {
   if (!pkg?.slug) return []
@@ -392,7 +394,10 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
 
   let topic: TopicIdea | null = null
   let queueRowId: string | null = null
-  for (const row of await dueApprovedTopics(admin)) {
+  // loop-blog-quality: of the approved topics that are due, the ones Search Console already supports go first (striking distance,
+  // positions 8 to 20). A read problem leaves the old oldest-first order.
+  const dueRows = rankByGsc(await dueApprovedTopics(admin), await readGscQueries(admin))
+  for (const row of dueRows) {
     if (findDuplicate(row.angle, existingPosts)) {
       await setTopicStatus(admin, row.id, 'used', {})
       continue
@@ -441,6 +446,30 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
       if (keywordLed) await markKeywordSkipped(admin, topic.keyword, 'its package already has a recent post')
       await setSetting(admin, skipKey, String(skips + 1))
       return { ran: false, mode, note: `skipped - a post about "${groundingPackage.name}" was already written in the last 30 days (${skips + 1} of 4 repeats allowed today)` }
+    }
+  }
+
+  // loop-blog-quality (lib/blog-topics.ts topicConflict): the keyword is compared with EVERY post's keywords, and the trip, solo and
+  // destination spacing rules are applied. 'duplicate' drops the topic; 'defer' keeps an approved row and moves it to the date the
+  // rule frees up. Fails open if the posts cannot be read (the checks above still apply).
+  {
+    const skipKey = `autoblog_dupe_skips:${new Date().toISOString().slice(0, 10)}`
+    const conflict = await checkTopicConflict(
+      admin,
+      { angle: topic.angle, keyword: topic.keyword, keywords: topic.keywords, packageSlug: groundingPackage?.slug ?? topic.package_slug ?? null, destinationSlug: groundingPackage?.destination ? generateSlug(groundingPackage.destination) : null },
+      { retired: await rejectedPostSlugs(admin) },
+    )
+    if (conflict) {
+      const skips = Number((await getSetting(admin, skipKey)) ?? 0) || 0
+      if (conflict.kind === 'duplicate') {
+        if (queueRowId) await setTopicStatus(admin, queueRowId, 'used', {})
+        if (keywordLed) await markKeywordSkipped(admin, topic.keyword, conflict.reason)
+      } else {
+        if (queueRowId && conflict.until) await setTopicStatus(admin, queueRowId, 'approved', { scheduled_for: conflict.until })
+        if (keywordLed) await markKeywordSkipped(admin, topic.keyword, conflict.reason)
+      }
+      await setSetting(admin, skipKey, String(skips + 1))
+      return { ran: false, mode, note: `skipped - ${conflict.reason}${conflict.kind === 'defer' && conflict.until ? ` (waits until ${conflict.until})` : ''} (${skips + 1} of 4 repeats allowed today)` }
     }
   }
 
@@ -500,7 +529,15 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   let repairLogIds: string[] = []
   let heal: HealOutcome | null = null
   if (mode === 'publish') {
-    const gateCtx = { allowedPaths: allowedLinks.map((l) => l.path), groundingText: `${groundedAngle} ${topic.keyword}`, deadlineMs }
+    // The blog quality gate (lib/blog-quality.ts) checks links and the contact link on the SAVED body, which has the closing call to
+    // action appended, and checks a year in the title against the trip's travel dates.
+    const gateCtx = {
+      allowedPaths: allowedLinks.map((l) => l.path),
+      groundingText: `${groundedAngle} ${topic.keyword}`,
+      deadlineMs,
+      storedBody: (body: string) => appendStyledCta(body, ctaStyle.id, groundingPackage),
+      tripDates: groundingPackage ? { from: groundingPackage.available_from, to: groundingPackage.available_to } : null,
+    }
     const gated = await repairComposedPost(
       admin,
       composed,

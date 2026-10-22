@@ -24,6 +24,8 @@ interface Automation {
   approvedTopics?: number
   plan?: string
   lastRun?: { at: string; ok: boolean; note?: string } | null
+  /** Published posts that fail the blog quality gates (read only); null when it could not be read. */
+  belowQualityBar?: { count: number; total: number } | null
   // news
   perDay?: number | null
 }
@@ -85,6 +87,15 @@ export default function PostsAutomationCard({ type, refreshKey = 0 }: Props) {
         {data && (
           <>
             {type === "blog" && data.plan && <p className="text-sm">{data.plan}</p>}
+            {type === "blog" && (
+              <p className="text-xs text-muted-foreground" data-testid="posts-below-quality-bar">
+                Posts below quality bar:{" "}
+                {data.belowQualityBar
+                  ? <span className="font-medium text-foreground">{data.belowQualityBar.count}</span>
+                  : <span>could not be read</span>}
+                {data.belowQualityBar ? ` of ${data.belowQualityBar.total} published. The daily heal refreshes the weakest two each day (links, filler phrases, a contact link); it never changes a fact.` : ""}
+              </p>
+            )}
             {type === "blog" && typeof data.maxPerDay === "number" && (
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <label htmlFor="autoblog-max-per-day" className="font-medium text-foreground">Posts on a writing day</label>
