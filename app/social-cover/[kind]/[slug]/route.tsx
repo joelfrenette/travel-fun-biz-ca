@@ -14,7 +14,7 @@ import {
   fitNewsText,
   isSocialCoverKind,
   isValidCoverSlug,
-  shortenCoverTitle,
+  coverHeadlineFor,
   shortenNewsHeadline,
   shorterCoverHeadline,
   parseAlt,
@@ -23,6 +23,8 @@ import {
   type SocialCoverKind,
 } from '@/lib/social-cover'
 import { findAlternatePortraitPhoto } from '@/lib/pexels'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { readCoverHeadline } from '@/lib/cover-headline-store'
 
 // Titled single-image social cover, 1080x1350 (Instagram portrait): /social-cover/<kind>/<slug>.
 //   blog / trip / guide: the post's own photo, un-dimmed, with a short ALL-CAPS headline in a solid red block
@@ -167,7 +169,18 @@ async function resolveContent(kind: SocialCoverKind, slug: string, alt = 0): Pro
   // cleanTitle strips a trailing site name; the shortener then picks a whole phrase.
   const searchTitle = cleanTitle(og.title, SITE_NAME)
   // The quality gate's retries (alt 1 and 2) ask for the same headline cut shorter.
-  const headline = shorterCoverHeadline(shortenCoverTitle(searchTitle, SITE_NAME), alt)
+  // A blog post may carry a hook-style cover headline written by the title step (app_settings, validated on read).
+  // Any failure falls back to the shortened title exactly as before.
+  let stored: string | null = null
+  if (kind === 'blog') {
+    try {
+      const post = await getPublishedPostBySlug(slug)
+      stored = post ? await readCoverHeadline(getSupabaseAdmin(), slug, `${post.title} ${post.body ?? ''}`) : null
+    } catch {
+      stored = null
+    }
+  }
+  const headline = shorterCoverHeadline(coverHeadlineFor(stored, searchTitle, SITE_NAME), alt)
   return headline ? { kind, headline, photoUrl: og.photoUrl, searchTitle } : null
 }
 

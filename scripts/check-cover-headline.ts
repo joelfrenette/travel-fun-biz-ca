@@ -14,6 +14,12 @@ function check(name: string, ok: boolean, detail = '') {
 const ok = (h: string, src = '') => validateCoverHeadline(h, src).ok
 const why = (h: string, src = '') => validateCoverHeadline(h, src).reasons.join(' | ')
 
+// ---- Owner's examples of good and bad Instagram covers ----
+check('owner good: Cultural or beach? Take the quiz', ok('Cultural or beach? Take the quiz'), why('Cultural or beach? Take the quiz'))
+check('owner good: Cologne to Basel by river', ok('Cologne to Basel by river'))
+check('owner good: Reef, outback, cities, fjords', ok('Reef, outback, cities, fjords'))
+check('owner bad: Discover the best cruise deals', !ok('Discover the best cruise deals'))
+
 // ---- Accepted: one of every allowed hook pattern ----
 check('question', ok('Cancun or Tulum, which wins?'), why('Cancun or Tulum, which wins?'))
 check('short question', ok('Is Tulum worth it?'), why('Is Tulum worth it?'))

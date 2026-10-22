@@ -6,6 +6,7 @@ import { findPortraitPhoto } from '@/lib/pexels'
 import { COVER_HOOK_STYLES, CTA_STYLES, HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, rotateStyle, readRecentVariantValues, ungroundedNumbers, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 import { normaliseSlides, finalizeCoverHeadline, resolveSlideType, type CarouselSlide } from '@/lib/carousel-slide'
 import { fallbackCoverHeadline, headlineWords } from '@/lib/cover-headline'
+import { readCoverHeadline } from '@/lib/cover-headline-store'
 import { shorterCoverHeadline, photoIdOf, COVER_ALT_MAX } from '@/lib/social-cover'
 import { gateRenderedUrl } from '@/lib/visual-gate'
 
@@ -231,7 +232,9 @@ export async function generateAndSaveCarousel(admin: SupabaseClient, post: { slu
   const ctaStyle = rotateStyle(await readRecentVariantValues(admin, 'carousel_cta', 12), CTA_STYLES)
   const deck = await generateCarouselDeck(post.title, post.body, { hookStyle, ctaStyle })
   if (!deck) return null
-  const generated = deck.slides
+  // A cover headline written by the blog title step wins over the one the deck wrote, when it is still valid for this post.
+  const stored = await readCoverHeadline(admin, post.slug, `${post.title} ${post.body}`)
+  const generated = stored && deck.slides.length ? [{ ...deck.slides[0], type: 'cover' as const, headline: stored }, ...deck.slides.slice(1)] : deck.slides
   // A different photo behind each slide, found one after another so no two slides share a picture.
   const used = new Set<string>()
   const slides: CarouselSlide[] = []

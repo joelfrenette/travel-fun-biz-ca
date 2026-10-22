@@ -30,6 +30,7 @@ async function pickStyleWithScores(admin: ReturnType<typeof getSupabaseAdmin>, r
   return pickStyle(recent)
 }
 import { tagVariant } from '@/lib/content-variants'
+import { saveCoverHeadline } from '@/lib/cover-headline-store'
 import { listSitePages } from '@/lib/site-pages'
 import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { generateSlug } from '@/lib/utils'
@@ -560,6 +561,8 @@ A first draft of this post was refused by the quality checks for these reasons, 
     throw err
   }
   await finalizeEdits(admin, repairLogIds, { id: post.id, path: `/blog/${post.slug}`, published: publishing })
+  // The cover headline the title step wrote (hooks in content). Kept in app_settings, no migration; a failed save just means the cover keeps its old headline.
+  if (!rejectedByHeal) await saveCoverHeadline(admin, post.slug, final.cover_headline ?? (final.title === composed.title ? composed.cover_headline : undefined))
   // Record the choices so a later step can compare styles against real clicks, visits and leads. A held
   // draft also records why, which the morning brief reads.
   await tagVariant(admin, post.slug, {

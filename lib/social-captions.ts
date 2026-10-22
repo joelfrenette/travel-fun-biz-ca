@@ -1,4 +1,5 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
+import { captionShapeProblems, captionFormatRules } from '@/lib/hook-rules'
 import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, hashtagCapFor, normaliseHashtags, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
 // Per-platform caption generation + mechanical limit enforcement (factory spec: "one model call
@@ -114,7 +115,9 @@ const normaliseLine = (s: string) =>
  *  - the first line is just the post title again (no hook)
  *  - a number that is not in the post title, summary or grounding text (links are ignored)
  *  - no link on a network where links are clickable
- *  - an em dash anywhere */
+ *  - an em dash anywhere
+ *  - the shape rules in lib/hook-rules.ts (weak opener, missing hook line, more than 2 emojis, more than 10
+ *    hashtags, a line in capitals, a paragraph wall) */
 export function captionProblems(
   caption: string,
   ctx: { title: string; summary: string | null; network: string; link: string; grounding?: string | null },
@@ -136,6 +139,8 @@ export function captionProblems(
 
   if (ctx.link && networkSupportsLinks(ctx.network) && !caption.includes(ctx.link)) problems.push('link is missing')
   if (caption.includes(EM_DASH)) problems.push('contains an em dash')
+  // Hooks-in-content shape rules: weak opener, missing hook line, emoji and hashtag ceilings, shouting, paragraph walls.
+  problems.push(...captionShapeProblems(caption, ctx.network))
   return problems
 }
 
@@ -256,19 +261,14 @@ function fitKeepingLink(text: string, link: string, limit: number): string {
   return fitCaption(text, limit)
 }
 
-/** One model call writes every requested platform's caption at once (same post, same facts, each
- * voice genuinely adapted to its network) - never the same string copy-pasted everywhere. Returns
- * null when the AI is unconfigured or the call fails; caller falls back to the one shared generic
- * caption, same "never block the post over this" rule as every other AI step in this project. */
-export async function generatePlatformCaptions(
+/** The prompt for the caption writer. Pure, so scripts/check-hooks-in-content.ts can assert on its content offline. */
+export function buildCaptionPrompt(
   postTitle: string,
   postDescription: string | null,
   link: string,
   platforms: string[],
   opts: CaptionOpts = {},
-): Promise<PlatformCaptions | null> {
-  if (!isAiConfigured() || platforms.length === 0) return null
-
+): string {
   const linkFor = (p: string) => opts.links?.[p] || link
   const platformRules = platforms
     .map((p) => {
@@ -297,9 +297,31 @@ ${postDescription ? `Post summary: ${postDescription}\n` : ''}${opts.grounding ?
 Write one caption for each of these platforms, following its own rules:
 ${platformRules}
 
-Structure of every caption: a hook line first (in the hook style named for that platform, and never just the post title repeated), then a short body adapted to the network, then one call to action line, then that platform's link on its own line, then hashtags last if the platform uses any. The call to action is exactly one concrete next step the reader can take on the post page, in plain words, with no urgency, no promised discounts, availability or replies. Do not promise anything the post does not offer.
+Structure of every caption: a hook line first (in the hook style named for that platform when one is given, and never just the post title repeated), then a short body adapted to the network, then one call to action line, then that platform's link on its own line, then hashtags last if the platform uses any.
+
+${captionFormatRules()}
+
+The call to action is exactly one concrete next step the reader can take on the post page, in plain words, with no urgency, no promised discounts, availability or replies. Do not promise anything the post does not offer.
 
 Never use an em dash (the long dash character); use a comma or a full stop instead. Never write a number that is not in the post title, summary or facts above. Never invent a claim, price, date or detail not given above, and never claim to have visited, tried or booked anything - these captions only ever describe a real blog post, nothing more. Return ONLY minified JSON of this exact shape: {"captions":{"<platform>":"<caption text>", ...}} with exactly one entry per platform listed above, using the same platform name as given.`
+  return prompt
+}
+
+/** One model call writes every requested platform's caption at once (same post, same facts, each
+ * voice genuinely adapted to its network) - never the same string copy-pasted everywhere. Returns
+ * null when the AI is unconfigured or the call fails; caller falls back to the one shared generic
+ * caption, same "never block the post over this" rule as every other AI step in this project. */
+export async function generatePlatformCaptions(
+  postTitle: string,
+  postDescription: string | null,
+  link: string,
+  platforms: string[],
+  opts: CaptionOpts = {},
+): Promise<PlatformCaptions | null> {
+  if (!isAiConfigured() || platforms.length === 0) return null
+
+  const linkFor = (p: string) => opts.links?.[p] || link
+  const prompt = buildCaptionPrompt(postTitle, postDescription, link, platforms, opts)
 
   try {
     const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000, feature: 'social-captions' })

@@ -42,11 +42,11 @@ export const CTA_STYLE_PROMPTS: Record<CtaStyle, string> = {
 /** Plain-text hashtag rules per network, from the growth-loop brief. Lives here so every caption
  * writer (blog captions, carousel captions) can show the same rule. */
 export const HASHTAG_RULES: Record<string, string> = {
-  instagram: '3 to 8 hashtags at the very end',
+  instagram: '5 to 8 relevant hashtags at the very end (never more than 10)',
   tiktok: '1 to 3 hashtags',
   x: '1 to 2 hashtags',
   twitter: '1 to 2 hashtags',
-  linkedin: '0 to 3 hashtags',
+  linkedin: 'no hashtags',
   pinterest: 'keyword-rich wording instead of many hashtags, 0 to 3 hashtags',
   bluesky: '0 to 2 hashtags',
   facebook: '0 to 2 hashtags',

@@ -102,6 +102,13 @@ export function shortenCoverTitle(title: string, siteName = ''): string {
   return out.toUpperCase()
 }
 
+/** The cover headline: a stored hook headline (already validated by the caller, see lib/cover-headline-store.ts) in capitals
+ * when there is one, else the shortened title as always. */
+export function coverHeadlineFor(stored: string | null | undefined, title: string, siteName = ''): string {
+  const s = (stored ?? '').trim()
+  return s ? s.toUpperCase() : shortenCoverTitle(title, siteName)
+}
+
 /** A news headline for the text card: at most 14 words, cut at a word boundary, never ending on a
  * dangling word. The headline itself (not a summary) so it stays tied to the checked brief. */
 export function shortenNewsHeadline(headline: string, maxWords: number = NEWS_MAX_WORDS): string {

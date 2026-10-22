@@ -57,5 +57,12 @@ const rows = [
 ]
 expect('stamp orders history, newest first', valuesFromRows(rows, 'hook_style:x', 3).join(',') === 'old,new,older', valuesFromRows(rows, 'hook_style:x', 3).join(','))
 
+// Hooks in content: shape rules added to captionProblems
+const shape = (c: string) => captionProblems(c, base).join('; ')
+expect('weak opener caption flagged', shape(`Discover the Rhine\n\nPlain words about the river trip.\n${link}`).includes('weak opener'))
+expect('three emojis flagged', shape(good.replace('first big trip', 'first big trip \u{1F30A}\u{1F6F3}\u{2600}\u{FE0F}')).includes('too many emojis'))
+expect('hashtag spam flagged', shape(`${good}\n${Array.from({ length: 11 }, (_, i) => `#t${String.fromCharCode(97 + i)}`).join(' ')}`).includes('hashtag spam'))
+expect('four lines without a break flagged', shape(`Is it for you?\nOne.\nTwo.\nThree.\n\nRead the full guide:\n${link}`).includes('paragraph wall'))
+
 console.log(failures ? `\n${failures} failed` : '\nall passed')
 process.exit(failures ? 1 : 0)

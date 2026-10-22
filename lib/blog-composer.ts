@@ -1,6 +1,7 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured, todayEt } from '@/lib/ai-verify'
 import { slugify } from '@/lib/content-dedupe'
 import { type ContentStyle } from '@/lib/content-styles'
+import { weakOpenerOf, titleHookInstruction, coverHeadlineInstruction, cleanCoverHeadline } from '@/lib/hook-rules'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-composer.ts (Factory Phase 2:
 // blog/autoblog). Trimmed: dropped the paid-keyword-volume lookup and Google-autocomplete
@@ -37,6 +38,8 @@ export interface ComposedPost {
   primary_keyword: string
   secondary_keywords: string[]
   content_style: string
+  /** The 3 to 6 word hook printed on the Instagram cover. Already checked with lib/cover-headline.ts; absent when the model gave none or a bad one. Stored by the caller under app_settings `cover_headline:<slug>`, not in the posts table. */
+  cover_headline?: string
   /** True when the enrich step (FAQ, takeaways, social text) was skipped for lack of time. */
   skipped_enrich?: boolean
 }
@@ -98,7 +101,16 @@ function composerPrompt(step: Step, ctx: ComposerContext): string {
       return `Write a blog post of roughly ${wordRange} words, in markdown, for a travel agency's blog.\n\nIdea: ${ctx.idea}\nDescription: ${ctx.description}\nTarget keywords (work them in naturally, don't stuff): ${ctx.keywords.join(', ')}\nPrimary keyword: ${ctx.keywords[0] ?? ''}${ctx.seedSecondary.length ? `\nThis post is also shooting for these supporting phrases; work them in naturally where they fit, and skip any that would read forced: ${ctx.seedSecondary.slice(0, 3).join(', ')}` : ''}${styleBlock}\n\n${NO_FABRICATION}\n\nFormat rules: the opening sentence must directly answer the core question a reader searching the primary keyword actually has - plain, complete, quotable on its own by a search engine or AI answer box, not a scene-setting lead-in. Follow it with the rest of the hook paragraph (no heading before it). Straight after that opening paragraph, add one separate short paragraph that starts with the bold words "**Quick answer:**" followed by a one or two sentence summary that adds who the trip or advice suits, rather than restating the opening sentence. Within the first two sections, include one short definition sentence for the main concept of the post in the form "X is ..." that an AI answer engine could quote. Use 4-6 "##" section headings and work the primary keyword into the first one naturally (never forced or unnatural-sounding). Use a "###" sub-heading under the longest section where it fits (optional for list and checklist styles). Use a short bullet list somewhere it helps scanability, write in a warm and practical tone, and do not include a title heading (the title is generated separately) or a call-to-action link (the site adds its own).\n\n${linkInstructions(ctx.allowedLinks)}\n\nFinish with a short final paragraph (2-3 sentences, no heading, no link) that names the one question the reader should settle next (for example who they would travel with, or which month works) and says our team can help them work that out. State no prices, dates, availability or urgency, and no exact statistics, distances or counts you were not given: stay at the level of general guidebook knowledge. Never use the long dash character; use commas or full stops instead. Output raw markdown only, no commentary before or after it.`
     }
     case 'title':
-      return `Idea: ${ctx.idea}\nDescription: ${ctx.description}\n\nWrite: a clear post title (under 65 characters), an SEO title (under 60 characters, can equal the title), and an SEO meta description (under 155 characters). The title and seo_title must contain the primary keyword (${ctx.keywords[0] ?? ''}) and tell the reader who the trip or advice is for or what decision it helps with. No fake urgency, superlatives about price, and no digits or numbers of any kind in the title, SEO title or meta description. Never use the long dash character. Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"..."}`
+      return `Idea: ${ctx.idea}
+Description: ${ctx.description}
+
+Write: a clear post title (under 65 characters), an SEO title (under 60 characters, can equal the title), an SEO meta description (under 155 characters) and a cover_headline. The title and seo_title must contain the primary keyword (${ctx.keywords[0] ?? ''}) and tell the reader who the trip or advice is for or what decision it helps with. No fake urgency, superlatives about price, and no digits or numbers of any kind in the title, SEO title or meta description. Never use the long dash character.
+
+${titleHookInstruction(ctx.keywords[0] ?? '')}
+
+${coverHeadlineInstruction()}
+
+Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"...","cover_headline":"..."}`
     case 'enrich':
       return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. No prices, dates, availability, digits, number words or counts of any kind, and no links (answers are plain text).\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits, number words or counts.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post. No digits or numbers.\n- og_description: a social share description, 110 characters or fewer. No digits or numbers.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.${ctx.seedSecondary.length ? ` Prefer these exact phrases if the post actually uses them: ${ctx.seedSecondary.slice(0, 3).join(', ')}.` : ''}\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
   }
@@ -180,9 +192,20 @@ export async function composeFullPost(angle: string, seedKeywords?: string | str
   if (!body || typeof body !== 'string') return null
   ctx.body = body
 
-  const titleResult = await runComposerStep<{ title?: string; seo_title?: string; seo_description?: string }>('title', ctx)
-  if (!titleResult || typeof titleResult !== 'object' || !titleResult.title) return null
+  type TitleResult = { title?: string; seo_title?: string; seo_description?: string; cover_headline?: unknown }
+  const firstTitle = await runComposerStep<TitleResult>('title', ctx)
+  if (!firstTitle || typeof firstTitle !== 'object' || !firstTitle.title) return null
+  let titleResult: TitleResult & { title: string } = { ...firstTitle, title: firstTitle.title }
+  // A brochure opener (Discover, Explore, Welcome, Ultimate guide...) gets ONE retry; if the retry is not better or
+  // fails, the first title is kept (the SEO and keyword rules are unchanged, a weak opener alone never blocks a post).
+  if (weakOpenerOf(titleResult.title)) {
+    const again = await runComposerStep<TitleResult>('title', { ...ctx, angle: `${ctx.angle}
+(The first title "${titleResult.title}" started with a weak brochure opener. Write one that does not.)` }).catch(() => null)
+    if (again && typeof again === 'object' && again.title && !weakOpenerOf(again.title)) titleResult = { ...again, title: again.title }
+  }
   ctx.title = titleResult.title
+  // The cover headline is optional extra: any failure of the validator just drops it, and the cover falls back as before.
+  const coverHeadline = cleanCoverHeadline(titleResult.cover_headline, `${titleResult.title} ${body}`) ?? undefined
 
   // Optional when time is short: the post is still returned (as a draft, see analyse) rather than
   // risking the whole function being killed mid-call and losing the body.
@@ -210,6 +233,7 @@ export async function composeFullPost(angle: string, seedKeywords?: string | str
     primary_keyword: seeds.length > 1 ? seedKeyword : asText(extra.primary_keyword) || seedKeyword || ctx.keywords[0],
     secondary_keywords: secondary.length ? secondary : ctx.keywords.slice(1, 5),
     content_style: opts.style?.id ?? '',
+    ...(coverHeadline ? { cover_headline: coverHeadline } : {}),
     ...(skipEnrich ? { skipped_enrich: true } : {}),
   })
 }
