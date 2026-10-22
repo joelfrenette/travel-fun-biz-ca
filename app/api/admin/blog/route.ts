@@ -4,11 +4,15 @@ import { listPostsAdmin, createPost } from '@/lib/posts'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { enrollIfDue } from '@/lib/distribution'
 import { pingIndexNow } from '@/lib/indexnow'
+import { loadPostMeta } from '@/lib/blog-admin-meta'
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
-    return NextResponse.json({ posts: await listPostsAdmin() })
+    const posts = await listPostsAdmin()
+    // Extra facts for the list's filters and Source column; a failure here never blocks the list.
+    const { meta, problems } = await loadPostMeta(getSupabaseAdmin(), posts).catch((e) => ({ meta: {}, problems: [e instanceof Error ? e.message : 'could not load post details'] }))
+    return NextResponse.json({ posts, meta, metaProblems: problems })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
