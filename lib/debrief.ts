@@ -14,6 +14,8 @@ import { getGhlAccounts } from '@/lib/social-provider'
 import { styleScores } from '@/lib/content-performance'
 import { styleKeyLabel, SCORE_BASIS, NO_CLICKS_TEXT } from '@/lib/style-choice'
 import { promotionBriefLine } from '@/lib/promotion'
+import { growthDigestText, type GrowthDigest } from '@/lib/growth-digest'
+import { readGrowthDigest } from '@/lib/growth-digest-read'
 
 // The daily brief: one email at 7 am (site time) from "Aiva from TravelFunBiz.ca" with what happened
 // yesterday, what is planned today, and the few things only a person can do, each with the exact link
@@ -62,6 +64,8 @@ export interface Brief {
   /** Trip pages that are thin (WP11): one line saying how many, and how to fix one. Empty when none. */
   tripPages: string[]
   trackerItems: { title: string; priority: string }[]
+  /** The Growth digest (lib/growth-digest.ts): is the traffic engine working? Null/absent when it could not be built at all. */
+  growth?: GrowthDigest | null
 }
 
 export interface EditsSection {
@@ -285,6 +289,7 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
     edits: await buildEditsSection(admin, now),
     tripPages,
     trackerItems: trackerItems.slice(0, 4),
+    growth: await readGrowthDigest(admin, now),
   }
 }
 
@@ -307,6 +312,7 @@ export function renderBrief(b: Brief): { subject: string; html: string; text: st
     'WHAT IS WORKING',
     ...b.working.map((t) => `- ${t}`),
     ...(b.healed.length ? ['', 'FIXED BY ITSELF', ...b.healed.map((t) => `- ${t}`)] : []),
+    ...(b.growth ? ['', growthDigestText(b.growth), `Growth card: ${SITE_URL}/admin/autopilot`] : []),
     ...(b.edits.total > 0 || b.edits.healLines.length
       ? [
           '',

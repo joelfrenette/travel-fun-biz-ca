@@ -87,6 +87,18 @@ export function briefHtml(b: Brief): string {
   const yesterday = section('Yesterday', tiles(b.stats) + bullets(b.yesterday))
   const today = section('Today', bullets(b.today, '#3763c9'), '#3763c9')
   const working = section('What is working', bullets(b.working, '#1a7d4a'), '#1a7d4a')
+  // Growth this week: what to do today first, then the trend bars (monospace), then the facts. Plain words, real numbers.
+  const growth = b.growth
+    ? section(
+        'Growth this week',
+        (b.growth.actions.length
+          ? `<div style="font-size:14px;font-weight:800;color:${INK};padding-bottom:6px">What to do today</div>${bullets(b.growth.actions)}`
+          : `<div style="font-size:14px;color:#1a7d4a;padding-bottom:8px">Nothing in this section needs you today.</div>`) +
+          `<table ${T} width="100%" style="margin:6px 0 10px 0"><tr><td bgcolor="#f6f2f0" style="background:#f6f2f0;border-radius:6px;padding:10px 12px;font-family:Consolas,Menlo,monospace;font-size:12.5px;line-height:18px;color:${INK};white-space:pre-wrap">${esc(b.growth.trends.join('\n'))}</td></tr></table>` +
+          b.growth.sections.map((s) => `<div style="font-size:14px;font-weight:800;color:${INK};padding:6px 0 4px 0">${esc(s.title)}</div>${bullets(s.lines, '#3763c9')}`).join(''),
+        '#3763c9',
+      )
+    : ''
   const healed = b.healed.length ? section('Fixed by itself', panel('#e8f6ee', bullets(b.healed, '#1a7d4a')), '#1a7d4a') : ''
   // WP10 "Edits made": one bullet per automatic edit in the last 24 hours, the drafts waiting on a person, and the
   // link to review or undo. Left out when there is nothing to say. Same table-and-inline-style pattern as the rest.
@@ -117,7 +129,7 @@ export function briefHtml(b: Brief): string {
   return (
     `<table ${T} width="100%" bgcolor="#f4efec" style="background:#f4efec;font-family:${FONT}"><tr><td align="center" style="padding:24px 10px">` +
     `<table ${T} width="640" align="center" bgcolor="#ffffff" style="width:640px;max-width:100%;background:#ffffff">` +
-    header + needs + yesterday + today + working + healed + edits + tripPages + waiting + footer +
+    header + needs + yesterday + today + working + growth + healed + edits + tripPages + waiting + footer +
     `</table></td></tr></table>`
   )
 }
