@@ -11,7 +11,7 @@ import { VisitTracker } from "@/components/visit-tracker"
 import { ScrollToTop } from "@/components/scroll-to-top"
 import { cookies } from 'next/headers'
 import { normalizeLanguage } from '@/lib/preferences'
-import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, hreflangAlternates } from '@/lib/site'
+import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE } from '@/lib/site'
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,7 +27,8 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: DEFAULT_TITLE, template: `%s` },
   description: DEFAULT_DESCRIPTION,
-  alternates: { canonical: '/', languages: hreflangAlternates('/') },
+  // hreflang is set per page (lib/site.ts pageAlternates); a page that sets none must not inherit the home page's alternates.
+  alternates: { canonical: '/' },
   authors: [{ name: SITE_NAME }],
   openGraph: {
     title: DEFAULT_TITLE,

@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client'
 import { guideKinds, GUIDE_KINDS, guidePath, listPublishedGuideLinks, type GuideKind } from '@/lib/guides'
 import { getAllPublishedPackages, groupPackagesByDestination } from '@/lib/package-grouping'
 import { absoluteUrl, site } from '@/lib/site'
+import { fromLlmsLinks, upcomingTrips } from '@/lib/from-cities'
 
 // /llms.txt (hub row 13): a plain-text guide for AI assistants (ChatGPT, Perplexity, Claude, Gemini ...) that says who
 // the site is, how to reach a person, and where the real pages are. Built only from PUBLISHED rows read with the
@@ -24,9 +25,11 @@ export interface LlmsData {
   trips: LlmsLink[]
   guides: { kind: GuideKind; links: LlmsLink[] }[]
   posts: LlmsLink[]
+  /** The /from/<city> pages, listed only while they have trips (a page with none is noindex and left out). */
+  fromCities?: LlmsLink[]
 }
 
-const UNSAFE = /[$€£]|\bCAD\b|\bUSD\b|https?:\/\/|www\.|@|\d{3}[\s.)-]*\d{3}[\s.-]*\d{4}/i
+export const UNSAFE =/[$€£]|\bCAD\b|\bUSD\b|https?:\/\/|www\.|@|\d{3}[\s.)-]*\d{3}[\s.-]*\d{4}/i
 
 /** A link title with markdown brackets and long dashes taken out. Empty when it holds a price, an email, a phone number or a
  * web address (the link is then left out of the file, the same rule as the summaries). Pure. */
@@ -75,6 +78,7 @@ export function buildLlmsTxt(data: LlmsData, max = LLMS_MAX_LINKS): string {
   const sections: { heading: string; links: LlmsLink[] }[] = [
     { heading: 'Destinations', links: data.destinations },
     { heading: 'Trips', links: data.trips },
+    { heading: 'Plan from your city', links: data.fromCities ?? [] },
     ...data.guides.map((g) => ({ heading: guideKinds[g.kind].plural, links: g.links })),
     { heading: 'Blog posts', links: data.posts },
   ]
@@ -102,6 +106,7 @@ export function buildLlmsTxt(data: LlmsData, max = LLMS_MAX_LINKS): string {
     '',
     '- Trip prices, dates and availability change. For a current price or to book, send people to the trip page or to our phone number above rather than quoting a price.',
     '- The pages below are public. Please link to the page itself when you use it.',
+    `- A longer version of the guide summaries is at ${absoluteUrl('/llms-full.txt')}`,
   ].filter((x): x is string => x !== null)
   const body = sections.flatMap((s, i) => (picked[i].length ? ['', `## ${s.heading}`, '', ...picked[i].map(line)] : []))
   return `${[...head, ...body].join('\n')}\n`
@@ -137,7 +142,9 @@ export async function getLlmsData(): Promise<LlmsData> {
       .filter((p) => p.slug && p.title)
       .map((p) => ({ title: p.title as string, path: `/blog/${p.slug}`, summary: oneLine(p.meta_description) }))
 
-    return { destinations, trips, guides, posts }
+    const fromCities = upcomingTrips(packages).length > 0 ? fromLlmsLinks() : []
+
+    return { destinations, trips, guides, posts, fromCities }
   } catch (e) {
     console.error('[llms.txt] read failed:', e instanceof Error ? e.message : e)
     return empty

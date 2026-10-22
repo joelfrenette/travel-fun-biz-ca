@@ -157,6 +157,8 @@ const translations: Record<Language, Record<string, string>> = {
     'Cookie settings': 'Paramètres des témoins',
     // Footer: the "Explore" and "Trips by destination" columns and the shared Explore menu names.
     Explore: 'Explorer',
+    'Plan from your city': 'Planifiez depuis votre ville',
+    'Group trips from': 'Voyages de groupe depuis',
     'Trips by destination': 'Voyages par destination',
     Destinations: 'Destinations',
     'Cruise Lines': 'Compagnies de croisière',
@@ -351,6 +353,8 @@ const translations: Record<Language, Record<string, string>> = {
     'Tell me about the next one': 'Cuéntame del próximo',
     'Hear about our next trips': 'Entérate de nuestros próximos viajes',
     Explore: 'Explorar',
+    'Plan from your city': 'Planifica desde tu ciudad',
+    'Group trips from': 'Viajes en grupo desde',
     'Trips by destination': 'Viajes por destino',
     Destinations: 'Destinos',
     'Cruise Lines': 'Líneas de cruceros',

@@ -19,7 +19,8 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
 import { translate } from "@/lib/i18n"
-import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, hreflangAlternates, priceOnRequestLine } from "@/lib/site"
+import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, pageAlternates, priceOnRequestLine } from "@/lib/site"
+import { tripHeading, tripTitle } from "@/lib/package-seo"
 import { ogImageEntry } from "@/lib/og-path"
 import { jsonLdHtml, buildBreadcrumbJsonLd } from "@/lib/jsonld"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
@@ -43,7 +44,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!pkg) return { title: `Package not found | ${SITE_NAME}`, robots: { index: false } }
 
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
-  const title = pkg.meta_title || `${pkg.name} | ${pkg.destination}${dates ? ` | ${dates}` : ""} | ${SITE_NAME}`
+  // "from Canada" is added at render time for Australia and New Zealand trips only (lib/package-seo.ts); stored data is untouched.
+  const title = tripTitle(pkg, pkg.meta_title || `${pkg.name} | ${pkg.destination}${dates ? ` | ${dates}` : ""} | ${SITE_NAME}`, isPastTripRow(pkg))
   const description = pkg.meta_description || pkg.short_description || `${pkg.name}: ${pkg.duration} in ${pkg.destination}. Request info and join the fun with ${SITE_NAME}.`
   const image = ogImageEntry("packages", pkg.slug, pkg.name)
   const url = absoluteUrl(`/packages/${pkg.slug}`)
@@ -51,7 +53,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title,
     description,
-    alternates: { canonical: url, languages: hreflangAlternates(`/packages/${pkg.slug}`) },
+    alternates: pageAlternates(`/packages/${pkg.slug}`),
     openGraph: { title, description, url, type: "website", locale: SITE_LOCALE, siteName: SITE_NAME, images: [image] },
     twitter: { card: "summary_large_image", title, description, images: [image.url] },
   }
@@ -197,7 +199,7 @@ export default async function PackagePage({ params }: Props) {
                 <Badge className="bg-primary text-primary-foreground font-bold uppercase">{translate(language, pkg.category)}</Badge>
                 {isPastTrip && <Badge variant="outline" className="font-bold uppercase">{translate(language, "Past Trip Recap")}</Badge>}
               </div>
-              <h1 className="text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{pkg.name}</h1>
+              <h1 className="text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{tripHeading(pkg, isPastTrip)}</h1>
               <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
                 <Link href={`/destinations/${generateSlug(pkg.destination)}`} className="flex items-center gap-1.5 hover:text-foreground hover:underline"><MapPin className="h-4 w-4" />{pkg.destination}</Link>
                 {dates && <span className="flex items-center gap-1.5"><Calendar className="h-4 w-4" />{dates}</span>}

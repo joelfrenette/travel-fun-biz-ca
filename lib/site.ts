@@ -47,6 +47,9 @@ export interface SiteProfile {
    * one and calling it "the" handle. Read the real per-platform links from socialPromos instead.
    */
   handle: string
+  /** Off by default. When true (and NEXT_PUBLIC_SIBLING_SITE_URL is set) every page also lists the other company's
+   * site as its en-US/en-CA hreflang alternate. Switch on only once the .com replica serves the same paths. */
+  siblingHreflang: boolean
 }
 
 const PROFILES: Record<SiteId, SiteProfile> = {
@@ -71,6 +74,7 @@ const PROFILES: Record<SiteId, SiteProfile> = {
     legalEntity: '',
     governingLaw: '',
     handle: '',
+    siblingHreflang: false,
   },
   us: {
     // US company profile. The street address is intentionally blank until Joel supplies it; the footer and
@@ -92,6 +96,7 @@ const PROFILES: Record<SiteId, SiteProfile> = {
     legalEntity: '',
     governingLaw: '',
     handle: '',
+    siblingHreflang: false,
   },
 }
 
@@ -104,6 +109,7 @@ function resolveSite(): SiteProfile {
     name: process.env.NEXT_PUBLIC_SITE_NAME || base.name,
     locale: process.env.NEXT_PUBLIC_SITE_LOCALE || base.locale,
     phone: process.env.NEXT_PUBLIC_SITE_PHONE ?? base.phone,
+    siblingHreflang: process.env.NEXT_PUBLIC_HREFLANG_SIBLING === 'on' ? true : base.siblingHreflang,
   }
 }
 
@@ -162,15 +168,45 @@ export function formatDateRange(from: string | null, to: string | null): string 
  * NEXT_PUBLIC_SIBLING_SITE_URL is set, so we never tell Google about a counterpart page that
  * doesn't exist yet. Once the .com replica is live, set that env var on both deployments.
  */
-export function hreflangAlternates(path: string): Record<string, string> | undefined {
-  if (!SIBLING_SITE_URL) return undefined
-  const here = SITE_LOCALE.startsWith('en_CA') || SITE_ID === 'ca' ? 'en-CA' : 'en-US'
+export interface HreflangConfig {
+  /** This site's own origin, no trailing slash. */
+  origin: string
+  /** This site's hreflang code, e.g. en-CA. */
+  here: string
+  /** The other site's origin, or null when it does not exist yet. */
+  siblingOrigin: string | null
+  siblingLocale: string
+  /** The off-by-default switch for the sibling alternate. Nothing points at the other site unless this is true. */
+  siblingEnabled: boolean
+}
+
+/** Pure builder behind hreflangAlternates(). Always: this site's own code (self-reference) and x-default.
+ * Only when siblingEnabled AND a sibling origin is set: the other site's code too. */
+export function buildHreflang(path: string, cfg: HreflangConfig): Record<string, string> {
   const clean = path.startsWith('/') ? path : `/${path}`
-  return {
-    [here]: absoluteUrl(clean),
-    [SIBLING_LOCALE]: `${SIBLING_SITE_URL}${clean}`,
-    'x-default': absoluteUrl(clean),
-  }
+  const own = `${cfg.origin}${clean}`
+  const out: Record<string, string> = { [cfg.here]: own, 'x-default': own }
+  if (cfg.siblingEnabled && cfg.siblingOrigin) out[cfg.siblingLocale] = `${cfg.siblingOrigin}${clean}`
+  return out
+}
+
+/** Every public page: a self-referencing en-CA (en-US on the US profile) and x-default. The en-US alternate that points at
+ * NEXT_PUBLIC_SIBLING_SITE_URL is OFF until site.siblingHreflang is switched on (NEXT_PUBLIC_HREFLANG_SIBLING=on), so we never
+ * tell Google about a counterpart page that does not exist yet. */
+export function hreflangAlternates(path: string): Record<string, string> {
+  return buildHreflang(path, {
+    origin: SITE_URL,
+    here: SITE_ID === 'ca' ? 'en-CA' : 'en-US',
+    siblingOrigin: SIBLING_SITE_URL,
+    siblingLocale: SIBLING_LOCALE,
+    siblingEnabled: site.siblingHreflang,
+  })
+}
+
+/** canonical plus hreflang for a path: the one alternates block public pages use. */
+export function pageAlternates(path: string): { canonical: string; languages: Record<string, string> } {
+  const clean = path.startsWith('/') ? path : `/${path}`
+  return { canonical: absoluteUrl(clean), languages: hreflangAlternates(clean) }
 }
 
 /** "2026-09-03T10:00:00Z" -> "September 3, 2026". Empty or unparseable input gives null so callers can omit the date. */

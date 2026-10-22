@@ -7,13 +7,15 @@ import { getComparePairSlugs } from '@/lib/compare-destinations'
 import { getPublishedGuidePaths, guidePath, guideKinds, GUIDE_KINDS } from '@/lib/guides'
 import { getPublishedPageCopyPaths, comparePath, bestTimePath } from '@/lib/page-copy'
 import { filterByCopy } from '@/lib/page-copy-index'
+import { getAllPublishedPackages } from '@/lib/package-grouping'
+import { FROM_CITIES, fromPath, upcomingTrips } from '@/lib/from-cities'
 import { absoluteUrl } from '@/lib/site'
 import { maxIso, lastModOrUndefined, lastModField } from '@/lib/sitemap-dates'
 
 export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths] = await Promise.all([
+  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths, publishedRows] = await Promise.all([
     getPublishedPackageSlugs(),
     getPublishedPosts(),
     getDestinationSlugs(),
@@ -21,7 +23,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     getComparePairSlugs(),
     getPublishedGuidePaths(),
     getPublishedPageCopyPaths().catch(() => null),
+    getAllPublishedPackages().catch(() => []),
   ])
+  // The /from/<city> pages are listed only while there is an upcoming trip to put on them (otherwise they are noindex).
+  const fromCityPages = upcomingTrips(publishedRows).length > 0 ? FROM_CITIES : []
   // Compare and best-time pages are listed only when published copy exists for the path (one query for all);
   // a failed or empty read gives a null set and everything stays listed.
   const bestTimeToVisit = filterByCopy(allBestTime, (d) => bestTimePath(d.slug), copyPaths)
@@ -45,6 +50,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     },
     { url: absoluteUrl('/who-we-are'), changeFrequency: 'monthly' as const, priority: 0.4 },
+    ...fromCityPages.map((c) => ({
+      url: absoluteUrl(fromPath(c)),
+      ...lastModField(maxIso(publishedRows.map((p) => p.updated_at))),
+      changeFrequency: 'weekly' as const,
+      priority: 0.7,
+    })),
     ...packages.map((p) => ({
       url: absoluteUrl(`/packages/${p.slug}`),
       ...lastModField(lastModOrUndefined(p.updated_at)),

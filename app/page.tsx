@@ -14,7 +14,13 @@ import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 import { getUsdToRate } from "@/lib/fx"
 import { officeInfo, socialPromos } from "@/content/footer"
-import { SITE_NAME, absoluteUrl, site } from "@/lib/site"
+import Link from "next/link"
+import type { Metadata } from "next"
+import { SITE_NAME, absoluteUrl, site, pageAlternates } from "@/lib/site"
+import { FROM_CITIES, fromPath } from "@/lib/from-cities"
+
+// The layout supplies title and description; the home page adds its own canonical and hreflang (en-CA self, x-default).
+export const metadata: Metadata = { alternates: pageAlternates("/") }
 import { jsonLdHtml } from "@/lib/jsonld"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { homeFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
@@ -64,6 +70,19 @@ export default async function HomePage() {
         <FeaturesSection language={language} introParts={linked.parts(copy.featuresIntro)} featureParts={copy.features.map((f) => linked.parts(f))} />
 
         <TestimonialsSection language={language} testimonials={testimonials} />
+
+        <section className="container mx-auto px-4 py-12" aria-labelledby="plan-from-city">
+          <h2 id="plan-from-city" className="text-center text-2xl font-bold text-foreground">{translate(language, "Plan from your city")}</h2>
+          <ul className="mt-6 flex flex-wrap justify-center gap-2 text-sm">
+            {FROM_CITIES.map((c) => (
+              <li key={c.slug}>
+                <Link href={fromPath(c)} className="inline-block rounded-full border px-4 py-2 hover:bg-muted">
+                  {translate(language, "Group trips from")} {c.city}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
 
         <section id="contact" className="bg-muted/30 py-20">
           <div className="container mx-auto px-4">

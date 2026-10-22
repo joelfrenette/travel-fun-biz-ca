@@ -38,7 +38,7 @@ export const samplePackages: TravelPackage[] = [
     priceValue: 1899,
     description:
       'Trek through the Himalayas, visit ancient monasteries, and witness breathtaking mountain vistas.',
-    image: '/himalayan-trekking.png',
+    image: '/himalayan-trekking.webp',
     category: 'Adventure',
     rating: 4.7,
     maxPeople: '4-12',
@@ -66,7 +66,7 @@ export const samplePackages: TravelPackage[] = [
     priceValue: 2799,
     description:
       'Connect with like-minded travelers, enjoy adventure activities, and explore stunning beaches and rainforests.',
-    image: '/greek-islands-santorini.png',
+    image: '/greek-islands-santorini.webp',
     category: 'Singles',
     rating: 4.8,
     maxPeople: '1-1',

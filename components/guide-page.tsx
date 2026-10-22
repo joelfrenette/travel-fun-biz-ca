@@ -29,7 +29,7 @@ import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogS
 import { AffiliateAutoDisclosure, AffiliateParts } from "@/components/affiliate-text"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { jsonLdHtml } from "@/lib/jsonld"
-import { site, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate } from "@/lib/site"
+import { site, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate, pageAlternates } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
 
 // ONE shared page for every guide kind (destinations, hotels, resorts, cruise lines, ships, river cruises,
@@ -137,7 +137,7 @@ export async function guideMetadata(kind: GuideKind, slug: string): Promise<Meta
   return {
     title,
     description,
-    alternates: { canonical: url },
+    alternates: pageAlternates(guidePath(kind, slug)),
     // A safe page (built only from stored facts) is live for visitors but kept out of search until it is enriched.
     ...(guide.thin ? { robots: { index: false, follow: true } } : {}),
     keywords: [guide.primary_keyword, ...guide.secondary_keywords].filter((k): k is string => !!k),

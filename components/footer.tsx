@@ -6,6 +6,7 @@ import { NewsletterForm } from "@/components/newsletter-form"
 import { CookieSettingsLink } from "@/components/cookie-settings-link"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
+import { FROM_CITIES, fromPath } from "@/lib/from-cities"
 
 interface FooterProps {
   language: Language
@@ -69,6 +70,15 @@ export function Footer({ language }: FooterProps) {
               {[destinationsLink, ...cruiseAndResortLinks].map((link) => (
                 <Link key={link.href} href={link.href} className="block hover:text-white">
                   {translate(language, link.label)}
+                </Link>
+              ))}
+            </nav>
+
+            <nav aria-label="Plan from your city" className="space-y-2 text-xs text-gray-400">
+              <p className="font-semibold uppercase text-white">{translate(language, "Plan from your city")}</p>
+              {FROM_CITIES.map((c) => (
+                <Link key={c.slug} href={fromPath(c)} className="block hover:text-white">
+                  {translate(language, "Group trips from")} {c.city}
                 </Link>
               ))}
             </nav>
