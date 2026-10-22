@@ -9,6 +9,7 @@
 // prefers lively, colourful photos (a cheap check on a tiny copy with sharp). Every extra step fails open.
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { buildBrollQueries, pickBroll, type BrollContext, type BrollVideo } from '@/lib/broll-select'
 import {
   DEFAULT_MIN_HEIGHT,
   DEFAULT_MIN_WIDTH,
@@ -237,29 +238,90 @@ export async function searchGuidePhotoCandidates(query: string): Promise<PhotoCa
 
 const PEXELS_VIDEO_SEARCH_URL ='https://api.pexels.com/videos/search'
 
-/** One real stock video clip (portrait, MP4) for a search term, for video b-roll. Prefers an HD
- * file between 720 and 1080 px wide: big enough to look sharp at 720x1280 output, small enough for
- * Shotstack to fetch quickly. Returns null when unconfigured, no match, or the request fails -
- * never throws, so a missing clip just means that beat falls back to a still image. */
-export async function findBrollClip(query: string): Promise<{ url: string; duration: number } | null> {
+export interface FindBrollOptions {
+  /** The beat's own search words, the post's subject and place (lib/broll-select.ts). */
+  terms?: string[]
+  ctx?: BrollContext
+  /** Clips already in this reel, and clips of recent reels: neither is picked. */
+  usedIds?: ReadonlySet<string>
+  recentIds?: ReadonlySet<string>
+  /** A stand-in for fetch so the offline checks never reach Pexels. */
+  fetchImpl?: typeof fetch
+}
+
+/** One real stock video clip for a search, for video b-roll, or null when unconfigured, nothing relevant, or the request fails -
+ * never throws, so a missing clip just means that beat falls back to a still image. Candidates are judged by lib/broll-select.ts
+ * (unrelated subjects rejected, reused clips skipped, portrait first, a landscape clip only when a 9:16 centre crop is safe); a
+ * portrait search runs first and a landscape one only when it finds nothing usable. Prefers an HD file between 720 and 1080 px
+ * wide: sharp at 720x1280, small enough for Shotstack to fetch quickly. */
+export async function findBrollClip(query: string, opts: FindBrollOptions = {}): Promise<{ url: string; duration: number; id: string; landscape: boolean } | null> {
   const key = process.env.PEXELS_API_KEY
   if (!key || !query.trim()) return null
-  try {
-    const url = `${PEXELS_VIDEO_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=5&orientation=portrait&size=medium`
-    const res = await fetch(url, { headers: { Authorization: key }, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
-    if (!res.ok) return null
-    const body = (await res.json().catch(() => ({}))) as {
-      videos?: Array<{ duration?: number; video_files?: Array<{ link?: string; file_type?: string; width?: number; height?: number }> }>
+  const doFetch = opts.fetchImpl ?? fetch
+  const terms = opts.terms ?? [query]
+  const ctx = opts.ctx ?? {}
+  for (const orientation of ['portrait', 'landscape'] as const) {
+    try {
+      const url = `${PEXELS_VIDEO_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=15&orientation=${orientation}&size=medium`
+      const res = await doFetch(url, { headers: { Authorization: key }, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) continue
+      const body = (await res.json().catch(() => ({}))) as { videos?: BrollVideo[] }
+      const pick = pickBroll((body.videos ?? []).filter((v) => v && v.id !== undefined), { terms, ctx, usedIds: opts.usedIds, recentIds: opts.recentIds })
+      if (pick) return { url: pick.url, duration: pick.duration, id: pick.id, landscape: pick.landscape }
+    } catch {
+      // try the other orientation, then give up quietly
     }
-    for (const v of body.videos ?? []) {
-      const files = (v.video_files ?? []).filter((f) => f.link && f.file_type === 'video/mp4' && (f.height ?? 0) > (f.width ?? 0))
-      const best = files.filter((f) => (f.width ?? 0) >= 720 && (f.width ?? 0) <= 1080).sort((a, b) => (a.width ?? 0) - (b.width ?? 0))[0] ?? files[0]
-      if (best?.link) return { url: best.link, duration: v.duration ?? 0 }
-    }
-    return null
-  } catch {
-    return null
   }
+  return null
+}
+
+const RECENT_VIDEOS_KEY = 'pexels_recent_video_ids'
+const RECENT_VIDEOS_KEEP = 60
+
+async function loadRecentVideoIds(): Promise<Set<string>> {
+  try {
+    const raw = await getSetting(getSupabaseAdmin(), RECENT_VIDEOS_KEY)
+    const list = JSON.parse(raw ?? '[]') as unknown
+    return new Set(Array.isArray(list) ? list.map(String) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+async function rememberVideoIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  try {
+    const admin = getSupabaseAdmin()
+    const raw = await getSetting(admin, RECENT_VIDEOS_KEY)
+    const old = (JSON.parse(raw ?? '[]') as unknown[]).map(String)
+    await setSetting(admin, RECENT_VIDEOS_KEY, JSON.stringify([...ids, ...old.filter((i) => !ids.includes(i))].slice(0, RECENT_VIDEOS_KEEP)))
+  } catch {
+    // The history is a nicety; a failed write must never block a reel.
+  }
+}
+
+/** One clip per beat for a whole reel: the searches name the post's subject type, no clip is used twice in the reel, and clips of
+ * the last reels (the last 60 are remembered in app_settings) are skipped. Entries are null where nothing relevant was found.
+ * Calls Pexels, so offline checks pass `deps` (fetchImpl, recentIds, remember) and never reach it. Never throws. */
+export async function findBrollForBeats(
+  beats: Array<{ brollSearchTerms: string[] }>,
+  ctx: BrollContext,
+  deps: { fetchImpl?: typeof fetch; recentIds?: ReadonlySet<string>; remember?: (ids: string[]) => Promise<void> } = {},
+): Promise<Array<{ url: string; duration: number; id: string; landscape: boolean } | null>> {
+  const recentIds = deps.recentIds ?? (await loadRecentVideoIds())
+  const used = new Set<string>()
+  const out: Array<{ url: string; duration: number; id: string; landscape: boolean } | null> = []
+  for (const beat of beats) {
+    let found: { url: string; duration: number; id: string; landscape: boolean } | null = null
+    for (const q of buildBrollQueries(beat.brollSearchTerms, ctx)) {
+      found = await findBrollClip(q, { terms: beat.brollSearchTerms, ctx, usedIds: used, recentIds, fetchImpl: deps.fetchImpl })
+      if (found) break
+    }
+    if (found) used.add(found.id)
+    out.push(found)
+  }
+  await (deps.remember ?? rememberVideoIds)([...used])
+  return out
 }
 
 /** The `n`th next-best portrait photo for a search (n = 1 is the first one after the best), skipping the photo ids in

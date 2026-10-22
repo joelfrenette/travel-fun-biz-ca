@@ -4,6 +4,7 @@ import type { VideoScript } from '@/lib/video-script'
 import { pickReelCoverTitle, headlineWords, REEL_COVER_MAX_WORDS } from '@/lib/cover-headline'
 import { fitText, CAPS_WIDTH_RATIO } from '@/lib/social-cover'
 import { reelBeatSeconds } from '@/lib/reel-beats'
+import { reelNarration } from '@/lib/reel-script-rules'
 
 // Shotstack (shotstack.io) - hosted video-render API. The whole render happens in Shotstack's
 // cloud from a JSON "edit" description; no ffmpeg or video infrastructure here.
@@ -101,7 +102,15 @@ export interface ShotstackTrack {
 
 export interface ShotstackEdit {
   timeline: { tracks: ShotstackTrack[]; background?: string }
-  output: { format: string; resolution?: string; aspectRatio?: string }
+  output: {
+    format: string
+    resolution?: string
+    aspectRatio?: string
+    /** Still frame Shotstack saves next to the video, captured `capture` seconds in (Edit API: output.poster.capture). */
+    poster?: { capture: number }
+    /** A second, scaled still (Edit API: output.thumbnail.capture and .scale), used here for the end card frame. */
+    thumbnail?: { capture: number; scale?: number }
+  }
 }
 
 /** Visual for one beat: a real stock video clip when one was found, otherwise a still image. */
@@ -147,6 +156,26 @@ export const REEL_SHORT_URL = 'travelfunbiz.ca/links'
 export function endCardCta(platform: ReelPlatform = 'instagram', shortUrl = REEL_SHORT_URL): string {
   return platform === 'instagram' || platform === 'tiktok' ? 'Plan your trip: link in bio' : `Plan your trip: ${shortUrl}`
 }
+/** The seconds the hook is allowed to take: its estimated spoken length plus headroom so a slightly slower real voice is not cut off. */
+const HOOK_HEADROOM_SECONDS = 0.5
+/** Poster frame (cover) and end card frame the post-render gate looks at. The poster is taken inside the cover window, the
+ * end frame inside the end card. */
+export const POSTER_CAPTURE_SECONDS = 0.8
+export const END_FRAME_BEFORE_END_SECONDS = 0.8
+export const END_THUMBNAIL_SCALE = 0.5
+
+/** When the parts of a reel start: the cover window is the hook beat (the hook is spoken over the cover and nothing else is
+ * on screen), the beats follow, and the end card closes the reel. Pure; the edit builder and the offline checks both use it. */
+export function reelTiming(script: VideoScript): { coverEnd: number; beatsStart: number; endStart: number; total: number } {
+  const hookWords = script.hook.trim().split(/\s+/).filter(Boolean).length
+  const beatsStart = Math.max(COVER_SECONDS, Math.round((hookWords * SECONDS_PER_WORD + HOOK_HEADROOM_SECONDS) * 10) / 10)
+  let endStart = beatsStart
+  script.beats.forEach((b, i) => {
+    endStart += reelBeatSeconds(b.voiceover, i)
+  })
+  return { coverEnd: beatsStart, beatsStart, endStart, total: endStart + END_CARD_SECONDS }
+}
+
 /** A beat's on-screen text cut to a short line: 7 words at most, no trailing punctuation. */
 export function beatLine(text: string): string {
   return text.trim().split(/\s+/).filter(Boolean).slice(0, REEL_BEAT_MAX_WORDS).join(' ').replace(/[,:;\-\s]+$/, '')
@@ -189,11 +218,11 @@ export function buildVideoEdit(
   // replaced by a whole phrase of the title. If nothing valid exists (the autopilot refuses to render then) it is cut to 5 words.
   const picked = pickReelCoverTitle([coverTitle, script.coverTitle], script.title || script.hook, `${script.title ?? ''} ${script.hook}`)
   const headline = (picked.ok ? picked.title : headlineWords(picked.title || script.hook).slice(0, REEL_COVER_MAX_WORDS).join(' ')).toUpperCase()
-  const fullNarration = [script.hook, ...script.beats.map((b) => b.voiceover)].join(' ')
-
-  // The hook is spoken first, so the beats cannot start before it ends (the cover alone is 3s).
-  const hookWords = script.hook.trim().split(/\s+/).filter(Boolean).length
-  const beatsStart = Math.max(COVER_SECONDS, hookWords * SECONDS_PER_WORD)
+  // The hook is spoken first, alone, over the cover; the beats (and the captions that follow them) start when it ends. The cover
+  // window IS the hook beat, so for those seconds the headline and the brand strip are the only text on screen.
+  const narration = reelNarration(script)
+  const { beatsStart } = reelTiming(script)
+  const coverSeconds = beatsStart
 
   const visualClips: ShotstackClip[] = []
   const textClips: ShotstackClip[] = []
@@ -237,8 +266,10 @@ export function buildVideoEdit(
   const endCta = endCardCta(opts.platform, opts.shortUrl)
 
   const tracks: ShotstackTrack[] = [
-    // Captions, transcribed from the narration (src aliases the TTS clip below), kept to the lower
-    // middle and wrapped inside the same 640px box.
+    // Captions, transcribed from the beat narration (src aliases the second TTS clip below), kept to the lower part of the frame
+    // and wrapped inside the same 560px box. They run only from the end of the cover window to the start of the end card, so they
+    // can never sit on the cover headline or the end card (real defect in the 21 Oct reel), and they start with the same
+    // timing as the narration clip they are read from.
     {
       clips: [
         {
@@ -252,8 +283,8 @@ export function buildVideoEdit(
             padding: { top: 12, right: 12, bottom: 12, left: 12 },
             align: { horizontal: 'center', vertical: 'middle' },
           },
-          start: 0,
-          length: totalLength,
+          start: beatsStart,
+          length: endStart - beatsStart,
           width: TEXT_WIDTH,
           position: 'bottom',
           offset: { y: 0.18 },
@@ -264,9 +295,9 @@ export function buildVideoEdit(
     // bold, white, 5 words at most), and the brand strip near the bottom.
     {
       clips: [
-        { asset: richText(headline, reelCoverFontSize(headline), { background: REEL_RED, bgOpacity: 1, uppercase: true, radius: 0, padding: 24 }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - COVER_BLOCK_CENTER } },
+        { asset: richText(headline, reelCoverFontSize(headline), { background: REEL_RED, bgOpacity: 1, uppercase: true, radius: 0, padding: 24 }), start: 0, length: coverSeconds, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - COVER_BLOCK_CENTER } },
         // Brand strip under the red block, mid frame: the bottom 227px belong to Instagram's own UI and the caption track.
-        { asset: richText(brand, REEL_MIN_FONT, { background: '#000000', bgOpacity: 0.55, radius: 24, padding: 12 }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - STRIP_CENTER } },
+        { asset: richText(brand, REEL_MIN_FONT, { background: '#000000', bgOpacity: 0.55, radius: 24, padding: 12 }), start: 0, length: coverSeconds, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - STRIP_CENTER } },
         // End card: the same red block with the site name, one call to action line in the strip spot.
         { asset: richText(brand.toUpperCase(), endBlockSize, { background: REEL_RED, bgOpacity: 1, uppercase: true, radius: 0, padding: 24 }), start: endStart, length: END_CARD_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - COVER_BLOCK_CENTER } },
         { asset: richText(endCta, REEL_MIN_FONT, { background: '#000000', bgOpacity: 0.55, radius: 24, padding: 12 }), start: endStart, length: END_CARD_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - STRIP_CENTER } },
@@ -278,7 +309,7 @@ export function buildVideoEdit(
         {
           asset: { type: 'shape', shape: 'rectangle', rectangle: { width: REEL_WIDTH, height: REEL_HEIGHT }, fill: { color: '#000000', opacity: COVER_OVERLAY_OPACITY } },
           start: 0,
-          length: COVER_SECONDS,
+          length: coverSeconds,
           position: 'center',
         },
         {
@@ -293,12 +324,25 @@ export function buildVideoEdit(
   ]
   if (visualClips.length > 0) tracks.push({ clips: visualClips })
   tracks.push({
-    clips: [{ asset: { type: 'text-to-speech', text: fullNarration, voice: 'Matthew', language: 'en-US' }, start: 0, length: totalLength, alias: 'narration' }],
+    // Two sequential voice clips on one track: the hook alone over the cover, then every beat's line as one continuous clip (the
+    // captions read from this second one). They never overlap, and the end card still leaves room for a slower real voice.
+    clips: [
+      { asset: { type: 'text-to-speech', text: narration.hook, voice: 'Matthew', language: 'en-US' }, start: 0, length: beatsStart },
+      { asset: { type: 'text-to-speech', text: narration.beats, voice: 'Matthew', language: 'en-US' }, start: beatsStart, length: totalLength - beatsStart, alias: 'narration' },
+    ],
   })
 
   return {
     timeline: { background: '#000000', tracks },
-    output: { format: 'mp4', resolution: 'hd', aspectRatio: '9:16' },
+    // A poster inside the cover window and a thumbnail on the end card let the post-render gate look at the two frames that
+    // matter (lib/reel-frame-gate.ts); the render itself is unchanged.
+    output: {
+      format: 'mp4',
+      resolution: 'hd',
+      aspectRatio: '9:16',
+      poster: { capture: Math.min(POSTER_CAPTURE_SECONDS, coverSeconds - 0.2) },
+      thumbnail: { capture: Math.max(endStart + 0.2, totalLength - END_FRAME_BEFORE_END_SECONDS), scale: END_THUMBNAIL_SCALE },
+    },
   }
 }
 
@@ -317,8 +361,8 @@ export interface ReelTextBox {
 
 /** Estimates where each burned-in text clip lands, with no render: the clip's width (a text clip is centred on the frame
  * by its position), its wrapped line count from the font size, and its vertical place from `position` and `offset.y`
- * (Shotstack: a positive y offset moves the clip UP, as a share of the frame height). The rich-caption track shows about 2
- * lines at a time. The estimate is deliberately a little generous (capitals count 0.7 of the font size per letter). */
+ * (Shotstack: a positive y offset moves the clip UP, as a share of the frame height). The rich-caption track is assumed to
+ * show up to 3 lines at a time (a deliberately pessimistic guess). The estimate is deliberately a little generous (capitals count 0.7 of the font size per letter). */
 export function reelTextBoxes(edit: ShotstackEdit): ReelTextBox[] {
   const out: ReelTextBox[] = []
   for (const clip of edit.timeline.tracks.flatMap((t) => t.clips)) {
@@ -333,7 +377,7 @@ export function reelTextBoxes(edit: ShotstackEdit): ReelTextBox[] {
     const text = type === 'rich-text' ? String(clip.asset.text) : ''
     const ratio = upper ? CAPS_WIDTH_RATIO : 0.6
     const maxChars = Math.max(1, Math.floor((width - 2 * pad) / (size * ratio)))
-    const lines = type === 'rich-caption' ? 2 : Math.max(1, wrapLineCount(text, maxChars))
+    const lines = type === 'rich-caption' ? 3 : Math.max(1, wrapLineCount(text, maxChars))
     const height = lines * size * 1.15 + 2 * pad
     const y = Number((clip.offset as { y?: number } | undefined)?.y ?? 0) * REEL_HEIGHT
     let top: number
@@ -342,6 +386,24 @@ export function reelTextBoxes(edit: ShotstackEdit): ReelTextBox[] {
     else top = REEL_HEIGHT / 2 - y - height / 2
     const start = Number(clip.start)
     out.push({ kind: type, text, start, end: start + Number(clip.length), left: (REEL_WIDTH - width) / 2, right: (REEL_WIDTH + width) / 2, top, bottom: top + height, fontSize: size })
+  }
+  return out
+}
+
+/** Every burned-in caption box that shares both time and space with the cover or end card text (the red headline block and
+ * the strip under it). Empty means the captions never cover the cover headline or the end card. Pure, no render. */
+export function captionCollisions(edit: ShotstackEdit): Array<{ caption: ReelTextBox; with: ReelTextBox }> {
+  const boxes = reelTextBoxes(edit)
+  const captions = boxes.filter((b) => b.kind === 'rich-caption')
+  const total = Math.max(0, ...boxes.map((b) => b.end))
+  const cardBoxes = boxes.filter((b) => b.kind === 'rich-text' && (b.start <= 0.01 || Math.abs(b.end - total) < 0.01))
+  const out: Array<{ caption: ReelTextBox; with: ReelTextBox }> = []
+  for (const caption of captions) {
+    for (const card of cardBoxes) {
+      const together = caption.start < card.end - 0.01 && card.start < caption.end - 0.01
+      const touching = caption.top < card.bottom && card.top < caption.bottom && caption.left < card.right && card.left < caption.right
+      if (together && touching) out.push({ caption, with: card })
+    }
   }
   return out
 }
@@ -375,6 +437,18 @@ export interface ShotstackRenderResult {
 
 /** Submits a render job; Shotstack renders asynchronously, so poll with getRenderStatus. */
 export async function submitRender(edit: ShotstackEdit): Promise<ShotstackRenderResult> {
+  const first = await submitRenderOnce(edit)
+  // The poster and thumbnail fields are only there for the post-render gate. If Shotstack's schema check rejects them (a 400 that
+  // names them, which means nothing was queued and nothing was charged) the same edit is sent once without them; the gate then
+  // reports "unknown" for that render and the reel is posted on the strength of the pre-render checks, as before.
+  if (!first.ok && first.status === 400 && /poster|thumbnail/i.test(first.error ?? '') && (edit.output.poster || edit.output.thumbnail)) {
+    const { poster: _poster, thumbnail: _thumbnail, ...output } = edit.output
+    return submitRenderOnce({ ...edit, output })
+  }
+  return first
+}
+
+async function submitRenderOnce(edit: ShotstackEdit): Promise<ShotstackRenderResult> {
   const key = process.env.SHOTSTACK_API_KEY?.trim()
   if (!key) return { ok: false, error: 'SHOTSTACK_API_KEY is not set' }
   try {
@@ -413,6 +487,9 @@ export interface ShotstackStatus {
   ok: boolean
   status?: 'queued' | 'fetching' | 'rendering' | 'saving' | 'done' | 'failed'
   url?: string
+  /** Still frames saved next to the video when the edit asked for them (response.poster, response.thumbnail). */
+  poster?: string
+  thumbnail?: string
   error?: string
 }
 
@@ -428,11 +505,13 @@ export async function getRenderStatus(renderId: string): Promise<ShotstackStatus
     })
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
     if (!res.ok) return { ok: false, error: `Shotstack returned ${res.status}` }
-    const response = json.response as { status?: string; url?: string; error?: string } | undefined
+    const response = json.response as { status?: string; url?: string; poster?: string; thumbnail?: string; error?: string } | undefined
     return {
       ok: true,
       status: response?.status as ShotstackStatus['status'],
       url: response?.url || undefined,
+      poster: response?.poster || undefined,
+      thumbnail: response?.thumbnail || undefined,
       error: response?.error || undefined,
     }
   } catch (err) {

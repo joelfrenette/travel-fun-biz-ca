@@ -2,6 +2,7 @@ import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/
 import { ungroundedNumbers, repairDashes, normaliseHashtags } from '@/lib/hook-styles'
 import { isValidCoverHeadline, fallbackCoverHeadline, shortestWholePhrase, pickReelCoverTitle } from '@/lib/cover-headline'
 import { templatedHookQuestion, commentBaitQuestion, isAcceptableHook, type PostIdea } from '@/lib/reel-questions'
+import { repairReelScript, reelHookProblems } from '@/lib/reel-script-rules'
 import { REEL_MIN_BEATS, REEL_MAX_BEATS, PATTERN_INTERRUPT_INDEX, BEAT_VO_MIN_WORDS, BEAT_VO_MAX_WORDS, INTERRUPT_VO_MAX_WORDS, BEAT_TEXT_MAX_WORDS, wordsIn } from '@/lib/reel-beats'
 
 // Short-form video script generation (factory item 1/6, video pipeline): one model call produces
@@ -82,7 +83,7 @@ const FORMULA_NOTES: Record<HookFormula, { hook: string; cover: string }> = {
   ranking: { hook: 'frame the post as a short ranked or best-of list', cover: 'a short best-of style headline' },
   contrarian: { hook: 'gently push back on what most people assume', cover: 'a short bold, against-the-grain headline' },
   question: { hook: 'open with one direct question the viewer would genuinely ask', cover: 'a short headline written as a question' },
-  story: { hook: 'open with a short second-person scene ("Picture...", "You step off...") in general travel terms, never as something we did or a named traveller', cover: 'a short scene-setting headline' },
+  story: { hook: 'open with a short second-person question ("Would you step off a ship into a new town every day?") in general travel terms, never as something we did or a named traveller', cover: 'a short scene-setting headline' },
 }
 
 export function scriptPrompt(postTitle: string, postSummary: string, formulaHint?: HookFormula, facts?: string, ctx?: ReelPostContext): string {
@@ -113,7 +114,7 @@ Summary: ${postSummary}
 ${factsBlock}${excerptBlock}
 ${NO_FABRICATION}
 
-The hook is the first spoken line - it has to earn the next 2 seconds of attention. ${formulaNote} A weak hook is a vague scene-setter ("Have you ever wondered about..."); a strong one states something specific and surprising in one breath. A hook may be a question, a contrast ("Rhine or Croatia: which one are you?") or a second-person line of 3 to 9 words ("You are packing the wrong shoes").
+The hook is the first spoken line - it has to earn the next 2 seconds of attention. ${formulaNote} A weak hook is a vague scene-setter ("Have you ever wondered about..."); a strong one states something specific and surprising in one breath. The hook MUST be a question of 3 to 12 words ("Rhine or Croatia: which one are you?", "Are you packing the wrong shoes?"). Never start the hook, or any beat, with the post title, and never use a "Picture..." or "Imagine..." scene-setter anywhere in the script.
 
 Also write coverTitle: the headline printed big on the opening cover frame of the video, 3 to 5 words and at most 36 characters, built to stop a thumb mid-scroll (curiosity, contrast or a bold promise), plain words, no emoji, no hashtags, no colon or dash, never ending on and, the, to, of, in, a, for, with, or, at or on. It may only promise what the post itself supports - never invent a price, number, date or place that is not in the title or summary above.
 
@@ -139,7 +140,7 @@ const HOOK_PATTERNS: Array<[HookFormula, RegExp]> = [
   // A real question (the weak "have you ever wondered" scene-setters have no question mark and stay unclassified).
   ['question', /\?/],
   // A second-person scene opener or an imagine-style opener.
-  ['story', /^(?:picture|imagine|close your eyes|you(?:'re| are| step| wake| walk| arrive| land| turn)|it'?s (?:early|late|\d)|the (?:first|last) time)\b|\b(?:one (?:morning|evening|afternoon|night))\b/],
+  ['story', /^(?:close your eyes|you(?:'re| are| step| wake| walk| arrive| land| turn)|it'?s (?:early|late|\d)|the (?:first|last) time)\b|\b(?:one (?:morning|evening|afternoon|night))\b/],
 ]
 
 /** Which formula a hook line follows, or null if none. When `prefer` is given and that formula's
@@ -190,7 +191,9 @@ const limitWords = (text: string, max: number) => text.trim().split(/\s+/).filte
 /** Shapes a model script to the reel rules without a second model call: on-screen text is cut to 7 words, beats beyond 10 are dropped
  * from the middle (never the opener, beat 3 or the last), and when the last beat is not a question the comment-bait question built
  * from the post replaces it (or is added when there is room). Any problem that is left is listed in `warnings`. Pure. */
-export function shapeBeats(script: VideoScript, idea: PostIdea): VideoScript {
+export function shapeBeats(rawScript: VideoScript, idea: PostIdea): VideoScript {
+  // Rules first: no hook that starts with the blog title or is not a question, no "Picture..." scene-setters (lib/reel-script-rules.ts).
+  const script = repairReelScript(rawScript, idea)
   let beats: VideoBeat[] = script.beats.map((b) => ({ ...b, onScreenText: limitWords(b.onScreenText, BEAT_TEXT_MAX_WORDS) }))
   while (beats.length > REEL_MAX_BEATS) beats.splice(Math.max(PATTERN_INTERRUPT_INDEX + 1, Math.floor(beats.length / 2)), 1)
   const last = beats[beats.length - 1]
@@ -231,9 +234,12 @@ async function runScriptStep(postTitle: string, postSummary: string, formulaHint
 /** The two checks a model script has to pass, as one pure function so the offline checks can run it without a model:
  * the hook is acceptable (a question, an "X or Y" contrast or a short second-person line) and has no number that is not in the
  * post, and the beats follow the pacing rules. `groundingText` is everything the post may be quoted on (title, summary, facts, excerpt). */
-export function scriptChecks(script: VideoScript, groundingText: string): { hookOk: boolean; beatProblems: string[] } {
+export function scriptChecks(script: VideoScript, groundingText: string, postTitle?: string): { hookOk: boolean; beatProblems: string[] } {
   return {
-    hookOk: ungroundedNumbers(script.hook, groundingText).length === 0 && isAcceptableHook(script.hook),
+    hookOk:
+      ungroundedNumbers(script.hook, groundingText).length === 0 &&
+      isAcceptableHook(script.hook) &&
+      (postTitle === undefined || reelHookProblems(script.hook, postTitle).length === 0),
     beatProblems: beatProblems(script.beats),
   }
 }
@@ -251,27 +257,32 @@ export async function generateVideoScript(postTitle: string, postSummary: string
   // Spelled-out numbers (two..twelve, dozen, hundred, thousand) count too. The post's own first 600 words count as the post.
   const grounding = `${postTitle} ${postSummary} ${facts ?? ''} ${bodyExcerpt(ctx?.body)}`
   const okAll = (s: VideoScript) => {
-    const c = scriptChecks(s, grounding)
+    const c = scriptChecks(s, grounding, postTitle)
     return c.hookOk && c.beatProblems.length === 0
   }
 
   const first = await runScriptStep(postTitle, postSummary, preferredFormula, facts, ctx)
   if (!first) return null
   const firstShaped = shapeBeats(first, idea)
-  if (okAll(firstShaped) && scriptChecks(first, grounding).beatProblems.length === 0) return firstShaped
+  // The raw model hook is checked too (shapeBeats may already have swapped a bad hook for the templated question): a bad raw hook earns one rewrite.
+  const rawOk = (s: VideoScript) => {
+    const c = scriptChecks(s, grounding, postTitle)
+    return c.hookOk && c.beatProblems.length === 0
+  }
+  if (okAll(firstShaped) && rawOk(first)) return firstShaped
 
   // The retry keeps the rotation's choice when there is one; otherwise it picks a formula at random as before.
   const formula = preferredFormula ?? HOOK_FORMULAS[Math.floor(Math.random() * HOOK_FORMULAS.length)]
   const retry = await runScriptStep(postTitle, postSummary, formula, facts, ctx)
   const retryShaped = retry ? shapeBeats(retry, idea) : null
-  if (retryShaped && okAll(retryShaped) && scriptChecks(retry as VideoScript, grounding).beatProblems.length === 0) return retryShaped
+  if (retryShaped && okAll(retryShaped) && rawOk(retry as VideoScript)) return retryShaped
 
   // Neither attempt was clean: take the one with fewer pacing problems and the better hook, shaped in code; a hook that still
   // fails is replaced by the templated question (the raw blog title is never used as the hook).
   const candidates = [firstShaped, retryShaped].filter((s): s is VideoScript => !!s)
-  const score = (s: VideoScript) => (scriptChecks(s, grounding).hookOk ? 0 : 100) + (s.warnings?.length ?? 0)
+  const score = (s: VideoScript) => (scriptChecks(s, grounding, postTitle).hookOk ? 0 : 100) + (s.warnings?.length ?? 0)
   const best = candidates.reduce((a, b) => (score(b) < score(a) ? b : a))
-  if (scriptChecks(best, grounding).hookOk) return best
+  if (scriptChecks(best, grounding, postTitle).hookOk) return best
   return { ...best, hook: templatedHookQuestion(idea), usedFallback: true }
 }
 

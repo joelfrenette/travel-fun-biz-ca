@@ -92,7 +92,7 @@ export function commentPromptLine(idea: PostIdea): string {
 }
 
 const CONTRAST_IN_HOOK = /\S+\s+(?:or|vs\.?|versus)\s+\S+/i
-const SECOND_PERSON_OPENER = /^(?:you|your|yours|you're|you’re|you'll|you’ll|you've|you’ve|youre|picture|imagine)\b/i
+const SECOND_PERSON_OPENER = /^(?:you|your|yours|you're|you’re|you'll|you’ll|you've|you’ve|youre)\b/i
 
 /** True when a reel hook is good enough to keep: any sentence with a question mark, a contrast "X or Y", or a second-person
  * opener of 3 to 9 words. Brochure openers ("Have you ever wondered") never pass. The ungrounded-number check is separate
