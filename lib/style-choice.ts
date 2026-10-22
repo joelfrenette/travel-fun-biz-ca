@@ -59,6 +59,7 @@ const KEY_LABEL: Record<string, string> = {
   video_hook: 'Video hook',
   carousel_cta: 'Carousel call to action',
   carousel_hook: 'Carousel opening',
+  cover_template: 'Picture design',
 }
 
 /** Plain-English name for a variant tag key (used by the Autopilot card and the daily brief). */
@@ -67,6 +68,7 @@ export function styleKeyLabel(key: string): string {
   const [kind, network] = key.split(':')
   if (kind === 'hook_style') return `Hook style, ${network}`
   if (kind === 'caption_style') return `Caption style, ${network}`
+  if (kind === 'cover_template') return `Picture design, ${network === 'feed' ? 'single image' : network}`
   return key
 }
 

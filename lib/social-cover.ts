@@ -104,13 +104,42 @@ export function shortenCoverTitle(title: string, siteName = ''): string {
 
 /** A news headline for the text card: at most 14 words, cut at a word boundary, never ending on a
  * dangling word. The headline itself (not a summary) so it stays tied to the checked brief. */
-export function shortenNewsHeadline(headline: string): string {
+export function shortenNewsHeadline(headline: string, maxWords: number = NEWS_MAX_WORDS): string {
   const t = clean(headline)
   if (!t) return ''
   const ws = words(t)
-  if (ws.length <= NEWS_MAX_WORDS) return t
-  const cut = stripDangling(ws.slice(0, NEWS_MAX_WORDS))
+  if (ws.length <= maxWords) return t
+  const cut = stripDangling(ws.slice(0, maxWords))
   return cut.join(' ').replace(/[,;:\-]+$/, '')
+}
+
+/** How many extra tries the quality gate may ask the cover route for (`?alt=1`, `?alt=2`). */
+export const COVER_ALT_MAX = 2
+/** Words a retried headline is cut to: the first retry keeps 4, the second 3 (never ending on a dangling word). */
+export const COVER_ALT_WORDS = [Infinity, 4, 3] as const
+/** News retry word caps: the first retry keeps 10 words, the second 7. */
+export const NEWS_ALT_WORDS = [NEWS_MAX_WORDS, 10, 7] as const
+
+/** A retry (alt 1 or 2) headline: the same headline cut to fewer whole words, never ending on a dangling word. */
+export function shorterCoverHeadline(headline: string, alt: number): string {
+  const cap = COVER_ALT_WORDS[Math.min(Math.max(0, alt), COVER_ALT_MAX)]
+  const ws = words(headline)
+  if (ws.length <= cap) return headline
+  const cut = stripDangling(ws.slice(0, cap)).join(' ').replace(/[,;:.\-]+$/, '')
+  return cut || headline
+}
+
+/** The `?alt=` value of a cover request: 1 or 2, else 0 (the plain cover). */
+export function parseAlt(search: string): number {
+  const m = /^\?alt=([12])$/.exec(search)
+  return m ? Number(m[1]) : 0
+}
+
+/** The Pexels photo id inside a Pexels image address, or null (other hosts, uploads). */
+export function photoIdOf(url: string | null | undefined): string | null {
+  if (!url) return null
+  const m = /pexels\.com\/photos\/(\d+)\//.exec(url) ?? /pexels-photo-(\d+)/.exec(url)
+  return m ? m[1] : null
 }
 
 export interface FittedText {
@@ -184,8 +213,9 @@ export function isValidCoverSlug(slug: string): boolean {
 }
 
 /** Address of the composed cover for a post. `base` is the site origin (SITE_URL). */
-export function socialCoverUrl(base: string, kind: SocialCoverKind, slug: string): string {
-  return `${base.replace(/\/$/, '')}/social-cover/${kind}/${encodeURIComponent(slug)}`
+export function socialCoverUrl(base: string, kind: SocialCoverKind, slug: string, alt = 0): string {
+  const url = `${base.replace(/\/$/, '')}/social-cover/${kind}/${encodeURIComponent(slug)}`
+  return alt >= 1 && alt <= COVER_ALT_MAX ? `${url}?alt=${alt}` : url
 }
 
 /** Fetches the composed cover once before it is sent, so a broken route never fails an Instagram post (the

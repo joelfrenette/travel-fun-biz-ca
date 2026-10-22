@@ -1,10 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { setSetting } from '@/lib/app-settings'
+import { getSetting, setSetting } from '@/lib/app-settings'
 import { tagVariant } from '@/lib/content-variants'
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { findPortraitPhoto } from '@/lib/pexels'
 import { COVER_HOOK_STYLES, CTA_STYLES, HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, rotateStyle, readRecentVariantValues, ungroundedNumbers, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
-import { normaliseSlides, finalizeCoverHeadline, type CarouselSlide } from '@/lib/carousel-slide'
+import { normaliseSlides, finalizeCoverHeadline, resolveSlideType, type CarouselSlide } from '@/lib/carousel-slide'
+import { fallbackCoverHeadline, headlineWords } from '@/lib/cover-headline'
+import { shorterCoverHeadline, photoIdOf, COVER_ALT_MAX } from '@/lib/social-cover'
+import { gateRenderedUrl } from '@/lib/visual-gate'
 
 export type { CarouselSlide, SlideType } from '@/lib/carousel-slide'
 
@@ -107,6 +110,117 @@ export async function generateCarouselSlides(postTitle: string, postBody: string
 }
 
 export const carouselKey = (slug: string) => `carousel:${slug}`
+
+// ---- Visual quality gate (lib/visual-gate.ts) ----------------------------------------------------------------------
+
+export interface CarouselGateOutcome {
+  /** pass: post it. skip: slide 1 failed its checks after 2 retries, never post. deferred: the check could not run (fetch or
+   * decode failed), try again next tick. budget: out of time, try again next tick. */
+  status: 'pass' | 'skip' | 'deferred' | 'budget'
+  retries: number
+  reasons: string[]
+  /** Teal fact cards that failed their check and were redrawn as photo slides. */
+  demotedFacts: number
+  /** Whether the deck has a fact card (the teal-fact template is in use). */
+  hasFact: boolean
+  photoId: string | null
+}
+
+export interface CarouselGateInput {
+  /** Site origin the slide route is fetched from. */
+  base: string
+  hasTime: () => boolean
+  fetchImpl?: typeof fetch
+  timeoutMs?: number
+}
+
+/** The cover headline for a retry: a whole valid phrase of the post title when one exists and differs, else the same headline
+ * cut to 4 words (first retry) or 3 words (second). Deterministic, no AI call. */
+export function retryCoverHeadline(current: string, postTitle: string, attempt: number): string {
+  if (attempt <= 1) {
+    const phrase = fallbackCoverHeadline(postTitle)
+    if (phrase && phrase.toLowerCase() !== current.toLowerCase() && headlineWords(phrase).length < headlineWords(current).length) return phrase
+  }
+  return shorterCoverHeadline(current, attempt)
+}
+
+/**
+ * Renders slide 1 (and every teal fact card) through the public slide route and checks the pixels. A failing slide 1 is
+ * retried twice with the next photo and a shorter headline (the stored deck is updated each time, no AI call), then the
+ * carousel is reported as `skip`. A failing fact card is redrawn as a photo slide. A check that cannot run is `deferred`.
+ * The slide route caches a day at the CDN, so every check carries its own cache-busting query; the address posted to the
+ * network is the plain one.
+ */
+export async function gateCarouselCover(admin: SupabaseClient, post: { slug: string; title: string; cover_image_url?: string | null }, input: CarouselGateInput): Promise<CarouselGateOutcome> {
+  let retries = 0
+  let demotedFacts = 0
+  let reasons: string[] = []
+  let photoId: string | null = null
+  const read = async (): Promise<CarouselSlide[]> => {
+    const raw = await getSetting(admin, carouselKey(post.slug))
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? (parsed as CarouselSlide[]) : []
+  }
+  const write = async (slides: CarouselSlide[]) => {
+    const { error } = await setSetting(admin, carouselKey(post.slug), JSON.stringify(slides))
+    if (error) throw new Error(error)
+  }
+  const nonce = Date.now()
+  const slideUrl = (n: number, tag: string) => `${input.base.replace(/\/$/, '')}/carousel/${encodeURIComponent(post.slug)}/${n}?gate=${nonce}-${tag}`
+  const outcome = (status: CarouselGateOutcome['status'], hasFact = false): CarouselGateOutcome => ({ status, retries, reasons, demotedFacts, hasFact, photoId })
+
+  try {
+    let slides = await read()
+    if (slides.length === 0) return outcome('deferred')
+    const used = new Set<string>(slides.map((s) => s.imageUrl).filter((u): u is string => !!u))
+
+    for (let attempt = 0; attempt <= COVER_ALT_MAX; attempt++) {
+      if (!input.hasTime()) return outcome('budget')
+      const r = await gateRenderedUrl(slideUrl(1, `c${attempt}`), 'cover', input.fetchImpl, input.timeoutMs)
+      if (r.infra) {
+        reasons = r.reasons
+        return outcome('deferred')
+      }
+      photoId = r.photoId ?? photoIdOf(slides[0].imageUrl) ?? null
+      if (r.ok) {
+        reasons = []
+        break
+      }
+      reasons = r.reasons
+      if (attempt === COVER_ALT_MAX) return outcome('skip')
+      // Retry: shorter headline and the next photo for slide 1.
+      retries++
+      const first = slides[0]
+      const next = first.imageQuery ? await findPortraitPhoto(first.imageQuery, used) : null
+      const fallbackPhoto = post.cover_image_url && !used.has(post.cover_image_url) ? post.cover_image_url : null
+      const imageUrl = next ?? fallbackPhoto ?? undefined
+      if (imageUrl) used.add(imageUrl)
+      slides = [{ ...first, headline: retryCoverHeadline(first.headline, post.title, attempt + 1), ...(imageUrl ? { imageUrl } : {}) }, ...slides.slice(1)]
+      await write(slides)
+    }
+
+    // Teal fact cards: one cheap check each; a card that fails is redrawn as a photo slide.
+    let hasFact = false
+    let changed = false
+    for (let i = 1; i < slides.length; i++) {
+      if (resolveSlideType(slides[i], i) !== 'fact') continue
+      hasFact = true
+      if (!input.hasTime()) break
+      const f = await gateRenderedUrl(slideUrl(i + 1, `f${i}`), 'fact', input.fetchImpl, input.timeoutMs)
+      if (f.infra) return outcome('deferred', hasFact)
+      if (!f.ok) {
+        slides = slides.map((s, j) => (j === i ? { ...s, type: 'photo' as const } : s))
+        demotedFacts++
+        changed = true
+      }
+    }
+    if (changed) await write(slides)
+    return outcome('pass', hasFact)
+  } catch (err) {
+    reasons = [err instanceof Error ? err.message : 'carousel check failed']
+    return outcome('deferred')
+  }
+}
 
 /** Generates a grounded carousel for a post and stores it (app_settings `carousel:{slug}`, which
  * the public /carousel/[slug]/[n] image route reads). Shared by the admin button and the autopilot

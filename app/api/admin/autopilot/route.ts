@@ -15,6 +15,7 @@ import { shotstackEnv } from '@/lib/shotstack'
 import { getDistributionMode } from '@/lib/distribution'
 import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeCron } from '@/lib/cron-health'
+import { readVisualQuality } from '@/lib/visual-gate-stats'
 
 export const maxDuration = 300
 
@@ -53,6 +54,8 @@ export async function GET(request: Request) {
       distributionMode,
       lastRun,
       issues,
+      // Counts of image quality checks over the last 7 days. Reads fail open (available: false), never an error.
+      visualQuality: await readVisualQuality(admin),
       keyword: { budget: keywordBudget, configured: isKeywordDataConfigured(), lastRunAt: keywordInfo.lastRunAt, log: keywordInfo.log, autoApproved: summariseAutoApprovals(await readAutoApprovals(admin)) },
       cron: judgeCron('autopilot', runs.autopilot),
       rows: (pipeline.data ?? []).map((r: Record<string, unknown>) => ({

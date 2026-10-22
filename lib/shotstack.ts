@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import type { VideoScript } from '@/lib/video-script'
+import { pickReelCoverTitle, headlineWords, REEL_COVER_MAX_WORDS } from '@/lib/cover-headline'
+import { fitText, CAPS_WIDTH_RATIO } from '@/lib/social-cover'
 
 // Shotstack (shotstack.io) - hosted video-render API. The whole render happens in Shotstack's
 // cloud from a JSON "edit" description; no ffmpeg or video infrastructure here.
@@ -110,30 +112,54 @@ export interface BeatVisual {
 const COVER_SECONDS = 3
 const TAIL_SECONDS = 1.5
 const SECONDS_PER_WORD = 1 / 2.5
-// The output is 9:16 "hd" = 720 x 1280. Text boxes are 640 wide (40px margins each side) and wrap
-// inside that box, so nothing is cut off at the edges. Text sits clear of the top and bottom strips
-// that Instagram and TikTok cover with their own buttons and caption.
-const TEXT_WIDTH = 640
+// The output is 9:16 "hd" = 720 x 1280. Every burned-in text box is 560 wide (80px margins each side) and wraps
+// inside that box, so nothing is cut off at the edges. Captions stay 220px clear of the bottom, the strip that
+// Instagram and TikTok cover with their own buttons and caption.
+export const REEL_WIDTH = 720
+export const REEL_HEIGHT = 1280
+export const REEL_SAFE_SIDE = 80
+export const REEL_SAFE_BOTTOM = 220
+export const TEXT_WIDTH = REEL_WIDTH - REEL_SAFE_SIDE * 2
+/** Burned-in captions are at least this big, with a stroke. */
+export const CAPTION_FONT = 48
+export const CAPTION_MIN_FONT = 44
+export const CAPTION_STROKE = 4
+/** The cover (frame 0) matches the feed cover: red block in the upper third, uppercase bold white headline (5 words at most), brand strip at the bottom. */
+export const REEL_RED = '#d81f26'
+export const REEL_COVER_TEMPLATE = 'reel-red-v1'
+/** Centre of the red block, as a share of the frame height from the top (the feed cover puts its block about 20% down). */
+const COVER_BLOCK_CENTER = 0.2
+/** Light overlay on the cover photo; b-roll under the captions is darkened harder (filter: darken). */
+const COVER_OVERLAY_OPACITY = 0.12
 const FONT = 'Open Sans'
 
-const richText = (text: string, size: number, opts: { color?: string; background?: string; bgOpacity?: number; stroke?: number; uppercase?: boolean } = {}) => ({
+const richText = (text: string, size: number, opts: { color?: string; background?: string; bgOpacity?: number; stroke?: number; uppercase?: boolean; radius?: number; padding?: number } = {}) => ({
   type: 'rich-text',
   text,
   font: { family: FONT, size, weight: '700', color: opts.color ?? '#ffffff' },
   // Shotstack wants stroke beside font, not inside it (inside it is "unknown_property").
   ...(opts.stroke ? { stroke: { width: opts.stroke, color: '#000000' } } : {}),
   style: { lineHeight: 1.15, ...(opts.uppercase ? { textTransform: 'uppercase' } : {}) },
-  ...(opts.background ? { background: { color: opts.background, opacity: opts.bgOpacity ?? 0.9, borderRadius: 16, wrap: true } } : {}),
-  padding: 16,
+  ...(opts.background ? { background: { color: opts.background, opacity: opts.bgOpacity ?? 0.9, borderRadius: opts.radius ?? 16, wrap: true } } : {}),
+  padding: opts.padding ?? 16,
   align: { horizontal: 'center', vertical: 'middle' },
 })
+
+/** Font size for the cover headline so the longest word and the whole title fit the block (3 lines at most). */
+export function reelCoverFontSize(title: string): number {
+  return fitText(title.toUpperCase(), { innerWidth: TEXT_WIDTH - 2 * 24, maxSize: 84, minSize: 48, maxLines: 3, widthRatio: CAPS_WIDTH_RATIO }).fontSize
+}
 
 /** Builds the Edit API body for one script. Layers, top-most first: captions from the narration
  * audio, the opening cover card (catchy headline over the post's cover image) for the first 3
  * seconds, short on-screen text per beat, the visuals (cover image then stock video per beat), and
  * one continuous text-to-speech clip the captions read from. Beat timing is estimated by word count
  * (2.5 words/sec) because a hosted render has nothing to measure until it exists. */
-export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], coverImageUrl?: string, coverTitle?: string, brand = 'TRAVELFUN.BIZ'): ShotstackEdit {
+export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], coverImageUrl?: string, coverTitle?: string, brand = 'TRAVELFUNBIZ.CA'): ShotstackEdit {
+  // The cover headline must pass the feed cover rules and the 5 word reel limit (lib/cover-headline.ts); a failing one is
+  // replaced by a whole phrase of the title. If nothing valid exists (the autopilot refuses to render then) it is cut to 5 words.
+  const picked = pickReelCoverTitle([coverTitle, script.coverTitle], script.title || script.hook, `${script.title ?? ''} ${script.hook}`)
+  const headline = (picked.ok ? picked.title : headlineWords(picked.title || script.hook).slice(0, REEL_COVER_MAX_WORDS).join(' ')).toUpperCase()
   const fullNarration = [script.hook, ...script.beats.map((b) => b.voiceover)].join(' ')
 
   // The hook is spoken first, so the beats cannot start before it ends (the cover alone is 3s).
@@ -143,11 +169,11 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
   const visualClips: ShotstackClip[] = []
   const textClips: ShotstackClip[] = []
 
-  // Cover: the post's own image, darkened so the headline reads; falls back to the first stock clip.
+  // Cover: the post's own image, NOT dimmed (only a light overlay below keeps the white headline readable); falls back to the first stock clip.
   if (coverImageUrl) {
-    visualClips.push({ asset: { type: 'image', src: coverImageUrl }, start: 0, length: beatsStart, fit: 'cover', effect: 'zoomIn', filter: 'darken' })
+    visualClips.push({ asset: { type: 'image', src: coverImageUrl }, start: 0, length: beatsStart, fit: 'cover', effect: 'zoomIn' })
   } else if (visuals[0]?.videoUrl) {
-    visualClips.push({ asset: { type: 'video', src: visuals[0].videoUrl, volume: 0 }, start: 0, length: beatsStart, fit: 'cover', filter: 'darken' })
+    visualClips.push({ asset: { type: 'video', src: visuals[0].videoUrl, volume: 0 }, start: 0, length: beatsStart, fit: 'cover' })
   }
 
   let cursor = beatsStart
@@ -155,10 +181,11 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
     const words = beat.voiceover.trim().split(/\s+/).filter(Boolean).length
     const length = Math.max(words * SECONDS_PER_WORD, 1.5)
     const v = visuals[i]
+    // Only the b-roll under the captions is darkened, so the white words read over any footage.
     if (v?.videoUrl) {
-      visualClips.push({ asset: { type: 'video', src: v.videoUrl, volume: 0 }, start: cursor, length, fit: 'cover' })
+      visualClips.push({ asset: { type: 'video', src: v.videoUrl, volume: 0 }, start: cursor, length, fit: 'cover', filter: 'darken' })
     } else if (v?.imageUrl || coverImageUrl) {
-      visualClips.push({ asset: { type: 'image', src: v?.imageUrl || coverImageUrl }, start: cursor, length, fit: 'cover', effect: 'zoomIn' })
+      visualClips.push({ asset: { type: 'image', src: v?.imageUrl || coverImageUrl }, start: cursor, length, fit: 'cover', effect: 'zoomIn', filter: 'darken' })
     }
     textClips.push({
       asset: richText(beat.onScreenText, 50, { background: '#000000', bgOpacity: 0.55, stroke: 2 }),
@@ -184,8 +211,8 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
             src: 'alias://narration',
             // rich-caption has no background or wrap, and stroke sits beside font; the heavy black
             // outline keeps the words readable over any footage.
-            font: { family: FONT, size: 44, weight: '700', color: '#ffffff' },
-            stroke: { width: 4, color: '#000000' },
+            font: { family: FONT, size: CAPTION_FONT, weight: '700', color: '#ffffff' },
+            stroke: { width: CAPTION_STROKE, color: '#000000' },
             padding: { top: 12, right: 12, bottom: 12, left: 12 },
             align: { vertical: 'middle' },
           },
@@ -197,11 +224,23 @@ export function buildVideoEdit(script: VideoScript, visuals: BeatVisual[] = [], 
         },
       ],
     },
-    // Cover card text: brand line on top, the headline big in the middle.
+    // Cover card text, matching the feed cover: the headline in a solid red block centred in the upper third (uppercase,
+    // bold, white, 5 words at most), and the brand strip near the bottom.
     {
       clips: [
-        { asset: richText(brand, 34, { background: '#d81f26', bgOpacity: 0.95 }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'top', offset: { y: -0.16 } },
-        { asset: richText(coverTitle || script.hook, 84, { background: '#d81f26', bgOpacity: 0.92, stroke: 3, uppercase: true }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'center' },
+        { asset: richText(headline, reelCoverFontSize(headline), { background: REEL_RED, bgOpacity: 1, uppercase: true, radius: 0, padding: 24 }), start: 0, length: COVER_SECONDS, width: TEXT_WIDTH, position: 'center', offset: { y: 0.5 - COVER_BLOCK_CENTER } },
+        { asset: richText(brand, 30, { background: '#000000', bgOpacity: 0.55, radius: 24, padding: 12 }), start: 0, length: COVER_SECONDS, width: 420, position: 'bottom', offset: { y: 0.07 } },
+      ],
+    },
+    // Light overlay over the cover photo (not a dim): just enough that white words read on a bright photo.
+    {
+      clips: [
+        {
+          asset: { type: 'shape', shape: 'rectangle', rectangle: { width: REEL_WIDTH, height: REEL_HEIGHT }, fill: { color: '#000000', opacity: COVER_OVERLAY_OPACITY } },
+          start: 0,
+          length: COVER_SECONDS,
+          position: 'center',
+        },
       ],
     },
     { clips: textClips },

@@ -16,8 +16,13 @@ import {
   isValidCoverSlug,
   shortenCoverTitle,
   shortenNewsHeadline,
+  shorterCoverHeadline,
+  parseAlt,
+  photoIdOf,
+  NEWS_ALT_WORDS,
   type SocialCoverKind,
 } from '@/lib/social-cover'
+import { findAlternatePortraitPhoto } from '@/lib/pexels'
 
 // Titled single-image social cover, 1080x1350 (Instagram portrait): /social-cover/<kind>/<slug>.
 //   blog / trip / guide: the post's own photo, un-dimmed, with a short ALL-CAPS headline in a solid red block
@@ -134,6 +139,8 @@ interface CoverContent {
   /** Already shortened for the card. */
   headline: string
   photoUrl: string | null
+  /** The cleaned page title, used as the search words when the quality gate asks for another photo. */
+  searchTitle?: string
 }
 
 /** guide-<kind>-<slug> -> { kind, slug }; the longest matching kind wins. */
@@ -146,11 +153,11 @@ function parseGuideLedgerSlug(slug: string): { prefix: OgPrefix; slug: string } 
   return null
 }
 
-async function resolveContent(kind: SocialCoverKind, slug: string): Promise<CoverContent | null> {
+async function resolveContent(kind: SocialCoverKind, slug: string, alt = 0): Promise<CoverContent | null> {
   if (kind === 'news') {
     const post = await getPublishedPostBySlug(slug)
     if (!post) return null
-    const headline = shortenNewsHeadline(post.title)
+    const headline = shortenNewsHeadline(post.title, NEWS_ALT_WORDS[Math.min(alt, NEWS_ALT_WORDS.length - 1)])
     return headline ? { kind, headline, photoUrl: null } : null
   }
   const target = kind === 'blog' ? { prefix: 'blog' as OgPrefix, slug } : kind === 'trip' ? { prefix: 'packages' as OgPrefix, slug } : parseGuideLedgerSlug(slug)
@@ -158,8 +165,10 @@ async function resolveContent(kind: SocialCoverKind, slug: string): Promise<Cove
   const og = await resolveOgTarget(target)
   if (!og) return null
   // cleanTitle strips a trailing site name; the shortener then picks a whole phrase.
-  const headline = shortenCoverTitle(cleanTitle(og.title, SITE_NAME), SITE_NAME)
-  return headline ? { kind, headline, photoUrl: og.photoUrl } : null
+  const searchTitle = cleanTitle(og.title, SITE_NAME)
+  // The quality gate's retries (alt 1 and 2) ask for the same headline cut shorter.
+  const headline = shorterCoverHeadline(shortenCoverTitle(searchTitle, SITE_NAME), alt)
+  return headline ? { kind, headline, photoUrl: og.photoUrl, searchTitle } : null
 }
 
 const STRIP_TEXT = SITE_NAME.toUpperCase()
@@ -217,8 +226,11 @@ function renderNewsCard(content: CoverContent, fonts: Font[]) {
 
 export async function GET(request: Request, { params }: { params: { kind: string; slug: string } }) {
   // Any query string names the same picture as the plain path: one CDN copy, a cache-buster cannot force a re-render.
+  // The one exception is ?alt=1 or ?alt=2: the visual quality gate (lib/visual-gate.ts) asks for the next photo and a
+  // shorter headline when the plain cover failed its checks. Only those two values are accepted.
   const url = new URL(request.url)
-  if (url.search) return new Response(null, { status: 308, headers: { Location: url.pathname, 'Cache-Control': 'public, s-maxage=86400' } })
+  const alt = parseAlt(url.search)
+  if (url.search && !alt) return new Response(null, { status: 308, headers: { Location: url.pathname, 'Cache-Control': 'public, s-maxage=86400' } })
 
   const kind = params.kind
   const slug = params.slug || ''
@@ -226,7 +238,7 @@ export async function GET(request: Request, { params }: { params: { kind: string
 
   let content: CoverContent | null = null
   try {
-    content = await resolveContent(kind, slug)
+    content = await resolveContent(kind, slug, alt)
   } catch (err) {
     console.warn('[social-cover] resolve failed', err instanceof Error ? err.name : 'error')
     return new Response('Unavailable', { status: 503, headers: { 'Cache-Control': 'no-store' } })
@@ -235,13 +247,23 @@ export async function GET(request: Request, { params }: { params: { kind: string
   const resolved: CoverContent = content
 
   const fonts = await loadFonts()
-  const photo = resolved.kind === 'news' ? null : await loadPhoto(resolved.photoUrl)
+  // A retry asks for the next-best photo for the title (never the one the plain cover used); with no other photo to
+  // be had it keeps the original.
+  let photoUrl = resolved.photoUrl
+  if (alt && resolved.kind !== 'news' && resolved.searchTitle) {
+    const other = await findAlternatePortraitPhoto(resolved.searchTitle, alt, [photoIdOf(resolved.photoUrl) ?? ''].filter(Boolean))
+    if (other && isAllowedPhotoUrl(other.url)) photoUrl = other.url
+  }
+  const photo = resolved.kind === 'news' ? null : await loadPhoto(photoUrl)
+  // Read by the quality gate and the variant tags: which design drew this and which photo is behind it.
+  const template = resolved.kind === 'news' ? 'news-card' : 'red-block-v1'
+  const photoHeader = (drew: boolean) => (drew && photoUrl ? photoIdOf(photoUrl) ?? 'unknown' : 'none')
   // ImageResponse draws lazily: read the body inside the try so a photo Satori cannot decode falls back
   // to the no-photo version instead of becoming a 500.
   const draw = async (withPhoto: string | null, withFonts: Font[]) => {
     const res = resolved.kind === 'news' ? renderNewsCard(resolved, withFonts) : renderPhotoCover(resolved, withPhoto, withFonts)
     const png = await res.arrayBuffer()
-    return new Response(png, { headers: { 'Content-Type': 'image/png', 'Cache-Control': CACHE_CONTROL } })
+    return new Response(png, { headers: { 'Content-Type': 'image/png', 'Cache-Control': CACHE_CONTROL, 'X-Cover-Template': template, 'X-Cover-Photo-Id': photoHeader(withPhoto !== null) } })
   }
   try {
     return await draw(photo, fonts)

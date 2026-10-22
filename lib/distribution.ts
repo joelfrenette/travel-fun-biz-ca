@@ -7,7 +7,9 @@ import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
 import { utmLink, canonicalNetwork } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource, packageSlugFromPath } from '@/lib/guide-post-source'
-import { pickPostImage, verifyCoverUrl, type SocialCoverKind } from '@/lib/social-cover'
+import { pickPostImage, type SocialCoverKind } from '@/lib/social-cover'
+import { gateComposedCover, visualTags } from '@/lib/cover-gate'
+import { recordGateEvents, type GateEvent } from '@/lib/visual-gate-stats'
 import { runGuideCatchUp } from '@/lib/guide-distribution'
 import { releaseHeldTrips, runTripSocialEnrol } from '@/lib/trip-social'
 import { fitCaption, tightestLimit, generatePlatformCaptions, buildFallbackCaption, buildNetworkFallbacks, groupNetworksForSend, type PlatformCaptions } from '@/lib/social-captions'
@@ -304,6 +306,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
   let posted = 0
   let failed = 0
   let needsReview = 0
+  let visualSkipped = 0
+  let deferred = 0
   const passStart = Date.now()
   for (const row of rows as DistributionRow[]) {
     try {
@@ -332,11 +336,15 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // Only networks that accept this kind of post, and never ones this post already reached.
       // The image a photo post goes out with is the TITLED cover (app/social-cover), never the bare photo: a bare
       // photo is a grid tile with no words. Travel news has no photo, so it gets the typed text card instead of
-      // going out as text only (Instagram cannot take text). The composed URL is fetched once first; if the route
-      // cannot draw it, the raw photo is the fallback (blog, trip, guide) or the post stays text (news).
+      // going out as text only (Instagram cannot take text). The composed URL is fetched and pixel-checked first
+      // (lib/visual-gate.ts); the raw photo is never the fallback.
       const coverKind: SocialCoverKind = isNewsRow ? 'news' : !isGuideRow ? 'blog' : packageSlugFromPath(row.path as string) ? 'trip' : 'guide'
       const coverSlug = coverKind === 'trip' ? (packageSlugFromPath(row.path as string) as string) : row.slug
-      let sendImage: string | null = post?.cover_image_url || null
+      // Visual quality gate (lib/visual-gate.ts): the rendered PNG is fetched and checked before it is sent. A cover that
+      // fails is retried with the next photo and a shorter headline (up to 2 times), then the row is skipped without
+      // posting. The bare photo is never sent any more. If the check itself cannot run, the row waits for the next tick.
+      let sendImage: string | null = null
+      let gateTagPatch: Record<string, unknown> | null = null
       if (post?.cover_image_url || isNewsRow) {
         const picked = pickPostImage({ base: SITE_URL, kind: coverKind, slug: coverSlug, title, coverUrl: post?.cover_image_url })
         if (picked.composed && picked.url) {
@@ -347,15 +355,51 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
             console.warn('[distribution] verify budget spent, leaving', row.slug, 'for the next run')
             break
           }
-          if (overBudget || (await verifyCoverUrl(picked.url))) {
-            if (!overBudget) verifiedCovers.add(picked.url)
-            sendImage = picked.url
+          if (overBudget) {
+            sendImage = picked.url // already passed the gate on this warm instance
           } else {
-            sendImage = post?.cover_image_url || null
-            console.warn('[distribution] composed cover unavailable for', row.slug, sendImage ? '- sending the raw photo' : '- sending text only')
+            const gated = await gateComposedCover({ base: SITE_URL, kind: coverKind, slug: coverSlug, hasTime: () => Date.now() - passStart <= VERIFY_BUDGET_MS })
+            const retryEvents: GateEvent[] = Array.from({ length: gated.retries }, () => 'retry' as const)
+            if (gated.status === 'budget') {
+              console.warn('[distribution] verify budget spent mid-gate, leaving', row.slug, 'for the next run')
+              await recordGateEvents(admin, retryEvents)
+              break
+            }
+            if (gated.status === 'deferred') {
+              // The check could not run (fetch or decode failed): never post an unchecked image. Wait for the next tick; after
+              // MAX_ATTEMPTS ticks the row is marked failed so a permanently broken cover route does not block the queue.
+              deferred++
+              await recordGateEvents(admin, [...retryEvents, 'deferred'])
+              const attempts = row.attempts + 1
+              await admin
+                .from('post_distribution')
+                .update({ stage: attempts >= MAX_ATTEMPTS ? 'failed' : 'queued', attempts, last_error: `The cover image could not be checked (${gated.reasons[0] ?? 'unknown'}), so nothing was posted.`.slice(0, 300), updated_at: new Date().toISOString() })
+                .eq('content_type', 'post')
+                .eq('slug', row.slug)
+              continue
+            }
+            if (gated.status === 'skip') {
+              // Silent skip: the row is closed (never retried forever), the reason is in the ledger note, the counter goes up.
+              // It is not a failure and not a Needs attention item.
+              visualSkipped++
+              const reason = gated.reasons.join('; ')
+              await recordGateEvents(admin, [...retryEvents, 'skip'], { slug: row.slug, surface: 'feed', reason })
+              await tagVariant(admin, row.slug, visualTags('feed', gated.template, { ok: false, reasons: gated.reasons, retries: gated.retries }, gated.photoId))
+              await admin
+                .from('post_distribution')
+                .update({ stage: 'done', last_error: `visual_skipped: the image failed the quality check after ${gated.retries} retries, so nothing was posted (${reason}).`.slice(0, 300), updated_at: new Date().toISOString() })
+                .eq('content_type', 'post')
+                .eq('slug', row.slug)
+              continue
+            }
+            verifiedCovers.add(gated.url as string)
+            sendImage = gated.url as string
+            gateTagPatch = visualTags('feed', gated.template, { ok: true, reasons: [], retries: gated.retries }, gated.photoId)
+            await recordGateEvents(admin, [...retryEvents, 'pass'])
           }
         }
       }
+      if (gateTagPatch) await tagVariant(admin, row.slug, gateTagPatch)
       const kind = sendImage ? 'photo' : 'text'
       const already = row.sent_platforms ?? []
       const platforms = platformsFor(kind, target.platforms, target.provider).filter((p) => !already.includes(p))
@@ -500,7 +544,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         .eq('slug', row.slug)
     }
   }
-  return `${posted} posted, ${failed} failed, ${needsReview} needs review, ${rows.length} attempted`
+  const gateNote = (visualSkipped ? `, ${visualSkipped} skipped by the image check` : '') + (deferred ? `, ${deferred} waiting (image check could not run)` : '')
+  return `${posted} posted, ${failed} failed, ${needsReview} needs review${gateNote}, ${rows.length} attempted`
 }
 
 /** Resolves "held, needs review" rows (an async send Upload-Post accepted but hadn't confirmed
