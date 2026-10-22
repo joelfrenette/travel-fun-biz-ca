@@ -169,9 +169,11 @@ export default async function BlogPostPage({ params }: Props) {
             </div>
           </header>
 
-          {/* A post with no cover of its own shows the on-brand default for its kind (lib/post-defaults.ts), never a blank gap. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={publicPostImage(post)} alt={post.cover_image_url ? post.alt_text || post.title : post.title} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
+          {/* The big hero only shows a real cover. Cards and lists use the on-brand default (lib/post-defaults.ts) so they are never blank. */}
+          {post.cover_image_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={publicPostImage(post)} alt={post.alt_text || post.title} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
+          )}
 
           {takeaways.length > 0 && (
             <aside id="key-takeaways" className="mb-8 rounded-xl border bg-muted/30 p-5">
