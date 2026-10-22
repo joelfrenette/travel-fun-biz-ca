@@ -11,6 +11,8 @@
 //   pnpm dlx tsx scripts/heal-guides-now.ts --yes --budget=30
 //   pnpm dlx tsx scripts/heal-guides-now.ts --yes --only=resorts/atlantis-paradise-island
 //   pnpm dlx tsx scripts/heal-guides-now.ts --yes --limit=3
+//   pnpm dlx tsx scripts/heal-guides-now.ts --enrich --yes --only=hotels/atlantis-paradise-island   (upgrade ONE safe page to a full page)
+//   pnpm dlx tsx scripts/heal-guides-now.ts --enrich --dry                                           (list safe pages and their tries; no AI, no write)
 //
 // Needs SUPABASE_SERVICE_ROLE_KEY and ANTHROPIC_API_KEY in .env.local (found in the current folder or any folder above it).
 // Rules that still hold (they live in the shared code): guides_publish_mode must be "publish" and automation must not be paused;
@@ -24,7 +26,7 @@ const DEFAULT_BUDGET = 60
 function usage(): never {
   console.error('Refusing to run: this script spends AI calls and may publish guides. Re-run with --yes to confirm (or --dry to only look).')
   console.error('Example: pnpm dlx tsx scripts/heal-guides-now.ts --yes --budget=60')
-  console.error('Options: --yes (required to heal)  --dry (list what would be processed and each guide\'s current blockers; no AI call, no write)  --budget=N (AI calls, default 60)  --only=kind/slug  --limit=N')
+  console.error('Options: --yes (required to heal)  --dry (list what would be processed and each guide\'s current blockers; no AI call, no write)  --budget=N (AI calls, default 60)  --only=kind/slug  --limit=N  --enrich (upgrade a live safe page to a full page instead)')
   process.exit(1)
 }
 
@@ -111,6 +113,33 @@ async function main() {
       console.error('Automation is paused (the kill switch). Stopping.')
       process.exit(1)
     }
+  }
+
+  if (process.argv.includes('--enrich')) {
+    // The same code path the daily heal step runs for safe pages (lib/safe-enrich.ts), on demand: it skips the once-a-day marker and the
+    // two-day gap, but still stops at 3 tries per page, still needs the heal budget, and still replaces a page only when the new text passes
+    // the gate and the independent QA review and is clearly fuller. --only=kind/slug picks the page; --dry lists and changes nothing.
+    const { runSafeEnrichment, listSafePages } = await import('../lib/safe-enrich')
+    const listed = await listSafePages(admin)
+    if (listed.error) console.log(`Warning: ${listed.error}`)
+    console.log(`Safe pages live: ${listed.pages.length}.`)
+    for (const p of listed.pages) console.log(`  ${pad(`${p.kind}/${p.slug}`, 48)} ${p.text}`)
+    if (only && !listed.pages.some((p) => `${p.kind}/${p.slug}` === only)) {
+      console.error(`${only} is not a live safe page, so there is nothing to upgrade.`)
+      process.exit(1)
+    }
+    if (dry) {
+      const d = await runSafeEnrichment(admin, { dry: true, force: true, only: only ?? undefined })
+      console.log(`\nDry run: ${d.note}. No AI call, nothing written.`)
+      return
+    }
+    const shared = memoryBudget(budget)
+    const r = await runSafeEnrichment(admin, { budget: shared, force: true, only: only ?? undefined })
+    console.log(`\nResult: ${r.action}. ${r.note}`)
+    if (r.ladder.length) console.log(`Heal steps used: ${r.ladder.join('>')}`)
+    for (const p of r.problems) console.log(`  problem: ${p}`)
+    console.log(`AI calls used: ${shared.used} of ${budget}. An upgrade can be undone from the Self-healing card (Undo), which puts the safe page and its noindex note back.`)
+    return
   }
 
   const { data, error } = await admin.from('guides').select('*').order('created_at', { ascending: true }).limit(2000)

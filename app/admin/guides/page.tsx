@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import { GuidesBackfillCard } from "@/components/admin/guides-backfill"
 import { GuidesPanel } from "@/components/admin/guides-panel"
+import { GuidesEnrichmentCard } from "@/components/admin/guides-enrichment"
 import { Loader2, Eye, Pencil, ExternalLink, ArrowDown, ArrowUp, Check, X, RotateCcw } from "lucide-react"
 
 // The Pages list (growth loop WP16): every guide page in one searchable, sortable, filterable table, with a review
@@ -172,6 +173,8 @@ export default function GuidesListPage() {
       <GuidesBackfillCard onChanged={load} />
 
       <GuidesPanel variant="full" />
+
+      <GuidesEnrichmentCard />
 
       {data?.needsMigration && (
         <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
