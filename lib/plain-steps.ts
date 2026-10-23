@@ -35,6 +35,9 @@ export const ORDER_WEBHOOK_ISSUE_ID = 'system:order-webhook-failed'
 /** The Needs attention item for live guide pages that no other page links to (WP16). Same reason as above. */
 export const GUIDE_ORPHANS_ISSUE_ID = 'system:guide-orphans'
 
+/** The Needs attention item for error-severity findings of the site health crawl. Same reason as the ids above for living here. */
+export const SITE_CRAWL_ISSUE_ID = 'system:site-crawl'
+
 /** The Needs attention item that lists search phrases where two of our pages compete (hub row 2). INFORMATIONAL: nothing
  * is broken, so it is left out of the alert email like the item above. Same reason as the ids above for living here. */
 export const CANNIBALISATION_ISSUE_ID = 'system:keyword-cannibalisation'
@@ -206,6 +209,24 @@ export function plainAction(i: Issue): PlainAction {
       ],
       url: adminLink('/admin/guides?filter=orphans'),
       urlLabel: 'Open the pages nothing links to',
+      paste,
+    }
+  }
+  if (i.id === SITE_CRAWL_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'Once a day the site visits a few of its own pages the way Google does, and checks the basics: does the page open, does it point to itself as the main copy, is it allowed in search, do its links work. These are the ones that failed. A page with one of these problems can drop out of Google or lose visitors.',
+      steps: [
+        'Open System Health with the link below and find the "Site health crawl" box.',
+        'Read the first problem. It says which page, what is wrong, and what to do.',
+        'Open that page in your browser. If it loads fine and looks right, the problem may have been a slow moment: it is checked again within a week and clears by itself.',
+        'If a link in a blog post or guide points at a page that is gone, you do not need to do anything: the daily clean-up removes that link by itself (the words stay) and you can undo it on the Content edits page.',
+        'For anything else, copy the message below and paste it to Claude.',
+        'Click "Dismiss" here. This item only comes back if a NEW problem appears.',
+      ],
+      url: adminLink('/admin/system-health'),
+      urlLabel: 'Open System Health',
       paste,
     }
   }

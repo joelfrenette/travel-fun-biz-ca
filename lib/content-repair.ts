@@ -29,10 +29,10 @@ import { hasDash } from '@/lib/seo-score'
 export type ContentType = 'post' | 'guide' | 'page_copy' | 'package'
 /** `ai_faqs` and `keywords` are trip page (package) fields, written only by the trip pass of the heal
  * (lib/content-heal-run.ts); the text repair never touches them. */
-export type EditField = 'body' | 'title' | 'meta_title' | 'meta_description' | 'og_title' | 'og_description' | 'faq' | 'key_takeaways' | 'links' | 'ai_faqs' | 'keywords' | 'status' | 'hero_image_url' | 'hero_alt'
+export type EditField = 'body' | 'title' | 'meta_title' | 'meta_description' | 'og_title' | 'og_description' | 'faq' | 'key_takeaways' | 'links' | 'ai_faqs' | 'keywords' | 'status' | 'hero_image_url' | 'hero_alt' | 'alt_text'
 export type EditMethod = 'ai' | 'delete' | 'fixer' | 'links' | 'generate'
 /** The fields a repair can touch. `links` is not one of them: it is how a body edit made only of links is labelled. */
-export type LogicalField = Exclude<EditField, 'links' | 'ai_faqs' | 'keywords' | 'status' | 'hero_image_url' | 'hero_alt'>
+export type LogicalField = Exclude<EditField, 'links' | 'ai_faqs' | 'keywords' | 'status' | 'hero_image_url' | 'hero_alt' | 'alt_text'>
 
 export interface FaqPair {
   q: string
@@ -191,7 +191,7 @@ export function bodySentences(text: string): { text: string; prefix: string; hea
 }
 
 /** Markdown link targets that are internal paths, normalised; null for anything else. */
-function internalPath(href: string): string | null {
+export function internalPath(href: string): string | null {
   let t = href
   if (/^https?:\/\//i.test(t)) {
     try {

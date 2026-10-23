@@ -12,7 +12,9 @@ import { readGuideFailures, readGuideFailuresChecked, clearAllGuideFailures, MAX
 import { readCopyFailures, readCopyFailuresChecked, clearAllCopyFailures, MAX_COPY_ATTEMPTS, STALE_COPY_KEY } from '@/lib/page-copy-failures'
 import { healLoopCard } from '@/lib/heal-loop'
 import { orderWebhookFailureCount } from '@/lib/webhook-order-result'
-import { AI_SPEND_ISSUE_ID, AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, ORDER_WEBHOOK_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { readCrawlState, dismissCrawlErrors } from '@/lib/site-crawl-run'
+import { undismissedErrors, pathOf as crawlPathOf } from '@/lib/site-crawl'
+import { AI_SPEND_ISSUE_ID, AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, SITE_CRAWL_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, ORDER_WEBHOOK_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
 import { failingSources, newsTableReady } from '@/lib/news-ingest'
 import { getNewsMode } from '@/lib/news-settings'
 import { sourceByKey } from '@/lib/news-sources'
@@ -34,7 +36,7 @@ import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
 
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale' | 'dismiss-source-watch' | 'dismiss-promotion'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale' | 'dismiss-source-watch' | 'dismiss-promotion' | 'dismiss-site-crawl'
 
 export interface Issue {
   id: string
@@ -205,6 +207,28 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     }
   } catch {
     // an unreadable audit is not worth failing the list
+  }
+
+  // The site health crawl (it looks at the live site like a search engine): ONE item lists the error-severity findings. Warnings and
+  // notes stay on the System Health card. Dismiss hides it until a NEW error appears. Silent when the result cannot be read.
+  try {
+    const crawl = await readCrawlState(admin)
+    const errs = crawl ? undismissedErrors(crawl) : []
+    if (crawl && errs.length > 0) {
+      const lines = errs.slice(0, 5).map((f) => `${crawlPathOf(f.url)}: ${f.message}`).join(' | ')
+      const more = errs.length > 5 ? ` and ${errs.length - 5} more` : ''
+      issues.push({
+        id: SITE_CRAWL_ISSUE_ID,
+        area: 'system',
+        title: `The site check found ${errs.length} problem${errs.length === 1 ? '' : 's'} a search engine would notice`,
+        detail: `${lines}${more}.`,
+        fix: errs[0].hint,
+        link: { label: 'Open System Health', href: '/admin/system-health' },
+        actions: [{ label: 'Dismiss', kind: 'dismiss-site-crawl' }],
+      })
+    }
+  } catch {
+    // an unreadable crawl result is not worth failing the list
   }
 
   // Paid orders from GoHighLevel that could not be saved (the webhook answered 500 so GoHighLevel retries). Silent when none,
@@ -545,6 +569,7 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
   if (kind === 'dismiss-guides') return (await clearAllGuideFailures(admin)).error ?? null
   if (kind === 'dismiss-page-copy') return (await clearAllCopyFailures(admin)).error ?? null
   if (kind === 'dismiss-promotion') return (await clearAllPromotionFailures(admin)).error ?? null
+  if (kind === 'dismiss-site-crawl') return dismissCrawlErrors(admin)
   if (kind === 'dismiss-page-copy-stale') {
     // Empties the stored list but keeps the "checked at" stamps, so the daily check resumes on schedule.
     let state: Record<string, unknown> = {}

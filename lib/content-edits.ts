@@ -260,6 +260,9 @@ export function columnsFor(type: ContentType, field: EditField, text: string): R
     case 'hero_alt':
       // The guide photo loop's edits: an empty "before" (the guide had no hero) puts back a null, not an empty string.
       return type === 'guide' ? { [field]: text.trim() ? text : null } : null
+    case 'alt_text':
+      // The site crawl's cover alt fix (a post's cover picture description). An empty "before" puts back a null.
+      return type === 'post' ? { alt_text: text.trim() ? text : null } : null
     case 'title':
       return type === 'post' ? { title: text } : null
     case 'status':

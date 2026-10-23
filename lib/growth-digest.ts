@@ -83,6 +83,8 @@ export interface DigestInput {
   social: Read<SocialState>
   /** What the Optimizer has learned so far (lib/optimizer.ts). Optional: left out, the digest has no Learning line. */
   learning?: Read<{ retired: number; winners: number }>
+  /** What the daily site health crawl found (lib/site-crawl.ts). Optional: left out, the digest has no Site health line. */
+  siteHealth?: Read<{ errors: number; warnings: number; checked: number } | null>
 }
 
 export interface DigestSection {
@@ -266,6 +268,11 @@ export function buildGrowthDigest(i: DigestInput): GrowthDigest {
   one('Guides still flagged by the quality check', i.guidesFlagged)
   one('Blog drafts held back (last 30 days)', i.postsHeld)
   if (i.learning) c.push(i.learning.ok ? `Learning: ${plural(i.learning.value.retired, 'style')} retired, ${plural(i.learning.value.winners, 'winner')}` : `Learning: ${UNREAD}`)
+  if (i.siteHealth) {
+    if (!i.siteHealth.ok) c.push(`Site health: ${UNREAD}`)
+    else if (i.siteHealth.value === null) c.push('Site health: the daily crawl has not run yet')
+    else c.push(`Site health: ${plural(i.siteHealth.value.errors, 'error')}, ${plural(i.siteHealth.value.warnings, 'warning')} (${n0(i.siteHealth.value.checked)} pages checked in the last 7 days)`)
+  }
   sections.push({ title: 'Content shipped in the last 7 days', lines: c })
 
   // 3. Money and leads
