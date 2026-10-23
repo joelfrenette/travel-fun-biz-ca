@@ -118,7 +118,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
                 return (
                   <Link key={pkg.id} href={`/packages/${pkg.slug}`} className="group flex flex-col gap-3 rounded-xl border bg-card p-5 transition-shadow hover:shadow-lg">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={pkg.image_url || DEFAULT_OG_IMAGE} alt={pkg.name} className="h-32 w-full rounded object-cover" />
+                    <img src={pkg.image_url || DEFAULT_OG_IMAGE} alt={pkg.name} loading="lazy" decoding="async" className="h-32 w-full rounded object-cover" />
                     <div>
                       <p className="font-medium text-foreground group-hover:underline">{pkg.name}</p>
                       {dates && (

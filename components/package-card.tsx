@@ -18,9 +18,11 @@ interface PackageCardProps {
   language: Language
   currency: Currency
   usdToTargetRate: number
+  /** Load the photo right away. Only for a card at the very top of a page (a guide header); every other card is lazy so it never competes with the page's main photo. */
+  eager?: boolean
 }
 
-export function PackageCard({ package: pkg, language, currency, usdToTargetRate }: PackageCardProps) {
+export function PackageCard({ package: pkg, language, currency, usdToTargetRate, eager = false }: PackageCardProps) {
   const priceValue = pkg.priceValue ?? parseUsdPrice(pkg.price)
   const priceDisplay = priceValue ? formatPrice(priceValue, currency, usdToTargetRate) : pkg.price
   // Price on request: only when the trip has no price of its own. The number is the site's, never a host's.
@@ -34,6 +36,10 @@ export function PackageCard({ package: pkg, language, currency, usdToTargetRate 
           <img
             src={pkg.image || "/placeholder.svg"}
             alt={pkg.name}
+            width={384}
+            height={192}
+            loading={eager ? "eager" : "lazy"}
+            decoding="async"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
             onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg" }}
           />

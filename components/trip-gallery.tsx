@@ -17,7 +17,7 @@ export function TripGallery({ images, alt }: { images: string[]; alt: string }) 
             className="group aspect-square overflow-hidden rounded-lg border bg-muted"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={src} alt={`${alt} photo ${i + 1}`} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+            <img src={src} alt={`${alt} photo ${i + 1}`} loading="lazy" decoding="async" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
           </button>
         ))}
       </div>
