@@ -240,3 +240,37 @@ export async function getGa4RangeReport(range: DashRange): Promise<Ga4RangeRepor
   rangeCache.set(range, { report, at: Date.now() })
   return report
 }
+
+// ---------- Dashboard top pages (page views per path for a range) ----------
+
+export interface Ga4PageViewRow {
+  pagePath: string
+  views: number
+  sessions: number
+}
+
+const pageCache = new Map<DashRange, { rows: Ga4PageViewRow[]; at: number }>()
+
+/** Page views and sessions per page path for a dashboard range, one read-only request, cached 10 minutes per range.
+ * Throws "GA4 report failed: <reason>" on a Google error so the caller can say "could not be read" (never a zero). */
+export async function getGa4PageViews(range: DashRange): Promise<Ga4PageViewRow[]> {
+  const hit = pageCache.get(range)
+  if (hit && Date.now() - hit.at < RANGE_CACHE_MS) return hit.rows
+  const propertyId = process.env.GA4_PROPERTY_ID
+  if (!propertyId) throw new Error('GA4_PROPERTY_ID is not set')
+  const token = await getGoogleAccessToken(SCOPE)
+  const json = await runReport(propertyId, token, {
+    dateRanges: [ga4DateRange(range)],
+    dimensions: [{ name: 'pagePath' }],
+    metrics: [{ name: 'screenPageViews' }, { name: 'sessions' }],
+    orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+    limit: 10000,
+  })
+  const rows = (json.rows || []).map((r) => ({
+    pagePath: String(r.dimensionValues?.[0]?.value || ''),
+    views: Number(r.metricValues?.[0]?.value) || 0,
+    sessions: Number(r.metricValues?.[1]?.value) || 0,
+  }))
+  pageCache.set(range, { rows, at: Date.now() })
+  return rows
+}

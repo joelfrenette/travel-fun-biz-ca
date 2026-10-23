@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { adminTools } from "@/lib/admin-nav"
 import type { Ga4RangeReport } from "@/lib/ga4"
 import type { SearchRangeResult, VisitsRangeResult } from "@/lib/dashboard-data"
+import type { TopPagesResponse, TopPostsResponse } from "@/lib/dashboard-top-data"
+import { TopPagesCard, TopPostsCard } from "@/components/admin/dashboard-top-cards"
 import { FunnelPanel } from "@/components/admin/funnel-panel"
 import { DashboardRangePills } from "@/components/admin/dashboard-range-pills"
 import { StatTile, TrafficCard, SearchCard, VisitsCard, searchNote, type Loadable } from "@/components/admin/dashboard-cards"
@@ -79,6 +81,8 @@ export default function AdminPage() {
   const ga = useRangeData<Ga4RangeReport>("/api/admin/analytics", range, rangeReady)
   const search = useRangeData<SearchRangeResult>("/api/admin/dashboard-search", range, rangeReady)
   const visits = useRangeData<VisitsRangeResult>("/api/admin/dashboard-visits", range, rangeReady)
+  const topPages = useRangeData<TopPagesResponse>("/api/admin/dashboard-top-pages", range, rangeReady)
+  const topPosts = useRangeData<TopPostsResponse>("/api/admin/dashboard-top-posts", range, rangeReady)
   const notConnected = ga.raw?.json?.configured === false && ga.state.kind === "ready"
   const phrase = RANGE_PHRASE[range]
 
@@ -138,6 +142,8 @@ export default function AdminPage() {
         <TrafficCard range={range} state={notConnected ? { kind: "loading" } : ga.state} notConnected={notConnected} setupUrl={SETUP_STEPS_URL} />
         <SearchCard range={range} state={search.state} />
         <VisitsCard range={range} state={visits.state} />
+        <TopPagesCard range={range} state={topPages.state} />
+        <TopPostsCard range={range} state={topPosts.state} />
       </div>
 
       <div className="mb-8">
