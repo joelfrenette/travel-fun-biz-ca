@@ -4,6 +4,7 @@ import { aboutLinks, legalLinks, officeInfo, recognitionBadges, reviewsBadge, so
 import { cruiseAndResortLinks, destinationsLink } from "@/content/navigation"
 import { LazyNewsletterForm } from "@/components/lazy-newsletter-form"
 import { CookieSettingsLink } from "@/components/cookie-settings-link"
+import { LocaleEffects } from "@/components/locale-effects"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 import { FROM_CITIES, fromPath } from "@/lib/from-cities"
@@ -34,6 +35,8 @@ function FooterTile({ href, src, alt, fit }: { href: string; src: string; alt: s
 
 export function Footer({ language }: FooterProps) {
   return (
+    <>
+    <LocaleEffects language={language} />
     <footer className="bg-[#2a2a2a] text-white">
       <div className="container mx-auto px-4 py-12">
         <div className="grid gap-8 lg:grid-cols-4">
@@ -150,5 +153,6 @@ export function Footer({ language }: FooterProps) {
         </nav>
       </div>
     </footer>
+    </>
   )
 }

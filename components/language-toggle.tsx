@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useRouter } from "next/navigation"
 import type { Language } from "@/lib/preferences"
 
 interface LanguageToggleProps {
@@ -10,7 +9,6 @@ interface LanguageToggleProps {
 }
 
 export function LanguageToggle({ language }: LanguageToggleProps) {
-  const router = useRouter()
   const [value, setValue] = useState<Language>(language)
   const [pending, setPending] = useState(false)
   // The header mounts two toggles (desktop and mobile); after router.refresh() the server sends the new value, so follow it.
@@ -27,7 +25,9 @@ export function LanguageToggle({ language }: LanguageToggleProps) {
         credentials: "include",
         body: JSON.stringify({ language: normalized }),
       })
-      router.refresh()
+      // A full reload, not router.refresh(): the page is served from a different copy (cacheable default vs the
+      // visitor's own language) once the cookie exists, and a soft refresh cannot swap between the two.
+      window.location.reload()
     } finally {
       setPending(false)
     }

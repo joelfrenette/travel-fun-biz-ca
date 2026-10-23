@@ -4,13 +4,10 @@ import { Inter } from "next/font/google"
 import { SiteAnalytics } from "@/components/site-analytics"
 import "./globals.css"
 import { ConsentAnalytics } from "@/components/consent-analytics"
-import { CookieBanner } from "@/components/cookie-banner"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AttributionCapture } from "@/components/attribution-capture"
 import { VisitTracker } from "@/components/visit-tracker"
 import { ScrollToTop } from "@/components/scroll-to-top"
-import { cookies } from 'next/headers'
-import { normalizeLanguage } from '@/lib/preferences'
 import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE } from '@/lib/site'
 
 const inter = Inter({
@@ -58,12 +55,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const cookieStore = cookies()
-  const lang = normalizeLanguage(cookieStore.get('lang')?.value)
+  // No cookies() here on purpose: reading the visitor's language in the root layout made every page on the site render
+  // per request, so nothing could be cached. The language now comes from each page (components/locale-effects.tsx draws
+  // the consent banner and sets <html lang> from the page's own language). See lib/cache-routing.ts.
   const gaId = process.env.NEXT_PUBLIC_GA_ID
 
   return (
-    <html lang={lang} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
@@ -75,7 +73,6 @@ export default function RootLayout({
         </ThemeProvider>
         {/* Google Analytics only loads after the visitor accepts analytics (components/consent-analytics.tsx). */}
         <ConsentAnalytics gaId={gaId} />
-        <CookieBanner language={lang} />
       </body>
     </html>
   )

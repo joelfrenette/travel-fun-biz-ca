@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { isStaticRender } from '@/lib/static-render'
 
 // Server-only client using the service role key, which bypasses Row Level
 // Security. Never import this from client components; call it only from API
@@ -19,7 +20,14 @@ export function getSupabaseAdmin(): SupabaseClient {
     // near-identical posts in one day (2026-10-09) and double-spend keyword research (2026-10-08).
     client = createClient(SUPABASE_URL, key, {
       auth: { persistSession: false },
-      global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+      global: {
+        fetch: (input, init) =>
+          // Only the cacheable default page render (lib/static-render.ts) may read through Next's data cache, and only
+          // for the 5 minutes those pages already allow. Every other caller stays live, as described above.
+          isStaticRender()
+            ? fetch(input, { ...init, next: { revalidate: 300 } })
+            : fetch(input, { ...init, cache: 'no-store' }),
+      },
     })
   }
   return client

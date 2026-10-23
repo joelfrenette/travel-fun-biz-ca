@@ -2,6 +2,7 @@
 import { cookies } from 'next/headers'
 import type { Currency } from '@/lib/currency'
 import { site } from '@/lib/site'
+import { isStaticRender } from '@/lib/static-render'
 
 export type Language = 'en' | 'fr' | 'es'
 
@@ -30,6 +31,9 @@ export function normalizeCurrency(value?: string | null): Currency {
 }
 
 export function getVisitorPreferences() {
+  // Inside the cacheable default render (the mirror pages, lib/cache-routing.ts) there is no visitor: English and the site's currency, and
+  // cookies() is never called, so the page can be cached. See lib/static-render.ts.
+  if (isStaticRender()) return { language: 'en' as Language, currency: site.defaultCurrency }
   const cookieStore = cookies()
   const language = normalizeLanguage(cookieStore.get(LANGUAGE_COOKIE)?.value)
   const currency = normalizeCurrency(cookieStore.get(CURRENCY_COOKIE)?.value)
