@@ -58,6 +58,36 @@ export function FunnelPanel() {
           ))}
         </div>
 
+        <div className="mt-4">
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Visit to lead, by page type</p>
+          {funnel.byPageType === null ? (
+            <p className="text-[11px] text-muted-foreground">Not measured: the lead pages could not be read.</p>
+          ) : funnel.byPageType.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">No visits or leads to split by page type yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-muted-foreground">
+                  <tr><th className="py-1 pr-3 font-medium">Page type</th><th className="py-1 pr-3 font-medium">Visits landed</th><th className="py-1 pr-3 font-medium">Leads (form on this page)</th><th className="py-1 font-medium">Leads per 100 visits</th></tr>
+                </thead>
+                <tbody>
+                  {funnel.byPageType.map((r) => (
+                    <tr key={r.type} className="border-t">
+                      <td className="py-1 pr-3">{r.label}</td>
+                      <td className="py-1 pr-3">{r.visits === null ? "not measured" : r.visits.toLocaleString()}</td>
+                      <td className="py-1 pr-3">{r.leads.toLocaleString()}</td>
+                      <td className="py-1">{r.per100 === null ? "not measured" : r.per100}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+            Enquiry-form views and form starts are not measured here: they exist only as Google Analytics events (form_start, form_submit, cta_view, cta_click, thank_you_view) for visitors who accepted analytics. Visits count the page a visit landed on; a lead counts the page its form was on, so the two can differ.
+          </p>
+        </div>
+
         {funnel.visitsByChannel.length > 0 && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-medium text-muted-foreground">Visits by channel</p>

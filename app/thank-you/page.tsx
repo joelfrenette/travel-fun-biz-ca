@@ -5,6 +5,8 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PhoneLink } from "@/components/phone-link"
 import { Button } from "@/components/ui/button"
+import { TripAlertForm } from "@/components/trip-alert-form"
+import { ThankYouTrack } from "@/components/thank-you-track"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
 import { site, SITE_NAME } from "@/lib/site"
@@ -45,7 +47,18 @@ export default function ThankYouPage({ searchParams }: { searchParams: { package
                 <Link href="/">{translate(language, "Browse more trips")}</Link>
               </Button>
             </div>
+
+            {/* Conversion loop: a next step for the visitor. No promise about how fast we reply. */}
+            <section aria-labelledby="thank-you-next" className="mt-12 rounded-xl border bg-card p-6 text-left shadow-sm">
+              <h2 id="thank-you-next" className="text-lg font-bold text-foreground">What happens next</h2>
+              <p className="mt-1 text-sm text-muted-foreground">A travel advisor reads your enquiry and replies by email.</p>
+              <p className="mt-4 text-sm font-medium text-foreground">Want to hear about our next trips too?</p>
+              <div className="mt-3">
+                <TripAlertForm source="/thank-you" language={language} />
+              </div>
+            </section>
           </div>
+          <ThankYouTrack />
         </section>
       </main>
       <Footer language={language} />

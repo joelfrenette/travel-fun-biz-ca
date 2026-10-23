@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { ExternalLink, Phone } from "lucide-react"
 import { track } from "@/lib/analytics-client"
+import { trackConversion } from "@/lib/conversion-events"
 import { telHref } from "@/lib/guide-facts"
 import { PhoneLink } from "@/components/phone-link"
 
@@ -20,7 +21,7 @@ interface StickyCtaProps {
 }
 
 // Ids of the on-page forms. The bar slides away while any of them is on screen so it never covers a submit button.
-const FORM_IDS = ["enquire", "contact", "guide-cta"]
+const FORM_IDS = ["enquire", "contact", "guide-cta", "page-signup"]
 
 // Phone-only bar pinned to the bottom of a page. Hides itself while the enquiry form is on screen.
 export function StickyCta({ packageName, requestLabel, bookingUrl, bookLabel, requestHref = "#enquire", phone, callLabel = "Call or text" }: StickyCtaProps) {
@@ -53,7 +54,7 @@ export function StickyCta({ packageName, requestLabel, bookingUrl, bookLabel, re
       style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
     >
       <div className="container mx-auto flex gap-2 px-1">
-        <a href={requestHref} className="flex flex-1 items-center justify-center rounded-md bg-primary px-4 py-3 text-sm font-bold uppercase text-primary-foreground">
+        <a href={requestHref} onClick={() => trackConversion("cta_click", { block_id: "sticky_bar", kind: "enquiry" })} className="flex flex-1 items-center justify-center rounded-md bg-primary px-4 py-3 text-sm font-bold uppercase text-primary-foreground">
           {requestLabel}
         </a>
         {tel && (

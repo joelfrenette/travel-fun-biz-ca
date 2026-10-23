@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -16,6 +16,8 @@ import { contactFormSchema, type ContactFormValues } from "@/lib/schemas/contact
 import { samplePackages } from "@/content/packages"
 import { getAttribution } from "@/lib/attribution"
 import { track } from "@/lib/analytics-client"
+import { trackConversion } from "@/lib/conversion-events"
+import { aboutLine, cleanTopic } from "@/lib/conversion"
 import { formErrorMessage, submitPackage } from "@/lib/form-errors"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
@@ -40,20 +42,25 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
   const { toast } = useToast()
   const searchParams = useSearchParams()
   const router = useRouter()
+  const started = useRef(false)
 
   const fallbackPackageOptions = useMemo(
     () => Array.from(new Set(samplePackages.map((pkg) => pkg.name))),
     [],
   )
 
+  const packageFromQuery = searchParams?.get("package") || undefined
+  // Conversion loop: a guide or blog post links here with ?package=...&about=... so the lead arrives with context.
+  const aboutFromQuery = cleanTopic(searchParams?.get("about"))
+
   const availablePackages = useMemo(() => {
     const source = packageOptions?.length ? packageOptions : fallbackPackageOptions
     const unique = new Set(source.filter(Boolean))
     unique.add("Custom Package")
+    // A trip named in the link must be a choice in the list, or the dropdown would show blank instead of it.
+    if (packageFromQuery) unique.add(packageFromQuery)
     return Array.from(unique)
-  }, [packageOptions, fallbackPackageOptions])
-
-  const packageFromQuery = searchParams?.get("package") || undefined
+  }, [packageOptions, fallbackPackageOptions, packageFromQuery])
 
   const baseDefaultValues = useMemo<ContactFormValues>(
     () => ({
@@ -63,10 +70,10 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
       package: packageFromQuery || preselectedPackage || "",
       travelDate: "",
       travelers: "",
-      message: "",
+      message: aboutLine(aboutFromQuery),
       company_website: "",
     }),
-    [packageFromQuery, preselectedPackage],
+    [packageFromQuery, preselectedPackage, aboutFromQuery],
   )
 
   const {
@@ -100,6 +107,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
       }
 
       track("generate_lead", { package_name: packageName, page_path: window.location.pathname, method: "contact_form" })
+      trackConversion("form_submit", { form_id: "contact_form" })
       reset(baseDefaultValues)
       // One URL for every conversion, so GA4 and ad platforms can count it without custom events.
       router.push(`/thank-you?package=${encodeURIComponent(packageName)}`)
@@ -121,7 +129,15 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          onFocusCapture={() => {
+            if (started.current) return
+            started.current = true
+            trackConversion("form_start", { form_id: "contact_form" })
+          }}
+          className="space-y-6"
+        >
           {/* Honeypot: invisible to a real visitor, filled in by form-filling bots. */}
           <div className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
             <Label htmlFor="company_website">Company Website</Label>

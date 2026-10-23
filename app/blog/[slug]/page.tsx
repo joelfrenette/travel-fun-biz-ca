@@ -11,13 +11,17 @@ import { getRelatedPackages } from "@/lib/packages"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getUsdToRate } from "@/lib/fx"
 import { renderMarkdown, readingTimeMinutes, excerptFromMarkdown } from "@/lib/markdown"
-import { SITE_NAME, SITE_LOCALE, absoluteUrl } from "@/lib/site"
+import { SITE_NAME, SITE_LOCALE, absoluteUrl, site } from "@/lib/site"
 import { ogImageEntry, structuredImages } from "@/lib/og-path"
 import { isGenericAlt } from "@/lib/image-quality"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { styleById } from "@/lib/content-styles"
 import { PackageCard } from "@/components/package-card"
 import { GuideCta } from "@/components/guide-cta"
+import { ContextCta } from "@/components/context-cta"
+import { StickyCta } from "@/components/sticky-cta"
+import { translate } from "@/lib/i18n"
+import { splitAfterQuickAnswer, enquiryHrefWithContext } from "@/lib/conversion"
 import { listGuidesForPost, guideKinds, guidePath } from "@/lib/guides"
 import { blogFaq, blogTakeaways, blogFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
@@ -90,6 +94,7 @@ export default async function BlogPostPage({ params }: Props) {
   // What the call to action names: the destination of the linked package when there is one, else the post primary keyword, else its title.
   const linkedPackage = post.related_package_id ? relatedPackages.find((p) => p.id === post.related_package_id) : undefined
   const ctaName = isNews ? "your next trip" : linkedPackage?.destination?.trim() || post.primary_keyword?.trim() || post.title
+  const [articleBefore, articleAfter] = splitAfterQuickAnswer(linked.html(fieldSet.body))
   // Show "Updated" only when the post was really edited more than a day after it was published.
   const publishedMs = post.publish_date ? new Date(post.publish_date).getTime() : NaN
   const updatedMs = post.updated_at ? new Date(post.updated_at).getTime() : NaN
@@ -184,9 +189,10 @@ export default async function BlogPostPage({ params }: Props) {
             </aside>
           )}
 
-          <div className="mb-8"><GuideCta name={ctaName} compact /></div>
-
-          <div className="markdown-body" dangerouslySetInnerHTML={{ __html: linked.html(fieldSet.body) }} />
+          {/* One context-aware block right after the Quick answer (or before the article when there is none). */}
+          {articleBefore && <div className="markdown-body" dangerouslySetInnerHTML={{ __html: articleBefore }} />}
+          <div className="my-8"><ContextCta blockId="after_quick_answer" subject={ctaName} packageName={linkedPackage?.name} phone={site.phone} /></div>
+          {articleAfter && <div className="markdown-body" dangerouslySetInnerHTML={{ __html: articleAfter }} />}
 
           {faq.length > 0 && (
             <section className="mt-10" aria-labelledby="faq-heading">
@@ -246,11 +252,25 @@ export default async function BlogPostPage({ params }: Props) {
                 ))}
               </div>
             </div>
-          ) : (
-            <div className="mt-12"><GuideCta name={ctaName} /></div>
-          )}
+          ) : null}
+
+          {/* The end of the page has ONE closing block: the full enquiry form when no trips are linked, else the short block. */}
+          <div className="mt-12">
+            {relatedPackages.length > 0 ? (
+              <ContextCta blockId="end_of_page" subject={ctaName} packageName={linkedPackage?.name} phone={site.phone} />
+            ) : (
+              <GuideCta name={ctaName} packageName={linkedPackage?.name} topic={ctaName} />
+            )}
+          </div>
         </article>
       </main>
+      <StickyCta
+        packageName={linkedPackage?.name || ctaName}
+        requestLabel={translate(language, "Request Info")}
+        requestHref={relatedPackages.length > 0 ? enquiryHrefWithContext(linkedPackage?.name, ctaName) : "#guide-cta"}
+        phone={site.phone}
+        callLabel={translate(language, "Call or text now")}
+      />
       <Footer language={language} />
     </div>
   )

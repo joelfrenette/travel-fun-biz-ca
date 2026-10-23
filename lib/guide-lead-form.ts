@@ -1,4 +1,5 @@
 import type { Attribution } from '@/lib/attribution'
+import { messageWithContext } from '@/lib/conversion'
 
 // Pure helpers for the inline lead form on guide pages (components/guide-lead-form.tsx). Kept out of the component so
 // the payload and the error messages can be checked offline (scripts/check-guide-lead-form.ts). The payload matches
@@ -11,6 +12,8 @@ export interface GuideLeadInput {
   email: string
   phone?: string
   message?: string
+  /** What the page is about (destination, keyword). Goes first in the message so the lead arrives with context. */
+  topic?: string | null
   /** The guide's linked trip name, if any. */
   packageName?: string | null
   /** The honeypot field value as the browser holds it. Real visitors leave it empty. */
@@ -47,7 +50,7 @@ export function guideFormMissing(input: { name?: string; email?: string }): Arra
 
 export function buildGuideLeadPayload(input: GuideLeadInput): GuideLeadPayload {
   const phone = (input.phone ?? '').trim()
-  const message = (input.message ?? '').trim()
+  const message = messageWithContext(input.topic, input.message)
   const payload: GuideLeadPayload = {
     name: input.name.trim(),
     email: input.email.trim(),

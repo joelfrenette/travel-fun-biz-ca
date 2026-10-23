@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getGa4Report, isGa4Configured } from '@/lib/ga4'
 import { isVisitTrackingOn } from '@/lib/visit-tracking'
+import { funnelByPageType, type PageTypeFunnelRow } from '@/lib/conversion'
 
 // Dashboard funnel (e10/f10-2, factory Phase 10-11). Nomad's own factory hit a real bug from this
 // exact kind of number appearing on two screens computed two different ways and disagreeing
@@ -23,6 +24,8 @@ export interface FunnelStage {
 export interface FunnelResult {
   days: number
   revenueCents: number
+  /** Visits and leads by page type (lib/conversion.ts). null = the lead pages could not be read. Visits inside are null when visit tracking is off or empty. */
+  byPageType: PageTypeFunnelRow[] | null
   visitsByChannel: { channel: string; count: number }[]
   stages: FunnelStage[]
 }
@@ -70,10 +73,12 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
     // Each row is already a rolling 28-day total (see lib/rankings-snapshot.ts), so read ONLY the latest.
     admin.from('gsc_ranking_days').select('day, impressions').order('day', { ascending: false }).limit(1),
     trackingOn ? admin.from('site_visits').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso) : noVisits,
-    trackingOn ? admin.from('site_visits').select('channel').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT) : noVisits,
+    trackingOn ? admin.from('site_visits').select('channel, landing_path').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT) : noVisits,
     admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', sinceIso),
     admin.from('orders').select('amount_cents, status, is_test').gte('created_at', sinceIso),
   ])
+  // Which page the lead form was on (page_path is stored even without analytics consent). A failed read means "not measured".
+  const leadPagesRes = await admin.from('leads').select('page_path').eq('is_test', false).gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT)
 
   const impressions = latestRollingImpressions((gscRes.data ?? []) as { day: string; impressions: number | null }[])
   const visitCount = visitsCountRes.count ?? 0
@@ -99,9 +104,13 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
     byChannel.set(key, (byChannel.get(key) ?? 0) + 1)
   }
 
+  const visitPaths = trackingOn && visitCount > 0 ? (visitRows as { landing_path?: string | null }[]).map((r) => r.landing_path ?? null) : null
+  const byPageType = leadPagesRes.error ? null : funnelByPageType(visitPaths, ((leadPagesRes.data ?? []) as { page_path: string | null }[]).map((r) => r.page_path))
+
   return {
     days,
     revenueCents,
+    byPageType,
     visitsByChannel: Array.from(byChannel, ([channel, count]) => ({ channel, count })).sort((a, b) => b.count - a.count),
     stages: [
       {

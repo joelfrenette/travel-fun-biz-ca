@@ -122,5 +122,8 @@ export interface LeadRow {
   utm_source?: string | null
   utm_medium?: string | null
   utm_campaign?: string | null
+  utm_content?: string | null
+  /** The page the form was on. Stored even without analytics consent. */
+  page_path?: string | null
   created_at: string
 }

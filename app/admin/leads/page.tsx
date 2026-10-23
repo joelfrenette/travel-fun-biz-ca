@@ -5,6 +5,21 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Users } from "lucide-react"
 import type { LeadRow } from "@/lib/leads"
+import { PAGE_TYPE_LABELS, pageTypeOfPath } from "@/lib/conversion"
+
+/** Every source fact stored for a lead, plainest first: the page the form was on, then how the visitor arrived. */
+function leadSourceParts(l: LeadRow): string[] {
+  return [
+    l.page_path && `form on ${l.page_path} (${PAGE_TYPE_LABELS[pageTypeOfPath(l.page_path)].toLowerCase()})`,
+    l.utm_source && `campaign source ${l.utm_source}`,
+    l.utm_medium && `medium ${l.utm_medium}`,
+    l.utm_campaign && `campaign ${l.utm_campaign}`,
+    l.utm_content && `content ${l.utm_content}`,
+    l.utm_term && `term ${l.utm_term}`,
+    l.referrer && `from ${l.referrer}`,
+    l.landing_path && `landed on ${l.landing_path}`,
+  ].filter((x): x is string => !!x)
+}
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -62,11 +77,13 @@ export default function LeadsPage() {
                   <p className="text-xs text-muted-foreground">
                     {l.email}{l.phone ? ` · ${l.phone}` : ""}{l.package ? ` · ${l.package}` : ""} · {new Date(l.created_at).toLocaleString("en-CA")}
                   </p>
-                  {(l.utm_source || l.referrer || l.landing_path || l.utm_term) && (
-                    <p className="text-xs text-muted-foreground">
-                      Source: {[l.utm_source && `campaign source ${l.utm_source}`, l.utm_medium && `medium ${l.utm_medium}`, l.utm_term && `term ${l.utm_term}`, l.referrer && `from ${l.referrer}`, l.landing_path && `landed on ${l.landing_path}`].filter(Boolean).join(" · ")}
-                    </p>
-                  )}
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">Lead source:</span>{" "}
+                    {(() => {
+                      const parts = leadSourceParts(l)
+                      return parts.length > 0 ? parts.join(" · ") : "not recorded (the visitor did not accept analytics, or the form was on a page before sources were saved)"
+                    })()}
+                  </p>
                   {l.ghl_error &&<p className="text-xs text-destructive">GHL: {l.ghl_error}</p>}
                 </div>
                 <Badge variant={l.forwarded_to_ghl ? "default" : "destructive"}>{l.forwarded_to_ghl ? "sent to GHL" : "failed"}</Badge>

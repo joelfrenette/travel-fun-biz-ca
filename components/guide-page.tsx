@@ -14,6 +14,7 @@ import { getPublishedGuide, listPublishedGuideLinks, listPostsForGuide, pickRela
 import { SCOPE_LABEL, scopeOf } from "@/lib/guide-scope"
 import { GuideCta } from "@/components/guide-cta"
 import { StickyCta } from "@/components/sticky-cta"
+import { ContextCta } from "@/components/context-cta"
 import { PageSignupBox } from "@/components/page-signup-box"
 import { translate } from "@/lib/i18n"
 import { GuideThingsToDo } from "@/components/guide-things-to-do"
@@ -262,6 +263,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
           )}
 
           <GuideTakeaways guide={guide} parts={linked.takeaways} />
+          <ContextCta blockId="after_quick_answer" subject={guide.name} packageName={packages[0]?.name} phone={site.phone} />
           <GuideFacts input={factsInput} />
           <GuideArticle guide={guide} html={linked.bodyHtml} />
           <GuideFaqList guide={guide} answers={linked.answers} />

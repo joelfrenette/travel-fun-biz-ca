@@ -36,7 +36,7 @@ expect('non-destination guides keep the Article', ld.includes('"@type": "Article
 
 expect('destination CollectionPage points at the guide', /guide \? \{ about: \{ "@id": pageUrl \}, isPartOf: \{ "@id": pageUrl \} \}/.test(dest))
 expect('destination passes upcoming[0] name to GuideCta (both)', (dest.match(/packageName=\{upcoming\[0\]\?\.name\}/g) ?? []).length === 2)
-expect('guide page passes packages[0] name to GuideCta (both)', (page.match(/packageName=\{packages\[0\]\?\.name\}/g) ?? []).length === 2)
+expect('guide page passes packages[0] name to GuideCta (header panel, context block, closing form)', (page.match(/packageName=\{packages\[0\]\?\.name\}/g) ?? []).length === 3)
 
 expect('named package href', enquiryHref('Alaska Cruise') === '/?package=Alaska%20Cruise#contact', enquiryHref('Alaska Cruise'))
 expect('ampersand is encoded', enquiryHref('Rock & Roll Cruise') === '/?package=Rock%20%26%20Roll%20Cruise#contact', enquiryHref('Rock & Roll Cruise'))

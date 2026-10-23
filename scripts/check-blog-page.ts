@@ -13,14 +13,16 @@ function expect(name: string, ok: boolean, detail = '') {
 }
 
 expect('imports GuideCta from components/guide-cta', /import \{ GuideCta \} from "@\/components\/guide-cta"/.test(src))
-expect('renders a compact GuideCta', /<GuideCta [^>]*\bcompact\b[^>]*\/>/.test(src))
+// Conversion loop: the compact GuideCta was replaced by ContextCta (after the Quick answer) and a sticky bar.
 expect('renders a full (non-compact) GuideCta', /<GuideCta (?![^>]*\bcompact\b)[^>]*\/>/.test(src))
-expect('compact CTA sits after key takeaways and before the body', (() => {
+expect('renders ContextCta after the quick answer and at the end', src.includes('blockId="after_quick_answer"') && src.includes('blockId="end_of_page"'))
+expect('context CTA sits after key takeaways and before the second half of the body', (() => {
   const a = src.indexOf('id="key-takeaways"')
-  const b = src.indexOf('<GuideCta name={ctaName} compact')
-  const c = src.indexOf('className="markdown-body"')
+  const b = src.indexOf('blockId="after_quick_answer"')
+  const c = src.indexOf('articleAfter &&')
   return a > -1 && b > a && c > b
 })())
+expect('blog posts get the sticky phone bar', src.includes('<StickyCta'))
 expect('no bare "Ask us about your trip" button in the page', !src.includes('Ask us about your trip'))
 expect('CTA name falls back to primary keyword', /linkedPackage\?\.destination[\s\S]{0,80}post\.primary_keyword/.test(src))
 expect('package cards kept when packages exist', src.includes('<PackageCard') && src.includes('relatedPackages.length > 0'))

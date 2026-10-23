@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { getAttribution } from "@/lib/attribution"
 import { track } from "@/lib/analytics-client"
+import { trackConversion } from "@/lib/conversion-events"
 import {
   buildGuideLeadPayload,
   classifyGuideFormFailure,
@@ -19,8 +20,9 @@ export { buildGuideLeadPayload }
 
 const inputClass = "w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground"
 
-export function GuideLeadForm({ packageName, phone }: { packageName?: string | null; phone?: string | null }) {
+export function GuideLeadForm({ packageName, phone, topic }: { packageName?: string | null; phone?: string | null; topic?: string | null }) {
   const router = useRouter()
+  const started = useRef(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,6 +40,7 @@ export function GuideLeadForm({ packageName, phone }: { packageName?: string | n
       email: get("email"),
       phone: get("phone"),
       message: get("message"),
+      topic,
       honeypot: get("company_website"),
       packageName,
       attribution: getAttribution(),
@@ -62,11 +65,19 @@ export function GuideLeadForm({ packageName, phone }: { packageName?: string | n
       return
     }
     track("generate_lead", { package_name: payload.package, page_path: window.location.pathname, method: "guide_form" })
+    trackConversion("form_submit", { form_id: "guide_form" })
     router.push(`/thank-you?package=${encodeURIComponent(payload.package)}`)
   }
 
   return (
-    <form onSubmit={onSubmit} className="mx-auto mt-5 max-w-md space-y-3 text-left" aria-label="Send us an enquiry">
+    <form
+      onSubmit={onSubmit}
+      onFocusCapture={() => {
+        if (started.current) return
+        started.current = true
+        trackConversion("form_start", { form_id: "guide_form" })
+      }}
+      className="mx-auto mt-5 max-w-md space-y-3 text-left" aria-label="Send us an enquiry">
       {/* Honeypot: invisible to a real visitor, filled in by form-filling bots. */}
       <div className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
         <label htmlFor="guide-company-website">Company Website</label>
