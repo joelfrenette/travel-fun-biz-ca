@@ -103,6 +103,8 @@ export function GuideLeadForm({ packageName, phone, topic }: { packageName?: str
       <button type="submit" disabled={busy} className="w-full rounded-md bg-primary px-6 py-3 text-sm font-bold uppercase text-primary-foreground disabled:opacity-60">
         {busy ? "Sending..." : "Send my enquiry"}
       </button>
+      {/* Same sentence the contact form shows under its button. */}
+      <p className="text-center text-xs text-muted-foreground">By submitting this form, you agree to our privacy policy and terms of service.</p>
     </form>
   )
 }
