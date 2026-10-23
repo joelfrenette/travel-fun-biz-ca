@@ -175,7 +175,7 @@ interface PostFacts {
 }
 
 /** Day 7 of the fan-out calendar: enrols ONE recap post ("you asked, here is the answer") for a post published 7 to 10 days ago that has a real FAQ
- * answer. It is a text post in the normal distribution ledger (slug recap-<post slug>), so every existing gate applies: distribution mode (prepare
+ * answer. It is an image post (a composed "you asked" card, never text only) in the normal distribution ledger (slug recap-<post slug>), so every existing gate applies: distribution mode (prepare
  * holds it), the kill switch, caption problems and the shared daily enrolment ceiling. At most one recap a day, never above the ceiling, so no
  * posting cap is raised. Never throws. Returns a short note, or '' when nothing was enrolled. */
 export async function enrollFanoutRecaps(admin: SupabaseClient, now: Date = new Date()): Promise<string> {

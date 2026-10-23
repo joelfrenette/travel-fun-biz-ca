@@ -7,8 +7,9 @@ import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
 import { socialLink, type SocialSurface } from '@/lib/utm'
 import { SITE_URL, absoluteUrl } from '@/lib/site'
 import { loadGuidePostSource, packageSlugFromPath } from '@/lib/guide-post-source'
-import { pickPostImage, type SocialCoverKind } from '@/lib/social-cover'
-import { gateComposedCover, visualTags } from '@/lib/cover-gate'
+import type { SocialCoverKind } from '@/lib/social-cover'
+import { visualTags } from '@/lib/cover-gate'
+import { resolveRowImage, sendWithMedia, noImageNote, NO_IMAGE_NOTE } from '@/lib/post-media'
 import { recordGateEvents, type GateEvent } from '@/lib/visual-gate-stats'
 import { runGuideCatchUp } from '@/lib/guide-distribution'
 import { releaseHeldTrips, runTripSocialEnrol } from '@/lib/trip-social'
@@ -296,9 +297,6 @@ async function sendTailored(
   }
 }
 
-/** After this long into a pass, no new cover verification starts (the cron function limit is 60 seconds and each
- * verify can take up to VERIFY_TIMEOUT_MS). */
-const VERIFY_BUDGET_MS = 35_000
 /** Composed cover URLs that verified OK on this warm instance; they may go out unverified once the budget is spent. */
 const verifiedCovers = new Set<string>()
 
@@ -340,7 +338,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         await admin.from('post_distribution').update({ stage: 'done', last_error: NEWS_SOCIAL_SKIP_NOTE, updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
         continue
       }
-      // A recap row (day 7 of the fan-out calendar, slug recap-<post slug>) is a TEXT post about the same blog post, built from one real FAQ answer.
+      // A recap row (day 7 of the fan-out calendar, slug recap-<post slug>) is an image post (a "you asked" card) about the same blog post, built from one real FAQ answer.
       const isRecapRow = !isGuideRow && !isNewsRow && isRecapSlug(row.slug)
       const postSlug = isRecapRow ? baseSlugOfRecap(row.slug) : row.slug
       const guideSource = isGuideRow ? await loadGuidePostSource(admin, row.path as string) : null
@@ -364,79 +362,76 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // photo is a grid tile with no words. Travel news has no photo, so it gets the typed text card instead of
       // going out as text only (Instagram cannot take text). The composed URL is fetched and pixel-checked first
       // (lib/visual-gate.ts); the raw photo is never the fallback.
-      const coverKind: SocialCoverKind = isNewsRow ? 'news' : !isGuideRow ? 'blog' : packageSlugFromPath(row.path as string) ? 'trip' : 'guide'
-      const coverSlug = coverKind === 'trip' ? (packageSlugFromPath(row.path as string) as string) : row.slug
-      // Visual quality gate (lib/visual-gate.ts): the rendered PNG is fetched and checked before it is sent. A cover that
-      // fails is retried with the next photo and a shorter headline (up to 2 times), then the row is skipped without
-      // posting. The bare photo is never sent any more. If the check itself cannot run, the row waits for the next tick.
-      let sendImage: string | null = null
-      let gateTagPatch: Record<string, unknown> | null = null
-      // A recap is a text post: no image, so the same cover is not posted twice in a week.
-      if ((post?.cover_image_url || isNewsRow) && !isRecapRow) {
-        const picked = pickPostImage({ base: SITE_URL, kind: coverKind, slug: coverSlug, title, coverUrl: post?.cover_image_url })
-        if (picked.composed && picked.url) {
-          const overBudget = Date.now() - passStart > VERIFY_BUDGET_MS
-          if (overBudget && !verifiedCovers.has(picked.url)) {
-            // The cron function has a 60 second limit. Past the budget a row that was never verified is left
-            // queued for the next tick (it is ordered by age, so nothing is skipped for good).
-            console.warn('[distribution] verify budget spent, leaving', row.slug, 'for the next run')
-            break
-          }
-          if (overBudget) {
-            sendImage = picked.url // already passed the gate on this warm instance
-          } else {
-            const gated = await gateComposedCover({ base: SITE_URL, kind: coverKind, slug: coverSlug, hasTime: () => Date.now() - passStart <= VERIFY_BUDGET_MS })
-            const retryEvents: GateEvent[] = Array.from({ length: gated.retries }, () => 'retry' as const)
-            if (gated.status === 'budget') {
-              console.warn('[distribution] verify budget spent mid-gate, leaving', row.slug, 'for the next run')
-              await recordGateEvents(admin, retryEvents)
-              break
-            }
-            if (gated.status === 'deferred') {
-              // The check could not run (fetch or decode failed): never post an unchecked image. Wait for the next tick; after
-              // MAX_ATTEMPTS ticks the row is marked failed so a permanently broken cover route does not block the queue.
-              deferred++
-              await recordGateEvents(admin, [...retryEvents, 'deferred'])
-              const attempts = row.attempts + 1
-              await admin
-                .from('post_distribution')
-                .update({ stage: attempts >= MAX_ATTEMPTS ? 'failed' : 'queued', attempts, last_error: `The cover image could not be checked (${gated.reasons[0] ?? 'unknown'}), so nothing was posted.`.slice(0, 300), updated_at: new Date().toISOString() })
-                .eq('content_type', 'post')
-                .eq('slug', row.slug)
-              continue
-            }
-            if (gated.status === 'skip') {
-              // Silent skip: the row is closed (never retried forever), the reason is in the ledger note, the counter goes up.
-              // It is not a failure and not a Needs attention item.
-              visualSkipped++
-              const reason = gated.reasons.join('; ')
-              await recordGateEvents(admin, [...retryEvents, 'skip'], { slug: row.slug, surface: 'feed', reason })
-              await tagVariant(admin, row.slug, visualTags('feed', gated.template, { ok: false, reasons: gated.reasons, retries: gated.retries }, gated.photoId))
-              await admin
-                .from('post_distribution')
-                .update({ stage: 'done', last_error: `visual_skipped: the image failed the quality check after ${gated.retries} retries, so nothing was posted (${reason}).`.slice(0, 300), updated_at: new Date().toISOString() })
-                .eq('content_type', 'post')
-                .eq('slug', row.slug)
-              continue
-            }
-            verifiedCovers.add(gated.url as string)
-            sendImage = gated.url as string
-            gateTagPatch = visualTags('feed', gated.template, { ok: true, reasons: [], retries: gated.retries }, gated.photoId)
-            await recordGateEvents(admin, [...retryEvents, 'pass'])
-          }
-        }
+      // A recap card shows one of the post's own FAQ questions over the post's cover photo (kind 'recap'), its slug is the blog post's slug.
+      const coverKind: SocialCoverKind = isNewsRow ? 'news' : isRecapRow ? 'recap' : !isGuideRow ? 'blog' : packageSlugFromPath(row.path as string) ? 'trip' : 'guide'
+      const coverSlug = coverKind === 'trip' ? (packageSlugFromPath(row.path as string) as string) : isRecapRow ? postSlug : row.slug
+      // The FAQ, tags and takeaways as stored. A recap needs a usable FAQ answer before anything else is done for it.
+      const faqRaw: unknown = (post as { faq?: unknown } | null)?.faq
+      const takeawaysRaw: unknown = (post as { key_takeaways?: unknown } | null)?.key_takeaways
+      const tagsRaw: unknown = (post as { tags?: unknown } | null)?.tags
+      // A recap caption is "You asked: <a real FAQ question>" plus the first sentence of that FAQ answer. A post with no usable FAQ answer has no recap.
+      const recap = isRecapRow ? recapFacts({ title, faq: faqRaw, tags: tagsRaw }) : null
+      if (isRecapRow && !recap) {
+        await admin.from('post_distribution').update({ stage: 'done', last_error: 'Skipped: this post has no FAQ answer to recap, so nothing was posted.', updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
+        continue
       }
-      if (gateTagPatch) await tagVariant(admin, row.slug, gateTagPatch)
-      const kind = sendImage ? 'photo' : 'text'
+      // Visual quality gate (lib/visual-gate.ts): the rendered PNG is fetched and checked before it is sent. A cover that
+      // fails is retried with the next photo and a shorter headline (up to 2 times). EVERY post goes out with this checked card
+      // (lib/post-media.ts): if it cannot be composed, or fails after the retries, the row is closed as "Skipped: no image"
+      // and NEVER sent as text. The bare photo is never sent either. If the check itself cannot run, the row waits for the next tick.
+      const imageOutcome = await resolveRowImage({ base: SITE_URL, kind: coverKind, slug: coverSlug, title, coverUrl: post?.cover_image_url, passStart, verified: verifiedCovers })
+      const gateRetries = imageOutcome.status === 'no-image' ? 0 : imageOutcome.gate?.retries ?? 0
+      const retryEvents: GateEvent[] = Array.from({ length: gateRetries }, () => 'retry' as const)
+      if (imageOutcome.status === 'budget') {
+        // The cron function has a 60 second limit. Past the budget a row that was never verified is left queued for the
+        // next tick (it is ordered by age, so nothing is skipped for good).
+        console.warn('[distribution] verify budget spent, leaving', row.slug, 'for the next run')
+        if (imageOutcome.gate) await recordGateEvents(admin, retryEvents)
+        break
+      }
+      if (imageOutcome.status === 'deferred') {
+        // The check could not run (fetch or decode failed): never post an unchecked image. Wait for the next tick; after
+        // MAX_ATTEMPTS ticks the row is marked failed so a permanently broken cover route does not block the queue.
+        deferred++
+        await recordGateEvents(admin, [...retryEvents, 'deferred'])
+        const attempts = row.attempts + 1
+        await admin
+          .from('post_distribution')
+          .update({ stage: attempts >= MAX_ATTEMPTS ? 'failed' : 'queued', attempts, last_error: `The cover image could not be checked (${imageOutcome.gate.reasons[0] ?? 'unknown'}), so nothing was posted.`.slice(0, 300), updated_at: new Date().toISOString() })
+          .eq('content_type', 'post')
+          .eq('slug', row.slug)
+        continue
+      }
+      if (imageOutcome.status === 'no-image' || imageOutcome.status === 'gate-skip') {
+        // Silent skip: the row is closed (never retried forever, never sent as text), the reason is in the ledger note, the counter goes up.
+        // It is not a failure and not a Needs attention item.
+        visualSkipped++
+        const gated = imageOutcome.status === 'gate-skip' ? imageOutcome.gate : null
+        const reason = gated ? gated.reasons.join('; ') : imageOutcome.status === 'no-image' ? imageOutcome.reason : ''
+        await recordGateEvents(admin, [...retryEvents, 'skip'], { slug: row.slug, surface: 'feed', reason: `${NO_IMAGE_NOTE}: ${reason}`.slice(0, 200) })
+        if (gated) await tagVariant(admin, row.slug, visualTags('feed', gated.template, { ok: false, reasons: gated.reasons, retries: gated.retries }, gated.photoId))
+        await admin
+          .from('post_distribution')
+          .update({ stage: 'done', last_error: noImageNote(reason, gated?.retries ?? 0), updated_at: new Date().toISOString() })
+          .eq('content_type', 'post')
+          .eq('slug', row.slug)
+        continue
+      }
+      // From here the row has a checked image (status 'send'); there is no text-only path below.
+      const sendImage: string = imageOutcome.url
+      if (imageOutcome.gate) {
+        await recordGateEvents(admin, [...retryEvents, 'pass'])
+        await tagVariant(admin, row.slug, visualTags('feed', imageOutcome.gate.template, { ok: true, reasons: [], retries: imageOutcome.gate.retries }, imageOutcome.gate.photoId))
+      }
       const already = row.sent_platforms ?? []
-      const platforms = platformsFor(kind, target.platforms, target.provider).filter((p) => !already.includes(p))
+      const platforms = platformsFor('photo', target.platforms, target.provider).filter((p) => !already.includes(p))
       if (platforms.length === 0) {
         const anySent = already.length > 0
         await admin
           .from('post_distribution')
           .update({
             stage: anySent ? 'done' : 'failed',
-            last_error: anySent ? null : `None of your selected networks takes a ${kind} post (selected: ${target.platforms.join(', ') || 'none'}). Tick a network that does in "Where it posts" (${platformsFor(kind, PLATFORM_ACCEPTS[kind], target.provider).slice(0, 4).join(', ')}).`,
+            last_error: anySent ? null : `None of your selected networks takes an image post (selected: ${target.platforms.join(', ') || 'none'}). Tick a network that does in "Where it posts" (${platformsFor('photo', PLATFORM_ACCEPTS.photo, target.provider).slice(0, 4).join(', ')}).`,
             updated_at: new Date().toISOString(),
           })
           .eq('content_type', 'post')
@@ -448,16 +443,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // Default text: a hook line (first stored FAQ question, else first key takeaway), one line from the meta
       // description, a fixed call to action, the link and up to 3 hashtags. Falls back to the old
       // title + description + link text when there is no hook or the plain-code gate rejects it.
-      const faqRaw: unknown = (post as { faq?: unknown } | null)?.faq
-      const takeawaysRaw: unknown = (post as { key_takeaways?: unknown } | null)?.key_takeaways
-      const tagsRaw: unknown = (post as { tags?: unknown } | null)?.tags
+      // The image is the post on every network, so each caption still carries the hook, the short UTM link and the repaired call to action.
       const guideFacts = isGuideRow ? guideSource : null
-      // A recap caption is "You asked: <a real FAQ question>" plus the first sentence of that FAQ answer. A post with no usable FAQ answer has no recap.
-      const recap = isRecapRow ? recapFacts({ title, faq: faqRaw, tags: tagsRaw }) : null
-      if (isRecapRow && !recap) {
-        await admin.from('post_distribution').update({ stage: 'done', last_error: 'Skipped: this post has no FAQ answer to recap, so nothing was posted.', updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
-        continue
-      }
       const captionFacts = recap ?? {
         title,
         metaDescription: post?.meta_description,
@@ -528,8 +515,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           variantRows.unshift({ variant_tags: stamped, updated_at: stamped.hook_style_at })
         }
       }
-      const send = (p: string[], text: string) =>
-        sendImage ? target.sendPhotos(p, text, [sendImage]) : target.sendText(p, text)
+      // The single point where the payload is built: always the checked image, never text only (lib/post-media.ts).
+      const send = sendWithMedia(target, sendImage)
       const result = await sendTailored(send, platforms, tailored, baseCaptions, sharedCaption, target.provider)
       const sentPlatforms = [...new Set([...already, ...result.sent])]
       // The caption text each reached network really got, with the style it used ("fallback" when it was built without one), for the admin list and the loop.

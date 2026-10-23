@@ -14,6 +14,8 @@ import {
   fitNewsText,
   isSocialCoverKind,
   isValidCoverSlug,
+  pickRecapQuestion,
+  RECAP_STRIP_PREFIX,
   coverHeadlineFor,
   shortenNewsHeadline,
   shorterCoverHeadline,
@@ -162,6 +164,16 @@ async function resolveContent(kind: SocialCoverKind, slug: string, alt = 0): Pro
     const headline = shortenNewsHeadline(post.title, NEWS_ALT_WORDS[Math.min(alt, NEWS_ALT_WORDS.length - 1)])
     return headline ? { kind, headline, photoUrl: null } : null
   }
+  if (kind === 'recap') {
+    // slug is the blog post's own slug. The headline is one of its real FAQ questions; a retry (alt) changes only the photo.
+    const og = await resolveOgTarget({ prefix: 'blog', slug })
+    const post = await getPublishedPostBySlug(slug)
+    if (!og || !post) return null
+    const searchTitle = cleanTitle(og.title, SITE_NAME)
+    const question = pickRecapQuestion((post.faq ?? []).map((f) => f?.q))
+    const headline = question ? question.toUpperCase() : coverHeadlineFor(null, searchTitle, SITE_NAME)
+    return headline ? { kind, headline, photoUrl: og.photoUrl, searchTitle } : null
+  }
   const target = kind === 'blog' ? { prefix: 'blog' as OgPrefix, slug } : kind === 'trip' ? { prefix: 'packages' as OgPrefix, slug } : parseGuideLedgerSlug(slug)
   if (!target) return null
   const og = await resolveOgTarget(target)
@@ -186,10 +198,10 @@ async function resolveContent(kind: SocialCoverKind, slug: string, alt = 0): Pro
 
 const STRIP_TEXT = SITE_NAME.toUpperCase()
 
-function strip(font: boolean) {
+function strip(font: boolean, text: string = STRIP_TEXT) {
   return (
     <div style={{ position: 'absolute', left: 0, right: 0, bottom: COVER_SAFE_VERTICAL, display: 'flex', justifyContent: 'center' }}>
-      <div style={{ display: 'flex', backgroundColor: 'rgba(0,0,0,0.55)', color: '#ffffff', padding: '10px 26px', borderRadius: 999, fontSize: 28, fontWeight: 800, letterSpacing: 4, fontFamily: font ? 'Inter' : undefined }}>{STRIP_TEXT}</div>
+      <div style={{ display: 'flex', backgroundColor: 'rgba(0,0,0,0.55)', color: '#ffffff', padding: '10px 26px', borderRadius: 999, fontSize: 28, fontWeight: 800, letterSpacing: 4, fontFamily: font ? 'Inter' : undefined }}>{text}</div>
     </div>
   )
 }
@@ -209,7 +221,7 @@ function renderPhotoCover(content: CoverContent, photo: string | null, fonts: Fo
             ))}
           </div>
         </div>
-        {strip(hasFont)}
+        {strip(hasFont, content.kind === 'recap' ? `${RECAP_STRIP_PREFIX}${STRIP_TEXT}` : STRIP_TEXT)}
       </div>
     ),
     { width: COVER_WIDTH, height: COVER_HEIGHT, ...(hasFont ? { fonts } : {}), headers: { 'Cache-Control': CACHE_CONTROL } },

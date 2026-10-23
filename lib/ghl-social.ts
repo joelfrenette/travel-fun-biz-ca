@@ -79,6 +79,8 @@ export async function ghlCreatePost(input: { accountIds: string[]; text: string;
   if (!userId) return { ok: false, retryable: false, error: 'GOHIGHLEVEL_USER_ID is not set.' }
   if (!input.accountIds.length) return { ok: false, retryable: false, error: 'No GoHighLevel accounts selected.' }
   const media = (input.mediaUrls ?? []).filter((u) => /^https:\/\//i.test(u)).map((url) => ({ url, type: input.mediaType === 'video' ? 'video/mp4' : 'image/png' }))
+  // Owner's rule: no text-only posts on any network. Refused before any network call, and never retried.
+  if (media.length === 0) return { ok: false, retryable: false, error: 'No image or video to post. Text-only posts are never sent.' }
   try {
     const res = await fetch(`${BASE}/social-media-posting/${loc()}/posts`, {
       method: 'POST',
@@ -89,7 +91,7 @@ export async function ghlCreatePost(input: { accountIds: string[]; text: string;
         type: input.kind ?? 'post',
         userId,
         status: 'published',
-        // Always an array, empty for a text post: Bluesky and Threads answer "media must be an array with media objects or an empty array" when the key is missing.
+        // Always an array (Bluesky and Threads answer "media must be an array..." when the key is missing); it is never empty here, see the guard above.
         media,
       }),
       signal: AbortSignal.timeout(30_000),

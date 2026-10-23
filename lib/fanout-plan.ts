@@ -1,10 +1,11 @@
 import type { FallbackCaptionFacts } from '@/lib/social-captions'
+import { pickRecapQuestion } from '@/lib/social-cover'
 
 // Fan-out calendar: every published blog post is spread over a week, not posted once and forgotten.
 //   day 0      one carousel (hook is the title as a question or a contrast, the last slide is a question call to action)
 //   day 0 to 1 three social posts with different question hooks across the networks (the normal post distribution, see lib/caption-plan.ts)
 //   day 2      one reel made from the post body (inside 72 hours of publishing)
-//   day 7      one recap post, "you asked, here is the answer", a text post built from a real FAQ answer of the post
+//   day 7      one recap post, "you asked, here is the answer", an image post (a composed card, never text only) built from a real FAQ answer of the post
 // This file is the PLANNER only: pure functions, no database, no network. Given a post and "now" it says what is due. The pipeline
 // (lib/autopilot.ts) asks it where it already decides what to do next, so there is no new cron. It never raises a posting cap: the
 // carousel, the reel and the recap each go through the same limits as before (videos per week, the shared daily enrolment ceiling,
@@ -106,12 +107,15 @@ const firstSentence = (text: string, max: number): string => {
  * (then no recap is made for it). Pure. */
 export function recapFacts(post: { title: string; faq?: unknown; tags?: unknown }): FallbackCaptionFacts | null {
   const faq = Array.isArray(post.faq) ? (post.faq as Array<{ q?: unknown; a?: unknown } | null>) : []
+  const usable: Array<{ q: string; a: string }> = []
   for (const f of faq) {
     const q = typeof f?.q === 'string' ? f.q.replace(/\s+/g, ' ').trim() : ''
     const a = typeof f?.a === 'string' ? firstSentence(f.a, 220) : ''
-    if (q && a && q.length <= 120) {
-      return { title: post.title, metaDescription: a, faqQuestions: [`You asked: ${q.replace(/\?*$/, '')}?`], keyTakeaways: [], tags: Array.isArray(post.tags) ? (post.tags as unknown[]) : [] }
-    }
+    if (q && a && q.length <= 120) usable.push({ q, a })
   }
-  return null
+  if (usable.length === 0) return null
+  // The question the picture shows (lib/social-cover.ts pickRecapQuestion) is the one the caption quotes, so the two always match.
+  const shown = pickRecapQuestion(usable.map((u) => u.q))
+  const chosen = usable.find((u) => u.q === shown) ?? usable[0]
+  return { title: post.title, metaDescription: chosen.a, faqQuestions: [`You asked: ${chosen.q.replace(/\?*$/, '')}?`], keyTakeaways: [], tags: Array.isArray(post.tags) ? (post.tags as unknown[]) : [] }
 }

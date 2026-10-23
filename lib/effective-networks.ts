@@ -5,6 +5,13 @@
 // (lib/social-provider.ts: the live list is the platforms of the ticked ghl_accounts), so it can say "bluesky" while four other networks
 // are posted to. The card must show the effective list, not that setting.
 
+import { MEDIA_NETWORKS } from '@/lib/social-provider'
+
+/** The line the Posting card always shows. */
+export const NO_TEXT_ONLY_NOTE = 'No text-only posts: networks that cannot take an image are skipped.'
+/** X is the same network as "twitter". Reddit and any other text-only network are not media networks, so they are never listed. */
+const isMediaNetwork = (p: string): boolean => MEDIA_NETWORKS.includes(p)
+
 export const MAINSTREAM_NETWORKS = ['facebook', 'instagram', 'x', 'linkedin', 'tiktok', 'youtube', 'pinterest', 'threads'] as const
 
 const LABEL: Record<string, string> = { facebook: 'Facebook', instagram: 'Instagram', x: 'X', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', threads: 'Threads', bluesky: 'Bluesky', google: 'Google Business', reddit: 'Reddit' }
@@ -97,8 +104,9 @@ function ghlResult(i: EffectiveInput): EffectiveNetworks {
     else if (there.length) missing.push({ platform: p, reason: `${networkLabel(p)}'s connection in GoHighLevel ${there.some((a) => a.expired) ? 'has expired' : 'is inactive'}: reconnect it in GoHighLevel (Social Planner)` })
     else missing.push({ platform: p, reason: `${networkLabel(p)}: not connected in GoHighLevel. Connect it in GoHighLevel (Social Planner), then tick it above` })
   }
-  if (posting.has('tiktok')) notes.push('TikTok through GoHighLevel takes videos only, so photo and text posts skip it.')
-  return { provider: 'ghl', networks: order([...posting]), missing, notes }
+  if (posting.has('tiktok')) notes.push('TikTok through GoHighLevel takes videos only, so image posts skip it.')
+  notes.push(NO_TEXT_ONLY_NOTE)
+  return { provider: 'ghl', networks: order([...posting].filter(isMediaNetwork)), missing, notes }
 }
 
 function uploadResult(i: EffectiveInput): EffectiveNetworks {
@@ -116,11 +124,13 @@ function uploadResult(i: EffectiveInput): EffectiveNetworks {
   if (!profile) {
     // The profile list could not be checked, so what is saved is all there is to go on.
     notes.push(upload.profilesError ? `Upload-Post could not be checked right now (${upload.profilesError}), so this is the saved list, not a confirmed one.` : `The saved profile "${upload.selectedProfile}" is not in your Upload-Post list.`)
-    return { provider: 'upload-post', networks: order(chosen), missing: MAINSTREAM_NETWORKS.filter((p) => !chosen.includes(p)).map((platform) => ({ platform, reason: `${networkLabel(platform)} is not ticked` })), notes }
+    notes.push(NO_TEXT_ONLY_NOTE)
+    return { provider: 'upload-post', networks: order(chosen.filter(isMediaNetwork)), missing: MAINSTREAM_NETWORKS.filter((p) => !chosen.includes(p)).map((platform) => ({ platform, reason: `${networkLabel(platform)} is not ticked` })), notes }
   }
 
   const accounts = profile.accounts.map((a) => ({ p: normalizeNetwork(a.platform), bad: a.status === 'needs reconnect' }))
-  const networks = chosen.filter((p) => accounts.some((a) => a.p === p && !a.bad))
+  const networks = chosen.filter((p) => isMediaNetwork(p) && accounts.some((a) => a.p === p && !a.bad))
+  notes.push(NO_TEXT_ONLY_NOTE)
   const missing: EffectiveNetworks['missing'] = []
   for (const p of MAINSTREAM_NETWORKS) {
     if (networks.includes(p)) continue

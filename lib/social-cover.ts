@@ -22,7 +22,12 @@ export const COVER_TITLE_MIN_WORDS = 3
 export const COVER_TITLE_MAX_WORDS = 6
 export const NEWS_MAX_WORDS = 14
 
-export const SOCIAL_COVER_KINDS = ['blog', 'trip', 'guide', 'news'] as const
+/** A recap card's headline is a real FAQ question, at most this many words. */
+export const RECAP_MAX_WORDS = 12
+/** The small strip at the bottom of a recap card (every other card shows the bare site name). */
+export const RECAP_STRIP_PREFIX = 'Read the answer: '
+
+export const SOCIAL_COVER_KINDS = ['blog', 'trip', 'guide', 'news', 'recap'] as const
 export type SocialCoverKind = (typeof SOCIAL_COVER_KINDS)[number]
 
 export function isSocialCoverKind(v: string): v is SocialCoverKind {
@@ -214,7 +219,22 @@ export function fitNewsText(headline: string): FittedText {
   })
 }
 
-const SLUG_RE = /^[a-z0-9][a-z0-9._-]{0,159}$/i
+/**
+ * The FAQ question a recap card shows as its headline, in capitals. Only questions that fit the red block whole (120px down to 72px, at
+ * most 3 lines) count. The first such question of at most 12 words wins; when every fitting question is longer, the shortest whole
+ * one is taken. Null when no question fits (the card then uses the post title headline instead). Pure, nothing is cut or invented.
+ */
+export function pickRecapQuestion(questions: ReadonlyArray<unknown>): string | null {
+  const fitting = questions
+    .map((q) => (typeof q === 'string' ? q.replace(/\s+/g, ' ').trim() : ''))
+    .filter((q) => q !== '' && fitCoverTitle(q.toUpperCase()).complete)
+  if (fitting.length === 0) return null
+  const short = fitting.find((q) => words(q).length <= RECAP_MAX_WORDS)
+  if (short) return short
+  return fitting.reduce((best, q) => (words(q).length < words(best).length ? q : best))
+}
+
+const SLUG_RE =/^[a-z0-9][a-z0-9._-]{0,159}$/i
 export function isValidCoverSlug(slug: string): boolean {
   return SLUG_RE.test(slug) && !slug.includes('..')
 }

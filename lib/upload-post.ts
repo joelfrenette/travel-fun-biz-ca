@@ -133,7 +133,9 @@ export function settleUploadPostSend(status: number, ok: boolean, parsed: Upload
   return parsed
 }
 
-/** Schedule or publish a TEXT post: POST /api/upload_text (the docs' other path,
+/** NOT USED by the posting pipeline: every post must carry media (owner's rule, 2026-10-22), so lib/social-provider.ts no longer
+ * exposes a text send. Kept only as the documented API call, for a future admin tool.
+ * Schedule or publish a TEXT post: POST /api/upload_text (the docs' other path,
  * /api/uploadposts/upload_text, returns 404). Never retried: a timeout may still have created
  * the post - the distribute cron treats that as a failure needing a human look, not a retry. */
 export async function uploadPostSendText(input: {

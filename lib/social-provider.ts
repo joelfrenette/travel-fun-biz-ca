@@ -2,7 +2,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, getSettingStrict, setSetting } from '@/lib/app-settings'
 import {
   uploadPostConfigured,
-  uploadPostSendText,
   uploadPostSendPhotos,
   uploadPostSendVideo,
   type UploadPostSendResult,
@@ -57,20 +56,27 @@ export async function setGhlAccounts(admin: SupabaseClient, accounts: GhlAccount
 
 // Which networks accept which kind of post. A network outside a kind's list is skipped for that
 // kind, never sent and failed (YouTube takes video only, so a photo post to it is rejected outright).
-// Photo and video lists follow Upload-Post's published support; text is the stricter set because
-// Instagram, TikTok, Pinterest and YouTube need media.
-export type PostKind = 'text' | 'photo' | 'video'
+// Photo and video lists follow Upload-Post's published support.
+// There is NO text kind: every post on every network carries an image, a carousel, a reel or a video
+// (owner's rule, 2026-10-22, after a text-and-link-only post reached Bluesky). A network that cannot
+// carry media (Reddit: link and text posts only here) is in no list below, so it is never an automatic
+// target. The code to post there stays elsewhere; it is just excluded.
+export type PostKind = 'photo' | 'video'
 export const PLATFORM_ACCEPTS: Record<PostKind, string[]> = {
-  text: ['x', 'twitter', 'linkedin', 'facebook', 'threads', 'bluesky', 'reddit', 'google'],
-  photo: ['instagram', 'tiktok', 'linkedin', 'facebook', 'x', 'twitter', 'threads', 'pinterest', 'bluesky', 'google'],
+  photo:['instagram', 'tiktok', 'linkedin', 'facebook', 'x', 'twitter', 'threads', 'pinterest', 'bluesky', 'google'],
   video: ['instagram', 'tiktok', 'youtube', 'facebook', 'linkedin', 'x', 'twitter', 'threads', 'pinterest', 'bluesky'],
 }
 // Per-provider exceptions to the lists above. GoHighLevel's TikTok only takes a video ("TikTok needs a
 // video to create a post, it doesn't support multi media formats", seen on a real post 2026-10-08),
 // while Upload-Post's TikTok takes photo posts.
-const PROVIDER_EXCLUDES: Partial<Record<Provider, Partial<Record<PostKind, string[]>>>> = { ghl: { photo: ['tiktok'], text: ['tiktok'] } }
+const PROVIDER_EXCLUDES: Partial<Record<Provider, Partial<Record<PostKind, string[]>>>> = { ghl: { photo: ['tiktok'] } }
 export const platformsFor = (kind: PostKind, platforms: string[], provider?: Provider): string[] =>
   platforms.filter((p) => PLATFORM_ACCEPTS[kind].includes(p) && !(provider && PROVIDER_EXCLUDES[provider]?.[kind]?.includes(p)))
+
+/** Networks that can carry at least one kind of media. Anything else (Reddit) is never an automatic target. */
+export const MEDIA_NETWORKS: string[] = [...new Set([...PLATFORM_ACCEPTS.photo, ...PLATFORM_ACCEPTS.video])]
+/** Keeps only the networks that can carry media, in their given order. */
+export const mediaCapable = (platforms: string[]): string[] => platforms.filter((p) => MEDIA_NETWORKS.includes(p.trim().toLowerCase()))
 
 /** Which of `platforms` a send reached: per-network results when the provider gave them, otherwise
  * all of them if the whole send succeeded. */
@@ -82,7 +88,6 @@ export interface PostingTarget {
   provider: Provider
   /** Lowercase network names this target will post to. */
   platforms: string[]
-  sendText(platforms: string[], text: string): Promise<UploadPostSendResult>
   sendPhotos(platforms: string[], text: string, imageUrls: string[]): Promise<UploadPostSendResult>
   sendVideo(platforms: string[], text: string, videoUrl: string): Promise<UploadPostSendResult>
 }
@@ -94,7 +99,7 @@ const csv = (raw: string | null) => (raw ?? '').split(',').map((s) => s.trim()).
  * stale value (such as bluesky) that nothing sends to any more. */
 export function activePlatformsOf(provider: Provider, ghlAccounts: GhlAccountRef[], uploadPostPlatforms: string[]): string[] {
   const list = provider === 'ghl' ? ghlAccounts.map((a) => a.platform) : uploadPostPlatforms
-  return [...new Set(list.map((p) => p.trim().toLowerCase()).filter(Boolean))]
+  return mediaCapable([...new Set(list.map((p) => p.trim().toLowerCase()).filter(Boolean))])
 }
 
 /** Networks the live provider will really post to, for UI and readiness text. */
@@ -133,8 +138,7 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
     return {
       target: {
         provider,
-        platforms: [...new Set(accounts.map((a) => a.platform))],
-        sendText: (p, text) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text })),
+        platforms: mediaCapable([...new Set(accounts.map((a) => a.platform))]),
         sendPhotos: (p, text, imageUrls) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text, mediaUrls: imageUrls, mediaType: 'image' })),
         // TikTok only pulls videos from a domain it has verified, so its copy is hosted on GoHighLevel's
         // own storage first; the other networks take the original address.
@@ -155,13 +159,12 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
   if (!uploadPostConfigured()) return { reason: 'UPLOAD_POST_API_KEY is not set' }
   const user = csv(await getSetting(admin, 'distribution_accounts'))[0]
   if (!user) return { reason: 'no Upload-Post profile chosen' }
-  const platforms = csv(await getSetting(admin, 'distribution_platforms')).map((p) => p.toLowerCase())
-  if (!platforms.length) return { reason: 'no platforms chosen' }
+  const platforms = mediaCapable(csv(await getSetting(admin, 'distribution_platforms')).map((p) => p.toLowerCase()))
+  if (!platforms.length) return { reason: 'no platforms chosen that can carry an image (text-only networks are skipped)' }
   return {
     target: {
       provider,
       platforms,
-      sendText: (p, text) => uploadPostSendText({ user, platforms: p, text }),
       sendPhotos: (p, text, imageUrls) => uploadPostSendPhotos({ user, platforms: p, text, imageUrls }),
       sendVideo: (p, text, videoUrl) => uploadPostSendVideo({ user, platforms: p, text, videoUrl }),
     },

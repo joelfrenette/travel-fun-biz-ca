@@ -190,7 +190,7 @@ check('the recap caption passes the caption gate', !!recapCaption && recapCaptio
 check('the carousel fan-out uses a question or contrast cover and a question last slide', FANOUT_CAROUSEL_HOOKS.every((h) => h === 'question' || h === 'comparison') && FANOUT_CAROUSEL_CTAS.every((c) => c === 'soft-question' || c === 'quiz-style'))
 const auto = readFileSync('lib/autopilot.ts', 'utf8')
 check('the pipeline asks the planner for the reel and enrols the recap inside the existing tick (no new cron, no new cap)', /isDue\(\{ slug: post\.slug, publishedAt: post\.publish_date \}, 'reel'/.test(auto) && auto.includes('enrollFanoutRecaps(admin)') && auto.includes('SOCIAL_ENROLMENTS_PER_DAY_CEILING') && /recapsToday \?\? 0\) >= 1/.test(auto))
-check('the recap is a text post: no image, own ledger key, same gates (kill switch and mode checked at enrolment, caption gate at send)', /isRecapRow && !recap/.test(dist) && /&& !isRecapRow\) \{\r?\n\s+const picked/.test(dist) && auto.includes("mode === 'off' || (await isAutomationPaused(admin))"))
+check('the recap is an image post (a recap card, never text only): own ledger key, same gates (kill switch and mode checked at enrolment, caption gate at send)', /isRecapRow && !recap/.test(dist) && /isRecapRow \? 'recap'/.test(dist) && auto.includes("mode === 'off' || (await isAutomationPaused(admin))"))
 check('video script and reel posting still go through the same gates (videos per week budget, visual gate)', auto.includes('videoSlots > 0') && auto.includes('reelCoverTitleFor'))
 
 // ---- E. UTMs: utm_content = <hook_style>-<format>, utm_campaign = the post slug ----
