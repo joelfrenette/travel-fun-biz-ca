@@ -44,6 +44,30 @@ export default function TripsAutomationCard() {
   }, [])
   useEffect(() => { load() }, [load])
 
+  // Recap Studio: the daily prompt's list (past trips with no recap or a thin one, minus the snoozed).
+  const [due, setDue] = useState<{ title: string; trips: { id: string; name: string; why: string; href: string }[] } | null>(null)
+  const [snoozing, setSnoozing] = useState("")
+  const loadDue = useCallback(() => {
+    fetch("/api/admin/recap-studio/due", { headers: authHeaders() })
+      .then(async (r) => (r.ok ? r.json() : null))
+      .then((b) => setDue(b))
+      .catch(() => setDue(null))
+  }, [])
+  useEffect(() => { loadDue() }, [loadDue])
+  async function snooze(id: string) {
+    setSnoozing(id)
+    try {
+      const res = await fetch("/api/admin/recap-studio/due", { method: "POST", headers: authHeaders(), body: JSON.stringify({ action: "snooze", ids: [id] }) })
+      if (!res.ok) throw new Error("Could not snooze")
+      toast({ title: "Snoozed for 7 days" })
+      loadDue()
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" })
+    } finally {
+      setSnoozing("")
+    }
+  }
+
   async function toggle(next: boolean) {
     setBusy(true)
     try {
@@ -95,6 +119,22 @@ export default function TripsAutomationCard() {
                   <li>
                     Past trips: {n(data.pastTripsNeedingRecap)} published past trip{data.pastTripsNeedingRecap === 1 ? "" : "s"} still need a recap (past trips are never unpublished).
                   </li>
+                  {due && due.trips.length > 0 && (
+                    <li className="list-none">
+                      <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                        <p className="text-sm font-semibold">{due.title}</p>
+                        <ul className="space-y-1.5">
+                          {due.trips.map((t) => (
+                            <li key={t.id} className="flex flex-wrap items-center gap-2 text-xs">
+                              <span className="min-w-[160px] flex-1"><span className="font-medium">{t.name}</span> ({t.why})</span>
+                              <Button size="sm" asChild><Link href={t.href}>Start recap</Link></Button>
+                              <Button size="sm" variant="ghost" disabled={snoozing === t.id} onClick={() => snooze(t.id)}>Not now (7 days)</Button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </li>
+                  )}
                   <li>
                     Drift check: {data.drift.findings === null ? "could not run just now" : data.drift.findings === 0 ? "no published post disagrees with its trip's current data" : `${data.drift.findings} published post${data.drift.findings === 1 ? "" : "s"} disagree with their trip's current data (see Needs attention)`}
                   </li>

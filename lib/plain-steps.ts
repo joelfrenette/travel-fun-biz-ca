@@ -438,16 +438,41 @@ export function plainAction(i: Issue): PlainAction {
     return {
       id: i.id,
       title: i.title,
-      why: 'This trip already happened. Do not take the page down: Google already knows it, and a recap keeps it bringing visitors and sign-ups for the next trip like it. This is a nudge, not an error.',
+      why: 'These trips already happened. Do not take the pages down: Google already knows them, and a recap keeps them bringing visitors and sign-ups for the next trip like it. This is a daily nudge, not an error.',
       steps: [
-        'Open the trip with the link below. The "Convert to Past Trip" card is near the top.',
-        'Drop in photos from the trip (they stay private until you click "Add to gallery" on the ones you want).',
-        'Type 3 to 8 short journal notes: a date and a line about what happened.',
-        'Click "Write the recap". If it passes the safety checks it goes live right away, and you can click "Edit" to change the words or "Undo recap" to take it back.',
-        'Pick the next trip to point visitors to, then you are done.',
+        'Open the Recap Studio with the link below. It shows the trip name and a progress ring.',
+        'Step 1: drop in photos from the trip. The Studio picks the best 12 for you, and you can change the order.',
+        'Step 2: answer the five quick questions in a sentence or two each. It saves as you type.',
+        'Step 3: add a traveller quote only if that person said yes, and tick the permission box. Or tap "Send a testimonial request link" and let them write it.',
+        'Step 4: tap "Write the draft", read it next to your notes, fix any words, then tap "Publish". "Undo" is right there.',
+        'No time? Make a link for a travel agent and text it to her. What she sends waits for your OK. Or tap "Snooze 7 days" and it comes back next week.',
       ],
       url: i.link ? adminLink(i.link.href) : adminLink('/admin/packages'),
-      urlLabel: 'Open Convert to Past Trip',
+      urlLabel: 'Open the Recap Studio',
+    }
+  }
+  if (i.id.startsWith('recap-review:')) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'Someone used a private recap link and sent you something. It is only waiting. Nothing is on the site until you approve it.',
+      steps: [
+        'Open the Recap Studio with the link below and find the box called "Waiting for you".',
+        'Read each item. Photos show a small preview. Quotes show who said them.',
+        'Tap Approve, Edit then Approve, or Reject. A quote can only be approved if the sender ticked the permission box.',
+      ],
+      url: i.link ? adminLink(i.link.href) : adminLink('/admin/packages'),
+      urlLabel: 'Open the Recap Studio',
+    }
+  }
+  if (i.id === 'recap-studio:migration') {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'The links for agents and travellers need two new tables in the database. Until they exist the links cannot be made.',
+      steps: ['Open your Supabase project and go to the SQL editor.', 'Open the file supabase/migrations/0053_recap_studio.sql, copy all of it, paste it in the editor and press Run.', 'Come back here and refresh. This item goes away by itself.'],
+      url: adminLink('/admin/system-health'),
+      urlLabel: 'Open System Health',
     }
   }
   if (i.id.startsWith('agent-submission:')) {

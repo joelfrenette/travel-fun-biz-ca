@@ -23,8 +23,9 @@ import { readOrphanAudit } from '@/lib/guide-orphans'
 import { clearAllPromotionFailures, readPromotionFailures } from '@/lib/promotion'
 import { completenessScore } from '@/lib/package-completeness'
 import { openFindings, dismissFindings } from '@/lib/source-watch'
-import { checkPastTripsForRecap } from '@/lib/content-drift'
 import { pastTripSlugs } from '@/lib/past-trip'
+import { pendingByTrip, recapsDue, snoozeTrips, studioMigrated } from '@/lib/recap-store'
+import { dueTitle, studioPath } from '@/lib/recap-studio'
 import { readStoredAiSpend, overCeiling, usd } from '@/lib/ai-tripwire'
 import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 
@@ -36,7 +37,7 @@ import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 const GHL_DISMISSED_KEY = 'ghl_dismissed_failures'
 
 export type IssueArea = 'post' | 'carousel' | 'video' | 'system' | 'setup'
-export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale' | 'dismiss-source-watch' | 'dismiss-promotion' | 'dismiss-site-crawl'
+export type IssueAction = 'dismiss-ghl' | 'retry-post' | 'retry-carousel' | 'retry-video' | 'resume-video' | 'dismiss-carousel' | 'dismiss-video' | 'dismiss-guides' | 'dismiss-page-copy' | 'dismiss-page-copy-stale' | 'dismiss-source-watch' | 'dismiss-promotion' | 'dismiss-site-crawl' | 'snooze-recap'
 
 export interface Issue {
   id: string
@@ -446,15 +447,45 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
 
   // Past trips with no recap yet (WP14). A past trip stays published; this nudge says to add the recap. Area 'setup'
   // (amber), so it never triggers an alert email, and it clears itself once the trip has a recap (or is set to live).
+  // Recap Studio: ONE daily item, "N past trips need a recap" (lib/recap-studio.ts selectRecapDue: a published trip whose
+  // last date passed with no recap or a thin one, not live-forced, not snoozed). "Snooze 7 days" hides them all for a week.
+  // Past trips with a review waiting (something an agent or traveller sent) get their own item, and a missing migration is named.
   try {
-    for (const f of await checkPastTripsForRecap(admin)) {
+    const due = await recapsDue(admin)
+    if (due.length) {
       issues.push({
-        id: `package:recap:${f.packageSlug}`,
+        id: 'package:recap:due',
         area: 'setup',
-        title: `The ${f.packageName} trip has no recap yet`,
-        detail: f.detail,
-        fix: 'Open the trip and use the Convert to Past Trip card: add your photos and 3 or more journal notes, then click Write the recap. Do not unpublish the page.',
-        link: { label: 'Open Convert to Past Trip', href: f.href },
+        title: dueTitle(due.length),
+        detail: `${due.slice(0, 6).map((t) => `${t.name} (${t.why})`).join('; ')}${due.length > 6 ? `; and ${due.length - 6} more` : ''}. They stay published.`,
+        fix: 'Open the Recap Studio for the first one. It takes about 5 minutes: photos, five quick questions, then one button. You can also send a link to a travel agent to fill it in. Not today? Snooze it for 7 days.',
+        link: { label: 'Start the recap', href: due[0].href },
+        actions: [{ label: 'Snooze 7 days', kind: 'snooze-recap' }],
+      })
+    }
+    const names = new Map<string, string>()
+    const pending = await pendingByTrip(admin)
+    if (pending.length) {
+      const { data: trips } = await admin.from('travel_packages').select('id, name').in('id', pending.map((p) => p.packageId))
+      for (const t of (trips ?? []) as { id: string; name: string }[]) names.set(t.id, t.name)
+    }
+    for (const p of pending) {
+      issues.push({
+        id: `recap-review:${p.packageId}`,
+        area: 'setup',
+        title: `${p.n} recap item${p.n === 1 ? '' : 's'} to review for ${names.get(p.packageId) ?? 'a trip'}`,
+        detail: 'A travel agent or a traveller sent photos, notes or a quote through a recap link. Nothing is on the site until you approve it.',
+        fix: 'Open the Recap Studio and approve, edit or reject each item.',
+        link: { label: 'Review', href: studioPath(p.packageId) },
+      })
+    }
+    if (due.length && !(await studioMigrated(admin))) {
+      issues.push({
+        id: 'recap-studio:migration',
+        area: 'setup',
+        title: 'Apply migration 0053 for the Recap Studio links',
+        detail: 'The agent and traveller links need the database tables from supabase/migrations/0053_recap_studio.sql. The rest of the Studio works without them.',
+        fix: 'Open the Supabase SQL editor, paste the file 0053_recap_studio.sql and run it.',
       })
     }
   } catch {
@@ -566,6 +597,7 @@ export async function resolveIssue(admin: SupabaseClient, kind: IssueAction, slu
     const { error } = await setSetting(admin, VIDEO_BLOCK_KEY, '')
     return error ?? null
   }
+  if (kind === 'snooze-recap') return snoozeTrips(admin, (await recapsDue(admin)).map((t) => t.id))
   if (kind === 'dismiss-guides') return (await clearAllGuideFailures(admin)).error ?? null
   if (kind === 'dismiss-page-copy') return (await clearAllCopyFailures(admin)).error ?? null
   if (kind === 'dismiss-promotion') return (await clearAllPromotionFailures(admin)).error ?? null

@@ -22,7 +22,9 @@ import { translate } from "@/lib/i18n"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, pageAlternates, priceOnRequestLine } from "@/lib/site"
 import { tripHeading, tripTitle } from "@/lib/package-seo"
 import { ogImageEntry } from "@/lib/og-path"
-import { jsonLdHtml, buildBreadcrumbJsonLd } from "@/lib/jsonld"
+import { jsonLdHtml, buildBreadcrumbJsonLd, buildRecapQuotesJsonLd } from "@/lib/jsonld"
+import { loadRecapBundle } from "@/lib/recap-public"
+import { TripRecapExtras } from "@/components/trip-recap-extras"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
 import { TripTestimonials } from "@/components/trip-testimonials"
 import { listGuidesForPackage, guideKinds, guidePath } from "@/lib/guides"
@@ -44,9 +46,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!pkg) return { title: `Package not found | ${SITE_NAME}`, robots: { index: false } }
 
   const dates = formatDateRange(pkg.available_from, pkg.available_to)
+  // A published Recap Studio recap brings its own search text (checked when it was drafted); it only applies to a past trip.
+  const recapBundle = isPastTripRow(pkg) ? await loadRecapBundle(pkg.id) : null
   // "from Canada" is added at render time for Australia and New Zealand trips only (lib/package-seo.ts); stored data is untouched.
-  const title = tripTitle(pkg, pkg.meta_title || `${pkg.name} | ${pkg.destination}${dates ? ` | ${dates}` : ""} | ${SITE_NAME}`, isPastTripRow(pkg))
-  const description = pkg.meta_description || pkg.short_description || `${pkg.name}: ${pkg.duration} in ${pkg.destination}. Request info and join the fun with ${SITE_NAME}.`
+  const title = tripTitle(pkg, recapBundle?.metaTitle || pkg.meta_title || `${pkg.name} | ${pkg.destination}${dates ? ` | ${dates}` : ""} | ${SITE_NAME}`, isPastTripRow(pkg))
+  const description = recapBundle?.metaDescription || pkg.meta_description || pkg.short_description || `${pkg.name}: ${pkg.duration} in ${pkg.destination}. Request info and join the fun with ${SITE_NAME}.`
   const image = ogImageEntry("packages", pkg.slug, pkg.name)
   const url = absoluteUrl(`/packages/${pkg.slug}`)
 
@@ -66,7 +70,7 @@ export default async function PackagePage({ params }: Props) {
   const { language, currency } = getVisitorPreferences()
   // One rule for "past trip" (lib/past-trip.ts): recap_mode auto / recap / live. A past trip is never unpublished.
   const isPastTrip = isPastTripRow(pkg)
-  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip, tripExtras, affiliateRules] = await Promise.all([
+  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip, tripExtras, affiliateRules, recapBundle] = await Promise.all([
     getPackages(),
     getUsdToRate(currency),
     getPublishedTestimonialsForPackage(pkg.id),
@@ -75,6 +79,8 @@ export default async function PackagePage({ params }: Props) {
     loadTripExtras(isPastTrip),
     // Word links (WP23): ON rules whose link is ON. Fails open (no rules, no links, never an error page).
     loadAffiliateRules(),
+    // Recap Studio extras (quick answer, takeaways, approved quotes): only for a past trip, only from a published bundle.
+    isPastTrip ? loadRecapBundle(pkg.id) : Promise.resolve(null),
   ])
   const happened = isPastTrip ? happenedLabel(pkg.available_from, pkg.available_to) : null
   // Every linkable text of the page in reading order (lib/affiliate-text-sources.ts): the recap, the journal of a past trip,
@@ -150,6 +156,8 @@ export default async function PackagePage({ params }: Props) {
             : {}),
         },
       ]
+  // Review markup ONLY for quotes that are approved, carry the permission tick, and are shown on this page (TripRecapExtras).
+  if (isPastTrip && recapBundle && recapBundle.quotes.length > 0) jsonLd.push(...buildRecapQuotesJsonLd(pkg.name, recapBundle.quotes))
   if (isPastTrip) {
     jsonLd.push(buildBreadcrumbJsonLd([{ name: "Home", url: absoluteUrl("/") }, { name: "Trips", url: absoluteUrl("/packages") }, { name: pkg.name, url: pageUrl }]))
     const start = pkg.available_from ?? pkg.available_to
@@ -268,6 +276,13 @@ export default async function PackagePage({ params }: Props) {
                   </div>
                 )}
               </div>
+            )}
+            {isPastTrip && recapBundle && (
+              <TripRecapExtras
+                bundle={recapBundle}
+                guide={tripGuides[0] ? { href: guidePath(tripGuides[0].kind, tripGuides[0].slug), label: `${tripGuides[0].name} ${guideKinds[tripGuides[0].kind].guideLabel}` } : null}
+                nextTrip={nextTrip ? { slug: nextTrip.slug, name: nextTrip.name } : null}
+              />
             )}
             {isPastTrip && pkg.gallery_urls?.length > 0 && (
               <div>

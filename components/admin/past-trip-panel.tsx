@@ -260,6 +260,10 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+          <p className="min-w-[220px] flex-1">New: the Recap Studio is a friendlier way to do all of this in about 5 minutes, with a score, an FAQ, quotes with permission, and a link you can text to a travel agent.</p>
+          <Button asChild size="sm"><a href={`/admin/packages/${packageId}/recap`}>Open the Recap Studio</a></Button>
+        </div>
         {/* 1 mode */}
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">1. How should the page behave?</h3>
