@@ -28,7 +28,31 @@ const LIGHT_LABEL: Record<CronStatus["light"], string> = {
   gray: "Never run",
 }
 
+interface CrawlFinding {
+  path: string
+  kind: string
+  severity: "error" | "warning" | "info"
+  message: string
+  hint: string
+  firstSeen: string
+}
+interface CrawlCard {
+  lastRun: string | null
+  total: number
+  checked7d: number
+  errors: number
+  warnings: number
+  fixed: number
+  budgetUsed: boolean
+  note: string
+  top: CrawlFinding[]
+}
+
+const SEVERITY_VARIANT: Record<CrawlFinding["severity"], "default" | "secondary" | "destructive"> = { error: "destructive", warning: "default", info: "secondary" }
+
 export default function SystemHealthPage() {
+  const [crawl, setCrawl] = useState<CrawlCard | null>(null)
+  const [crawlError, setCrawlError] = useState("")
   const [crons, setCrons] = useState<CronStatus[]>([])
   const [paused, setPaused] = useState(false)
   const [pauseBusy, setPauseBusy] = useState(false)
@@ -63,6 +87,17 @@ export default function SystemHealthPage() {
   }
 
   useEffect(load, [])
+
+  // The site health crawl card is read only and loads on its own, so a problem reading it never hides the rest of the page.
+  useEffect(() => {
+    fetch("/api/admin/site-crawl", { headers: authHeaders() })
+      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+      .then((res) => {
+        if (res.ok) setCrawl(res.data as CrawlCard)
+        else setCrawlError(res.data.error || "Could not load the site health crawl")
+      })
+      .catch(() => setCrawlError("Could not load the site health crawl"))
+  }, [])
 
   async function toggleAutomation() {
     const next = !paused
@@ -169,6 +204,50 @@ export default function SystemHealthPage() {
               {ackBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               {ackOn ? "Turn instant reply off" : "Turn instant reply on"}
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-[220px] flex-1">
+                <p className="font-medium">Site health crawl</p>
+                <p className="text-sm text-muted-foreground">
+                  Once a day the site visits a rotating batch of its own pages the way Google does, so every page is checked about once a week. It looks at the page status, canonical address, search permission against the sitemap, title and description, headings, picture descriptions, structured data and links. Dead links in posts and guides are removed by themselves (the words stay) and can be undone on the Content edits page. Everything else is only listed here.
+                </p>
+              </div>
+              {crawl && <Badge variant={crawl.errors > 0 ? "destructive" : "default"}>{crawl.errors > 0 ? `${crawl.errors} error${crawl.errors === 1 ? "" : "s"}` : "No errors"}</Badge>}
+            </div>
+            {crawlError && <p className="text-sm text-destructive">{crawlError}</p>}
+            {crawl && !crawl.lastRun && <p className="text-sm text-muted-foreground">It has not run yet. It runs inside the daily Search Console snapshot, so the first result appears after that job fires once.</p>}
+            {crawl && crawl.lastRun && (
+              <>
+                <p className="text-sm">
+                  Pages checked in the last 7 days: <strong>{crawl.checked7d}</strong> of {crawl.total}. Errors: <strong>{crawl.errors}</strong>. Warnings: <strong>{crawl.warnings}</strong>. Fixed by itself in the last run: <strong>{crawl.fixed}</strong>.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Last run {new Date(crawl.lastRun).toLocaleString("en-CA", { timeZone: "America/Toronto" })}. {crawl.note}
+                  {crawl.budgetUsed ? " (The time budget ran out before the whole batch was checked; the next run carries on where this one stopped.)" : ""}
+                </p>
+                {crawl.top.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nothing to fix in the pages checked so far.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {crawl.top.slice(0, 12).map((f, i) => (
+                      <li key={`${f.path}-${f.kind}-${i}`} className="rounded-md border p-2 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={SEVERITY_VARIANT[f.severity]}>{f.severity}</Badge>
+                          <a href={f.path} target="_blank" rel="noreferrer" className="font-mono text-xs underline">{f.path}</a>
+                          <span className="text-xs text-muted-foreground">first seen {f.firstSeen.slice(0, 10)}</span>
+                        </div>
+                        <p className="mt-1">{f.message}</p>
+                        <p className="text-xs text-muted-foreground">What to do: {f.hint}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
 

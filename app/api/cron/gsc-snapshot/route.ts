@@ -8,6 +8,8 @@ import { runCronWatchdog } from '@/lib/cron-watchdog'
 import { runAiTripwire } from '@/lib/ai-tripwire'
 import { runBingCoverage } from '@/lib/bing-coverage'
 import { runOptimizer } from '@/lib/optimizer-run'
+import { runSiteCrawl, CRAWL_BUDGET_MS } from '@/lib/site-crawl-run'
+import { revalidatePath } from 'next/cache'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
 // CRON_SECRET must be set (cronUnauthorized 503s until then), and Search Console itself must be
@@ -21,6 +23,7 @@ export const maxDuration = 60
 async function handle(request: Request) {
   const denied = cronUnauthorized(request)
   if (denied) return denied
+  const startedAt = Date.now()
   try {
     const note = await takeRankingSnapshot(getSupabaseAdmin())
     // Then connect every keyword that has no target page yet to the page Google really shows for it.
@@ -67,7 +70,29 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] optimizer failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}` })
+    // Site health crawl: one rotating window of the live sitemap (at most 40 pages, 6 s each, 4 at a time), their links, and at most 5
+    // safe repairs (logged with Undo, none while automation is paused). Own 40 second budget; started only when enough of this
+    // function's 60 seconds is left. runSiteCrawl never throws; the extra try/catch keeps it from ever breaking the snapshot.
+    let crawl = ''
+    try {
+      const left = 56_000 - (Date.now() - startedAt)
+      if (left < 12_000) {
+        crawl = '; site crawl skipped (time budget already used)'
+      } else {
+        const c = await runSiteCrawl(getSupabaseAdmin(), { deadlineMs: Date.now() + Math.min(CRAWL_BUDGET_MS, left - 4_000) })
+        crawl = `; ${c.note}`
+        for (const p of c.changedPaths) {
+          try {
+            revalidatePath(p)
+          } catch {
+            // a cache miss must not fail the step
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] site crawl failed:', e)
+    }
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${crawl}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found
