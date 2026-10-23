@@ -458,6 +458,16 @@ export async function pickNextCandidate(admin: SupabaseClient, candidates: Guide
   const newest = new Map<string, string>()
   for (const row of (data ?? []) as { kind: string; created_at: string }[]) if (!newest.has(row.kind)) newest.set(row.kind, row.created_at)
 
+  // Destination guides (the planned countries, cities and ports) take three of every four slots; the fourth goes to the normal
+  // rotation so cruise lines, ships, resorts and hotels keep moving too.
+  const recentKinds = ((data ?? []) as { kind: string }[]).slice(0, 3).map((r) => r.kind)
+  const lastThreeAllDestinations = recentKinds.length === 3 && recentKinds.every((k) => k === 'destinations')
+  const hasDestinations = eligible.some((c) => c.kind === 'destinations')
+  const hasOtherKinds = eligible.some((c) => c.kind !== 'destinations')
+  if (hasDestinations && !(lastThreeAllDestinations && hasOtherKinds)) {
+    return eligible.filter((c) => c.kind === 'destinations').sort((a, b) => ORIGIN_ORDER[a.origin] - ORIGIN_ORDER[b.origin])[0] ?? null
+  }
+
   const kinds = GUIDE_KINDS.filter((k) => eligible.some((c) => c.kind === k))
   kinds.sort((a, b) => {
     const ta = newest.get(a) ?? ''

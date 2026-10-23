@@ -89,7 +89,8 @@ export async function ghlCreatePost(input: { accountIds: string[]; text: string;
         type: input.kind ?? 'post',
         userId,
         status: 'published',
-        ...(media.length ? { media } : {}),
+        // Always an array, empty for a text post: Bluesky and Threads answer "media must be an array with media objects or an empty array" when the key is missing.
+        media,
       }),
       signal: AbortSignal.timeout(30_000),
     })
