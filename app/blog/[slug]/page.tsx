@@ -27,6 +27,7 @@ import { blogFaq, blogTakeaways, blogFieldSet, linkPageFields } from "@/lib/affi
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 import { publicPostImage } from "@/lib/post-defaults"
+import { postImageSrcSet, POST_IMAGE_SIZES } from "@/lib/post-image-srcset"
 import { isNewsPost, newsArchived, newsHeading, newsSourceFromBody } from "@/lib/news-post"
 
 export const revalidate = 300
@@ -177,7 +178,7 @@ export default async function BlogPostPage({ params }: Props) {
           {/* The big hero only shows a real cover. Cards and lists use the on-brand default (lib/post-defaults.ts) so they are never blank. */}
           {post.cover_image_url && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={publicPostImage(post)} alt={isGenericAlt(post.alt_text) ? post.title : (post.alt_text as string)} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
+            <img src={publicPostImage(post)} srcSet={postImageSrcSet(publicPostImage(post))} sizes={postImageSrcSet(publicPostImage(post)) ? POST_IMAGE_SIZES.hero : undefined} alt={isGenericAlt(post.alt_text) ? post.title : (post.alt_text as string)} width={1200} height={675} fetchPriority="high" decoding="async" className="mb-8 aspect-[16/9] w-full rounded-xl object-cover" />
           )}
 
           {takeaways.length > 0 && (
@@ -220,7 +221,7 @@ export default async function BlogPostPage({ params }: Props) {
                   <li key={p.id} className="overflow-hidden rounded-xl border">
                     <Link href={`/blog/${p.slug}`} className="block">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={publicPostImage(p)} alt={p.cover_image_url && !isGenericAlt(p.alt_text) ? (p.alt_text as string) : p.title} width={640} height={360} loading="lazy" decoding="async" className="aspect-video w-full object-cover" />
+                      <img src={publicPostImage(p)} srcSet={postImageSrcSet(publicPostImage(p), [640, 828])} sizes={postImageSrcSet(publicPostImage(p)) ? POST_IMAGE_SIZES.card : undefined} alt={p.cover_image_url && !isGenericAlt(p.alt_text) ? (p.alt_text as string) : p.title} width={640} height={360} loading="lazy" decoding="async" className="aspect-video w-full object-cover" />
                       <span className="block p-3 font-medium text-foreground hover:underline">{p.title}</span>
                     </Link>
                     {p.meta_description && <p className="px-3 pb-3 text-sm text-muted-foreground line-clamp-2"><AffiliateParts parts={linked.parts(fieldSet.moreStories[i])} /></p>}

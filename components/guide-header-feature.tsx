@@ -33,7 +33,7 @@ export function GuideHeaderFeature({
   if (feature.kind === "upcoming") {
     return (
       <div className="w-full max-w-sm justify-self-center lg:justify-self-end">
-        <PackageCard package={feature.trip} language={language} currency={currency} usdToTargetRate={usdToTargetRate} />
+        <PackageCard package={feature.trip} language={language} currency={currency} usdToTargetRate={usdToTargetRate} eager />
       </div>
     )
   }

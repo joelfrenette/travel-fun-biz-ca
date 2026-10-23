@@ -15,7 +15,9 @@ import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE } from '@/lib/site'
 
 const inter = Inter({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  // Inter is a variable font: no weight list, so one font file per script covers every weight (400 to 800 render the
+  // same) and the generated CSS carries 7 @font-face rules instead of 35. display "swap" keeps text visible while it loads.
+  display: "swap",
   variable: "--font-sans",
 })
 

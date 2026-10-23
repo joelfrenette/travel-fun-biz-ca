@@ -190,7 +190,7 @@ export default async function PackagePage({ params }: Props) {
         <section className="relative">
           <div className="relative h-[46vh] min-h-[320px] w-full overflow-hidden bg-muted">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image} alt={pkg.name} className="h-full w-full object-cover" />
+            <img src={image} alt={pkg.name} fetchPriority="high" decoding="async" className="h-full w-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
           </div>
           <div className="container mx-auto px-4">

@@ -2,7 +2,7 @@ import Link from "next/link"
 import Image from "next/image"
 import { aboutLinks, legalLinks, officeInfo, recognitionBadges, reviewsBadge, socialPromos } from "@/content/footer"
 import { cruiseAndResortLinks, destinationsLink } from "@/content/navigation"
-import { NewsletterForm } from "@/components/newsletter-form"
+import { LazyNewsletterForm } from "@/components/lazy-newsletter-form"
 import { CookieSettingsLink } from "@/components/cookie-settings-link"
 import type { Language } from "@/lib/preferences"
 import { translate } from "@/lib/i18n"
@@ -125,7 +125,7 @@ export function Footer({ language }: FooterProps) {
               </p>
             </div>
             <div className="rounded-lg bg-white p-6 text-gray-900">
-              <NewsletterForm className="space-y-4" language={language} />
+              <LazyNewsletterForm className="space-y-4" language={language} />
             </div>
           </div>
         </div>

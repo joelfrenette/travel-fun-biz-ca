@@ -28,6 +28,8 @@ const nextConfig = {
     return [...legacyComRedirects(), ...duplicatePostRedirects]
   },
   images: {
+    // AVIF first, WebP second: the optimiser returns the smallest format the browser accepts (hero and blog photos).
+    formats: ['image/avif', 'image/webp'],
     remotePatterns: [
       // Supabase storage (where uploaded package images live)
       {
