@@ -3,170 +3,145 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Search, Globe, Users, Activity } from "lucide-react"
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
-} from "recharts"
 import { adminTools } from "@/lib/admin-nav"
-import type { Ga4Report } from "@/lib/ga4"
+import type { Ga4RangeReport } from "@/lib/ga4"
+import type { SearchRangeResult, VisitsRangeResult } from "@/lib/dashboard-data"
 import { FunnelPanel } from "@/components/admin/funnel-panel"
-
-const channelColors: Record<string, string> = {
-  google: "#4285F4", direct: "#34A853", email: "#FBBC05", facebook: "#1877F2", instagram: "#E4405F",
-  tiktok: "#000000", twitter: "#1DA1F2", pinterest: "#E60023", other: "#9CA3AF",
-  "Organic Search": "#4285F4", "Direct": "#34A853", "Organic Social": "#E4405F", "Paid Social": "#C13584",
-  "Paid Search": "#0F9D58", "Email": "#FBBC05", "Referral": "#7C3AED", "Organic Video": "#FF0000", "Other": "#9CA3AF",
-}
+import { DashboardRangePills } from "@/components/admin/dashboard-range-pills"
+import { StatTile, TrafficCard, SearchCard, VisitsCard, searchNote, type Loadable } from "@/components/admin/dashboard-cards"
+import { CHANNEL_COLORS, DEFAULT_RANGE, RANGE_PHRASE, RANGE_STORAGE_KEY, SERIES_COLORS, resolveRange, type DashRange } from "@/lib/dashboard-range"
 
 // Setup checklist Joel follows (grade-5 steps for every account and key).
 const SETUP_STEPS_URL = "https://claude.ai/artifact/PN6caspQe9V6RUUsJ2vNcw"
 
-// "not_connected" = GA4 keys are not set. "error" = keys are set but Google said no. Neither shows numbers.
-type AnalyticsState =
-  | { kind: "loading" }
-  | { kind: "not_connected" }
-  | { kind: "error"; message: string }
-  | { kind: "live"; report: Ga4Report }
-
-function Ga4NotConnected({ state }: { state: AnalyticsState }) {
-  const isError = state.kind === "error"
-  return (
-    <Card className="col-span-full">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-lg">{isError ? "Google Analytics could not be read" : "Google Analytics is not connected"}</CardTitle>
-        <CardDescription>No website traffic numbers are shown here until it is connected. Nothing on this card is made up.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        {isError ? (
-          <p>Google said no when we asked for the numbers ({state.message}). Check that the Google Analytics property number is right and that the service account email has been added as a viewer in Google Analytics.</p>
-        ) : (
-          <p>Google Analytics is the free tool that counts the people who visit your website. Once you connect it, this page will show real visits for the last 14 days, split by where they came from.</p>
-        )}
-        <p>
-          <a className="font-medium text-primary underline" href={SETUP_STEPS_URL} target="_blank" rel="noopener noreferrer">Open the Setup steps</a>
-          {" "}and follow the Google Analytics step. It tells you which two settings to add in Vercel (GA4_PROPERTY_ID and GOOGLE_SERVICE_ACCOUNT_KEY).
-        </p>
-      </CardContent>
-    </Card>
-  )
+function authHeaders(): HeadersInit {
+  return { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
 }
 
-function formatDay(yyyymmdd: string): string {
-  const d = new Date(`${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}T00:00:00`)
-  return Number.isNaN(d.getTime()) ? yyyymmdd : d.toLocaleDateString("en-CA", { month: "short", day: "numeric" })
-}
-
-// ─── Traffic Analytics Chart ────────────────────────────────────────
-function TrafficChart({ state }: { state: AnalyticsState }) {
-  if (state.kind === "not_connected" || state.kind === "error") return <Ga4NotConnected state={state} />
-  if (state.kind === "loading") {
-    return (
-      <Card className="col-span-full">
-        <CardContent className="p-6 text-sm text-muted-foreground">Loading Google Analytics…</CardContent>
-      </Card>
-    )
-  }
-  const live = state.report
-  const channels = Object.keys(live.days[0]?.channels || {}).filter((c) => live.days.some((d) => d.channels[c as keyof typeof d.channels] > 0))
-  const data: Record<string, string | number>[] = live.days.map((d) => ({ date: formatDay(d.date), ...d.channels }))
-  const total = data.reduce((sum, day) => sum + channels.reduce((s, ch) => s + (Number(day[ch]) || 0), 0), 0)
-
-  return (
-    <Card className="col-span-full">
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <CardTitle className="text-lg">Website Traffic — All Sources</CardTitle>
-            <CardDescription>Sessions by channel (last 14 days) · {total.toLocaleString()} total</CardDescription>
-          </div>
-          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Live from GA4 · refreshed {new Date(live.fetchedAt).toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit" })}</span>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="h-[320px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" />
-              <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
-              <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
-              <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }} />
-              {channels.map((channel) => (
-                <Area
-                  key={channel}
-                  type="monotone"
-                  dataKey={channel}
-                  name={channel}
-                  stroke={channelColors[channel] || "#9CA3AF"}
-                  fill={channelColors[channel] || "#9CA3AF"}
-                  fillOpacity={0.1}
-                  strokeWidth={2}
-                  stackId="traffic"
-                />
-              ))}
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </CardContent>
-    </Card>
-  )
+/** Fetches one dashboard card's data for a range. Ignores a late answer for a range the user already left. */
+function useRangeData<T>(url: string, range: DashRange, enabled: boolean): { state: Loadable<T>; raw: { status: number; json: any } | null } {
+  const [state, setState] = useState<Loadable<T>>({ kind: "loading" })
+  const [raw, setRaw] = useState<{ status: number; json: any } | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    setState({ kind: "loading" })
+    fetch(`${url}?range=${range}`, { headers: authHeaders() })
+      .then(async (res) => {
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        setRaw({ status: res.status, json })
+        if (!res.ok || json.error) setState({ kind: "error", message: json.error || `HTTP ${res.status}` })
+        else setState({ kind: "ready", data: json as T })
+      })
+      .catch(() => !cancelled && setState({ kind: "error", message: "network error" }))
+    return () => {
+      cancelled = true
+    }
+  }, [url, range, enabled])
+  return { state, raw }
 }
 
 // ─── Admin Dashboard ────────────────────────────────────────────────
 export default function AdminPage() {
   const router = useRouter()
-  const [analytics, setAnalytics] = useState<AnalyticsState>({ kind: "loading" })
+  const [range, setRange] = useState<DashRange>(DEFAULT_RANGE)
+  const [rangeReady, setRangeReady] = useState(false)
 
+  // Range comes from the URL first, then localStorage, else 30 days. Read after mount so the server and browser first render match.
   useEffect(() => {
-    fetch("/api/admin/analytics", { headers: { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` } })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}))
-        if (data.configured === false) return setAnalytics({ kind: "not_connected" })
-        if (!res.ok || data.error) return setAnalytics({ kind: "error", message: data.error || `HTTP ${res.status}` })
-        setAnalytics({ kind: "live", report: data })
-      })
-      .catch(() => setAnalytics({ kind: "error", message: "network error" }))
+    let stored: string | null = null
+    try {
+      stored = localStorage.getItem(RANGE_STORAGE_KEY)
+    } catch {
+      stored = null
+    }
+    setRange(resolveRange(new URLSearchParams(window.location.search).get("range"), stored))
+    setRangeReady(true)
   }, [])
 
-  const live = analytics.kind === "live" ? analytics.report.totals : null
-  const quickStats = live
-    ? [
-        { label: "Sessions (14d)", value: live.sessions.toLocaleString(), icon: Activity },
-        { label: "Users (14d)", value: live.users.toLocaleString(), icon: Users },
-        { label: "Organic search sessions", value: live.organicSearch.toLocaleString(), icon: Search },
-        { label: "Social sessions", value: live.social.toLocaleString(), icon: Globe },
-      ]
-    : []
+  function chooseRange(next: DashRange) {
+    setRange(next)
+    try {
+      localStorage.setItem(RANGE_STORAGE_KEY, next)
+    } catch {
+      // storage blocked: the URL still carries the choice
+    }
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.set("range", next)
+      window.history.replaceState(null, "", url.toString())
+    } catch {
+      // ignore
+    }
+  }
+
+  const ga = useRangeData<Ga4RangeReport>("/api/admin/analytics", range, rangeReady)
+  const search = useRangeData<SearchRangeResult>("/api/admin/dashboard-search", range, rangeReady)
+  const visits = useRangeData<VisitsRangeResult>("/api/admin/dashboard-visits", range, rangeReady)
+  const notConnected = ga.raw?.json?.configured === false && ga.state.kind === "ready"
+  const phrase = RANGE_PHRASE[range]
+
+  const g = ga.state.kind === "ready" && !notConnected ? ga.state.data.totals : null
+  const gaLoading = !rangeReady || ga.state.kind === "loading"
+  const gaNote = (extra = "") => (notConnected ? "Google Analytics is not connected" : ga.state.kind === "error" ? "could not be read" : `Google Analytics, ${phrase}${extra}`)
+  const num = (n: number | undefined) => (g && n !== undefined ? n.toLocaleString() : null)
+
+  const s = search.state.kind === "ready" ? search.state.data : null
+  const searchLoading = !rangeReady || search.state.kind === "loading"
+  const searchValue = (n: number | undefined) => (s && s.totals && n !== undefined ? n.toLocaleString() : null)
+  const searchTileNote = s ? searchNote(range, s) : search.state.kind === "error" ? "could not be read" : ""
+
+  const v = visits.state.kind === "ready" ? visits.state.data : null
+  const visitsLoading = !rangeReady || visits.state.kind === "loading"
 
   return (
     <div className="container mx-auto px-4 py-6">
-      <div className="mb-6">
+      <div className="mb-4">
         <h2 className="text-2xl font-bold">Welcome back 👋</h2>
         <p className="mt-1 text-muted-foreground">Your AI-powered travel business command center.</p>
       </div>
 
-      {quickStats.length > 0 && <div className="mb-6 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        {quickStats.map((stat) => (
-          <Card key={stat.label}>
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="rounded-lg bg-primary/10 p-2">
-                <stat.icon className="h-5 w-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-2xl font-bold leading-none">{stat.value}</p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{stat.label}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>}
+      <div className="mb-6 flex flex-col gap-2">
+        <DashboardRangePills value={range} onChange={chooseRange} />
+        <p className="text-xs text-muted-foreground">The range drives every card below that can follow it. Cards that cannot say so in small text.</p>
+      </div>
 
-      <div className="mb-8">
-        <TrafficChart state={analytics} />
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <StatTile label="Sessions" value={num(g?.sessions)} note={gaNote()} color="#2563eb" loading={gaLoading} />
+        <StatTile label="Users" value={num(g?.users)} note={gaNote()} color="#7c3aed" loading={gaLoading} />
+        <StatTile label="Organic search sessions" value={num(g?.organicSearch)} note={gaNote()} color={CHANNEL_COLORS["Organic Search"]} loading={gaLoading} />
+        <StatTile label="Direct sessions" value={num(g?.direct)} note={gaNote()} color={CHANNEL_COLORS.Direct} loading={gaLoading} />
+        <StatTile label="Referral sessions" value={num(g?.referral)} note={gaNote()} color={CHANNEL_COLORS.Referral} loading={gaLoading} />
+        <StatTile label="Social sessions" value={num(g?.social)} note={gaNote()} color={CHANNEL_COLORS["Organic Social"]} loading={gaLoading} />
+      </div>
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile label="Google Search clicks" value={searchValue(s?.totals?.clicks)} note={searchTileNote} color={SERIES_COLORS.clicks} loading={searchLoading} />
+        <StatTile label="Google Search impressions" value={searchValue(s?.totals?.impressions)} note={searchTileNote} color={SERIES_COLORS.impressions} loading={searchLoading} />
+        <StatTile
+          label="Search click rate and position"
+          value={s?.totals && s.source === "live" ? `${(s.totals.ctr * 100).toFixed(1)}% · #${s.totals.position}` : s?.totals ? `${(s.totals.ctr * 100).toFixed(1)}%` : null}
+          note={s?.source === "snapshot" ? "click rate only; position needs a live read" : searchTileNote}
+          color="#0891b2"
+          loading={searchLoading}
+        />
+        <StatTile
+          label="Visits recorded by this site"
+          value={v && v.trackingOn && !v.error ? v.total.toLocaleString() : null}
+          note={v ? (!v.trackingOn ? "visit tracking is off" : v.error ? "could not be read" : `recorded after consent, ${phrase}`) : visits.state.kind === "error" ? "could not be read" : ""}
+          color={SERIES_COLORS.visits}
+          loading={visitsLoading}
+        />
+      </div>
+
+      <div className="mb-8 space-y-6">
+        <TrafficCard range={range} state={notConnected ? { kind: "loading" } : ga.state} notConnected={notConnected} setupUrl={SETUP_STEPS_URL} />
+        <SearchCard range={range} state={search.state} />
+        <VisitsCard range={range} state={visits.state} />
       </div>
 
       <div className="mb-8">
-        <FunnelPanel />
+        <FunnelPanel range={range} />
       </div>
 
       <div className="mb-4">

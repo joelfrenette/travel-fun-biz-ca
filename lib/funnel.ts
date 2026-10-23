@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getGa4Report, isGa4Configured } from '@/lib/ga4'
+import { getGa4Report, getGa4RangeReport, isGa4Configured } from '@/lib/ga4'
 import { isVisitTrackingOn } from '@/lib/visit-tracking'
 import { funnelByPageType, type PageTypeFunnelRow } from '@/lib/conversion'
 
@@ -22,7 +22,10 @@ export interface FunnelStage {
 }
 
 export interface FunnelResult {
-  days: number
+  /** Window length in days; null = all time. */
+  days: number | null
+  /** Plain words for the window, e.g. "last 28 days" or "all time". Every stage note uses this. */
+  windowLabel: string
   revenueCents: number
   /** Visits and leads by page type (lib/conversion.ts). null = the lead pages could not be read. Visits inside are null when visit tracking is off or empty. */
   byPageType: PageTypeFunnelRow[] | null
@@ -43,13 +46,14 @@ const VISITS_NOT_TRACKED_NOTE =
 
 /** Pure: the Visits stage. First-party visits (one per session) when tracking is on and rows exist; otherwise GA4 sessions
  * when GA4 answered; otherwise honestly "not tracked". Never a made-up number. */
-export function visitsStage(input: { trackingOn: boolean; firstPartyCount: number; ga4Sessions: number | null }): FunnelStage {
+export function visitsStage(input: { trackingOn: boolean; firstPartyCount: number; ga4Sessions: number | null; windowLabel?: string }): FunnelStage {
   const base = { key: 'visits', label: 'Visits' }
+  const win = input.windowLabel ?? 'the last 28 days'
   if (input.trackingOn && input.firstPartyCount > 0) {
-    return { ...base, count: input.firstPartyCount, tracked: true, note: 'Real visits recorded by this site (one per visit, only from people who accepted analytics), last 28 days. Visitors who declined are not counted, so GA4 may show more.' }
+    return { ...base, count: input.firstPartyCount, tracked: true, note: `Real visits recorded by this site (one per visit, only from people who accepted analytics), over ${win}. Visitors who declined are not counted, so GA4 may show more.` }
   }
   if (input.ga4Sessions !== null) {
-    return { ...base, count: input.ga4Sessions, tracked: true, note: input.trackingOn ? 'Visit tracking is on but has recorded no visits yet, so this is GA4 sessions for the last 28 days.' : 'GA4 sessions for the last 28 days (visit tracking is off).' }
+    return { ...base, count: input.ga4Sessions, tracked: true, note: input.trackingOn ? `Visit tracking is on but has recorded no visits yet, so this is GA4 sessions over ${win}.` : `GA4 sessions over ${win} (visit tracking is off).` }
   }
   return {
     ...base,
@@ -59,8 +63,20 @@ export function visitsStage(input: { trackingOn: boolean; firstPartyCount: numbe
   }
 }
 
-export async function getFunnel(admin: SupabaseClient, days = 28): Promise<FunnelResult> {
-  const sinceIso = new Date(Date.now() - days * 86400000).toISOString()
+/** Plain words for a funnel window. Pure. */
+export function funnelWindowLabel(days: number | null): string {
+  if (days === null) return 'all time'
+  if (days === 365) return 'the last 12 months'
+  return `the last ${days} days`
+}
+
+/** `days` null = all time (no date filter at all). */
+export async function getFunnel(admin: SupabaseClient, days: number | null = 28): Promise<FunnelResult> {
+  const sinceIso = days === null ? null : new Date(Date.now() - days * 86400000).toISOString()
+  const windowLabel = funnelWindowLabel(days)
+  // Adds the created_at lower bound only when the window has one.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const since = (q: any): any => (sinceIso ? q.gte('created_at', sinceIso) : q)
 
   // site_visits is written only while the admin switch visit_tracking is on (off by default). It is one row per visit and
   // only grows, so the exact count comes from Postgres COUNT (cheap, no rows transferred) rather than pulling every row into
@@ -72,13 +88,13 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
   const [gscRes, visitsCountRes, visitsSampleRes, leadsRes, ordersRes] = await Promise.all([
     // Each row is already a rolling 28-day total (see lib/rankings-snapshot.ts), so read ONLY the latest.
     admin.from('gsc_ranking_days').select('day, impressions').order('day', { ascending: false }).limit(1),
-    trackingOn ? admin.from('site_visits').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso) : noVisits,
-    trackingOn ? admin.from('site_visits').select('channel, landing_path').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT) : noVisits,
-    admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false).gte('created_at', sinceIso),
-    admin.from('orders').select('amount_cents, status, is_test').gte('created_at', sinceIso),
+    trackingOn ? since(admin.from('site_visits').select('id', { count: 'exact', head: true })) : noVisits,
+    trackingOn ? since(admin.from('site_visits').select('channel, landing_path')).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT) : noVisits,
+    since(admin.from('leads').select('id', { count: 'exact', head: true }).eq('is_test', false)),
+    since(admin.from('orders').select('amount_cents, status, is_test')),
   ])
   // Which page the lead form was on (page_path is stored even without analytics consent). A failed read means "not measured".
-  const leadPagesRes = await admin.from('leads').select('page_path').eq('is_test', false).gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT)
+  const leadPagesRes = await since(admin.from('leads').select('page_path').eq('is_test', false)).order('created_at', { ascending: false }).limit(VISIT_SAMPLE_LIMIT)
 
   const impressions = latestRollingImpressions((gscRes.data ?? []) as { day: string; impressions: number | null }[])
   const visitCount = visitsCountRes.count ?? 0
@@ -88,15 +104,16 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
   let ga4Sessions: number | null = null
   if (!(trackingOn && visitCount > 0) && isGa4Configured()) {
     try {
-      const report = await Promise.race([getGa4Report(days), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('GA4 timed out')), 8000))])
-      ga4Sessions = report.totals.sessions
+      const fetchSessions = async () => (days === null ? (await getGa4RangeReport('all')).totals.sessions : (await getGa4Report(days)).totals.sessions)
+      ga4Sessions = await Promise.race([fetchSessions(), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('GA4 timed out')), 8000))])
     } catch {
       ga4Sessions = null
     }
   }
-  const realOrders = (ordersRes.data ?? []).filter((o: { is_test: boolean }) => !o.is_test)
-  const paidOrders = realOrders.filter((o: { status: string }) => o.status === 'paid')
-  const revenueCents = paidOrders.reduce((sum, o: { amount_cents: number | null }) => sum + (o.amount_cents ?? 0), 0)
+  type OrderRow = { amount_cents: number | null; status: string; is_test: boolean }
+  const realOrders = ((ordersRes.data ?? []) as OrderRow[]).filter((o) => !o.is_test)
+  const paidOrders = realOrders.filter((o) => o.status === 'paid')
+  const revenueCents = paidOrders.reduce((sum, o) => sum + (o.amount_cents ?? 0), 0)
 
   const byChannel = new Map<string, number>()
   for (const row of visitRows as { channel: string | null }[]) {
@@ -109,6 +126,7 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
 
   return {
     days,
+    windowLabel,
     revenueCents,
     byPageType,
     visitsByChannel: Array.from(byChannel, ([channel, count]) => ({ channel, count })).sort((a, b) => b.count - a.count),
@@ -118,15 +136,15 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
         label: 'Awareness (Google Search impressions)',
         count: impressions,
         tracked: true,
-        note: 'Google impressions over the last 28 days, from the latest daily Search Console snapshot (one rolling total, never added up across days). Needs CRON_SECRET set and the site verified in Search Console before this fills in.',
+        note: 'Always the last 28 days (28-day total from Search Console, it does not follow the range pills): Google impressions from the latest daily Search Console snapshot (one rolling total, never added up across days). Needs CRON_SECRET set and the site verified in Search Console before this fills in.',
       },
-      visitsStage({ trackingOn, firstPartyCount: visitCount, ga4Sessions }),
+      visitsStage({ trackingOn, firstPartyCount: visitCount, ga4Sessions, windowLabel }),
       {
         key: 'leads',
         label: 'Leads (trip inquiries)',
         count: leadsRes.count ?? 0,
         tracked: true,
-        note: 'Real, live count from every /api/submit-lead call.',
+        note: `Real, live count from every /api/submit-lead call, over ${windowLabel} (test leads excluded).`,
       },
       {
         key: 'nurture',
@@ -147,7 +165,7 @@ export async function getFunnel(admin: SupabaseClient, days = 28): Promise<Funne
         label: 'Booked (real orders, test orders excluded)',
         count: paidOrders.length,
         tracked: true,
-        note: 'Real count from the GoHighLevel purchase webhook - needs GOHIGHLEVEL_WEBHOOK_SECRET set to receive anything.',
+        note: `Real count over ${windowLabel} from the GoHighLevel purchase webhook - needs GOHIGHLEVEL_WEBHOOK_SECRET set to receive anything.`,
       },
       {
         key: 'loyalty',

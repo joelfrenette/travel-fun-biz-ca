@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Loader2 } from "lucide-react"
 import type { FunnelResult } from "@/lib/funnel"
+import type { DashRange } from "@/lib/dashboard-range"
 import { CHANNEL_LABELS, type Channel } from "@/lib/traffic-source"
 
 function authHeaders(): HeadersInit {
@@ -18,30 +18,37 @@ function formatMoney(cents: number): string {
 // The dashboard's one funnel widget - reads lib/funnel.ts's getFunnel() through /api/admin/funnel
 // and never re-derives any of these counts itself, so this can't disagree with anywhere else that
 // number is shown (see the comment in lib/funnel.ts on why that rule exists).
-export function FunnelPanel() {
+export function FunnelPanel({ range = "30" }: { range?: DashRange }) {
   const [funnel, setFunnel] = useState<FunnelResult | null>(null)
   const [error, setError] = useState("")
 
   useEffect(() => {
-    fetch("/api/admin/funnel?days=28", { headers: authHeaders() })
+    let cancelled = false
+    setError("")
+    fetch(`/api/admin/funnel?range=${range}`, { headers: authHeaders() })
       .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
       .then(({ ok, data }) => {
+        if (cancelled) return
         if (!ok) throw new Error(data.error || "Could not load")
         setFunnel(data)
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
-  }, [])
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Could not load"))
+    return () => {
+      cancelled = true
+    }
+  }, [range])
 
   if (error) return <Card className="col-span-full"><CardContent className="p-4 text-sm text-destructive">{error}</CardContent></Card>
-  if (!funnel) return <Card className="col-span-full"><CardContent className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></CardContent></Card>
+  // Keep the card the same height while a new range loads (shows the previous numbers dimmed instead of a spinner).
+  if (!funnel) return <Card className="col-span-full"><CardContent className="min-h-[340px] animate-pulse p-6"><div className="h-5 w-48 rounded bg-muted" /><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-24 rounded-lg bg-muted" />)}</div></CardContent></Card>
 
   return (
     <Card className="col-span-full">
       <CardHeader className="pb-2">
-        <CardTitle className="text-lg">Funnel — last {funnel.days} days</CardTitle>
+        <CardTitle className="text-lg">Funnel: {funnel.windowLabel ?? `the last ${funnel.days ?? 28} days`}</CardTitle>
         <CardDescription>
-          {formatMoney(funnel.revenueCents)} collected (test orders excluded). Stages marked "not tracked yet" have no code recording
-          them at all — that's not a zero result, it's a gap. See the setup checklist for what unlocks each one.
+          {formatMoney(funnel.revenueCents)} collected over {funnel.windowLabel ?? "this window"} (test orders excluded). Visits, leads and bookings follow the range pills above; impressions are always a 28-day total. Stages marked "not tracked yet" have no code recording
+          them at all, so that is not a zero result, it is a gap. See the setup checklist for what unlocks each one.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -52,7 +59,7 @@ export function FunnelPanel() {
                 <p className="text-xs font-medium text-muted-foreground">{stage.label}</p>
                 {!stage.tracked && <Badge variant="outline" className="shrink-0 text-[10px]">not tracked yet</Badge>}
               </div>
-              <p className="mt-1 text-2xl font-bold leading-none">{stage.tracked ? stage.count.toLocaleString() : "—"}</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{stage.tracked ? stage.count.toLocaleString() : "n/a"}</p>
               <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">{stage.note}</p>
             </div>
           ))}

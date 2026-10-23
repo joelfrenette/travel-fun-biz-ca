@@ -1,4 +1,8 @@
 import { getGoogleAccessToken, isGoogleServiceAccountConfigured } from '@/lib/google-auth'
+import {
+  bucketFor, dashChannelOf, emptyChannelCounts, ga4BucketDimension, ga4DateRange, ga4KeyToBucketKey,
+  type Bucket, type DashChannel, type DashRange,
+} from '@/lib/dashboard-range'
 
 // GA4 Data API, read through the shared service account. One runReport call, cached in
 // memory for an hour so the dashboard never hammers the quota.
@@ -29,7 +33,7 @@ export interface Ga4Report {
   fetchedAt: string
 }
 
-let cache: { report: Ga4Report; at: number } | null = null
+let cache: { report: Ga4Report; at: number; days: number } | null = null
 
 export function isGa4Configured(): boolean {
   return !!process.env.GA4_PROPERTY_ID && isGoogleServiceAccountConfigured()
@@ -90,7 +94,7 @@ export async function getGa4LandingPageSessions(days = 28): Promise<Map<string, 
 }
 
 export async function getGa4Report(days = 14): Promise<Ga4Report> {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.report
+  if (cache && cache.days === days && Date.now() - cache.at < CACHE_MS) return cache.report
 
   const propertyId = process.env.GA4_PROPERTY_ID
   if (!propertyId) throw new Error('GA4_PROPERTY_ID is not set')
@@ -133,6 +137,106 @@ export async function getGa4Report(days = 14): Promise<Ga4Report> {
     totals,
     fetchedAt: new Date().toISOString(),
   }
-  cache = { report, at: Date.now() }
+  cache = { report, at: Date.now(), days }
+  return report
+}
+
+// ---------- Dashboard range report (7 / 30 / 365 days / all time) ----------
+
+const RANGE_CACHE_MS = 10 * 60 * 1000
+
+export interface Ga4RangeReport {
+  range: DashRange
+  bucket: Bucket
+  /** Actual dates GA4 was asked for (relative for the fixed ranges, 2020-01-01 for all time). */
+  startDate: string
+  endDate: string
+  /** One entry per day/week/month, oldest first, every channel present (zero-filled). */
+  buckets: { key: string; channels: Record<DashChannel, number> }[]
+  /** Sessions per channel over the whole range; every channel is present, zero when none. */
+  channelTotals: Record<DashChannel, number>
+  /** users and newUsers come from a separate no-dimension request, so they are true unique counts, not sums of daily counts. */
+  totals: { sessions: number; users: number; newUsers: number; organicSearch: number; direct: number; referral: number; social: number }
+  fetchedAt: string
+}
+
+const rangeCache = new Map<DashRange, { report: Ga4RangeReport; at: number }>()
+
+/** Pure: GA4 rows to the report shape. Offline-testable. */
+export function buildRangeReport(
+  range: DashRange,
+  seriesRows: { dimensionValues?: { value?: string }[]; metricValues?: { value?: string }[] }[],
+  totalsRow: { metricValues?: { value?: string }[] } | undefined,
+  fetchedAt = new Date().toISOString(),
+): Ga4RangeReport {
+  const bucket = bucketFor(range)
+  const byKey = new Map<string, Record<DashChannel, number>>()
+  const channelTotals = emptyChannelCounts()
+  let sessions = 0
+  for (const row of seriesRows) {
+    const key = ga4KeyToBucketKey(String(row.dimensionValues?.[0]?.value || ''), bucket)
+    const channel = dashChannelOf(String(row.dimensionValues?.[1]?.value || ''))
+    const n = Number(row.metricValues?.[0]?.value) || 0
+    if (!byKey.has(key)) byKey.set(key, emptyChannelCounts())
+    byKey.get(key)![channel] += n
+    channelTotals[channel] += n
+    sessions += n
+  }
+  const { startDate, endDate } = ga4DateRange(range)
+  return {
+    range,
+    bucket,
+    startDate,
+    endDate,
+    buckets: [...byKey].sort((a, b) => a[0].localeCompare(b[0])).map(([key, channels]) => ({ key, channels })),
+    channelTotals,
+    totals: {
+      sessions: totalsRow ? Number(totalsRow.metricValues?.[0]?.value) || 0 : sessions,
+      users: Number(totalsRow?.metricValues?.[1]?.value) || 0,
+      newUsers: Number(totalsRow?.metricValues?.[2]?.value) || 0,
+      organicSearch: channelTotals['Organic Search'],
+      direct: channelTotals.Direct,
+      referral: channelTotals.Referral,
+      social: channelTotals['Organic Social'] + channelTotals['Paid Social'],
+    },
+    fetchedAt,
+  }
+}
+
+async function runReport(propertyId: string, token: string, body: Record<string, unknown>) {
+  const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runReport`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(`GA4 report failed: ${json.error?.message || res.status}`)
+  return json as { rows?: { dimensionValues?: { value?: string }[]; metricValues?: { value?: string }[] }[] }
+}
+
+/** Sessions by channel for a dashboard range, cached 10 minutes per range. Throws "GA4 report failed: <reason>" on a Google error. */
+export async function getGa4RangeReport(range: DashRange): Promise<Ga4RangeReport> {
+  const hit = rangeCache.get(range)
+  if (hit && Date.now() - hit.at < RANGE_CACHE_MS) return hit.report
+
+  const propertyId = process.env.GA4_PROPERTY_ID
+  if (!propertyId) throw new Error('GA4_PROPERTY_ID is not set')
+  const token = await getGoogleAccessToken(SCOPE)
+  const dateRanges = [ga4DateRange(range)]
+  const bucketDim = ga4BucketDimension(range)
+
+  const [series, totals] = await Promise.all([
+    runReport(propertyId, token, {
+      dateRanges,
+      dimensions: [{ name: bucketDim }, { name: 'sessionDefaultChannelGroup' }],
+      metrics: [{ name: 'sessions' }],
+      orderBys: [{ dimension: { dimensionName: bucketDim } }],
+      limit: 10000,
+    }),
+    runReport(propertyId, token, { dateRanges, metrics: [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'newUsers' }] }),
+  ])
+  const report = buildRangeReport(range, series.rows || [], totals.rows?.[0])
+  rangeCache.set(range, { report, at: Date.now() })
   return report
 }
