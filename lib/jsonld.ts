@@ -53,6 +53,23 @@ export function buildFaqPageJsonLd(faq: { q: string; a: string }[]) {
   }
 }
 
+/**
+ * One schema.org Review per APPROVED traveller quote that the page really displays (Recap Studio). A quote with no permission
+ * tick never gets here: the caller passes only what is in the published recap bundle. No star rating is invented, so none is
+ * written. The author is the display name already on the page ("Sam T.").
+ */
+export function buildRecapQuotesJsonLd(tripName: string, quotes: { text: string; name: string }[]) {
+  return quotes
+    .filter((q) => q.text.trim() && q.name.trim())
+    .map((q) => ({
+      '@context': 'https://schema.org',
+      '@type': 'Review',
+      itemReviewed: { '@type': 'TouristTrip', name: tripName },
+      author: { '@type': 'Person', name: q.name },
+      reviewBody: oneLine(q.text),
+    }))
+}
+
 /** A schema.org BreadcrumbList from ordered { name, url } items (url already absolute). */
 export function buildBreadcrumbJsonLd(items: { name: string; url: string }[]) {
   return {

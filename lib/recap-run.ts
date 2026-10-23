@@ -63,7 +63,7 @@ export type RecapResult = { ok: true; pkg: DbPackage | null; changed: string[] }
  * 'auto' and its dates have passed (so a later date change cannot flip a finished trip back); otherwise the mode
  * the admin chose is kept.
  */
-async function publishRecap(admin: SupabaseClient, packageId: string, recap: Recap, method: PackageEdit['method']): Promise<RecapResult> {
+export async function publishRecap(admin: SupabaseClient, packageId: string, recap: Recap, method: PackageEdit['method'], extra: Record<string, unknown> = {}): Promise<RecapResult> {
   const fresh = await getPackageById(packageId)
   if (!fresh) return { ok: false, status: 404, error: 'The trip page could not be read.' }
   const log = await logSource(admin, packageId)
@@ -77,6 +77,11 @@ async function publishRecap(admin: SupabaseClient, packageId: string, recap: Rec
     { field: 'recap_highlights', before: fresh.recap_highlights ?? [], after: recap.highlights, method, at },
     { field: 'recap_generated_at', before: fresh.recap_generated_at ?? null, after: at, method, at },
   ]
+  // Recap Studio: further columns that change in the same logged step (the FAQs), so Undo recap puts them back too.
+  for (const [field, after] of Object.entries(extra)) {
+    updates[field] = after
+    edits.push({ field, before: (fresh as unknown as Record<string, unknown>)[field] ?? null, after, method, at })
+  }
   if (nextMode !== mode) {
     updates.recap_mode = nextMode
     edits.push({ field: 'recap_mode', before: mode, after: nextMode, method, at })

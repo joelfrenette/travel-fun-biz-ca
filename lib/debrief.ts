@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { SITE_URL, site } from '@/lib/site'
 import { collectIssues } from '@/lib/issues'
+import { recapsDue } from '@/lib/recap-store'
 import { plainAction, CHECKLIST_URL, type PlainAction } from '@/lib/plain-steps'
 import { readHealLog } from '@/lib/heal'
 import { listEdits } from '@/lib/content-edits'
@@ -238,10 +239,13 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
   const noRecap = issues.filter((i) => i.id.startsWith('package:recap:'))
   const agentTrips = issues.filter((i) => i.id.startsWith('agent-submission:'))
   const actions = issues.filter((i) => !i.id.startsWith('package:thin:') && !i.id.startsWith('package:recap:') && !i.id.startsWith('agent-submission:')).map(plainAction)
-  const recapLines = noRecap.length
+  // Recap Studio: "Past trips waiting: <names>" with one tap link each (snoozed trips are left out, same as Needs attention).
+  const dueRecaps = noRecap.length ? await recapsDue(admin).catch(() => []) : []
+  const recapLines = dueRecaps.length
     ? [
-        `${noRecap.length} past trip${noRecap.length === 1 ? ' has' : 's have'} no recap yet: ${noRecap.map((i) => i.title.replace(/^The (.*) trip has no recap yet$/, '$1')).slice(0, 6).join('; ')}${noRecap.length > 6 ? `; and ${noRecap.length - 6} more` : ''}.`,
-        'Keep them published. To fix one: open Packages, edit the trip, and use the "Convert to Past Trip" card (photos, journal notes, then "Write the recap").',
+        `Past trips waiting for a recap: ${dueRecaps.map((t) => t.name).slice(0, 6).join('; ')}${dueRecaps.length > 6 ? `; and ${dueRecaps.length - 6} more` : ''}. They stay published.`,
+        ...dueRecaps.slice(0, 6).map((t) => `Start the recap for ${t.name}: ${SITE_URL}${t.href}`),
+        'Each takes about 5 minutes, or you can send a link to a travel agent from the same page.',
       ]
     : []
   const tripPages = thinTrips.length || agentTrips.length

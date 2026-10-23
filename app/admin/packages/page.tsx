@@ -53,6 +53,7 @@ import PostsPageHeader from "@/components/admin/posts-page-header"
 import TripsAutomationCard from "@/components/admin/trips-automation-card"
 import { PostThumb } from "@/components/admin/post-thumb"
 import { isPastTrip } from "@/lib/past-trip"
+import { recapThinReason, studioPath } from "@/lib/recap-studio"
 import { EMPTY_TRIP_FILTER, distinctTripValues, filterTripsExtra, tripTotals, type TripFilterInput } from "@/lib/posts-menu-2"
 
 // The add-a-trip wizard (WP13) talks to the admin routes through this; it reads the admin token when a call is made.
@@ -1568,6 +1569,9 @@ function PackageTable({
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{pkg.name}</span>
                   {pkg.featured && <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />}
+                  {pkg.status === "published" && isPastTrip(pkg) && recapThinReason(pkg) && (
+                    <a href={studioPath(pkg.id)} title={`This trip happened: ${recapThinReason(pkg)?.why}. Open the Recap Studio.`} className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200">Needs recap</a>
+                  )}
                 </div>
               </td>
               <td className="p-3 text-xs">{pkg.available_from || "—"}</td>
