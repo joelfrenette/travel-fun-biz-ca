@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from 'node:async_hooks'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { DRY_INTENTS_MAX, DRY_DETAIL_MAX, DRY_RUN_KEY, DRY_RUN_SINCE_KEY, DRY_RUN_LOG_KEY, appendDryPass, isDryRunOn, parseDryLog, type DryIntent, type DryPass, type EffectKind } from '@/lib/dry-run-shape'
@@ -21,16 +20,39 @@ interface DryContext {
   step: string
 }
 
-const storage = new AsyncLocalStorage<DryContext>()
+// AsyncLocalStorage is loaded at run time, never imported: several client components reach this file through lib/publish-cadence.ts
+// (pure helpers), and webpack cannot bundle node:async_hooks for the browser. In a browser the store is null, every helper is inert,
+// and nothing there can ever be a dry run. On the server the real store is used.
+interface Store<T> {
+  getStore(): T | undefined
+  run<R>(store: T, fn: () => R): R
+}
+function makeStore<T>(): Store<T> | null {
+  try {
+    const getBuiltin = (process as unknown as { getBuiltinModule?: (id: string) => { AsyncLocalStorage: new () => Store<T> } }).getBuiltinModule
+    if (typeof getBuiltin === 'function') return new (getBuiltin('node:async_hooks').AsyncLocalStorage)()
+  } catch {
+    // fall through to require
+  }
+  try {
+    // eslint-disable-next-line no-eval
+    const req = eval('require') as (id: string) => { AsyncLocalStorage: new () => Store<T> }
+    return new (req('node:async_hooks').AsyncLocalStorage)()
+  } catch {
+    return null
+  }
+}
+
+const storage = makeStore<DryContext>()
 
 /** True only inside `withDryRun`. Outside it every helper here does nothing. */
 export function isDryRunActive(): boolean {
-  return storage.getStore() !== undefined
+  return storage !== null && storage.getStore() !== undefined
 }
 
 /** Names the step now running, so intents say which step they belong to. No-op outside a dry run. */
 export function setDryStep(step: string): void {
-  const ctx = storage.getStore()
+  const ctx = storage?.getStore()
   if (ctx) ctx.step = step
 }
 
@@ -41,7 +63,7 @@ function push(ctx: DryContext, kind: EffectKind, detail: string): void {
 /** The gate for a real choke point: inside a dry run, records what would have happened and returns true (the caller must then do nothing
  * and return a harmless result). Outside a dry run returns false and records nothing. */
 export function blockIfDry(kind: EffectKind, detail: string): boolean {
-  const ctx = storage.getStore()
+  const ctx = storage?.getStore()
   if (!ctx) return false
   push(ctx, kind, detail)
   return true
@@ -50,6 +72,8 @@ export function blockIfDry(kind: EffectKind, detail: string): boolean {
 /** Runs `fn` as a dry run and returns its result plus every intent recorded. */
 export async function withDryRun<T>(fn: () => Promise<T>): Promise<{ result: T; intents: DryIntent[] }> {
   const ctx: DryContext = { intents: [], step: 'dry run' }
+  // No store means a browser bundle, where a dry run can never happen: refuse rather than run un-gated.
+  if (!storage) throw new Error('A dry run can only run on the server.')
   const result = await storage.run(ctx, fn)
   return { result, intents: ctx.intents }
 }
@@ -115,7 +139,7 @@ export function rehearsalEffects(): Effects {
   }
   const real: Effects = { publishPost: never, sendSocial: never, sendEmail: never, applyHeal: never, applyDecision: never, setTopicStatus: never, advanceCounter: never, callAi: never }
   return guardEffects(real, () => true, (i) => {
-    const ctx = storage.getStore()
+    const ctx = storage?.getStore()
     if (ctx) push(ctx, i.kind, i.detail)
   })
 }
