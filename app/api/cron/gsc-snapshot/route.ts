@@ -8,6 +8,7 @@ import { runCronWatchdog } from '@/lib/cron-watchdog'
 import { runAiTripwire } from '@/lib/ai-tripwire'
 import { runBingCoverage } from '@/lib/bing-coverage'
 import { runOptimizer } from '@/lib/optimizer-run'
+import { runFunnelWatchdog } from '@/lib/funnel-watchdog'
 import { runSiteCrawl, CRAWL_BUDGET_MS } from '@/lib/site-crawl-run'
 import { revalidatePath } from 'next/cache'
 
@@ -70,6 +71,20 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] optimizer failed:', e)
     }
+    // Funnel watchdog: seven stage checks with explicit thresholds (writing, quality, social, indexing, clicks, conversion, measurement) and, where
+    // a safe repair exists, one bounded self-heal each (all logged to the Autopilot decisions card). Database reads plus one 8 second sitemap
+    // read; it starts only when enough of this function's 60 seconds is left. runFunnelWatchdog never throws.
+    let funnel = ''
+    try {
+      if (60_000 - (Date.now() - startedAt) > 25_000) {
+        const w = await runFunnelWatchdog(getSupabaseAdmin())
+        funnel = `; ${w.note}`
+      } else {
+        funnel = '; funnel watchdog skipped (time budget already used)'
+      }
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] funnel watchdog failed:', e)
+    }
     // Site health crawl: one rotating window of the live sitemap (at most 40 pages, 6 s each, 4 at a time), their links, and at most 5
     // safe repairs (logged with Undo, none while automation is paused). Own 40 second budget; started only when enough of this
     // function's 60 seconds is left. runSiteCrawl never throws; the extra try/catch keeps it from ever breaking the snapshot.
@@ -92,7 +107,7 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] site crawl failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${crawl}` })
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${crawl}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found
