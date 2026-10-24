@@ -12,6 +12,7 @@ import { FunnelPanel } from "@/components/admin/funnel-panel"
 import { DashboardRangePills } from "@/components/admin/dashboard-range-pills"
 import { StatTile, TrafficCard, SearchCard, VisitsCard, searchNote, type Loadable } from "@/components/admin/dashboard-cards"
 import { CHANNEL_COLORS, DEFAULT_RANGE, RANGE_PHRASE, RANGE_STORAGE_KEY, SERIES_COLORS, resolveRange, type DashRange } from "@/lib/dashboard-range"
+import { TodayStack } from "@/components/admin/today-stack"
 
 // Setup checklist Joel follows (grade-5 steps for every account and key).
 const SETUP_STEPS_URL = "https://claude.ai/artifact/PN6caspQe9V6RUUsJ2vNcw"
@@ -101,9 +102,14 @@ export default function AdminPage() {
 
   return (
     <div className="container mx-auto px-4 py-6">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      {/* Today comes first: the system check, then the yes/no cards. The dashboard follows below. */}
+      <div className="mb-10">
+        <TodayStack />
+      </div>
+
+      <div id="dashboard" className="mb-6 flex scroll-mt-4 flex-col gap-3 border-t pt-6 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Welcome back 👋</h2>
+          <h2 className="text-2xl font-bold">Dashboard</h2>
           <p className="mt-1 text-muted-foreground">Your AI-powered travel business command center.</p>
         </div>
         <div className="flex flex-col gap-1 sm:items-end">

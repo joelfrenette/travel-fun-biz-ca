@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers, Gem, ChartPie,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers, Gem, ChartPie, CalendarCheck,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -212,3 +212,65 @@ export const adminTools: AdminNavItem[] = [...unsortedTools].sort((a, b) => a.ti
 // Sidebar order: Dashboard pinned first, then every module (active tools before "coming soon" is
 // not necessary — alphabetical is predictable and matches the existing dashboard grid ordering).
 export const adminNavItems: AdminNavItem[] = [dashboardNavItem, ...adminTools]
+
+// ---------------------------------------------------------------------------------------------------
+// The sidebar. A short list of groups with short names. It is built from the same items as above (looked up by title,
+// so a title typed wrong fails loudly at start-up and scripts/check-today-queue.ts proves every module appears exactly
+// once). Today is first and carries the count of cards waiting; Dashboard is the traffic and tools part of the same
+// page, lower down. Modules that are not built yet live in one collapsed "Later" group at the bottom.
+// ---------------------------------------------------------------------------------------------------
+export const todayNavItem: AdminNavItem = {
+  title: "Today",
+  description: "The yes and no cards that need you, after a quick system check.",
+  icon: CalendarCheck,
+  href: "/admin",
+  status: "Active",
+}
+
+export const dashboardAnchorItem: AdminNavItem = {
+  title: "Dashboard",
+  description: "Traffic overview, funnel and the full tool list.",
+  icon: LayoutDashboard,
+  href: "/admin#dashboard",
+  status: "Active",
+}
+
+export interface AdminNavEntry extends AdminNavItem {
+  /** Drawn a little to the right, under the item above it. */
+  nested?: boolean
+}
+
+export interface AdminNavGroup {
+  id: string
+  title: string
+  items: AdminNavEntry[]
+  /** Open the first time the menu is seen. A person's own open/closed choice is remembered after that. */
+  defaultOpen: boolean
+}
+
+function pick(title: string, nested = false): AdminNavEntry {
+  const found = unsortedTools.find((t) => t.title === title)
+  if (!found) throw new Error(`admin-nav: no module titled "${title}"`)
+  return nested ? { ...found, nested: true } : found
+}
+
+const GROUPED_TITLES = [
+  "Posts: Blog", "Posts: Blog Auto-Writer", "Posts: News", "Posts: Guides", "Posts: Trips",
+  "Content Autopilot", "Post Distribution",
+  "Search Rankings", "Keyword Research", "Link building", "Website Value", "Users and Analytics",
+  "Leads", "Orders", "Affiliate Links", "Testimonials",
+  "System Health", "Project Tracker",
+]
+
+export const adminNavGroups: AdminNavGroup[] = [
+  { id: "content", title: "Content", defaultOpen: true, items: [pick("Posts: Blog"), pick("Posts: Blog Auto-Writer", true), pick("Posts: News"), pick("Posts: Guides"), pick("Posts: Trips")] },
+  { id: "social", title: "Social", defaultOpen: true, items: [pick("Content Autopilot"), pick("Post Distribution")] },
+  { id: "growth", title: "Growth", defaultOpen: true, items: [pick("Search Rankings"), pick("Keyword Research"), pick("Link building"), pick("Website Value"), pick("Users and Analytics")] },
+  { id: "money", title: "Money", defaultOpen: true, items: [pick("Leads"), pick("Orders"), pick("Affiliate Links"), pick("Testimonials")] },
+  { id: "system", title: "System", defaultOpen: true, items: [pick("System Health"), pick("Project Tracker")] },
+  // Everything not built yet, in one place, closed until someone opens it.
+  { id: "later", title: "Later", defaultOpen: false, items: unsortedTools.filter((t) => !GROUPED_TITLES.includes(t.title)).sort((a, b) => a.title.localeCompare(b.title)) },
+]
+
+/** The two pinned entries above the groups. */
+export const adminNavTop: AdminNavItem[] = [todayNavItem, dashboardAnchorItem]
