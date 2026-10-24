@@ -6,6 +6,7 @@ import "./globals.css"
 import { ConsentAnalytics } from "@/components/consent-analytics"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AttributionCapture } from "@/components/attribution-capture"
+import { Ga4ClickEvents } from "@/components/ga4-click-events"
 import { VisitTracker } from "@/components/visit-tracker"
 import { ScrollToTop } from "@/components/scroll-to-top"
 import { SITE_URL, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE } from '@/lib/site'
@@ -74,6 +75,8 @@ export default function RootLayout({
           {/* Sends nothing unless the visitor accepted analytics AND the admin switch visit_tracking is on (off by default). */}
           <VisitTracker />
           <SiteAnalytics />
+          {/* GA4 key events for tel:, sms:, /go/ and "Book a free call" clicks. Fires nothing without analytics consent and a GA id. */}
+          <Ga4ClickEvents />
         </ThemeProvider>
         {/* Google Analytics only loads after the visitor accepts analytics (components/consent-analytics.tsx). */}
         <ConsentAnalytics gaId={gaId} />

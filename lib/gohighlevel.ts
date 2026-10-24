@@ -74,6 +74,9 @@ function attributionFields(a: Attribution | undefined): { key: string; value: st
     ['landing_page', a.landing_path],
     ['page_url', a.page_path],
     ['first_seen', a.first_seen],
+    // Only present when the visitor accepted analytics (lib/ga4-lead.ts). An unknown key is ignored by GHL, and a rejected
+    // custom-field set is retried without fields (upsertContact), so this can never fail a lead.
+    ['ga_client_id', a.ga_client_id],
   ]
   return entries.filter((e): e is [string, string] => !!e[1]).map(([key, value]) => ({ key, value }))
 }

@@ -15,7 +15,7 @@ import { Loader2 } from "lucide-react"
 import { contactFormSchema, type ContactFormValues } from "@/lib/schemas/contact"
 import { samplePackages } from "@/content/packages"
 import { getAttribution } from "@/lib/attribution"
-import { track } from "@/lib/analytics-client"
+import { trackLeadSubmitted } from "@/lib/ga4-events"
 import { trackConversion } from "@/lib/conversion-events"
 import { aboutLine, cleanTopic } from "@/lib/conversion"
 import { formErrorMessage, submitPackage } from "@/lib/form-errors"
@@ -98,11 +98,12 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
   async function onSubmit(values: ContactFormValues) {
     const packageName = submitPackage(values.package)
     let failureStatus: number | null = null
+    const attribution = getAttribution()
     try {
       const response = await fetch("/api/submit-lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, ...(agentInterest ? { agent_interest: agentInterest } : {}), ...(intent === "callback" ? { intent: "callback", message: `[Callback requested] ${values.message ?? ""}`.trim() } : {}), package: packageName, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
+        body: JSON.stringify({ ...values, ...(agentInterest ? { agent_interest: agentInterest } : {}), ...(intent === "callback" ? { intent: "callback", message: `[Callback requested] ${values.message ?? ""}`.trim() } : {}), package: packageName, submittedAt: new Date().toISOString(), attribution }),
       })
 
       if (!response.ok) {
@@ -110,7 +111,8 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
         throw new Error("Failed to submit form")
       }
 
-      track("generate_lead", { package_name: packageName, page_path: window.location.pathname, method: "contact_form" })
+      // GA4 generate_lead (consent and GA id gated, no personal data): trip name, source, intent.
+      trackLeadSubmitted({ tripName: packageName, source: attribution.utm_source, intent: intent === "callback" ? "callback" : "info", method: "contact_form" })
       trackConversion("form_submit", { form_id: "contact_form" })
       reset(baseDefaultValues)
       // One URL for every conversion, so GA4 and ad platforms can count it without custom events.

@@ -3,7 +3,7 @@
 import { useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { getAttribution } from "@/lib/attribution"
-import { track } from "@/lib/analytics-client"
+import { trackLeadSubmitted } from "@/lib/ga4-events"
 import { trackConversion } from "@/lib/conversion-events"
 import {
   buildGuideLeadPayload,
@@ -64,7 +64,7 @@ export function GuideLeadForm({ packageName, phone, topic }: { packageName?: str
       setBusy(false)
       return
     }
-    track("generate_lead", { package_name: payload.package, page_path: window.location.pathname, method: "guide_form" })
+    trackLeadSubmitted({ tripName: payload.package, source: payload.attribution?.utm_source, intent: "info", method: "guide_form" })
     trackConversion("form_submit", { form_id: "guide_form" })
     router.push(`/thank-you?package=${encodeURIComponent(payload.package)}`)
   }

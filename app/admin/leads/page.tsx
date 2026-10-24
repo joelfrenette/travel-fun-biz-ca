@@ -33,6 +33,7 @@ export default function LeadsPage() {
   const [error, setError] = useState("")
   const [onlyNeedsAgent, setOnlyNeedsAgent] = useState(false)
   const [deskReady, setDeskReady] = useState(true)
+  const [gaReady, setGaReady] = useState(true)
 
   useEffect(() => {
     fetch("/api/admin/leads", { headers: authHeaders() })
@@ -41,6 +42,7 @@ export default function LeadsPage() {
         if (!ok) throw new Error(data.error || "Could not load")
         setLeads(data.leads || [])
         setDeskReady(data.deskReady !== false)
+        setGaReady(data.gaReady !== false)
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -69,7 +71,11 @@ export default function LeadsPage() {
           </div>
         )}
 
-        {!deskReady && !loading && <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">The lead desk columns are not in the database yet (migration 0055), so hot leads and agents cannot be shown here.</div>}
+        <p className="text-xs text-muted-foreground">
+          "Analytics id: yes" means the visitor accepted analytics, so this lead can be tied to Google Analytics (and a server-side lead event can be sent when GA4_MEASUREMENT_PROTOCOL_SECRET is set). It is "no" when they declined or never chose. The id itself is never shown.
+          {!gaReady && !loading && " The database column is not there yet (migration 0056), so every lead shows no."}
+        </p>
+        {!deskReady && !loading &&<div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">The lead desk columns are not in the database yet (migration 0055), so hot leads and agents cannot be shown here.</div>}
         {!loading && deskReady && (
           <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm">
             <input type="checkbox" checked={onlyNeedsAgent} onChange={(e) => setOnlyNeedsAgent(e.target.checked)} className="h-4 w-4" />
@@ -99,6 +105,9 @@ export default function LeadsPage() {
                       const parts = leadSourceParts(l)
                       return parts.length > 0 ? parts.join(" · ") : "not recorded (the visitor did not accept analytics, or the form was on a page before sources were saved)"
                     })()}
+                  </p>
+                  <p className="text-xs text-muted-foreground" data-testid="lead-ga-id">
+                    <span className="font-semibold text-foreground">Analytics id:</span> {l.has_ga_client_id ? "yes" : "no"}
                   </p>
                   {l.ghl_error &&<p className="text-xs text-destructive">GHL: {l.ghl_error}</p>}
                   <LeadDeskRow lead={l} onChanged={(patch) => patchLead(l.id, patch)} />

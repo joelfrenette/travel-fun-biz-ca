@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { GA_CLIENT_ID_RE, gaClientIdIfConsented } from './ga4-lead'
 
 // First-touch attribution, captured in the browser on the first page view and sent with every
 // lead. Stored in localStorage (per browser), no cookie, no third party.
@@ -16,6 +17,9 @@ export const attributionSchema = z
     landing_path: z.string().max(500).optional(),
     page_path: z.string().max(500).optional(),
     first_seen: z.string().max(40).optional(),
+    // GA4 client id (lib/ga4-lead.ts), sent only after the visitor accepted analytics. A malformed one is dropped
+    // (never rejects the lead), so an old or odd client cannot make a submission fail validation.
+    ga_client_id: z.string().regex(GA_CLIENT_ID_RE).optional().catch(undefined),
   })
   .partial()
 
@@ -74,5 +78,14 @@ export function getAttribution(): Attribution {
   } catch {
     stored = {}
   }
-  return { ...stored, page_path: window.location.pathname }
+  // The consent check above already passed; the id is still read through the gate so it can never be read without it.
+  let gaClientId: string | null = null
+  try {
+    gaClientId = gaClientIdIfConsented(analyticsConsented(), document.cookie)
+  } catch {
+    gaClientId = null
+  }
+  // Never trust a stored id: only the live, validated cookie value is sent.
+  delete (stored as Record<string, unknown>).ga_client_id
+  return { ...stored, page_path: window.location.pathname, ...(gaClientId ? { ga_client_id: gaClientId } : {}) }
 }

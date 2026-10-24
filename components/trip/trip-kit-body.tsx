@@ -161,7 +161,7 @@ export function AgentCta({ id, phone, telHref, tripName, heading, method }: { id
             Call or text us{phone ? `: ${phone}` : ""}
           </PhoneLink>
         )}
-        <a href="#enquire" className="flex items-center justify-center gap-2 rounded-xl border-2 border-primary px-5 py-4 text-base font-bold text-primary hover:bg-primary/5">
+        <a href="#enquire" data-ga-event="book_call_click" data-ga-method={method} className="flex items-center justify-center gap-2 rounded-xl border-2 border-primary px-5 py-4 text-base font-bold text-primary hover:bg-primary/5">
           <Calendar className="h-5 w-5" aria-hidden="true" />
           Request a callback from a live agent
         </a>

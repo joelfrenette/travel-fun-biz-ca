@@ -18,13 +18,15 @@ interface StickyCtaProps {
   phone?: string | null
   /** Label of the call button, already translated. */
   callLabel?: string
+  /** The request button is the "Book a free call" button: its taps also count as the GA4 book_call_click key event. */
+  bookCall?: boolean
 }
 
 // Ids of the on-page forms. The bar slides away while any of them is on screen so it never covers a submit button.
 const FORM_IDS = ["enquire", "contact", "guide-cta", "page-signup"]
 
 // Phone-only bar pinned to the bottom of a page. Hides itself while the enquiry form is on screen.
-export function StickyCta({ packageName, requestLabel, bookingUrl, bookLabel, requestHref = "#enquire", phone, callLabel = "Call or text" }: StickyCtaProps) {
+export function StickyCta({ packageName, requestLabel, bookingUrl, bookLabel, requestHref = "#enquire", phone, callLabel = "Call or text", bookCall = false }: StickyCtaProps) {
   const [hidden, setHidden] = useState(false)
   const tel = telHref(phone)
 
@@ -54,7 +56,7 @@ export function StickyCta({ packageName, requestLabel, bookingUrl, bookLabel, re
       style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
     >
       <div className="container mx-auto flex gap-2 px-1">
-        <a href={requestHref} onClick={() => trackConversion("cta_click", { block_id: "sticky_bar", kind: "enquiry" })} className="flex flex-1 items-center justify-center rounded-md bg-primary px-4 py-3 text-sm font-bold uppercase text-primary-foreground">
+        <a href={requestHref} {...(bookCall ? { "data-ga-event": "book_call_click", "data-ga-method": "sticky_bar" } : {})} onClick={() => trackConversion("cta_click", { block_id: "sticky_bar", kind: "enquiry" })} className="flex flex-1 items-center justify-center rounded-md bg-primary px-4 py-3 text-sm font-bold uppercase text-primary-foreground">
           {requestLabel}
         </a>
         {tel && (

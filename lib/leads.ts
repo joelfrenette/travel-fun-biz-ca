@@ -5,6 +5,8 @@ import { notifyNewLead } from '@/lib/alerts'
 import { touchFromAttribution, insertWithTouchFallback } from '@/lib/lead-touch'
 import { isHotLead, normalizeIntent, type LeadIntent } from '@/lib/lead-desk'
 import { announceHotLead } from '@/lib/lead-desk-store'
+import { isGaClientId } from '@/lib/ga4-lead'
+import { sendLeadToMeasurementProtocol } from '@/lib/ga4-mp'
 
 interface DeskFacts {
   hot: boolean
@@ -28,10 +30,25 @@ async function markAndAnnounceHot(id: string, isTest: boolean, a: ContactSubmiss
   await announceHotLead({ id, isTest, intent: desk.intent, package: pkg, pagePath: a?.page_path, utmSource: a?.utm_source, message: desk.message })
 }
 
+// Stores the GA4 client id on the saved row (migration 0056) and sends the server-side GA4 generate_lead. Both are best-effort:
+// before the migration is applied the update fails quietly, and without GA4_MEASUREMENT_PROTOCOL_SECRET nothing is sent.
+// Nothing here is awaited by the form, and a test lead is stored but never sent to GA4.
+async function recordGaClientId(id: string, isTest: boolean, a: ContactSubmission['attribution'], pkg: string | null | undefined, intent: string | null | undefined): Promise<void> {
+  const clientId = a?.ga_client_id
+  if (!isGaClientId(clientId)) return
+  try {
+    await getSupabaseAdmin().from('leads').update({ ga_client_id: clientId }).eq('id', id)
+  } catch {
+    // the column is optional until the migration is applied
+  }
+  await sendLeadToMeasurementProtocol({ clientId, isTest, tripName: pkg, source: a?.utm_source, intent })
+}
+
 // Fire-and-forget: the new lead email can never fail or slow the form (it catches everything itself).
 function announceLead(id: string | undefined | null, isTest: boolean, a: ContactSubmission['attribution'], pkg?: string | null, desk?: DeskFacts): void {
   try {
     if (!id) return
+    void recordGaClientId(id, isTest, a, pkg, desk?.intent).catch(() => undefined)
     if (desk && (desk.hot || desk.intent)) void markAndAnnounceHot(id, isTest, a, pkg, desk).catch(() => undefined)
     // A hot lead gets the lead desk alert (email to Joel, Shelby and Leslie, plus a text) instead of the plain new lead email.
     if (desk?.hot) return
@@ -164,5 +181,7 @@ export interface LeadRow {
   assigned_by?: string | null
   first_contact_at?: string | null
   desk_note?: string | null
+  /** True when the lead carries a GA4 client id (migration 0056). The id itself is never sent to the admin screen. */
+  has_ga_client_id?: boolean
   created_at: string
 }

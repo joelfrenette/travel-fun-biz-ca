@@ -35,9 +35,20 @@ export async function GET(request: Request) {
       const { data: agents } = await admin.from('agents').select('id, display_name').in('id', ids)
       for (const a of (agents ?? []) as { id: string; display_name: string }[]) names.set(a.id, a.display_name)
     }
+    // Which leads carry a GA4 client id (migration 0056). Only yes or no leaves the server, never the id. Missing column: all "no".
+    const withGa = new Set<string>()
+    let gaReady = true
+    try {
+      const { data: gaRows, error: gaError } = await admin.from('leads').select('id').not('ga_client_id', 'is', null).in('id', leads.map((l) => l.id))
+      if (gaError) gaReady = false
+      else for (const r of (gaRows ?? []) as { id: string }[]) withGa.add(r.id)
+    } catch {
+      gaReady = false
+    }
     return NextResponse.json({
       deskReady,
-      leads: leads.map((l) => ({ ...l, assigned_agent_name: l.assigned_agent_id ? names.get(l.assigned_agent_id) ?? 'an agent who is no longer on the roster' : null })),
+      gaReady,
+      leads: leads.map((l) => ({ ...l, has_ga_client_id: withGa.has(l.id), assigned_agent_name: l.assigned_agent_id ? names.get(l.assigned_agent_id) ?? 'an agent who is no longer on the roster' : null })),
     })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })

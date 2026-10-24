@@ -452,7 +452,7 @@ export default async function PackagePage({ params }: Props) {
           </div>
         </section>
       </main>
-      <StickyCta packageName={pkg.name} requestLabel={useKit ? "Book a free call" : translate(language, "Request Info")} bookingUrl={isPastTrip || useKit ? null : pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} phone={request.phone} callLabel={useKit ? "Call or text" : translate(language, "Call or text now")} />
+      <StickyCta bookCall={useKit} packageName={pkg.name} requestLabel={useKit ? "Book a free call" : translate(language, "Request Info")} bookingUrl={isPastTrip || useKit ? null : pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} phone={request.phone} callLabel={useKit ? "Call or text" : translate(language, "Call or text now")} />
       <Footer language={language} />
     </div>
   )
