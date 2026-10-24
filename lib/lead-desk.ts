@@ -130,7 +130,7 @@ export function hotWaitSentence(w: HotWait | null | undefined): string {
   const lead = w.count === 1 ? 'One lead who asked for a call has' : `${w.count} leads who asked for a call have`
   if (mins > CHECK_RED_MIN) return `${lead} waited ${waitText(mins)} with no agent. Please assign one.`
   if (mins > CHECK_AMBER_MIN) return `${lead} waited ${mins} minutes with no agent. Please assign one.`
-  return `${w.count === 1 ? 'One lead who asked for a call is' : `${w.count} leads who asked for a call are`} waiting for an agent (${mins} minutes so far).`
+  return `${w.count === 1 ? 'One lead who asked for a call is' : `${w.count} leads who asked for a call are`} waiting for an agent.`
 }
 
 // ---- the agent picker -----------------------------------------------------------------------------------

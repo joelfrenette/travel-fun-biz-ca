@@ -19,7 +19,7 @@ function expect(name: string, ok: boolean, detail = '') {
   if (!ok) failures++
 }
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
-const DASH = /[—–]/
+const DASH = new RegExp('[' + String.fromCharCode(0x2014) + String.fromCharCode(0x2013) + ']')
 
 const NOW = Date.parse('2026-10-24T15:00:00Z')
 const minsAgo = (m: number) => new Date(NOW - m * 60_000).toISOString()
