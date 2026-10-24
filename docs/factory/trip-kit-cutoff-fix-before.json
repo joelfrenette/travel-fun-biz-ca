@@ -1,0 +1,268 @@
+{
+ "savedAt": "2026-10-24T20:50:30.058Z",
+ "note": "Rows and trip_kit JSON of the trips with a cut-off sentence, before the cut-off fix re-run. Restore a field with Revert on the \"Trip page kit\" source in Add details, or Undo the kit.",
+ "trips": [
+  {
+   "id": "a81096c6-a96f-490d-84bd-b2d1c6cac9fe",
+   "slug": "european-river-cruise-w-hh-social",
+   "row": {
+    "name": "EUROPEAN RIVER CRUISE w/ HH SOCIAL",
+    "slug": "european-river-cruise-w-hh-social",
+    "destination": "Germany",
+    "country": null,
+    "region": null,
+    "category": "Cruise",
+    "tags": [],
+    "price_display": "Contact for pricing",
+    "price_value": null,
+    "currency": "USD",
+    "price_includes": null,
+    "duration": "8 Days",
+    "duration_days": 8,
+    "available_from": "2027-10-18",
+    "available_to": "2027-10-25",
+    "departure_dates": null,
+    "short_description": "Cologne, Germany to Basel, Switzerland",
+    "full_description": "EUROPEAN RIVER CRUISE w/ HH SOCIAL is an eight day journey that follows the Rhine river through the heart of Europe. The route includes Cologne, Germany and Basel, Switzerland, two cities with their own distinct character and charm. This is a river cruise, so you can settle in and watch the scenery drift past between stops. A travel specialist can help you plan this trip around what you enjoy most.\n\nCologne sits on the Rhine river in North Rhine-Westphalia. It is one of the nation's media, tourism and business hotspots, and is considered one of the most liberal cities in Germany. The city has a rich history, reaching back to the time of the ancient Roman Empire, when it was founded. Along the way you might explore its old city gates and historic buildings, or simply wander and take in the atmosphere of a place with so many layers of the past.\n\nBasel is one of Switzerland's underrated tourist destinations. It has a beautiful medieval old town centre, a fascinating carnival, and several art museums built by notable architects. Basel is also rich in architecture old and new, with a Romanesque Münster cathedral, a Renaissance Rathaus town hall, and various examples of high quality contemporary architecture. Located in the Dreiländereck, the three countries' corner, Basel is a gateway to the Swiss Jura mountains and nearby cities of Zürich and Lucerne, as well as the neighbouring French region of Alsace and the German Black Forest.\n\nBetween these two cities, the Rhine threads its way through landscapes that have drawn travellers for generations. A river cruise lets you unpack once while the view keeps changing. You can spend your days ashore discovering old towns, museums and riverside corners, then return to the comfort of the ship. It is a relaxed way to see this part of Europe without the rush of packing and moving between hotels.\n\nBasel Old Town is compact, which makes it easy to explore on foot. You could visit the Kunstmuseum Basel or the Museum Jean Tinguely, step inside the Elisabethenkirche, or bring the family to Basel Zoo. In Cologne, the city's gates and churches tell the story of its long history, from the Hahnentorburg to the Severinstorburg and the Basilica of the Holy Apostles.\n\nThis kind of trip suits anyone who loves a blend of scenery, history and culture, with the ease of travelling by water. Whether you are drawn to Cologne's ancient roots or Basel's mix of medieval streets and modern art, there is plenty to discover along the Rhine.\n\nIf an eight day European river cruise from Cologne to Basel sounds like your kind of getaway, a travel specialist can help you plan this. Ask about this trip and start a conversation about dates, details and what matters most to you. We can help you plan something that fits the way you like to travel.\n\nRelated: [Germany](/destinations/germany).",
+    "highlights": [
+     "An eight day European river cruise along the Rhine",
+     "The route includes Cologne, Germany and Basel, Switzerland",
+     "Cologne sits on the Rhine river in North Rhine-Westphalia",
+     "Cologne was founded in the time of the ancient Roman Empire",
+     "Basel has a beautiful medieval old town centre",
+     "Basel sits in the Dreiländereck, the three countries' corner",
+     "Basel is a gateway to the Swiss Jura mountains"
+    ],
+    "itinerary": null,
+    "image_url": "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/european-river-cruise-w-hh-social-1790359659708.webp",
+    "gallery_urls": [
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/european-river-cruise-w-hh-social-1792865658921-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/european-river-cruise-w-hh-social-1792866435251-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/european-river-cruise-w-hh-social-1792867009400-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/european-river-cruise-w-hh-social-1792867014910-horizontal.jpg"
+    ],
+    "video_url": null,
+    "rating": null,
+    "review_count": 0,
+    "max_people": null,
+    "min_people": 1,
+    "booking_url": "https://info.travelfunbiz.com/",
+    "more_info_url": null,
+    "call_to_action": "Book Now",
+    "affiliate_code": null,
+    "supplier": "TravelFunBiz",
+    "ai_summary": null,
+    "ai_faqs": [
+     {
+      "answer": "This is an eight day European river cruise that follows the Rhine river from Cologne, Germany to Basel, Switzerland, two cities with their own distinct character and charm.",
+      "question": "Where does this river cruise go?"
+     },
+     {
+      "answer": "It is an eight day journey that follows the Rhine river through the heart of Europe.",
+      "question": "How long is the trip?"
+     },
+     {
+      "answer": "Basel has a beautiful medieval old town centre that is compact and easy to explore on foot. You could visit the Kunstmuseum Basel or the Museum Jean Tinguely, step inside the Elisabethenkirche, or bring the family to Basel Zoo.",
+      "question": "What is there to do in Basel?"
+     },
+     {
+      "answer": "This is a river cruise, so you can settle in and watch the scenery drift past between stops. You can spend your days ashore discovering old towns, museums and riverside corners, then return to the comfort of the ship.",
+      "question": "What is a typical day like on this cruise?"
+     },
+     {
+      "answer": "This kind of trip suits anyone who loves a blend of scenery, history and culture, with the ease of travelling by water. Whether you are drawn to Cologne's ancient roots or Basel's mix of medieval streets and modern art, there is plenty to discover along the Rhine.",
+      "question": "Who does this trip suit?"
+     }
+    ],
+    "meta_title": "European River Cruise w/ HH Social | Germany",
+    "meta_description": "An 8-day river cruise from Cologne, Germany to Basel, Switzerland with HH Social, Oct 18-25, 2027. Book with TravelFunBiz.ca.",
+    "og_image_url": null,
+    "status": "published",
+    "featured": false,
+    "sort_order": 0,
+    "created_at": "2026-09-25T18:07:39.832451+00:00",
+    "updated_at": "2026-10-24T18:36:59.613712+00:00",
+    "not_included": null,
+    "keywords": [
+     "european river cruise w/ hh social",
+     "germany trip",
+     "germany group trip",
+     "germany travel package",
+     "germany vacation",
+     "cruise germany",
+     "germany 8 days"
+    ],
+    "image_url_square": null,
+    "image_url_portrait": null,
+    "image_url_banner": null,
+    "image_source": null,
+    "journal_entries": [],
+    "recap_mode": "auto",
+    "recap_summary": null,
+    "recap_highlights": [],
+    "recap_generated_at": null,
+    "next_trip_slug": null,
+    "alert_tag": null,
+    "price_on_request": false
+   },
+   "trip_kit_setting": "{\"v\":1,\"generatedAt\":\"2026-10-24T18:36:47.591Z\",\"promise\":\"An eight day European river cruise through Germany with HH Social, sailing the Rhine.\",\"routeKnown\":true,\"stops\":[{\"name\":\"Cologne\",\"kind\":\"start\",\"region\":\"Germany\",\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/46184/cologne-cologne-cathedral-dom-church-46184.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Cologne\",\"credit\":\"Photo by Pixabay on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/silhouette-of-building-during-sunset-46184/\"},\"things\":[{\"text\":\"Cologne is a city on the Rhine river in North Rhine-Westphalia with a rich history reaching back to the ancient Roman Empire.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Cologne\"}},{\"text\":\"Admire the Basilica of St and the Basilica of the Holy Apostles\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Cologne\"}},{\"text\":\"Visit Die Kölner Synagoge in the city\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Cologne\"}},{\"text\":\"See old city gates like the Hahnentorburg and Severinstorburg\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Cologne\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Basel\",\"kind\":\"end\",\"region\":\"Switzerland\",\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/20495252/pexels-photo-20495252.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Basel\",\"credit\":\"Photo by Sevi Schiegg on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/view-of-the-middle-bridge-and-skyline-of-basel-switzerland-20495252/\"},\"things\":[{\"text\":\"Basel has a beautiful medieval old town centre, a fascinating carnival, and several art museums built by notable architects.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Basel\"}},{\"text\":\"Explore the Kunstmuseum Basel and the Kunsthalle Basel\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Basel\"}},{\"text\":\"Discover the Museum Jean Tinguely\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Basel\"}},{\"text\":\"Spend time at the Fondation Beyeler\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Basel\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"otherStops\":[],\"included\":[],\"notIncluded\":[],\"goodToKnow\":[],\"attributions\":[{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Cologne\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Basel\"}],\"toConfirm\":[\"Are flights included? No stored source says. The page says nothing about flights until this is known.\",\"Deposit amount and the date it is due: not in any stored source.\",\"Final payment date: not in any stored source.\",\"Cancellation terms: not in any stored source (the page says to ask your agent).\",\"Passport and visa notes: not in any stored source (the page says to ask your agent).\",\"Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.\"]}"
+  },
+  {
+   "id": "0827b470-b7bd-459c-9afb-496b8ff541b2",
+   "slug": "croatia-coastline-yacht-cruise",
+   "row": {
+    "name": "CROATIA COASTLINE YACHT CRUISE",
+    "slug": "croatia-coastline-yacht-cruise",
+    "destination": "Croatia",
+    "country": null,
+    "region": null,
+    "category": "Cruise",
+    "tags": [],
+    "price_display": "Contact for pricing",
+    "price_value": null,
+    "currency": "USD",
+    "price_includes": null,
+    "duration": "12 Days",
+    "duration_days": 12,
+    "available_from": "2027-06-12",
+    "available_to": "2027-06-23",
+    "departure_dates": null,
+    "short_description": "Dubrovnik, Slano, Korcula, Vis, Bisevo, Hvar, Stari Grad, Boi, Split, Trogir, Sibenik, Vodice, and Zagreb",
+    "full_description": "CROATIA COASTLINE YACHT CRUISE invites you to explore the Adriatic coast of Croatia over 12 days. This is a cruise that traces some of the loveliest shores and islands in the Mediterranean. The route includes Dubrovnik, Slano, Korčula, Vis, Biševo, Hvar, Stari Grad, Boi, Split, Trogir, Šibenik, Vodice, and Zagreb. Along the way you can discover walled towns, marble streets, fishing harbours and quiet island bays.\n\nDubrovnik is a historic walled city on the Adriatic Sea coast in the extreme south of Croatia. Nicknamed the Pearl of the Adriatic, it is a seaport and a UNESCO World Heritage Site. You can wander past Big Onofrio's Fountain, step through the Pile Gate and admire the Rector's Palace and the Church of Saint Blaise.\n\nSlano is a village in southern Croatia with a small harbour in the bay of the same name. Korčula is a Croatian island known for Grk, a white wine that is only produced on the island. Biševo is a Croatian island in the Adriatic Sea, a peaceful place to pause along the coast.\n\nHvar feels remarkable, with imposing fortifications hovering above grey stone and orange roofs. Its marble streets reveal one of the largest squares in Dalmatia and the prized Cathedral of St. You can climb up to the Španjola Fortress for views over the brilliant blue sea. Stari Grad shares the same beautiful Dalmatian character of walls, promenades and quaint harbours.\n\nSplit is a city in Central Dalmatia built around the Diocletian palace, where locals sought refuge centuries ago. Wandering the historic centre you can still clearly see the Roman walls, squares and temples. Visit the Peristylium, stroll the Riva promenade and explore the Basement halls of Diocletian's Palace. Trogir is a medieval town and a popular day trip from Split, home to the Kaštel Kamerlengo.\n\nŠibenik rewards slow walks, with the Fortress of St and gardens to explore, plus beaches around Šibenik for a swim. Vodice sits nearby along the same stretch of coast. Zagreb, the capital of Croatia, has a charming medieval old city with architecture and cobbled streets reminiscent of Vienna, Budapest and Prague. There you can see the Zagreb Cathedral, the Old Town Gate and the Museum of Broken Relationships.\n\nThis trip blends time on the water with time ashore, so you can enjoy both the sea and the towns that rise above it. The waters of the Adriatic, the island vineyards and the stone streets all come together into one memorable journey. It suits travellers who love history, coastal scenery and the easy rhythm of cruising from port to port.\n\nIf this sounds like the kind of holiday you have been imagining, a travel specialist can help you plan this. Ask about this trip and share what you hope to see. We can help you plan the details so the journey feels right for you.\n\nRelated: [Croatia](/destinations/croatia).",
+    "highlights": [
+     "Twelve day yacht cruise along the Croatia coastline",
+     "Dubrovnik, the walled Pearl of the Adriatic and a UNESCO World Heritage Site",
+     "Korcula, known for Grk, a white wine produced only on the island",
+     "Hvar reveals one of the largest squares in Dalmatia",
+     "Split built around the Diocletian palace",
+     "Trogir, a medieval town near Split",
+     "Zagreb, the capital of Croatia, with a charming medieval old city"
+    ],
+    "itinerary": [
+     {
+      "day": null,
+      "title": "Dubrovnik",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Slano",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Korcula",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Bisevo",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Hvar",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Stari Grad",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Split",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Trogir",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Sibenik",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Vodice",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Zagreb",
+      "description": ""
+     }
+    ],
+    "image_url": "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1790359659033.webp",
+    "gallery_urls": [
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1792865738048-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1792867409666-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1792867413788-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1792867416807-horizontal.jpg"
+    ],
+    "video_url": null,
+    "rating": null,
+    "review_count": 0,
+    "max_people": null,
+    "min_people": 1,
+    "booking_url": "https://info.travelfunbiz.com/",
+    "more_info_url": null,
+    "call_to_action": "Book Now",
+    "affiliate_code": null,
+    "supplier": "TravelFunBiz",
+    "ai_summary": null,
+    "ai_faqs": [
+     {
+      "answer": "Korčula is a Croatian island known for Grk, a white wine that is only produced on the island.",
+      "question": "What is Korčula known for?"
+     },
+     {
+      "answer": "Split is a city in Central Dalmatia built around the Diocletian palace, where locals sought refuge centuries ago, and you can still clearly see the Roman walls, squares and temples. You can visit the Peristylium, stroll the Riva promenade and explore the Basement halls of Diocletian's Palace.",
+      "question": "What can I explore in Split?"
+     },
+     {
+      "answer": "Zagreb, the capital of Croatia, has a charming medieval old city with architecture and cobbled streets reminiscent of Vienna, Budapest and Prague. There you can see the Zagreb Cathedral, the Old Town Gate and the Museum of Broken Relationships.",
+      "question": "What is there to see in Zagreb?"
+     },
+     {
+      "answer": "This trip blends time on the water with time ashore, so you can enjoy both the sea and the towns that rise above it. It suits travellers who love history, coastal scenery and the easy rhythm of cruising from port to port.",
+      "question": "Who does this trip suit?"
+     }
+    ],
+    "meta_title": "Croatia Coastline Yacht Cruise | 12 Days",
+    "meta_description": "A 12-day Croatia yacht cruise, Jun 12-23, 2027, visiting Dubrovnik, Korcula, Hvar, Split and Zagreb. Book with TravelFunBiz.ca.",
+    "og_image_url": null,
+    "status": "published",
+    "featured": false,
+    "sort_order": 0,
+    "created_at": "2026-09-25T18:07:39.158982+00:00",
+    "updated_at": "2026-10-24T18:43:39.79982+00:00",
+    "not_included": null,
+    "keywords": [
+     "croatia coastline yacht cruise",
+     "croatia trip",
+     "croatia group trip",
+     "croatia travel package",
+     "croatia vacation",
+     "cruise croatia",
+     "croatia 12 days"
+    ],
+    "image_url_square": null,
+    "image_url_portrait": null,
+    "image_url_banner": null,
+    "image_source": null,
+    "journal_entries": [],
+    "recap_mode": "auto",
+    "recap_summary": null,
+    "recap_highlights": [],
+    "recap_generated_at": null,
+    "next_trip_slug": null,
+    "alert_tag": null,
+    "price_on_request": false
+   },
+   "trip_kit_setting": "{\"v\":1,\"generatedAt\":\"2026-10-24T18:43:06.544Z\",\"promise\":\"A twelve day yacht cruise along the Croatian coast, visiting walled towns and Adriatic islands.\",\"routeKnown\":true,\"stops\":[{\"name\":\"Dubrovnik\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/6072869/pexels-photo-6072869.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Dubrovnik\",\"credit\":\"Photo by Nikolett Emmert on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/aerial-view-of-the-old-city-of-dubrovnik-croatia-near-blue-sea-6072869/\"},\"things\":[{\"text\":\"A historic walled city on the Adriatic, nicknamed the Pearl of the Adriatic and a UNESCO World Heritage Site.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"Visit the Rector's Palace and Sponza Palace\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"See the Church of Saint Blaise\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"Pass through the Pile Gate\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Slano\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/11448214/pexels-photo-11448214.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Slano\",\"credit\":\"Photo by Nam Le on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/an-aerial-shot-of-a-marina-11448214/\"},\"things\":[{\"text\":\"A village in southern Croatia with a small harbour in the bay of the same name.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Slano\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Korcula\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/17591954/pexels-photo-17591954.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Korcula\",\"credit\":\"Photo by Lukas Kosc on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/yachts-moored-in-the-bay-17591954/\"},\"things\":[{\"text\":\"A Croatian island in the Adriatic Sea known for its local wine.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Kor%C4%8Dula\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Bisevo\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/13328330/pexels-photo-13328330.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Bisevo\",\"credit\":\"Photo by SlimMars 13 on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/river-between-rocky-mountains-13328330/\"},\"things\":[{\"text\":\"A Croatian island in the Adriatic Sea.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Bi%C5%A1evo\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Hvar\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/7499419/pexels-photo-7499419.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Hvar\",\"credit\":\"Photo by Oskars Lipatovs on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/aerial-view-of-coastal-town-7499419/\"},\"things\":[{\"text\":\"A town where imposing fortifications hover above grey stone and orange roofs beside the blue sea.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Explore Grapčeva cave\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Try the Adventure park Hvar Jelsa\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Stari Grad\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/4488998/pexels-photo-4488998.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Stari Grad\",\"credit\":\"Photo by Alexander Nadrilyanski on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/old-town-of-budva-near-sandy-beach-and-sea-4488998/\"},\"things\":[{\"text\":\"A town sharing marble streets and one of the largest squares in Dalmatia.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Visit the Adventure park Hvar Jelsa\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Split\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/4353557/pexels-photo-4353557.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Split\",\"credit\":\"Photo by Spencer Davis on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/coastal-town-embankment-with-red-roofed-buildings-4353557/\"},\"things\":[{\"text\":\"Stand in the Peristylium\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"See the Jupiter temple\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"Visit the Basement halls of Diocletian's Palace\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"Relax at the Beach at Bačvice\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Trogir\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/12644210/pexels-photo-12644210.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Trogir\",\"credit\":\"Photo by Hert Niks on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/yacht-docked-on-harbor-12644210/\"},\"things\":[{\"text\":\"A medieval town and popular day trip within the Split metropolitan area.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Trogir\"}},{\"text\":\"See Kaštel Kamerlengo\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Trogir\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Sibenik\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/17563088/pexels-photo-17563088.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Sibenik\",\"credit\":\"Photo by Peter Safranka on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/cathedral-overlooking-blue-sea-17563088/\"},\"things\":[{\"text\":\"A coastal town with fortresses and gardens near the Adriatic.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Visit the Fortress of St\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Walk or cycle along the Kanal sv\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"See the Biskupska palača\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Vodice\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/33182793/pexels-photo-33182793.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Vodice\",\"credit\":\"Photo by Dóra Márk on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/vibrant-pink-volkswagen-hatchback-in-vodice-croatia-33182793/\"},\"things\":[{\"text\":\"A coastal spot near Sibenik with fortresses and gardens to explore.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"See the Fortress of St\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Stroll the Perivoj Roberta Visianija\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Zagreb\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/14133589/pexels-photo-14133589.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Zagreb\",\"credit\":\"Photo by Pham Ngoc Anh on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/street-with-old-buildings-14133589/\"},\"things\":[{\"text\":\"The capital of Croatia, with a charming medieval old city and cobbled streets.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"Visit Zagreb Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"Climb the Lotrščak Tower\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"See the Museum of Broken Relationships\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"otherStops\":[\"Vis\",\"Boi\"],\"included\":[],\"notIncluded\":[],\"goodToKnow\":[],\"attributions\":[{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Slano\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Kor%C4%8Dula\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Bi%C5%A1evo\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}],\"toConfirm\":[\"Are flights included? No stored source says. The page says nothing about flights until this is known.\",\"Deposit amount and the date it is due: not in any stored source.\",\"Final payment date: not in any stored source.\",\"Cancellation terms: not in any stored source (the page says to ask your agent).\",\"Passport and visa notes: not in any stored source (the page says to ask your agent).\",\"Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.\",\"\\\"Vis\\\" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.\",\"\\\"Boi\\\" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.\"]}"
+  }
+ ]
+}

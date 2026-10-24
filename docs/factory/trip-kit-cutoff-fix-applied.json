@@ -1,0 +1,58 @@
+{
+ "at": "2026-10-24T20:51:04.073Z",
+ "trips": [
+  {
+   "slug": "european-river-cruise-w-hh-social",
+   "status": "published",
+   "fieldsToChange": [],
+   "descriptionRewritten": false,
+   "descNote": "",
+   "held": [],
+   "notes": [],
+   "kitStops": [
+    "Cologne: Cologne sits on the Rhine river in North Rhine-Westphalia and reaches back to the time of the ancient Roman Empire, when it was founded. | Step inside the Basilica of the Holy Apostles and take in its long history | Visit St. Gereon's Basilica, a beautiful reminder of the city's layered past | Wander to the Basilica of St. Ursula and soak up the atmosphere",
+    "Basel: Basel is one of Switzerland's underrated tourist destinations, with a beautiful medieval old town centre and several art museums. | Spend time at the Kunstmuseum Basel surrounded by art | Discover the playful works at the Museum Jean Tinguely | Step inside the Elisabethenkirche in the compact old town"
+   ],
+   "calls": 0,
+   "applied": {
+    "applied": [],
+    "skipped": [],
+    "kitSaved": true
+   }
+  },
+  {
+   "slug": "croatia-coastline-yacht-cruise",
+   "status": "published",
+   "fieldsToChange": [
+    "full_description"
+   ],
+   "descriptionRewritten": true,
+   "descNote": "",
+   "held": [],
+   "notes": [
+    "fact sheet reused from cache"
+   ],
+   "kitStops": [
+    "Dubrovnik: A historic walled city on the Adriatic, nicknamed the Pearl of the Adriatic and a UNESCO World Heritage Site. | Pause at Big Onofrio's Fountain | Visit the Rector's Palace | See the Church of Saint Blaise",
+    "Slano: A village in southern Croatia with a small harbour in the bay of the same name.",
+    "Korcula: A Croatian island in the Adriatic Sea, known for Grk, a white wine produced only on the island.",
+    "Bisevo: A Croatian island in the Adriatic Sea.",
+    "Hvar: A town revealing one of the largest squares in Dalmatia, with fortifications above grey stone and orange roofs. | Head to Adventure park Hvar Jelsa",
+    "Stari Grad: A spot with a quaint fishing harbour and a wide promenade edging the brilliant blue sea. | Explore Grapčeva cave | Try Adventure park Hvar Jelsa",
+    "Split: A city in Central Dalmatia built around the Diocletian palace, with Roman walls, squares and temples. | Explore the Basement halls of Diocletian's Palace | Visit Katedrala sv. Duje | Relax at Split city beach",
+    "Trogir: A medieval town near Split, a popular day trip within its metropolitan area. | Visit Kaštel Kamerlengo",
+    "Sibenik: A coastal town with old churches, gardens and a hilltop fortress. | Visit the Fortress of St. Michael | See Crkva sv. Barbare | Wander Perivoj Roberta Visianija",
+    "Vodice: A spot along the Šibenik stretch of coast with churches and quiet gardens. | See Crkva i smostan sv. Frane | Visit Tvrđava sv. Mihovila | Explore Srednjovjekovni vrt sv.Lovre",
+    "Zagreb: The capital of Croatia, with a charming medieval old city of cobbled streets. | Visit Zagreb Cathedral | See St. Mark's Square | Climb Lotrščak Tower"
+   ],
+   "calls": 1,
+   "applied": {
+    "applied": [
+     "full_description"
+    ],
+    "skipped": [],
+    "kitSaved": true
+   }
+  }
+ ]
+}
