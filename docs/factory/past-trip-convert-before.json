@@ -1,0 +1,445 @@
+{
+ "savedAt": "2026-10-24T22:33:29.892Z",
+ "note": "Rows and trip_kit records of the three trips before the past-mode conversion. Restore a field with Revert on the \"Trip page kit\" source in Add details, or Undo the kit (puts trip_kit_prev back).",
+ "trips": [
+  {
+   "id": "94d6cc0e-5111-41ac-a055-298a45446f90",
+   "slug": "hh-social-southern-italy-sicily",
+   "row": {
+    "name": "HH SOCIAL SOUTHERN ITALY & SICILY",
+    "slug": "hh-social-southern-italy-sicily",
+    "destination": "Italy",
+    "country": null,
+    "region": null,
+    "category": "Cultural",
+    "tags": [],
+    "price_display": "Contact for pricing",
+    "price_value": null,
+    "currency": "USD",
+    "price_includes": "Meals\nFarmhouse lunch\nWinery tour and tasting",
+    "duration": "14 Days",
+    "duration_days": 14,
+    "available_from": "2026-09-03",
+    "available_to": "2026-09-16",
+    "departure_dates": null,
+    "short_description": "Southern Italy & Sicily, Featuring Taormina, Matera and the Amalfi Coast, Palermo, Monreale, Agrigento’s Valley of the Temples, Piazza Amerina, Giardini Naxos, Strait of Messina, Sorrento, Positano, Pompeii, and more",
+    "full_description": "HH SOCIAL SOUTHERN ITALY & SICILY is a hosted group trip through a crossroads of civilizations in Sicily and on to the spectacular coastlines of Southern Italy. The trip was planned around 14 days, a classic travel style, and an age old heritage of ancient monuments and cultivated lands. The route includes Palermo, Monreale, the Valley of the Temples at Agrigento, Piazza Armerina, Giardini Naxos, Taormina, the Strait of Messina, Matera, Sorrento, Positano, and Pompeii. Along the way the journey lets the unique culture capture your heart.\n\nSicily is a place where history layers upon history. Palermo sits on the northern coast, a city with a thousand years of history, beautiful Arab Norman architecture, amazing food, and lively neighbourhoods. Nearby Monreale is known for its cathedral. Just outside Agrigento lies the Valley of the Temples, one of the most important archaeological sites in Sicily, with remarkably well preserved Doric temples and sweeping views of the countryside. Giardini Naxos lies on the east coast, with the mountain town of Taormina just above it. In Taormina you can stand in awe before the ancient Greek theatre. The Strait of Messina is reached through the port in the northeast corner of Sicily.\n\nCrossing to the mainland, the trip was planned around time in Matera, capital of the Matera province in Basilicata, famous for its sassi, well preserved rock cut settlements that form a World Heritage site. The spectacular Amalfi Coast follows, recognized as a UNESCO World Heritage Site for its iconic medieval cliffside fishing villages. Positano is a small picturesque town perched on the face of a hill, winding down towards the water, called the pearl of the Amalfi Coast. Sorrento overlooks the Bay of Naples and is widely known for its ceramics, lacework, and woodwork shops. The route also includes Pompeii, the ruined ancient Roman city considered one of the few sites where an ancient city has been preserved in detail.\n\nAlong the way you can experience true Sicilian hospitality during a farmhouse lunch, and enjoy a winery tour and tasting. The planned pace is Level 3 Active. You should be comfortable walking and standing for longer periods of time, and a moderately paced walking tour over hills and uneven surfaces should be no problem. Expect some longer days balanced with free time to recharge or set out on your own adventure. This level is not a fit for travellers who require mobility assistance devices.\n\nThis departure date has passed, but a similar trip may still be possible. A travel specialist can help you plan this. Ask about this trip and we can help you shape a route through Sicily and Southern Italy that fits the way you like to travel. Whether you dream of ancient temples, hilltop towns, or cliffside coastal villages, there is plenty to explore. Reach out to start the conversation and discover how a journey like this could come together for you.\n\nRelated: [Italy](/destinations/italy).",
+    "highlights": [
+     "Journey through Sicily and on to Southern Italy, a classic travel style trip",
+     "Stand in awe before the ancient Greek theatre in Taormina",
+     "Experience true Sicilian hospitality during a farmhouse lunch",
+     "Journey to Positano village, the pearl of the Amalfi Coast",
+     "Route includes Palermo, Monreale and the Valley of the Temples at Agrigento",
+     "See Matera and its sassi, a World Heritage site",
+     "Visit Pompeii, a preserved ancient Roman city",
+     "Enjoy a winery tour and tasting"
+    ],
+    "itinerary": [
+     {
+      "day": null,
+      "title": "Taormina",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Matera",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Amalfi Coast",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Palermo",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Monreale",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Agrigento’s Valley of the Temples",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Giardini Naxos",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Strait of Messina",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Sorrento",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Positano",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Pompeii",
+      "description": ""
+     }
+    ],
+    "image_url": "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/hh-social-southern-italy-sicily-1790359674999.webp",
+    "gallery_urls": [
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/hh-social-southern-italy-sicily-1792865461301-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/hh-social-southern-italy-sicily-1792865463320-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/hh-social-southern-italy-sicily-1792865647078-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/hh-social-southern-italy-sicily-1792865649043-horizontal.jpg"
+    ],
+    "video_url": null,
+    "rating": null,
+    "review_count": 0,
+    "max_people": null,
+    "min_people": 1,
+    "booking_url": "https://groups.gocollette.com/en-US/link/1389524",
+    "more_info_url": null,
+    "call_to_action": "Book Now",
+    "affiliate_code": null,
+    "supplier": "TravelFunBiz",
+    "ai_summary": null,
+    "ai_faqs": [
+     {
+      "answer": "You can stand in awe before the ancient Greek theatre in Taormina, see Matera and its sassi, a World Heritage site, and visit Pompeii, a preserved ancient Roman city. You can also journey to Positano, the pearl of the Amalfi Coast, perched on the face of a hill winding down towards the water.",
+      "question": "What are some of the highlights I can experience?"
+     },
+     {
+      "answer": "Meals are included, along with a farmhouse lunch where you can experience true Sicilian hospitality, and a winery tour and tasting.",
+      "question": "What is included on this trip?"
+     },
+     {
+      "answer": "The planned pace is Level 3 Active. You should be comfortable walking and standing for longer periods of time, and a moderately paced walking tour over hills and uneven surfaces should be no problem. This level is not a fit for travellers who require mobility assistance devices.",
+      "question": "How active is this trip?"
+     },
+     {
+      "answer": "This departure date has passed, but a similar trip may still be possible, and a travel specialist can help you plan this. Whether you dream of ancient temples, hilltop towns, or cliffside coastal villages, we can help you shape a route through Sicily and Southern Italy that fits the way you like to travel.",
+      "question": "Can I still travel this route if the date has passed?"
+     }
+    ],
+    "meta_title": "HH Social Southern Italy & Sicily | 14 Days",
+    "meta_description": "A 14-day tour of Southern Italy & Sicily, Sep 3-16, 2026, featuring Taormina, the Amalfi Coast and Pompeii. Book with TravelFunBiz.ca.",
+    "og_image_url": null,
+    "status": "published",
+    "featured": false,
+    "sort_order": 0,
+    "created_at": "2026-09-25T18:07:55.260812+00:00",
+    "updated_at": "2026-10-24T18:14:12.164073+00:00",
+    "not_included": null,
+    "keywords": [
+     "southern italy group trip",
+     "sicily hosted tour",
+     "amalfi coast travel",
+     "taormina sicily",
+     "valley of the temples agrigento",
+     "matera sassi tour",
+     "positano amalfi coast",
+     "pompeii ruins trip",
+     "palermo and monreale"
+    ],
+    "image_url_square": null,
+    "image_url_portrait": null,
+    "image_url_banner": null,
+    "image_source": null,
+    "journal_entries": [],
+    "recap_mode": "auto",
+    "recap_summary": null,
+    "recap_highlights": [],
+    "recap_generated_at": null,
+    "next_trip_slug": null,
+    "alert_tag": null,
+    "price_on_request": false
+   },
+   "trip_kit_setting": "{\"v\":1,\"generatedAt\":\"2026-10-24T18:34:25.489Z\",\"promise\":\"A fourteen day hosted social journey through Southern Italy and Sicily, exploring ancient sites and coastal villages.\",\"routeKnown\":true,\"stops\":[{\"name\":\"Taormina\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/735258/pexels-photo-735258.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Taormina\",\"credit\":\"Photo by K L on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/photography-of-illuminated-city-735258/\"},\"things\":[{\"text\":\"Taormina is a town on the east coast of Sicily in the province of Messina.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Taormina\"}},{\"text\":\"Stand before the ancient Teatro Antico\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Taormina\"}},{\"text\":\"Stroll Piazza IX Aprile\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Taormina\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Matera\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/4186659/pexels-photo-4186659.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Matera\",\"credit\":\"Photo by alleksana on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/view-of-ancient-town-4186659/\"},\"things\":[{\"text\":\"Matera is known for the sassi, well preserved rock cut settlements that are a World Heritage site.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"}},{\"text\":\"See San Pietro Caveoso\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"}},{\"text\":\"Visit Matera Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"}},{\"text\":\"Explore the Church of San Pietro Barisano\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Amalfi Coast\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/358223/pexels-photo-358223.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Amalfi Coast\",\"credit\":\"Photo by Pixabay on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/bird-s-eye-view-photography-of-establishment-near-the-cliff-358223/\"},\"things\":[{\"text\":\"The Amalfi Coast is recognized for its extraordinary beauty and iconic cliffside fishing villages.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Amalfi_Coast\"}},{\"text\":\"Walk the Sentiero Degli Dei\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Amalfi_Coast\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Palermo\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/14213525/pexels-photo-14213525.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Palermo\",\"credit\":\"Photo by Inmaculada Peña on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/facade-of-the-palermo-cathedral-sicily-italy-14213525/\"},\"things\":[{\"text\":\"Palermo has a thousand years of history, beautiful Arab Norman architecture and lively neighbourhoods.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"Visit Palermo Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"See the Palatine Chapel\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"Explore the Palazzo dei Normanni\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Monreale\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/6457911/pexels-photo-6457911.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Monreale\",\"credit\":\"Photo by Florian Chefai on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/jesus-christ-painting-on-a-dome-ceiling-6457911/\"},\"things\":[{\"text\":\"Monreale sits near Palermo and is known for its celebrated cathedral.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"Visit Monreale Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"See the Palatine Chapel\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"Explore San Giovanni degli Eremiti\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Agrigento’s Valley of the Temples\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/6284372/pexels-photo-6284372.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Agrigento’s Valley of the Temples\",\"credit\":\"Photo by Pollard Lucien on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/photo-of-a-ruins-6284372/\"},\"things\":[{\"text\":\"The Valley of the Temples at Agrigento preserves the remains of the ancient Greek city of Akragas.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"}},{\"text\":\"See the Temple of Concordia\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"}},{\"text\":\"Visit the Temple of Juno\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"}},{\"text\":\"View the Temple of Olympian Zeus\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Giardini Naxos\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/5819219/pexels-photo-5819219.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Giardini Naxos\",\"credit\":\"Photo by Lachcim Kejarko on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/watercrafts-anchored-near-coast-5819219/\"},\"things\":[{\"text\":\"Giardini Naxos is a coastal town just below the mountain town of Taormina.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}},{\"text\":\"Visit the Museo e Area Archeologica di Naxos\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}},{\"text\":\"Relax at Dal Pirata Beach\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}},{\"text\":\"Explore the Parco fluviale dell'Alcantara\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Strait of Messina\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/10419744/pexels-photo-10419744.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Strait of Messina\",\"credit\":\"Photo by Vikki on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/white-ship-cruising-on-sea-near-a-dock-10419744/\"},\"things\":[{\"text\":\"The Strait of Messina sits at the northeast corner of Sicily near the port of Messina.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Messina\"}},{\"text\":\"See the Duomo di Messina\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Messina\"}},{\"text\":\"Visit the Fontana di Orione\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Messina\"}},{\"text\":\"Explore the Museo regionale di Messina\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Messina\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Sorrento\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/9718902/pexels-photo-9718902.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Sorrento\",\"credit\":\"Photo by Daniel Eliashevsky on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/village-with-pier-on-sea-shore-9718902/\"},\"things\":[{\"text\":\"Sorrento overlooks the Bay of Naples and is known for its ceramics, lacework and woodwork shops.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Sorrento\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Positano\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/919280/pexels-photo-919280.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Positano\",\"credit\":\"Photo by Gotta Be Worth It on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/concrete-houses-near-the-mountain-919280/\"},\"things\":[{\"text\":\"Positano is a small picturesque town with splendid coastal views on the Amalfi Coast.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Positano\"}},{\"text\":\"Visit the Collegiata di Santa Maria Assunta\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Positano\"}},{\"text\":\"See the Roman archaeological museum and villa\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Positano\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Pompeii\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/5142345/pexels-photo-5142345.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Pompeii\",\"credit\":\"Photo by Russ Stoneback on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/columns-in-ruins-of-ancient-bui-5142345/\"},\"things\":[{\"text\":\"Pompeii is a ruined ancient Roman city preserved in remarkable detail.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Pompeii\"}},{\"text\":\"See the House of the Faun\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Pompeii\"}},{\"text\":\"Visit the Amphitheatre\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Pompeii\"}},{\"text\":\"Explore the House of the Vettii\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Pompeii\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"otherStops\":[\"Piazza Amerina\"],\"included\":[{\"label\":\"\",\"text\":\"Sicilian farmhouse lunch\",\"source\":{\"label\":\"Supplier page\",\"url\":\"https://groups.gocollette.com/en-US/link/1389524\"}},{\"label\":\"\",\"text\":\"Winery tour and tasting\",\"source\":{\"label\":\"Supplier page\",\"url\":\"https://groups.gocollette.com/en-US/link/1389524\"}}],\"notIncluded\":[],\"goodToKnow\":[{\"label\":\"Activity level\",\"text\":\"This is a Level 3 Active trip and is not a fit for travellers who require mobility assistance devices.\",\"source\":{\"label\":\"Supplier page\",\"url\":\"https://groups.gocollette.com/en-US/link/1389524\"}},{\"label\":\"Other\",\"text\":\"The travel style is Classic.\",\"source\":{\"label\":\"Supplier page\",\"url\":\"https://groups.gocollette.com/en-US/link/1389524\"}}],\"attributions\":[{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Taormina\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Amalfi_Coast\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}],\"toConfirm\":[\"The supplier page says this tour has been cancelled. Decide whether to keep the page as a recap or take other action (the page is not unpublished automatically).\",\"This is a past trip: only empty fields were filled and the page text was not rewritten.\",\"Are flights included? No stored source says. The page says nothing about flights until this is known.\",\"Deposit amount and the date it is due: not in any stored source.\",\"Passport and visa notes: not in any stored source (the page says to ask your agent).\",\"Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.\",\"Price wording found in a stored text and kept OFF the page: \\\"Collette Back to top Southern Italy & Sicily with HH Social Club & Scott Walker Collette Back to top Collette Back to to\\\". Confirm it, then tick \\\"Price confirmed by an agent\\\".\",\"\\\"Piazza Amerina\\\" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.\"]}",
+   "trip_kit_prev_setting": "{\"v\":1,\"generatedAt\":\"2026-10-24T18:26:27.059Z\",\"promise\":\"A fourteen day hosted social journey through Southern Italy and Sicily, exploring ancient sites and coastal villages.\",\"routeKnown\":true,\"stops\":[{\"name\":\"Taormina\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Taormina is a town on the east coast of Sicily in the province of Messina.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Taormina\"}},{\"text\":\"Stand before the ancient Teatro Antico\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Taormina\"}},{\"text\":\"Stroll Piazza IX Aprile\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Taormina\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Matera\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Matera is known for the sassi, well preserved rock cut settlements that are a World Heritage site.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"}},{\"text\":\"See San Pietro Caveoso\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"}},{\"text\":\"Visit Matera Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"}},{\"text\":\"Explore the Church of San Pietro Barisano\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Amalfi Coast\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"The Amalfi Coast is recognized for its extraordinary beauty and iconic cliffside fishing villages.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Amalfi_Coast\"}},{\"text\":\"Walk the Sentiero Degli Dei\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Amalfi_Coast\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Palermo\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Palermo has a thousand years of history, beautiful Arab Norman architecture and lively neighbourhoods.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"Visit Palermo Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"See the Palatine Chapel\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"Explore the Palazzo dei Normanni\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Monreale\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Monreale sits near Palermo and is known for its celebrated cathedral.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"Visit Monreale Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"See the Palatine Chapel\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}},{\"text\":\"Explore San Giovanni degli Eremiti\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Agrigento’s Valley of the Temples\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"The Valley of the Temples at Agrigento preserves the remains of the ancient Greek city of Akragas.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"}},{\"text\":\"See the Temple of Concordia\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"}},{\"text\":\"Visit the Temple of Juno\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"}},{\"text\":\"View the Temple of Olympian Zeus\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Giardini Naxos\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Giardini Naxos is a coastal town just below the mountain town of Taormina.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}},{\"text\":\"Visit the Museo e Area Archeologica di Naxos\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}},{\"text\":\"Relax at Dal Pirata Beach\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}},{\"text\":\"Explore the Parco fluviale dell'Alcantara\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Strait of Messina\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"The Strait of Messina sits at the northeast corner of Sicily near the port of Messina.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Messina\"}},{\"text\":\"See the Duomo di Messina\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Messina\"}},{\"text\":\"Visit the Fontana di Orione\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Messina\"}},{\"text\":\"Explore the Museo regionale di Messina\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Messina\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Sorrento\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Sorrento overlooks the Bay of Naples and is known for its ceramics, lacework and woodwork shops.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Sorrento\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Positano\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Positano is a small picturesque town with splendid coastal views on the Amalfi Coast.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Positano\"}},{\"text\":\"Visit the Collegiata di Santa Maria Assunta\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Positano\"}},{\"text\":\"See the Roman archaeological museum and villa\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Positano\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Pompeii\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Pompeii is a ruined ancient Roman city preserved in remarkable detail.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Pompeii\"}},{\"text\":\"See the House of the Faun\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Pompeii\"}},{\"text\":\"Visit the Amphitheatre\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Pompeii\"}},{\"text\":\"Explore the House of the Vettii\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Pompeii\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"otherStops\":[\"Piazza Amerina\"],\"included\":[{\"label\":\"\",\"text\":\"Sicilian farmhouse lunch\",\"source\":{\"label\":\"Supplier page\",\"url\":\"https://groups.gocollette.com/en-US/link/1389524\"}},{\"label\":\"\",\"text\":\"Winery tour and tasting\",\"source\":{\"label\":\"Supplier page\",\"url\":\"https://groups.gocollette.com/en-US/link/1389524\"}}],\"notIncluded\":[],\"goodToKnow\":[{\"label\":\"Activity level\",\"text\":\"This is a Level 3 Active trip and is not a fit for travellers who require mobility assistance devices.\",\"source\":{\"label\":\"Supplier page\",\"url\":\"https://groups.gocollette.com/en-US/link/1389524\"}},{\"label\":\"Other\",\"text\":\"The travel style is Classic.\",\"source\":{\"label\":\"Supplier page\",\"url\":\"https://groups.gocollette.com/en-US/link/1389524\"}}],\"attributions\":[{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Taormina\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Matera\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Amalfi_Coast\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Palermo\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Valley_of_the_Temples\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Giardini_Naxos\"}],\"toConfirm\":[\"The supplier page says this tour has been cancelled. Decide whether to keep the page as a recap or take other action (the page is not unpublished automatically).\",\"This is a past trip: only empty fields were filled and the page text was not rewritten.\",\"Are flights included? No stored source says. The page says nothing about flights until this is known.\",\"Deposit amount and the date it is due: not in any stored source.\",\"Passport and visa notes: not in any stored source (the page says to ask your agent).\",\"Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.\",\"Price wording found in a stored text and kept OFF the page: \\\"Collette Back to top Southern Italy & Sicily with HH Social Club & Scott Walker Collette Back to top Collette Back to to\\\". Confirm it, then tick \\\"Price confirmed by an agent\\\".\",\"\\\"Piazza Amerina\\\" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.\"]}",
+   "sources_with_cancel_wording": [
+    {
+     "id": "fca4935a-df5d-4c04-9471-71986f3a87d3",
+     "file_name": "Trip page kit (stored text and cited reference pages)",
+     "kind": "text",
+     "sentences": [
+      "The supplier page says this tour has been cancelled."
+     ]
+    }
+   ]
+  },
+  {
+   "id": "0827b470-b7bd-459c-9afb-496b8ff541b2",
+   "slug": "croatia-coastline-yacht-cruise",
+   "row": {
+    "name": "CROATIA COASTLINE YACHT CRUISE",
+    "slug": "croatia-coastline-yacht-cruise",
+    "destination": "Croatia",
+    "country": null,
+    "region": null,
+    "category": "Cruise",
+    "tags": [],
+    "price_display": "Contact for pricing",
+    "price_value": null,
+    "currency": "USD",
+    "price_includes": null,
+    "duration": "12 Days",
+    "duration_days": 12,
+    "available_from": "2027-06-12",
+    "available_to": "2027-06-23",
+    "departure_dates": null,
+    "short_description": "Dubrovnik, Slano, Korcula, Vis, Bisevo, Hvar, Stari Grad, Boi, Split, Trogir, Sibenik, Vodice, and Zagreb",
+    "full_description": "The CROATIA COASTLINE YACHT CRUISE is a twelve day journey along the Adriatic by yacht, taking in walled towns, islands and the Croatian capital. The route includes Dubrovnik, Slano, Korčula, Vis, Biševo, Hvar, Stari Grad, Boi, Split, Trogir, Sibenik, Vodice and Zagreb. Along the way you can wander historic centres, sail past brilliant blue water and explore stone streets shaped by centuries of history.\n\nDubrovnik is a historic walled city on the Adriatic coast in the far south of Croatia. It is nicknamed the Pearl of the Adriatic and is listed as a UNESCO World Heritage Site. You can stroll the City Walls, pause at Big Onofrio's Fountain and visit the Rector's Palace.\n\nSlano is a village in southern Croatia with a small harbour in the bay of the same name, a quiet stop along the coast. Korčula is a Croatian island in the Adriatic Sea, known for Grk, a white wine produced only on the island and not exported due to limited production. Biševo is a Croatian island in the Adriatic Sea.\n\nHvar reveals one of the largest squares in Dalmatia. Imposing fortifications hover above a blend of grey stone and orange roofs, and marble streets lead to the prized Cathedral of St. Stephen and the Renaissance theatre. Stari Grad shares this stretch of coast, with its quaint fishing harbour and wide promenade edging the sea.\n\nSplit is a city in Central Dalmatia, built around the Diocletian palace, where locals once sought refuge. Wandering the historic centre you can still see Roman walls, squares and temples. Trogir is a medieval town near Split, popular as a day trip because it sits within the metropolitan area. Sibenik and Vodice offer old streets, churches and quiet corners to explore.\n\nZagreb is the capital of Croatia, a city in Central Croatia with a charming medieval old city. Its architecture and cobbled streets are reminiscent of Vienna, Budapest, Prague and other Central European capitals.\n\nThis trip blends time on the water with time ashore, so you can relax on deck and then step into a different town each time you dock. The mix of islands, walled cities and the capital gives you both coastal calm and lively culture. Croatia rewards slow wandering, good wine and views of the Adriatic.\n\nIf this sounds like your kind of holiday, a travel specialist can help you plan this. Ask about this trip and share what you are hoping for, and we can help you plan the details together.\n\nRelated: [Croatia](/destinations/croatia).",
+    "highlights": [
+     "Twelve day yacht cruise along the Croatia coastline",
+     "Dubrovnik, the walled Pearl of the Adriatic and a UNESCO World Heritage Site",
+     "Korcula, known for Grk, a white wine produced only on the island",
+     "Hvar reveals one of the largest squares in Dalmatia",
+     "Split built around the Diocletian palace",
+     "Trogir, a medieval town near Split",
+     "Zagreb, the capital of Croatia, with a charming medieval old city"
+    ],
+    "itinerary": [
+     {
+      "day": null,
+      "title": "Dubrovnik",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Slano",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Korcula",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Bisevo",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Hvar",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Stari Grad",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Split",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Trogir",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Sibenik",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Vodice",
+      "description": ""
+     },
+     {
+      "day": null,
+      "title": "Zagreb",
+      "description": ""
+     }
+    ],
+    "image_url": "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1790359659033.webp",
+    "gallery_urls": [
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1792865738048-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1792867409666-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1792867413788-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/croatia-coastline-yacht-cruise-1792867416807-horizontal.jpg"
+    ],
+    "video_url": null,
+    "rating": null,
+    "review_count": 0,
+    "max_people": null,
+    "min_people": 1,
+    "booking_url": "https://info.travelfunbiz.com/",
+    "more_info_url": null,
+    "call_to_action": "Book Now",
+    "affiliate_code": null,
+    "supplier": "TravelFunBiz",
+    "ai_summary": null,
+    "ai_faqs": [
+     {
+      "answer": "Korčula is a Croatian island known for Grk, a white wine that is only produced on the island.",
+      "question": "What is Korčula known for?"
+     },
+     {
+      "answer": "Split is a city in Central Dalmatia built around the Diocletian palace, where locals sought refuge centuries ago, and you can still clearly see the Roman walls, squares and temples. You can visit the Peristylium, stroll the Riva promenade and explore the Basement halls of Diocletian's Palace.",
+      "question": "What can I explore in Split?"
+     },
+     {
+      "answer": "Zagreb, the capital of Croatia, has a charming medieval old city with architecture and cobbled streets reminiscent of Vienna, Budapest and Prague. There you can see the Zagreb Cathedral, the Old Town Gate and the Museum of Broken Relationships.",
+      "question": "What is there to see in Zagreb?"
+     },
+     {
+      "answer": "This trip blends time on the water with time ashore, so you can enjoy both the sea and the towns that rise above it. It suits travellers who love history, coastal scenery and the easy rhythm of cruising from port to port.",
+      "question": "Who does this trip suit?"
+     }
+    ],
+    "meta_title": "Croatia Coastline Yacht Cruise | 12 Days",
+    "meta_description": "A 12-day Croatia yacht cruise, Jun 12-23, 2027, visiting Dubrovnik, Korcula, Hvar, Split and Zagreb. Book with TravelFunBiz.ca.",
+    "og_image_url": null,
+    "status": "published",
+    "featured": false,
+    "sort_order": 0,
+    "created_at": "2026-09-25T18:07:39.158982+00:00",
+    "updated_at": "2026-10-24T20:51:03.395363+00:00",
+    "not_included": null,
+    "keywords": [
+     "croatia coastline yacht cruise",
+     "croatia trip",
+     "croatia group trip",
+     "croatia travel package",
+     "croatia vacation",
+     "cruise croatia",
+     "croatia 12 days"
+    ],
+    "image_url_square": null,
+    "image_url_portrait": null,
+    "image_url_banner": null,
+    "image_source": null,
+    "journal_entries": [],
+    "recap_mode": "auto",
+    "recap_summary": null,
+    "recap_highlights": [],
+    "recap_generated_at": null,
+    "next_trip_slug": null,
+    "alert_tag": null,
+    "price_on_request": false
+   },
+   "trip_kit_setting": "{\"v\":1,\"generatedAt\":\"2026-10-24T20:51:02.776Z\",\"promise\":\"A twelve day yacht cruise along the Croatia coastline, from Dubrovnik to Zagreb.\",\"routeKnown\":true,\"stops\":[{\"name\":\"Dubrovnik\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/6072869/pexels-photo-6072869.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Dubrovnik\",\"credit\":\"Photo by Nikolett Emmert on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/aerial-view-of-the-old-city-of-dubrovnik-croatia-near-blue-sea-6072869/\"},\"things\":[{\"text\":\"A historic walled city on the Adriatic, nicknamed the Pearl of the Adriatic and a UNESCO World Heritage Site.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"Pause at Big Onofrio's Fountain\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"Visit the Rector's Palace\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"See the Church of Saint Blaise\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Slano\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/11448214/pexels-photo-11448214.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Slano\",\"credit\":\"Photo by Nam Le on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/an-aerial-shot-of-a-marina-11448214/\"},\"things\":[{\"text\":\"A village in southern Croatia with a small harbour in the bay of the same name.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Slano\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Korcula\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/17591954/pexels-photo-17591954.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Korcula\",\"credit\":\"Photo by Lukas Kosc on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/yachts-moored-in-the-bay-17591954/\"},\"things\":[{\"text\":\"A Croatian island in the Adriatic Sea, known for Grk, a white wine produced only on the island.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Kor%C4%8Dula\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Bisevo\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/13328330/pexels-photo-13328330.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Bisevo\",\"credit\":\"Photo by SlimMars 13 on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/river-between-rocky-mountains-13328330/\"},\"things\":[{\"text\":\"A Croatian island in the Adriatic Sea.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Bi%C5%A1evo\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Hvar\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/7499419/pexels-photo-7499419.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Hvar\",\"credit\":\"Photo by Oskars Lipatovs on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/aerial-view-of-coastal-town-7499419/\"},\"things\":[{\"text\":\"A town revealing one of the largest squares in Dalmatia, with fortifications above grey stone and orange roofs.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Head to Adventure park Hvar Jelsa\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Stari Grad\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/4488998/pexels-photo-4488998.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Stari Grad\",\"credit\":\"Photo by Alexander Nadrilyanski on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/old-town-of-budva-near-sandy-beach-and-sea-4488998/\"},\"things\":[{\"text\":\"A spot with a quaint fishing harbour and a wide promenade edging the brilliant blue sea.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Explore Grapčeva cave\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Try Adventure park Hvar Jelsa\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Split\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/4353557/pexels-photo-4353557.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Split\",\"credit\":\"Photo by Spencer Davis on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/coastal-town-embankment-with-red-roofed-buildings-4353557/\"},\"things\":[{\"text\":\"A city in Central Dalmatia built around the Diocletian palace, with Roman walls, squares and temples.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"Explore the Basement halls of Diocletian's Palace\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"Visit Katedrala sv. Duje\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"Relax at Split city beach\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Trogir\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/12644210/pexels-photo-12644210.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Trogir\",\"credit\":\"Photo by Hert Niks on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/yacht-docked-on-harbor-12644210/\"},\"things\":[{\"text\":\"A medieval town near Split, a popular day trip within its metropolitan area.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Trogir\"}},{\"text\":\"Visit Kaštel Kamerlengo\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Trogir\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Sibenik\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/17563088/pexels-photo-17563088.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Sibenik\",\"credit\":\"Photo by Peter Safranka on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/cathedral-overlooking-blue-sea-17563088/\"},\"things\":[{\"text\":\"A coastal town with old churches, gardens and a hilltop fortress.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Visit the Fortress of St. Michael\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"See Crkva sv. Barbare\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Wander Perivoj Roberta Visianija\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Vodice\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/33182793/pexels-photo-33182793.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Vodice\",\"credit\":\"Photo by Dóra Márk on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/vibrant-pink-volkswagen-hatchback-in-vodice-croatia-33182793/\"},\"things\":[{\"text\":\"A spot along the Šibenik stretch of coast with churches and quiet gardens.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"See Crkva i smostan sv. Frane\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Visit Tvrđava sv. Mihovila\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Explore Srednjovjekovni vrt sv.Lovre\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Zagreb\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/14133589/pexels-photo-14133589.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Zagreb\",\"credit\":\"Photo by Pham Ngoc Anh on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/street-with-old-buildings-14133589/\"},\"things\":[{\"text\":\"The capital of Croatia, with a charming medieval old city of cobbled streets.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"Visit Zagreb Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"See St. Mark's Square\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"Climb Lotrščak Tower\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"otherStops\":[],\"included\":[],\"notIncluded\":[],\"goodToKnow\":[],\"attributions\":[{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Slano\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Kor%C4%8Dula\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Bi%C5%A1evo\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}],\"toConfirm\":[\"Are flights included? No stored source says. The page says nothing about flights until this is known.\",\"Deposit amount and the date it is due: not in any stored source.\",\"Final payment date: not in any stored source.\",\"Cancellation terms: not in any stored source (the page says to ask your agent).\",\"Passport and visa notes: not in any stored source (the page says to ask your agent).\",\"Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.\"]}",
+   "trip_kit_prev_setting": "{\"v\":1,\"generatedAt\":\"2026-10-24T18:43:06.544Z\",\"promise\":\"A twelve day yacht cruise along the Croatian coast, visiting walled towns and Adriatic islands.\",\"routeKnown\":true,\"stops\":[{\"name\":\"Dubrovnik\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/6072869/pexels-photo-6072869.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Dubrovnik\",\"credit\":\"Photo by Nikolett Emmert on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/aerial-view-of-the-old-city-of-dubrovnik-croatia-near-blue-sea-6072869/\"},\"things\":[{\"text\":\"A historic walled city on the Adriatic, nicknamed the Pearl of the Adriatic and a UNESCO World Heritage Site.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"Visit the Rector's Palace and Sponza Palace\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"See the Church of Saint Blaise\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}},{\"text\":\"Pass through the Pile Gate\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Slano\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/11448214/pexels-photo-11448214.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Slano\",\"credit\":\"Photo by Nam Le on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/an-aerial-shot-of-a-marina-11448214/\"},\"things\":[{\"text\":\"A village in southern Croatia with a small harbour in the bay of the same name.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Slano\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Korcula\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/17591954/pexels-photo-17591954.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Korcula\",\"credit\":\"Photo by Lukas Kosc on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/yachts-moored-in-the-bay-17591954/\"},\"things\":[{\"text\":\"A Croatian island in the Adriatic Sea known for its local wine.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Kor%C4%8Dula\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Bisevo\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/13328330/pexels-photo-13328330.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Bisevo\",\"credit\":\"Photo by SlimMars 13 on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/river-between-rocky-mountains-13328330/\"},\"things\":[{\"text\":\"A Croatian island in the Adriatic Sea.\",\"source\":{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Bi%C5%A1evo\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Hvar\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/7499419/pexels-photo-7499419.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Hvar\",\"credit\":\"Photo by Oskars Lipatovs on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/aerial-view-of-coastal-town-7499419/\"},\"things\":[{\"text\":\"A town where imposing fortifications hover above grey stone and orange roofs beside the blue sea.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Explore Grapčeva cave\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Try the Adventure park Hvar Jelsa\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Stari Grad\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/4488998/pexels-photo-4488998.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Stari Grad\",\"credit\":\"Photo by Alexander Nadrilyanski on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/old-town-of-budva-near-sandy-beach-and-sea-4488998/\"},\"things\":[{\"text\":\"A town sharing marble streets and one of the largest squares in Dalmatia.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}},{\"text\":\"Visit the Adventure park Hvar Jelsa\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Split\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/4353557/pexels-photo-4353557.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Split\",\"credit\":\"Photo by Spencer Davis on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/coastal-town-embankment-with-red-roofed-buildings-4353557/\"},\"things\":[{\"text\":\"Stand in the Peristylium\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"See the Jupiter temple\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"Visit the Basement halls of Diocletian's Palace\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}},{\"text\":\"Relax at the Beach at Bačvice\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Trogir\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/12644210/pexels-photo-12644210.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Trogir\",\"credit\":\"Photo by Hert Niks on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/yacht-docked-on-harbor-12644210/\"},\"things\":[{\"text\":\"A medieval town and popular day trip within the Split metropolitan area.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Trogir\"}},{\"text\":\"See Kaštel Kamerlengo\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Trogir\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Sibenik\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/17563088/pexels-photo-17563088.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Sibenik\",\"credit\":\"Photo by Peter Safranka on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/cathedral-overlooking-blue-sea-17563088/\"},\"things\":[{\"text\":\"A coastal town with fortresses and gardens near the Adriatic.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Visit the Fortress of St\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Walk or cycle along the Kanal sv\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"See the Biskupska palača\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Vodice\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/33182793/pexels-photo-33182793.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Vodice\",\"credit\":\"Photo by Dóra Márk on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/vibrant-pink-volkswagen-hatchback-in-vodice-croatia-33182793/\"},\"things\":[{\"text\":\"A coastal spot near Sibenik with fortresses and gardens to explore.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"See the Fortress of St\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}},{\"text\":\"Stroll the Perivoj Roberta Visianija\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/%C5%A0ibenik\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Zagreb\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/14133589/pexels-photo-14133589.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Zagreb\",\"credit\":\"Photo by Pham Ngoc Anh on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/street-with-old-buildings-14133589/\"},\"things\":[{\"text\":\"The capital of Croatia, with a charming medieval old city and cobbled streets.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"Visit Zagreb Cathedral\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"Climb the Lotrščak Tower\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}},{\"text\":\"See the Museum of Broken Relationships\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Zagreb\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"otherStops\":[\"Vis\",\"Boi\"],\"included\":[],\"notIncluded\":[],\"goodToKnow\":[],\"attributions\":[{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Dubrovnik\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Slano\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Kor%C4%8Dula\"},{\"label\":\"Wikipedia\",\"url\":\"https://en.wikipedia.org/wiki/Bi%C5%A1evo\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Hvar\"},{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Split\"}],\"toConfirm\":[\"Are flights included? No stored source says. The page says nothing about flights until this is known.\",\"Deposit amount and the date it is due: not in any stored source.\",\"Final payment date: not in any stored source.\",\"Cancellation terms: not in any stored source (the page says to ask your agent).\",\"Passport and visa notes: not in any stored source (the page says to ask your agent).\",\"Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.\",\"\\\"Vis\\\" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.\",\"\\\"Boi\\\" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.\"]}",
+   "sources_with_cancel_wording": []
+  },
+  {
+   "id": "09f54dfc-b726-4cb8-81ed-fd2ebfbbb733",
+   "slug": "sandy-toes-salty-souls-girls-trip",
+   "row": {
+    "name": "SANDY TOES & SALTY SOULS GIRLS TRIP",
+    "slug": "sandy-toes-salty-souls-girls-trip",
+    "destination": "Montego Bay",
+    "country": null,
+    "region": null,
+    "category": "Beach & Resort",
+    "tags": [],
+    "price_display": "Contact for pricing",
+    "price_value": null,
+    "currency": "USD",
+    "price_includes": "4-night stay at the Iberostar Waves Rose Hall Beach Resort",
+    "duration": "4 nights",
+    "duration_days": 5,
+    "available_from": "2026-09-04",
+    "available_to": "2026-09-08",
+    "departure_dates": null,
+    "short_description": "Join us for a lovely, sun-filled 4-night adventure at the Iberostar Waves Rose Hall Beach Resort",
+    "full_description": "The SANDY TOES & SALTY SOULS GIRLS TRIP was planned around a lovely, sun-filled 4 nights adventure in Montego Bay, Jamaica. The stay was planned at the Iberostar Waves Rose Hall Beach Resort. This is a trip designed for friends who want warm days, soft sand and easy time together by the sea.\n\nMontego Bay, commonly referred to as MoBay, is the second largest city in the island nation Jamaica. It is a popular spring break destination, so it suits a group looking for sunshine and a relaxed island mood. The area offers a lovely mix of beaches, culture and gentle adventure, all close enough to enjoy on a short getaway.\n\nAlong the way you can picture bright beach days. Doctor's Cave Beach, Cornwall Beach and Walter Fletcher Beach are all part of the Montego Bay scene. For a little history, Rose Hall Great House gives a glimpse into the island's past. The Centerstage Theatre adds an option for an evening out. Nature lovers may enjoy the Rockland Bird Sanctuary, a calm spot to watch the local birds.\n\nFor those who want more activity, Montego Bay has plenty to explore. Dunn’s River Falls & Park is a classic Jamaican outing. Chukka Caribbean Adventures and the John Halls Montego Bay Adventure Tour offer ways to see more of the island. Water fans might consider KiteBoarding Jamaica or the Montego Bay Sea Trek Adventure. Golf is another option for a slower afternoon. Getting around is simple with Jamaican Taxi Tours.\n\nThe Iberostar Waves Rose Hall Beach Resort sits in this same part of Montego Bay, so the beach and the local sights are all within reach. It makes a comfortable home base for a girls trip, where the days can be as busy or as restful as your group likes. You can swim, soak up the sun, and gather in the evenings to share the day.\n\nThis is a warm, friendly kind of trip, built for laughter and easy conversation. It works well for a group of friends who want time away together without a long or complicated itinerary. Four nights is enough to unwind, feel the salt air and come home refreshed.\n\nBecause this departure date has passed, you cannot book this exact trip. The good news is that a travel specialist can help you plan a similar girls getaway to Montego Bay. Together you can shape the beach time, the day trips and the pace that fits your group. You can talk through the kind of resort feel you want and the activities that interest you most.\n\nIf a sun-filled escape to Jamaica sounds like your kind of holiday, start the conversation. Ask about this trip and a travel specialist can help you plan this. Share who is coming and what you hope to do, and you can build a getaway that feels just right for your crew.\n\nRelated: [Montego Bay](/destinations/montego-bay).",
+    "highlights": [
+     "A sun-filled 4 nights adventure in Montego Bay, Jamaica",
+     "Stay planned at the Iberostar Waves Rose Hall Beach Resort",
+     "Montego Bay, commonly referred to as MoBay",
+     "A popular spring break destination",
+     "Beach days at Doctor's Cave Beach and Cornwall Beach",
+     "History at Rose Hall Great House",
+     "Nature at the Rockland Bird Sanctuary",
+     "A relaxed girls getaway by the sea"
+    ],
+    "itinerary": null,
+    "image_url": "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/sandy-toes-salty-souls-girls-trip-1790359657895.webp",
+    "gallery_urls": [
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/sandy-toes-salty-souls-girls-trip-1792865794388-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/sandy-toes-salty-souls-girls-trip-1792867623521-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/sandy-toes-salty-souls-girls-trip-1792867626156-horizontal.jpg",
+     "https://ldwmbwsxrktpcisqaxrb.supabase.co/storage/v1/object/public/package-images/sandy-toes-salty-souls-girls-trip-1792867629135-horizontal.jpg"
+    ],
+    "video_url": null,
+    "rating": null,
+    "review_count": 0,
+    "max_people": null,
+    "min_people": 1,
+    "booking_url": "https://info.travelfunbiz.com/",
+    "more_info_url": null,
+    "call_to_action": "Book Now",
+    "affiliate_code": null,
+    "supplier": "TravelFunBiz",
+    "ai_summary": null,
+    "ai_faqs": [
+     {
+      "answer": "This is a sun-filled four nights adventure in Montego Bay, Jamaica. The stay was planned at the Iberostar Waves Rose Hall Beach Resort.",
+      "question": "Where does this girls trip go and how long is it?"
+     },
+     {
+      "answer": "This is a trip designed for friends who want warm days, soft sand and easy time together by the sea. It works well for a group of friends who want time away together without a long or complicated itinerary.",
+      "question": "Who is this trip designed for?"
+     },
+     {
+      "answer": "You can picture bright beach days where you swim, soak up the sun, and gather in the evenings to share the day. The days can be as busy or as restful as your group likes.",
+      "question": "What might a typical day look like?"
+     },
+     {
+      "answer": "Doctor's Cave Beach and Cornwall Beach are all part of the Montego Bay scene, and Rose Hall Great House gives a glimpse into the island's past. Nature lovers may enjoy the Rockland Bird Sanctuary, a calm spot to watch the local birds.",
+      "question": "What is there to see and do nearby?"
+     },
+     {
+      "answer": "Because this departure date has passed, you cannot book this exact trip. The good news is that a travel specialist can help you plan a similar girls getaway to Montego Bay, where together you can shape the beach time, the day trips and the pace that fits your group.",
+      "question": "Can I still book this exact trip?"
+     }
+    ],
+    "meta_title": "Sandy Toes & Salty Souls Girls Trip | Montego Bay",
+    "meta_description": "A 4-night girls' getaway to Montego Bay, Jamaica, Sep 4-8, 2026, at the Iberostar Waves Rose Hall Beach Resort. Join the fun with TravelFunBiz.ca.",
+    "og_image_url": null,
+    "status": "published",
+    "featured": false,
+    "sort_order": 0,
+    "created_at": "2026-09-25T18:07:38.314864+00:00",
+    "updated_at": "2026-10-24T18:47:11.291483+00:00",
+    "not_included": null,
+    "keywords": [
+     "montego bay girls trip",
+     "montego bay beach getaway",
+     "jamaica girls trip",
+     "iberostar waves rose hall beach resort",
+     "montego bay resort holiday",
+     "mobay beach vacation",
+     "caribbean girls getaway",
+     "spring break montego bay"
+    ],
+    "image_url_square": null,
+    "image_url_portrait": null,
+    "image_url_banner": null,
+    "image_source": null,
+    "journal_entries": [],
+    "recap_mode": "auto",
+    "recap_summary": null,
+    "recap_highlights": [],
+    "recap_generated_at": null,
+    "next_trip_slug": null,
+    "alert_tag": null,
+    "price_on_request": false
+   },
+   "trip_kit_setting": "{\"v\":1,\"generatedAt\":\"2026-10-24T18:47:03.037Z\",\"promise\":\"A sun-filled girls getaway in Montego Bay, Jamaica, planned around a beach resort stay.\",\"routeKnown\":false,\"stops\":[{\"name\":\"Montego Bay\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":{\"url\":\"https://images.pexels.com/photos/1959258/pexels-photo-1959258.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Montego Bay\",\"credit\":\"Photo by Aviz Media on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/man-sitting-on-stairs-1959258/\"},\"things\":[{\"text\":\"Montego Bay, commonly referred to as MoBay, is the second largest city in Jamaica and a popular spring break destination.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Relax at Cornwall Beach, Doctor's Cave Beach or Walter Fletcher Beach\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Visit the Rose Hall Great House\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Explore Dunn’s River Falls & Park\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Iberostar Waves Rose Hall Beach Resort\",\"kind\":\"stay\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":\"4 nights at the resort\",\"photo\":{\"url\":\"https://images.pexels.com/photos/4093370/pexels-photo-4093370.png?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940\",\"alt\":\"Montego Bay\",\"credit\":\"Photo by Dre Dawkcide on Pexels\",\"creditUrl\":\"https://www.pexels.com/photo/people-swimming-on-the-beach-4093370/\"},\"things\":[{\"text\":\"A sun-filled beach resort base in Montego Bay for a relaxed girls getaway.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Enjoy nearby Doctor's Cave Beach or Cornwall Beach\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Book an outing with Chukka Caribbean Adventures\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Try the Montego Bay Sea Trek Adventure\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"otherStops\":[],\"included\":[{\"label\":\"\",\"text\":\"4-night stay at the Iberostar Waves Rose Hall Beach Resort\",\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"notIncluded\":[],\"goodToKnow\":[],\"attributions\":[{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}],\"toConfirm\":[\"This is a past trip: only empty fields were filled and the page text was not rewritten.\",\"Are flights included? No stored source says. The page says nothing about flights until this is known.\",\"Deposit amount and the date it is due: not in any stored source.\",\"Final payment date: not in any stored source.\",\"Cancellation terms: not in any stored source (the page says to ask your agent).\",\"Passport and visa notes: not in any stored source (the page says to ask your agent).\",\"The day by day route is not stored. Add the itinerary (Add details) to replace \\\"Where you are headed\\\" with a full route.\",\"Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.\"]}",
+   "trip_kit_prev_setting": "{\"v\":1,\"generatedAt\":\"2026-10-24T18:27:54.972Z\",\"promise\":\"A sun-filled girls getaway in Montego Bay, Jamaica, planned around a beach resort stay.\",\"routeKnown\":false,\"stops\":[{\"name\":\"Montego Bay\",\"kind\":\"city\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":null,\"photo\":null,\"things\":[{\"text\":\"Montego Bay, commonly referred to as MoBay, is the second largest city in Jamaica and a popular spring break destination.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Relax at Cornwall Beach, Doctor's Cave Beach or Walter Fletcher Beach\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Visit the Rose Hall Great House\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Explore Dunn’s River Falls & Park\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}},{\"name\":\"Iberostar Waves Rose Hall Beach Resort\",\"kind\":\"stay\",\"region\":null,\"date\":null,\"arrive\":null,\"depart\":null,\"days\":\"4 nights at the resort\",\"photo\":null,\"things\":[{\"text\":\"A sun-filled beach resort base in Montego Bay for a relaxed girls getaway.\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Enjoy nearby Doctor's Cave Beach or Cornwall Beach\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Book an outing with Chukka Caribbean Adventures\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}},{\"text\":\"Try the Montego Bay Sea Trek Adventure\",\"source\":{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}}],\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"otherStops\":[],\"included\":[{\"label\":\"\",\"text\":\"4-night stay at the Iberostar Waves Rose Hall Beach Resort\",\"source\":{\"label\":\"Trip details\",\"url\":null}}],\"notIncluded\":[],\"goodToKnow\":[],\"attributions\":[{\"label\":\"Wikivoyage\",\"url\":\"https://en.wikivoyage.org/wiki/Montego_Bay\"}],\"toConfirm\":[\"This is a past trip: only empty fields were filled and the page text was not rewritten.\",\"Are flights included? No stored source says. The page says nothing about flights until this is known.\",\"Deposit amount and the date it is due: not in any stored source.\",\"Final payment date: not in any stored source.\",\"Cancellation terms: not in any stored source (the page says to ask your agent).\",\"Passport and visa notes: not in any stored source (the page says to ask your agent).\",\"The day by day route is not stored. Add the itinerary (Add details) to replace \\\"Where you are headed\\\" with a full route.\",\"Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.\"]}",
+   "sources_with_cancel_wording": []
+  }
+ ]
+}

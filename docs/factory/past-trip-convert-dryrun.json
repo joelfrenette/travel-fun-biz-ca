@@ -1,0 +1,51 @@
+{
+ "at": "2026-10-24T22:33:00.841Z",
+ "trips": [
+  {
+   "slug": "croatia-coastline-yacht-cruise",
+   "status": "published",
+   "past": false,
+   "fieldsToChange": [
+    "full_description"
+   ],
+   "cancelCleanups": [],
+   "descNote": "",
+   "held": [],
+   "notes": [],
+   "toConfirmAfter": [
+    "Are flights included? No stored source says. The page says nothing about flights until this is known.",
+    "Deposit amount and the date it is due: not in any stored source.",
+    "Final payment date: not in any stored source.",
+    "Cancellation terms: not in any stored source (the page says to ask your agent).",
+    "Passport and visa notes: not in any stored source (the page says to ask your agent).",
+    "Hours in port (arrival and departure times) for each stop: not stored, so the page shows none."
+   ],
+   "cancelInKit": [
+    "Cancellation terms: not in any stored source (the page says to ask"
+   ],
+   "kitStops": [
+    "Dubrovnik: A historic walled city on the Adriatic, nicknamed the Pearl of the Adriatic and a UNESCO World Heritage Site. | Walk the City Walls around the old city. | Step through the Pile Gate into the historic centre. | See Big Onofrio's Fountain and the Bell Tower.",
+    "Slano: A village in southern Croatia with a small harbour in the bay of the same name.",
+    "Korcula: A Croatian island in the Adriatic Sea, known for Grk wine.",
+    "Bisevo: A Croatian island in the Adriatic Sea.",
+    "Hvar: A Dalmatian town with imposing fortifications and one of the largest squares in Dalmatia. | Visit Humac and the Grapčeva cave.",
+    "Stari Grad: A town on Hvar wrapped in the same beautiful Dalmatian coast of stone streets and blue sea. | Explore Humac and the Grapčeva cave.",
+    "Split: A city in Central Dalmatia built around the Diocletian palace. | Explore the Basement halls of Diocletian's Palace. | See the Peristylium and St. Duje's cathedral. | Climb St. Duje's bell tower.",
+    "Trogir: A medieval town near Split, a popular day trip within its metropolitan area. | Visit St. Lawrence Church. | Explore Kaštel Kamerlengo.",
+    "Sibenik: A coastal town with churches, palaces and fortresses to explore. | Visit the Church of Saint Barbara. | See St. Michael's fortress. | Wander the Medieval garden of the monastery St. Laurence.",
+    "Vodice: A coastal spot near Sibenik with gardens, churches and fortresses nearby. | See the Church and monastery of St. Francis. | Stroll the Park of Roberto de Visiani. | Visit the Fortress of St. Michael.",
+    "Zagreb: The capital of Croatia, with a charming medieval old city. | Visit Zagreb Cathedral. | See St. Mark's Square and Old Town Gate. | Climb Lotrščak Tower."
+   ],
+   "attributions": [
+    "Wikivoyage",
+    "Wikipedia",
+    "Wikipedia",
+    "Wikipedia",
+    "Wikivoyage",
+    "Wikivoyage"
+   ],
+   "calls": 1,
+   "applied": null
+  }
+ ]
+}

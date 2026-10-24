@@ -872,6 +872,12 @@ export async function applyTripKitPlan(admin: SupabaseClient, plan: FillPlan, de
     if (!sourceId) return { applied: [], skipped: [{ field: '*', reason: 'the change log could not be written, so nothing was applied' }], photosAdded: 0, kitSaved: false, pkg: latest }
     result = await commitEdits(admin, plan.packageId, sourceId, updates, edits, [], latest)
   }
+  // No column change: the kit's own digest source (admin text in Add details) is still refreshed when it exists, so an old note
+  // such as "the supplier page says this tour has been cancelled" does not outlive the record it described.
+  if (!edits.length) {
+    const { data: existingSource } = await admin.from('package_sources').select('id').eq('package_id', plan.packageId).eq('file_name', KIT_SOURCE_NAME).maybeSingle()
+    if (existingSource) await ensureKitSource(admin, plan.packageId, `Trip page kit digest\n${plan.sources.join('\n')}\n${plan.kit.toConfirm.join('\n')}`)
+  }
   // The kit JSON: the previous one is kept for Undo.
   const prev = await getSettingStrict(admin, tripKitKey(plan.packageId))
   if (prev.value) await setSetting(admin, tripKitPrevKey(plan.packageId), prev.value)

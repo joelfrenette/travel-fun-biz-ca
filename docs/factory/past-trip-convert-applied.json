@@ -1,0 +1,46 @@
+{
+ "at": "2026-10-24T22:51:40.308Z",
+ "trips": [
+  {
+   "slug": "hh-social-southern-italy-sicily",
+   "status": "published",
+   "past": true,
+   "fieldsToChange": [],
+   "cancelCleanups": [],
+   "descNote": "",
+   "held": [],
+   "notes": [],
+   "toConfirmAfter": [
+    "This is a past trip: only empty fields were filled and the page text was not rewritten."
+   ],
+   "cancelInKit": [],
+   "kitStops": [
+    "Taormina: Taormina is a mountain town on the east coast of Sicily, just above Giardini Naxos. | Stand in awe before the ancient Greek theatre at the Teatro Antico | Stroll through the Piazza IX Aprile | Visit the Palazzo Corvaja",
+    "Matera: Matera is the capital of the Matera province in Basilicata, famous for its sassi rock cut settlements. | Visit the Matera Cathedral | See the Church of San Pietro Barisano | Walk through the Park of the Rupestrian Churches of Matera",
+    "Amalfi Coast: The Amalfi Coast in Campania is recognized as a UNESCO World Heritage Site for its iconic medieval cliffside fishing villages. | Take in the cliffside views along the Sentiero Degli Dei",
+    "Palermo: Palermo sits on the northern coast of Sicily, a city with a thousand years of history and beautiful Arab Norman architecture. | Visit the Palermo Cathedral | Step inside the Palatine Chapel | See the Palazzo dei Normanni",
+    "Monreale: Monreale lies near Palermo and is known for its cathedral. | Admire the Monreale Cathedral",
+    "Agrigento’s Valley of the Temples: Just outside Agrigento, the Valley of the Temples is one of the most important archaeological sites in Sicily, with remarkably well preserved Doric temples. | Marvel at the Temple of Concordia | See the Temple of Juno | Visit the Regional Archaeological Museum “Pietro Griffo”",
+    "Giardini Naxos: Giardini Naxos is a town on the east coast of Sicily, midway along the shore and just below Taormina. | Explore the Museo e Area Archeologica di Naxos | Relax at the Dal Pirata Beach | Visit the Parco fluviale dell'Alcantara",
+    "Strait of Messina: The Strait of Messina is reached through the port in the northeast corner of Sicily. | See the Duomo di Messina | Admire the Fontana di Orione | Visit the Museo regionale di Messina",
+    "Sorrento: Sorrento overlooks the Bay of Naples and is widely known for its ceramics, lacework, and woodwork shops.",
+    "Positano: Positano is a small picturesque town perched on the face of a hill, called the pearl of the Amalfi Coast. | Visit the Collegiata di Santa Maria Assunta | See the Roman archaeological museum and villa",
+    "Pompeii: Pompeii is a ruined ancient Roman city considered one of the few sites where an ancient city has been preserved in detail. | Walk through the Forum | See the House of the Faun | Visit the Temple of Apollo"
+   ],
+   "attributions": [
+    "Wikivoyage",
+    "Wikivoyage",
+    "Wikivoyage",
+    "Wikivoyage",
+    "Wikivoyage",
+    "Wikivoyage"
+   ],
+   "calls": 0,
+   "applied": {
+    "applied": [],
+    "skipped": [],
+    "kitSaved": true
+   }
+  }
+ ]
+}
