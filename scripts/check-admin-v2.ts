@@ -39,18 +39,18 @@ const WORKFLOW = [
   'Search Rankings', 'Users and Analytics', 'Website Value',
   'Posts: Blog', 'Posts: News', 'Posts: Guides', 'Posts: Trips', 'Content Autopilot', 'Post Distribution',
   'SEO & GEO Manager', 'SEO engines', 'Keyword Research', 'Link building',
-  'Leads', 'Orders', 'Affiliate Links', 'Testimonials',
+  'Leads', 'Travel Agents', 'Orders', 'Affiliate Links', 'Testimonials',
 ]
 const numbered = adminNavLinks.filter((l) => l.step !== null)
-expect('the daily links are exactly the 21 steps, in workflow order', numbered.map((l) => l.title).join('|') === WORKFLOW.join('|'), numbered.map((l) => l.title).join('|'))
-expect('the step numbers are contiguous from 1 to 21 in menu order', numbered.map((l) => l.step).join(',') === Array.from({ length: 21 }, (_, i) => i + 1).join(','), numbered.map((l) => l.step).join(','))
+expect('the daily links are exactly the 22 steps, in workflow order', numbered.map((l) => l.title).join('|') === WORKFLOW.join('|'), numbered.map((l) => l.title).join('|'))
+expect('the step numbers are contiguous from 1 to 22 in menu order', numbered.map((l) => l.step).join(',') === Array.from({ length: 22 }, (_, i) => i + 1).join(','), numbered.map((l) => l.step).join(','))
 expect('the number is drawn from the data: moving a link moves its number', (() => {
   const swapped: NavSection[] = adminNavSections.slice(0, 1).map((s) => ({ ...s, links: [s.links[1], s.links[0], s.links[2], s.links[3]] }))
   const n = numberSections(swapped)[0].links
   return n[0].title === 'Today' && n[0].step === 1 && n[1].title === 'System check' && n[1].step === 2
 })())
 expect('System check is step 1, Today 2, Daily follow-ups 3, Dashboard 4', stepOf('System check') === 1 && stepOf('Today') === 2 && stepOf('Daily follow-ups') === 3 && stepOf('Dashboard') === 4)
-expect('stepOf finds a link by key', stepOf('Today') === 2 && stepOf('Link building') === 17 && stepOf('Testimonials') === 21 && stepOf('Posts: Blog Auto-Writer') === null)
+expect('stepOf finds a link by key', stepOf('Today') === 2 && stepOf('Link building') === 17 && stepOf('Testimonials') === 22 && stepOf('Posts: Blog Auto-Writer') === null)
 expect('System check, Today and Daily follow-ups carry the three badges, in that order', adminNavLinks[0].badge === 'check' && adminNavLinks[1].badge === 'today' && adminNavLinks[2].badge === 'followups' && adminNavLinks.filter((l) => l.badge).length === 3)
 expect('Do first links go to /admin/system-check, /admin, /admin/follow-ups and /admin/dashboard', adminNavLinks[0].href === '/admin/system-check' && adminNavLinks[1].href === '/admin' && adminNavLinks[2].href === '/admin/follow-ups' && adminNavLinks[3].href === '/admin/dashboard')
 

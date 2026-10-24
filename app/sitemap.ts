@@ -10,12 +10,13 @@ import { filterByCopy } from '@/lib/page-copy-index'
 import { getAllPublishedPackages } from '@/lib/package-grouping'
 import { FROM_CITIES, INDEXABLE_FROM_SLUGS, fromPath, upcomingTrips } from '@/lib/from-cities'
 import { absoluteUrl } from '@/lib/site'
+import { getPublishedAgents } from '@/lib/agents-store'
 import { maxIso, lastModOrUndefined, lastModField } from '@/lib/sitemap-dates'
 
 export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths, publishedRows] = await Promise.all([
+  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths, publishedRows, agents] = await Promise.all([
     getPublishedPackageSlugs(),
     getPublishedPosts(),
     getDestinationSlugs(),
@@ -24,6 +25,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     getPublishedGuidePaths(),
     getPublishedPageCopyPaths().catch(() => null),
     getAllPublishedPackages().catch(() => []),
+    getPublishedAgents().catch(() => []),
   ])
   // The /from/<city> pages are listed only while there is an upcoming trip to put on them (otherwise they are noindex).
   const fromCityPages = upcomingTrips(publishedRows).length > 0 ? FROM_CITIES.filter((c) => INDEXABLE_FROM_SLUGS.includes(c.slug)) : []
@@ -50,6 +52,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     },
     { url: absoluteUrl('/who-we-are'), changeFrequency: 'monthly' as const, priority: 0.4 },
+    ...(agents.length > 0 ? [{ url: absoluteUrl('/agents'), changeFrequency: 'weekly' as const, priority: 0.6 }] : []),
+    ...agents.map((a) => ({ url: absoluteUrl('/agents/' + a.slug), ...lastModField(lastModOrUndefined(a.updated_at)), changeFrequency: 'monthly' as const, priority: 0.5 })),
     ...fromCityPages.map((c) => ({
       url: absoluteUrl(fromPath(c)),
       ...lastModField(maxIso(publishedRows.map((p) => p.updated_at))),

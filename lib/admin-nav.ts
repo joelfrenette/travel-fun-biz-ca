@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react"
+import { agentsNavItem } from "@/lib/admin-nav-agents"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
   Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers, Gem, ChartPie, CalendarCheck, ListChecks, ShieldCheck, PencilLine, ClipboardCheck,
@@ -23,6 +24,7 @@ export const dashboardNavItem: AdminNavItem = {
 }
 
 const unsortedTools: AdminNavItem[] = [
+  agentsNavItem,
   {
     title: "Posts: Trips",
     description: "Manage all travel packages: add via AI interview, scrape URLs, paste source material, upload CSV, or enter manually. Full CRUD with sorting and filtering.",
@@ -359,7 +361,7 @@ const SECTIONS: NavSection[] = [
     hint: "Leads, orders and the pages that earn.",
     numbered: true,
     defaultOpen: true,
-    links: [mod("Leads"), mod("Orders"), mod("Affiliate Links"), mod("Testimonials")],
+    links: [mod("Leads"), mod("Travel Agents"), mod("Orders"), mod("Affiliate Links"), mod("Testimonials")],
   },
   {
     id: "advanced",
