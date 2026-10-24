@@ -1,4 +1,4 @@
-import { cleanAgentInput, cleanText, publicName, slugify, type AgentEditable, parseCertifications } from '@/lib/agents'
+import { cleanAgentInput, cleanText, parseOfficeRole, publicName, slugify, type AgentEditable, parseCertifications } from '@/lib/agents'
 
 // CSV / Excel-paste import for the agent roster (pure). Joel's 20+ agents live in a spreadsheet today. He copies the cells
 // (Excel pastes tab-separated text) or uploads a CSV, maps each column to a field, sees a PREVIEW, and only then imports.
@@ -25,6 +25,7 @@ export const IMPORT_FIELDS = [
   { key: 'video_urls', label: 'Video links' },
   { key: 'notes', label: 'Notes (private)' },
   { key: 'internal_tags', label: 'Internal tags (private)' },
+  { key: 'office_role', label: 'Office role: ceo, cto or mgr (private)' },
 ] as const
 
 export type ImportFieldKey = (typeof IMPORT_FIELDS)[number]['key']
@@ -40,6 +41,8 @@ const SYNONYMS: [ImportFieldKey, RegExp][] = [
   ['email', /e[\s_-]?mail/i],
   ['phone', /phone|mobile|cell|tel\b/i],
   ['address', /address|mailing|street/i],
+  // A column called exactly "role" or "office role" is the office role. Longer titles ("Job title", "Position") stay headlines.
+  ['office_role', /^(office[\s_-]*role|role)$/i],
   ['headline', /headline|tagline|title|role|position/i],
   ['bio', /\bbio\b|biography|about|description|profile/i],
   ['specialties', /special|focus|expert|niche/i],
@@ -147,10 +150,12 @@ const WATCH: [ImportFieldKey | 'display_name', string][] = [
 ]
 
 /** Builds the preview. `mapping` is one entry per header ('' = ignore). `existing` lists slugs and emails already stored. */
-export function buildPreview(sheet: { headers: string[]; rows: string[][] }, mapping: (ImportFieldKey | '')[], existing: { slugs: string[]; emails: string[] }): PreviewRow[] {
+export function buildPreview(sheet: { headers: string[]; rows: string[][] }, mapping: (ImportFieldKey | '')[], existing: { slugs: string[]; emails: string[]; officeRoles?: string[] }): PreviewRow[] {
   const slugs = new Set(existing.slugs.map((s) => s.toLowerCase()))
   const emails = new Set(existing.emails.map((s) => s.toLowerCase()))
   const seen = new Set<string>()
+  // Office roles already held in the roster, then those claimed earlier in this paste. Import never moves a role.
+  const takenRoles = new Set((existing.officeRoles ?? []).map((r) => r.toLowerCase()))
   return sheet.rows.map((cells, index) => {
     const raw: Record<string, string> = {}
     mapping.forEach((field, i) => {
@@ -180,6 +185,15 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
     if (!cleaned.ok) return { index, ok: false, slug, value: null, missing: [], warnings: cleaned.errors, action: 'new' as const }
     const value = cleaned.value
     const missing: string[] = []
+    if (raw.office_role) {
+      const role = parseOfficeRole(raw.office_role)
+      if (role === 'invalid') warnings.push('The office role must be ceo, cto or mgr, so it was left empty.')
+      else if (role && takenRoles.has(role)) warnings.push('That office role is already held by someone else (or earlier in this paste), so it was left empty. Change it in the editor if you mean to move it.')
+      else if (role) {
+        value.office_role = role
+        takenRoles.add(role)
+      }
+    }
     for (const [k, label] of WATCH) {
       const v = (value as Record<string, unknown>)[k]
       if (v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)) missing.push(label)

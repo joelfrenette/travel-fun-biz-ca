@@ -4,10 +4,11 @@ import { notifyTo } from '@/lib/alerts'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { TODAY_LEADS_DONE_KEY, TODAY_LOG_KEY, addToIdList, appendLog, parseIdList, parseLog, plain } from '@/lib/today-state'
 import {
-  DESK_EMAILS_KEY, DESK_SMS_KEY, DESK_STATE_KEY, REMINDER_AFTER_MIN, REMINDER_WINDOW_MIN, agentTag, buildAgentEmail, buildDeskEmail, buildDeskSms,
-  claimAlert, cleanAssignedBy, ghlAssignNote, isAssignableStatus, isLeadStatus, parseAlertState, parseDeskEmails, parseSmsContactIds,
+  DESK_EMAILS_KEY, DESK_OFFICE_KEY, DESK_SMS_KEY, DESK_STATE_KEY, REMINDER_AFTER_MIN, REMINDER_WINDOW_MIN, agentTag, buildAgentEmail, buildDeskEmail, buildDeskSms,
+  claimAlert, cleanAssignedBy, ghlAssignNote, isAssignableStatus, isLeadStatus, mergeDeskRecipients, officeAlertOn, parseAlertState, parseDeskEmails, parseSmsContactIds,
   reminderDue, waitMinutes, type HotLeadInfo, type HotWait, type PickerAgent,
 } from '@/lib/lead-desk'
+import { parseOfficeRole } from '@/lib/agents'
 
 // Database and network side of the lead desk. Server only; every function here is called by an admin route, the
 // 15 minute autopilot pass, or the form routes (fire and forget). Nothing in here ever picks an agent for the office:
@@ -87,10 +88,21 @@ export async function sendDeskAlert(info: HotLeadInfo, kind: 'a' | 'r', deps: De
     const reminder = kind === 'r'
     const emails = parseDeskEmails(await get(DESK_EMAILS_KEY))
     const to = emails.length > 0 ? emails : [notifyTo()].filter(Boolean)
+    // Optional (default OFF): the CEO, CTO and Manager on the roster also get the alert, at their private roster emails, de-duplicated
+    // with the desk list. They go in a second send so an address the mail provider refuses (before a sending domain is verified) can
+    // never stop the desk's own alert.
+    let officeExtra: string[] = []
+    if (officeAlertOn(await get(DESK_OFFICE_KEY).catch(() => null))) {
+      const office = await listOfficeEmails(await clientOf(deps)).catch(() => [] as string[])
+      officeExtra = mergeDeskRecipients(to, office).filter((e) => !to.some((t) => t.trim().toLowerCase() === e))
+    }
+    const primary = to.length > 0 ? to : officeExtra
+    const extra = to.length > 0 ? officeExtra : []
     let email: DeskAlertResult['email'] = 'not-configured'
-    if (to.length > 0 && process.env.RESEND_API_KEY?.trim()) {
+    if (primary.length > 0 && process.env.RESEND_API_KEY?.trim()) {
       const mail = buildDeskEmail(info, url, { reminder, waitedMinutes })
-      email = (await sendMail(deps, to, mail.subject, mail.text).catch(() => false)) ? 'sent' : 'failed'
+      email = (await sendMail(deps, primary, mail.subject, mail.text).catch(() => false)) ? 'sent' : 'failed'
+      if (extra.length > 0) await sendMail(deps, extra, mail.subject, mail.text).catch(() => false)
     }
 
     const ids = parseSmsContactIds(await get(DESK_SMS_KEY))
@@ -211,23 +223,39 @@ export async function readHotWait(admin: SupabaseClient, now: Date = new Date())
   return { count: rows.length, oldestMinutes: waitMinutes(str(rows[0].created_at), now.getTime()) }
 }
 
-/** The agents the office can pick from. Draft, ready and published only; NEVER the private email, phone, address or notes. */
+/** The agents the office can pick from: EVERY roster person (the office team are agents too). Draft, ready and published only;
+ * NEVER the private contact details. The only extra is the office role, which is just a label for the badge. */
 export async function listPickerAgents(admin: SupabaseClient): Promise<PickerAgent[]> {
-  const { data, error } = await admin.from('agents').select('id, slug, display_name, specialties, status, region').in('status', ['draft', 'ready', 'published']).order('display_name', { ascending: true }).limit(1000)
-  if (error) throw new Error(error.message)
-  return ((data ?? []) as unknown as Row[]).map((r) => ({
-    id: str(r.id),
-    slug: str(r.slug),
-    display_name: str(r.display_name),
-    specialties: Array.isArray(r.specialties) ? (r.specialties as unknown[]).filter((s): s is string => typeof s === 'string') : [],
-    status: str(r.status),
-    region: typeof r.region === 'string' ? r.region : null,
-  }))
+  const pick = (cols: string) => admin.from('agents').select(cols).in('status', ['draft', 'ready', 'published']).order('display_name', { ascending: true }).limit(1000)
+  let res = await pick('id, slug, display_name, specialties, status, region, office_role')
+  // Before migration 0057 there is no office_role column: the list still works, with no badges.
+  if (res.error && /office_role/i.test(res.error.message)) res = await pick('id, slug, display_name, specialties, status, region')
+  if (res.error) throw new Error(res.error.message)
+  return ((res.data ?? []) as unknown as Row[]).map((r) => {
+    const role = parseOfficeRole(r.office_role)
+    return {
+      id: str(r.id),
+      slug: str(r.slug),
+      display_name: str(r.display_name),
+      specialties: Array.isArray(r.specialties) ? (r.specialties as unknown[]).filter((s): s is string => typeof s === 'string') : [],
+      status: str(r.status),
+      region: typeof r.region === 'string' ? r.region : null,
+      office_role: role === 'invalid' ? null : role,
+    }
+  })
 }
 
 /** Is the desk set up to text someone? Used for the amber setup item on Needs attention. */
 export async function deskSmsConfigured(admin: SupabaseClient): Promise<boolean> {
   return parseSmsContactIds(await getSetting(admin, DESK_SMS_KEY).catch(() => null)).length > 0
+}
+
+/** The private roster emails of whoever holds the CEO, CTO or Manager role. Used only for the optional "also alert the office team" switch;
+ * these addresses never leave the server and never appear in a message body. Fails soft (before migration 0057 there is no role: empty). */
+export async function listOfficeEmails(admin: SupabaseClient): Promise<string[]> {
+  const { data, error } = await admin.from('agents').select('email, office_role').not('office_role', 'is', null).limit(20)
+  if (error) return []
+  return ((data ?? []) as unknown as Row[]).filter((r) => parseOfficeRole(r.office_role) !== null && parseOfficeRole(r.office_role) !== 'invalid').map((r) => str(r.email).trim().toLowerCase()).filter(Boolean)
 }
 
 // ---- assigning ---------------------------------------------------------------------------------------------

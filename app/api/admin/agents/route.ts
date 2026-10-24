@@ -6,6 +6,9 @@ import {
   saveAgent, setAgentOfMonth, setAgentStatus, suggestMonthAgents,
 } from '@/lib/agents-store'
 import { parseSheet, type ImportFieldKey, IMPORT_FIELDS } from '@/lib/agents-import'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { getSetting, setSetting } from '@/lib/app-settings'
+import { DESK_OFFICE_KEY, officeAlertOn } from '@/lib/lead-desk'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -25,7 +28,8 @@ export async function GET(request: Request) {
     const [achievements, aotm, submissions, drafts, suggestions, leaderboard] = await Promise.all([
       listAchievementsAdmin(), listAgentOfMonth(), listSubmissions('pending'), listDrafts('draft'), suggestMonthAgents(), internalLeaderboard(),
     ])
-    return NextResponse.json({ migrated: true, agents, achievements, aotm, submissions, drafts, suggestions, leaderboard, importFields: IMPORT_FIELDS })
+    const officeAlert = officeAlertOn(await getSetting(getSupabaseAdmin(), DESK_OFFICE_KEY).catch(() => null))
+    return NextResponse.json({ migrated: true, agents, achievements, aotm, submissions, drafts, suggestions, leaderboard, importFields: IMPORT_FIELDS, officeAlert })
   } catch (e) {
     if (e instanceof Error && e.message === 'MIGRATION') return NextResponse.json({ migrated: false, agents: [], achievements: [], aotm: [], submissions: [], drafts: [], suggestions: [], leaderboard: [], importFields: IMPORT_FIELDS })
     return fail(e)
@@ -42,6 +46,12 @@ export async function POST(request: Request) {
       case 'save': {
         const r = await saveAgent(id, (body.agent ?? {}) as Record<string, unknown>)
         return r.ok ? NextResponse.json({ agent: r.agent }) : NextResponse.json({ error: r.errors.join(' ') }, { status: 400 })
+      }
+      case 'office-alert': {
+        // The lead desk switch: also email the CEO, CTO and Manager (private roster emails) when a hot lead arrives. Default off.
+        if (typeof body.on !== 'boolean') return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+        const r = await setSetting(getSupabaseAdmin(), DESK_OFFICE_KEY, body.on ? 'on' : 'off')
+        return r.error ? NextResponse.json({ error: r.error }, { status: 500 }) : NextResponse.json({ ok: true, officeAlert: body.on })
       }
       case 'delete': {
         if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })

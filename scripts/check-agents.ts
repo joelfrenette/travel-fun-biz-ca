@@ -7,7 +7,9 @@ import {
   AGENT_PRIVATE_COLUMNS, AGENT_PUBLIC_COLUMNS, AGENT_PUBLIC_SELECT, ACHIEVEMENT_PUBLIC_COLUMNS, ACHIEVEMENT_PUBLIC_SELECT, amountLike, buildAgentsCollectionJsonLd,
   buildPersonJsonLd, buildProfilePageJsonLd, buildVideoJsonLd, cleanAgentInput, isPubliclyVisible, parseCertifications, parseVideoUrl, publicCertifications,
   publishBlockers, slugify, suggestAgentOfMonth, toPublicAchievements, toPublicAgent, agentDescription, agentTitle, agentPhotoAlt, type PublicAgent,
+  OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, officeTeam, parseOfficeRole, planOfficeRole,
 } from '../lib/agents'
+import { setOfficeRole } from '../lib/agents-office'
 import { buildPreview, guessField, parseDelimited, parseSheet, IMPORT_MAX_ROWS } from '../lib/agents-import'
 import { cleanSelfService, hashProfileToken, makeProfileToken, profileLinkExpiry, profileLinkState, profileTokenMatchesHash } from '../lib/agents-token'
 import { groundedPolishProblems, polishBio, polishHash } from '../lib/agents-polish'
@@ -37,7 +39,7 @@ const baseRow = {
   check('public column list has no private column', AGENT_PRIVATE_COLUMNS.every((c) => !(AGENT_PUBLIC_COLUMNS as readonly string[]).includes(c)), AGENT_PUBLIC_COLUMNS)
   check('public select is explicit (no star)', !AGENT_PUBLIC_SELECT.includes('*') && !ACHIEVEMENT_PUBLIC_SELECT.includes('*'))
   check('achievement public columns exclude internal_value and public flag leak', !(ACHIEVEMENT_PUBLIC_COLUMNS as readonly string[]).includes('internal_value'))
-  check('private columns are exactly email, phone, address, notes, internal_tags', [...AGENT_PRIVATE_COLUMNS].sort().join() === 'address,email,internal_tags,notes,phone')
+  check('private columns are exactly email, phone, address, notes, internal_tags, office_role', [...AGENT_PRIVATE_COLUMNS].sort().join() === 'address,email,internal_tags,notes,office_role,phone')
 
   // Source scan: the public half of the store, and every public file, never touch private columns or select star.
   const store = readFileSync('lib/agents-store.ts', 'utf8')
@@ -219,6 +221,82 @@ const baseRow = {
   check('drafts are always queued as draft status and the store never auto-approves', /status: 'draft'/.test(storeSrc) && !/status: 'approved'\s*}\)/.test(storeSrc.slice(storeSrc.indexOf('export async function queueDrafts'), storeSrc.indexOf('export async function listDrafts'))))
   check('publish queues drafts only on first publish', /const first = status === 'published' && !row\.published_at/.test(storeSrc))
   check('import saves with both consents off', /consent_photo: false, consent_bio: false/.test(storeSrc))
+
+  // ─── Office team (CEO, CTO, Manager): admin only, one holder per role, still an agent ────────────
+  // Every name, email and role below is made up.
+  check('office roles are ceo, cto, mgr with plain labels', OFFICE_ROLES.join() === 'ceo,cto,mgr' && OFFICE_ROLE_LABEL.ceo === 'CEO' && OFFICE_ROLE_LABEL.cto === 'CTO' && OFFICE_ROLE_LABEL.mgr === 'Manager')
+  check('office_role is never a public column or in the public select', !(AGENT_PUBLIC_COLUMNS as readonly string[]).includes('office_role') && !AGENT_PUBLIC_SELECT.includes('office_role') && (AGENT_PRIVATE_COLUMNS as readonly string[]).includes('office_role'))
+  const withRole = { ...baseRow, office_role: 'ceo' }
+  const pubJson = JSON.stringify(toPublicAgent(withRole))
+  check('a roster row with an office role never leaks it into the PublicAgent', !pubJson.includes('office_role') && !/"ceo"|CEO|Manager|CTO/.test(pubJson), pubJson)
+  const pubAgent = toPublicAgent(withRole) as PublicAgent
+  const ldJson = JSON.stringify([buildPersonJsonLd(pubAgent, ctx), buildProfilePageJsonLd(pubAgent, ctx), buildAgentsCollectionJsonLd([pubAgent], 'Agents', 'All agents', ctx)])
+  check('JSON-LD never carries the office role (jobTitle stays Travel specialist)', !/office_role|"ceo"|CEO|Manager|CTO|chief/i.test(ldJson) && ldJson.includes('Travel specialist'))
+  const publicSrc = [...publicFiles, 'lib/agents-store.ts'].map((f) => readFileSync(f, 'utf8'))
+  check('no public file and no public half of the store mentions the office role', publicFiles.every((f) => !/office_?role|OFFICE_ROLE|officeRole/i.test(readFileSync(f, 'utf8'))) && !/office_?role|OFFICE_ROLE|officeRole/i.test(publicSrc[publicSrc.length - 1].slice(0, publicSrc[publicSrc.length - 1].indexOf('// ─── Admin: roster')).replace(/^import .*$/gm, '')))
+  const libAgentsSrc = readFileSync('lib/agents.ts', 'utf8')
+  const toPublicBody = libAgentsSrc.slice(libAgentsSrc.indexOf('export function toPublicAgent'), libAgentsSrc.indexOf('/** Public achievements'))
+  const jsonLdBody = libAgentsSrc.slice(libAgentsSrc.indexOf('// ─── JSON-LD'), libAgentsSrc.indexOf('// ─── Agent of the month'))
+  check('toPublicAgent and the JSON-LD builders do not read the office role', !/office_?role/i.test(toPublicBody) && !/office_?role/i.test(jsonLdBody))
+
+  check('parseOfficeRole reads roles, words and blanks', parseOfficeRole('CEO') === 'ceo' && parseOfficeRole(' Manager ') === 'mgr' && parseOfficeRole('MGR') === 'mgr' && parseOfficeRole('c.t.o') === 'cto' && parseOfficeRole('') === null && parseOfficeRole('none') === null && parseOfficeRole(null) === null && parseOfficeRole('boss') === 'invalid' && parseOfficeRole(5) === 'invalid')
+  const okRole = cleanAgentInput({ display_name: 'Ann Example', office_role: 'cto' })
+  check('cleanAgentInput accepts a role, clears it with blank, refuses a made-up one, and leaves it alone when absent', okRole.ok && okRole.value.office_role === 'cto' && (cleanAgentInput({ office_role: '' }) as { ok: true; value: { office_role?: unknown } }).value.office_role === null && !cleanAgentInput({ office_role: 'boss' }).ok && !('office_role' in (cleanAgentInput({ display_name: 'Ann Example' }) as { ok: true; value: object }).value))
+
+  const rp = (id: string, name: string, role: string | null = null) => ({ id, display_name: name, office_role: role, status: 'draft' as const })
+  const roster = [rp('p1', 'Cy Demo'), rp('p2', 'Ann Example', 'ceo'), rp('p3', 'Bo Sample', 'mgr'), rp('p4', 'Dee Fake', 'cto')]
+  check('office holders are found by role, and a role nobody holds is null', officeHolders(roster).ceo?.id === 'p2' && officeHolders(roster).cto?.id === 'p4' && officeHolders(roster).mgr?.id === 'p3' && officeHolders(roster.filter((r) => r.id !== 'p2')).ceo === null)
+  check('the office team lists CEO, CTO, Manager in that order and skips empty roles', officeTeam(roster).map((t) => t.role).join() === 'ceo,cto,mgr' && officeTeam([rp('p1', 'Cy Demo')]).length === 0)
+  check('planOfficeRole names the person who would lose the role, and nobody for a free role or the same person', planOfficeRole(roster, 'p1', 'ceo').from?.id === 'p2' && planOfficeRole(roster, 'p2', 'ceo').from === null && planOfficeRole(roster.filter((r) => r.id !== 'p3'), 'p1', 'mgr').from === null && planOfficeRole(roster, 'p1', null).from === null)
+  check('one person is both an office holder and an agent: the same row, no second table', roster.filter((r) => r.office_role).every((r) => r.status === 'draft') && !/create table/i.test(readFileSync('supabase/migrations/0057_agents_office_role.sql', 'utf8')))
+
+  const { fakeAdmin } = await import('./fake-admin')
+  const odb = { tables: { agents: [
+    { id: 'p1', display_name: 'Cy Demo', office_role: null },
+    { id: 'p2', display_name: 'Ann Example', office_role: 'ceo' },
+    { id: 'p3', display_name: 'Bo Sample', office_role: 'mgr' },
+  ] as Record<string, unknown>[] } }
+  const oadmin = fakeAdmin(odb)
+  const holdersOf = (role: string) => odb.tables.agents.filter((a) => a.office_role === role).map((a) => a.id)
+  const refused = await setOfficeRole(oadmin, 'p1', 'ceo', false)
+  check('taking a role someone else holds is refused until the move is confirmed, and nothing changes', !refused.ok && refused.code === 'taken' && /Ann Example is already the CEO/.test(refused.error) && holdersOf('ceo').join() === 'p2' && odb.tables.agents[0].office_role === null, refused)
+  const moved = await setOfficeRole(oadmin, 'p1', 'ceo', true)
+  check('a confirmed move takes the role from the old holder: still exactly one CEO, the old holder stays on the roster', moved.ok && moved.movedFrom.join() === 'Ann Example' && holdersOf('ceo').join() === 'p1' && odb.tables.agents.length === 3 && odb.tables.agents[1].office_role === null)
+  const same = await setOfficeRole(oadmin, 'p1', 'ceo', false)
+  check('saving the role a person already holds is fine and changes nobody else', same.ok && same.movedFrom.length === 0 && holdersOf('ceo').join() === 'p1' && holdersOf('mgr').join() === 'p3')
+  const free = await setOfficeRole(oadmin, 'p2', 'cto', false)
+  check('a free role is simply set, and one person can hold only one role at a time (the new one replaces the old on that row)', free.ok && holdersOf('cto').join() === 'p2')
+  const cleared = await setOfficeRole(oadmin, 'p3', null, false)
+  check('a role can be cleared', cleared.ok && holdersOf('mgr').length === 0 && odb.tables.agents.length === 3)
+  const badRole = await setOfficeRole(oadmin, 'p3', 'boss' as never, true)
+  check('a made-up role is refused', !badRole.ok)
+  let vetoed = false
+  const sdb = { tables: { agents: [{ id: 'q1', display_name: 'Cy Demo', office_role: null }, { id: 'q2', display_name: 'Ann Example', office_role: 'ceo' }] as Record<string, unknown>[] }, rejectUpdate: (_t: string, p: Record<string, unknown>) => (!vetoed && p.office_role === 'ceo' && 'updated_at' in p ? ((vetoed = true), 'write failed') : null) }
+  const failedMove = await setOfficeRole(fakeAdmin(sdb), 'q1', 'ceo', true)
+  check('a failed move puts the role back, so the office is never left without its CEO', !failedMove.ok && sdb.tables.agents[1].office_role === 'ceo' && sdb.tables.agents[0].office_role === null, failedMove)
+
+  const migSql = readFileSync('supabase/migrations/0057_agents_office_role.sql', 'utf8')
+  check('migration 0057 adds a nullable checked column and a partial unique index, with no policy and no data change', /add column if not exists office_role text;/.test(migSql) && /office_role is null or office_role in \('ceo', 'cto', 'mgr'\)/.test(migSql) && /create unique index if not exists agents_office_role_uidx on public\.agents \(office_role\) where office_role is not null/.test(migSql) && !/create policy|insert into|update public|delete from|drop /i.test(migSql))
+  const storeSrc2 = readFileSync('lib/agents-store.ts', 'utf8')
+  check('saveAgent moves a role only when the request says move_office_role: true', /input\.move_office_role === true/.test(storeSrc2) && /holders\.length > 0 && !moveRole/.test(storeSrc2))
+  const editorSrc = readFileSync('components/admin/agents-editor.tsx', 'utf8')
+  check('the editor has an Office role dropdown (none, CEO, CTO, Manager), confirms a move, and sends the role only when it changed', /Office role/.test(editorSrc) && /<option value="">None<\/option>/.test(editorSrc) && /confirm\(/.test(editorSrc) && /roleChanged \? \{ \.\.\.payload\(\), office_role: officeRole, move_office_role: move \}/.test(editorSrc))
+  const panelSrc = readFileSync('components/admin/agents-panel.tsx', 'utf8')
+  check('the roster screen has the Office team strip, filter, badges and the alert switch (off unless the setting says on)', /aria-label="Office team"/.test(panelSrc) && /Filter by office team/.test(panelSrc) && /data-testid="office-badge"/.test(panelSrc) && /not set/.test(panelSrc) && /checked=\{data\.officeAlert === true\}/.test(panelSrc) && /action: "office-alert"/.test(panelSrc))
+  const routeSrc = readFileSync('app/api/admin/agents/route.ts', 'utf8')
+  check('the office-alert switch is saved only by the admin route after isAuthorized, as on or off', /case 'office-alert'/.test(routeSrc) && routeSrc.indexOf("case 'office-alert'") > routeSrc.indexOf('export async function POST') && /body\.on \? 'on' : 'off'/.test(routeSrc))
+
+  // Import: an optional "role" column maps to the office role. Fake rows only.
+  check('guessField maps Role and Office role to the office role, and leaves job titles as headlines', guessField('Role') === 'office_role' && guessField('Office role') === 'office_role' && guessField('Job title') === 'headline' && guessField('Position') === 'headline')
+  const roleSheet = parseSheet('Name\tRole\nAnn Example\tCEO\nBo Sample\tcto\nCy Demo\tmgr\nDee Fake\tboss\nEve Test\tceo\nFay Plain\t')
+  const rolePrev = roleSheet.ok ? buildPreview(roleSheet.sheet, roleSheet.sheet.guess, { slugs: [], emails: [] }) : []
+  check('the role column is picked up by the column guess', roleSheet.ok && roleSheet.sheet.guess.join() === 'display_name,office_role', roleSheet.ok ? roleSheet.sheet.guess : roleSheet)
+  check('preview maps ceo, cto and mgr to the office role', rolePrev[0].value?.office_role === 'ceo' && rolePrev[1].value?.office_role === 'cto' && rolePrev[2].value?.office_role === 'mgr', rolePrev.map((p) => p.value?.office_role))
+  check('an unknown role word is left empty with a plain warning, and a blank role is just no role', !('office_role' in (rolePrev[3].value ?? {})) && rolePrev[3].warnings.some((w) => /ceo, cto or mgr/.test(w)) && !('office_role' in (rolePrev[5].value ?? {})) && rolePrev[5].warnings.length === 0)
+  check('a role already claimed earlier in the paste is not given twice', !('office_role' in (rolePrev[4].value ?? {})) && rolePrev[4].warnings.some((w) => /already held/.test(w)))
+  const heldPrev = roleSheet.ok ? buildPreview(roleSheet.sheet, roleSheet.sheet.guess, { slugs: [], emails: [], officeRoles: ['mgr'] }) : []
+  check('a role already held in the roster is never moved by an import', !('office_role' in (heldPrev[2].value ?? {})) && heldPrev[2].warnings.some((w) => /already held/.test(w)) && heldPrev[0].value?.office_role === 'ceo')
+  check('the import still makes drafts with consent off, and the role never makes anyone public', rolePrev.every((p) => p.value && !('consent_photo' in p.value) && !('status' in p.value)) && /consent_photo: false, consent_bio: false/.test(storeSrc2))
 
   // ─── Wiring ────────────────────────────────────────────────────────────────────
   check('migration enables RLS on every agents table and defines no policy', (() => { const m = readFileSync('supabase/migrations/0054_agents.sql', 'utf8'); const t = ['agents', 'agent_achievements', 'agent_of_month', 'agent_profile_links', 'agent_profile_submissions', 'agent_content_drafts']; return t.every((x) => m.includes(`alter table public.${x} enable row level security`)) && !/create policy/i.test(m) })())

@@ -21,6 +21,8 @@ export interface AgentsData {
   drafts: Row[]
   suggestions: { id: string; display_name: string; score: number; reasons: string[] }[]
   leaderboard: { agent_id: string; display_name: string; total: number; count: number }[]
+  /** The lead desk switch: also alert the office team (CEO, CTO, Manager). Default off. */
+  officeAlert?: boolean
 }
 
 export const s = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : String(v))

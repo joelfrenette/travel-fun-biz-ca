@@ -9,6 +9,8 @@
 // email or phone, only where it came from and a link into /admin. The one email that carries the details goes to
 // the agent the office chose, at that agent's private roster address.
 
+import { OFFICE_ROLES, OFFICE_ROLE_LABEL, parseOfficeRole, type OfficeRole } from '@/lib/agents'
+
 export const LEAD_INTENTS = ['callback', 'quote', 'info'] as const
 export type LeadIntent = (typeof LEAD_INTENTS)[number]
 
@@ -143,6 +145,8 @@ export interface PickerAgent {
   specialties: string[]
   status: string
   region?: string | null
+  /** The office role this person holds (CEO, CTO or Manager), if any. They are agents too. Admin only, never public. */
+  office_role?: OfficeRole | null
 }
 
 export interface LeadTopic {
@@ -204,11 +208,43 @@ export function orderAgents(agents: PickerAgent[], topic: LeadTopic): PickerEntr
     .sort((a, b) => b.score - a.score || a.agent.display_name.localeCompare(b.agent.display_name, 'en', { sensitivity: 'base' }))
 }
 
-/** Pure: the search box. Matches a name, a specialty or a region; keeps the order. An empty search keeps everyone. */
+/** Pure: the search box. Matches a name, a specialty, a region or an office role; keeps the order. An empty search keeps everyone. */
 export function filterAgents<T extends { agent: PickerAgent }>(list: T[], query: string): T[] {
   const q = query.trim().toLowerCase()
   if (!q) return list
-  return list.filter(({ agent }) => [agent.display_name, agent.region ?? '', ...(agent.specialties ?? [])].join(' ').toLowerCase().includes(q))
+  return list.filter(({ agent }) => [agent.display_name, agent.region ?? '', ...(agent.specialties ?? []), officeRoleWords(agent.office_role)].join(' ').toLowerCase().includes(q))
+}
+
+function officeRoleWords(r: unknown): string {
+  const role = parseOfficeRole(r)
+  return role && role !== 'invalid' ? `${role} ${OFFICE_ROLE_LABEL[role]} office team` : ''
+}
+
+export interface PickerGroups {
+  /** The office team (CEO, then CTO, then Manager). They are agents too, so they are always on the list. */
+  office: PickerEntry[]
+  /** Everyone else whose specialties match the trip. */
+  suggested: PickerEntry[]
+  /** Everyone else. */
+  others: PickerEntry[]
+}
+
+/** Pure: splits the ordered picker list into the three blocks the desk sees: Office team first, then Suggested by specialty, then
+ * everyone else. Every entry lands in exactly one block, nobody is dropped, and nothing is chosen or preselected. */
+export function groupPickerEntries(entries: PickerEntry[]): PickerGroups {
+  const roleOf = (e: PickerEntry): OfficeRole | null => {
+    const r = parseOfficeRole(e.agent.office_role)
+    return r && r !== 'invalid' ? r : null
+  }
+  const office = entries.filter((e) => roleOf(e)).sort((a, b) => OFFICE_ROLES.indexOf(roleOf(a) as OfficeRole) - OFFICE_ROLES.indexOf(roleOf(b) as OfficeRole))
+  const rest = entries.filter((e) => !roleOf(e))
+  return { office, suggested: rest.filter((e) => e.suggested), others: rest.filter((e) => !e.suggested) }
+}
+
+/** Pure: the label for an office role badge ("CEO", "CTO", "Manager"), or '' when the person has none. */
+export function officeBadge(r: unknown): string {
+  const role = parseOfficeRole(r)
+  return role && role !== 'invalid' ? OFFICE_ROLE_LABEL[role] : ''
 }
 
 // ---- lists kept in app_settings ---------------------------------------------------------------------------
@@ -216,7 +252,24 @@ export function filterAgents<T extends { agent: PickerAgent }>(list: T[], query:
 export const DESK_EMAILS_KEY = 'lead_desk_alert_emails'
 export const DESK_SMS_KEY = 'lead_desk_alert_sms_contact_ids'
 export const DESK_STATE_KEY = 'hot_lead_alert_state'
+/** "on" adds the private emails of the CEO, CTO and Manager (from the Agents roster) to the desk alert. Missing or anything else = off. */
+export const DESK_OFFICE_KEY = 'lead_desk_alert_office_team'
 export const DESK_LIST_MAX = 10
+
+/** Pure: is the "also alert the office team" switch on? Default OFF (a missing, empty or unknown value is off). */
+export function officeAlertOn(raw: string | null | undefined): boolean {
+  return ['on', 'true', '1', 'yes'].includes((raw ?? '').trim().toLowerCase())
+}
+
+/** Pure: the desk addresses plus the office team's, lower-cased, valid ones only, no duplicates, the desk list first. */
+export function mergeDeskRecipients(desk: string[], office: string[]): string[] {
+  const out: string[] = []
+  for (const raw of [...desk, ...office]) {
+    const e = (raw ?? '').trim().toLowerCase()
+    if (isDeskEmail(e) && !out.includes(e)) out.push(e)
+  }
+  return out
+}
 
 /** Pure: one plain address, no header injection characters. */
 export function isDeskEmail(email: string): boolean {
