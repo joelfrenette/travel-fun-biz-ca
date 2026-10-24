@@ -268,7 +268,11 @@ export async function runAutopilotTick(admin: SupabaseClient): Promise<string> {
   // Trip Page Kit: at most one thin trip page per pass, only while autopilot is on and automation is not paused.
   let kitNote: string | null = null
   if (await isAutopilotOn(admin).catch(() => false)) kitNote = await import('@/lib/trip-kit-run').then((m) => m.autopilotTripKitStep(admin)).catch(() => null)
-  return [note, cleanup, kitNote].filter(Boolean).join('; ')
+  // Evergreen re-share: at most one older page a day goes back through social, only while its own switch (default off) AND autopilot are on and
+  // automation is not paused. It only enrols a normal posting-list row; the posting pass sends it through the same gates as a new post.
+  let evergreenNote: string | null = null
+  if (await isAutopilotOn(admin).catch(() => false)) evergreenNote = await import('@/lib/evergreen-reshare-run').then((m) => m.autopilotEvergreenStep(admin)).catch(() => null)
+  return [note, cleanup, kitNote, evergreenNote].filter(Boolean).join('; ')
 }
 
 async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; problems: string[] }> {

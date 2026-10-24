@@ -19,13 +19,15 @@ import type { UploadPostSendResult } from '@/lib/upload-post'
 import { buildGroundingText } from '@/lib/post-grounding'
 import { tagVariant } from '@/lib/content-variants'
 import { CTA_STYLES, hashtagCapFor, rotateStyle, readRecentVariantRows, valuesFromRows, type VariantRow, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
-import { assignHookStyles, questionNetworks, hasGroundableNumber, wantsCommentPrompt } from '@/lib/caption-plan'
+import { assignHookStyles, questionNetworks, hasGroundableNumber, wantsCommentPrompt, type HookSteer } from '@/lib/caption-plan'
 import { recordCaptions } from '@/lib/caption-log'
 import { loadOptimizerState } from '@/lib/optimizer-run'
 import { makeHookSteer } from '@/lib/optimizer'
 import { commentPromptLine } from '@/lib/reel-questions'
 import { getNewsSocialEnabled, NEWS_SOCIAL_SKIP_NOTE } from '@/lib/news-settings'
 import { isRecapSlug, baseSlugOfRecap, recapFacts } from '@/lib/fanout-plan'
+import { baseSlugOfEvergreen, freshNetworks, hookIsFresh, rotateList } from '@/lib/evergreen-reshare'
+import { loadEvergreenHistory, recordEvergreenHooks, evergreenSendBlocker } from '@/lib/evergreen-history'
 
 /** The post's FAQ and key takeaways as plain text, so numbers in them count as real when captions
  * are checked. Those columns arrive with a later migration, so this tolerates them not existing
@@ -322,6 +324,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
   let visualSkipped = 0
   let deferred = 0
   let newsSkipped = 0
+  let evergreenSkipped = 0
   // News is only posted to social when app_settings.news_social_posts is exactly 'true' (default off, fail closed). Read once, and only when a news row is in this batch.
   const newsSocialOn = (rows as DistributionRow[]).some((r) => typeof r.path !== 'string' && r.slug.startsWith('news-')) ? await getNewsSocialEnabled(admin) : false
   const passStart = Date.now()
@@ -343,7 +346,20 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       }
       // A recap row (day 7 of the fan-out calendar, slug recap-<post slug>) is an image post (a "you asked" card) about the same blog post, built from one real FAQ answer.
       const isRecapRow = !isGuideRow && !isNewsRow && isRecapSlug(row.slug)
-      const postSlug = isRecapRow ? baseSlugOfRecap(row.slug) : row.slug
+      // An evergreen re-share (slug evergreen-<yymmdd>-<original ledger slug>) is an older blog post or guide going out a second time. It is built exactly like
+      // the original (checked image card, per-network captions, hook rotation, pauses), with three differences: it is looked at once more just before it goes
+      // out, its link is tagged "<style>-evergreen", and a network whose caption opens like an earlier one is left out (a re-share must say something new).
+      const evergreenBase = !isNewsRow && !isRecapRow ? baseSlugOfEvergreen(row.slug) : null
+      const isEvergreenRow = evergreenBase !== null
+      const baseSlug = evergreenBase ?? row.slug
+      if (isEvergreenRow) {
+        const blocker = await evergreenSendBlocker(admin, baseSlug, isGuideRow ? (row.path as string) : null)
+        if (blocker) {
+          await admin.from('post_distribution').update({ stage: 'done', last_error: `Skipped: evergreen re-share not sent (${blocker}).`.slice(0, 300), updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
+          continue
+        }
+      }
+      const postSlug = isRecapRow ? baseSlugOfRecap(row.slug) : baseSlug
       const guideSource = isGuideRow ? await loadGuidePostSource(admin, row.path as string) : null
       if (isGuideRow && !guideSource) {
         await admin
@@ -357,7 +373,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const pageUrl = isGuideRow ? absoluteUrl(row.path as string) : `${SITE_URL}/blog/${postSlug}`
       // Each network gets its own link: utm_source is that network's canonical name (twitter is x).
       // utm_content is "<surface>-<variant>" (post, guide, trip or news; fallback or the hook style), so no two surfaces share one value.
-      const surface: SocialSurface = isNewsRow ? 'news' : isRecapRow ? 'recap' : isGuideRow ? ((row.path as string).startsWith('/packages/') ? 'trip' : 'guide') : 'post'
+      const surface: SocialSurface = isNewsRow ? 'news' : isRecapRow ? 'recap' : isEvergreenRow ? 'evergreen' : isGuideRow ? ((row.path as string).startsWith('/packages/') ? 'trip' : 'guide') : 'post'
       const networkLink = (p: string) => socialLink(pageUrl, p, postSlug, surface, 'fallback')
       const title = post?.title || row.title
       // Only networks that accept this kind of post, and never ones this post already reached.
@@ -367,7 +383,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // (lib/visual-gate.ts); the raw photo is never the fallback.
       // A recap card shows one of the post's own FAQ questions over the post's cover photo (kind 'recap'), its slug is the blog post's slug.
       const coverKind: SocialCoverKind = isNewsRow ? 'news' : isRecapRow ? 'recap' : !isGuideRow ? 'blog' : packageSlugFromPath(row.path as string) ? 'trip' : 'guide'
-      const coverSlug = coverKind === 'trip' ? (packageSlugFromPath(row.path as string) as string) : isRecapRow ? postSlug : row.slug
+      const coverSlug = coverKind === 'trip' ? (packageSlugFromPath(row.path as string) as string) : isRecapRow ? postSlug : baseSlug
       // The FAQ, tags and takeaways as stored. A recap needs a usable FAQ answer before anything else is done for it.
       const faqRaw: unknown = (post as { faq?: unknown } | null)?.faq
       const takeawaysRaw: unknown = (post as { key_takeaways?: unknown } | null)?.key_takeaways
@@ -412,7 +428,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         const gated = imageOutcome.status === 'gate-skip' ? imageOutcome.gate : null
         const reason = gated ? gated.reasons.join('; ') : imageOutcome.status === 'no-image' ? imageOutcome.reason : ''
         await recordGateEvents(admin, [...retryEvents, 'skip'], { slug: row.slug, surface: 'feed', reason: `${NO_IMAGE_NOTE}: ${reason}`.slice(0, 200) })
-        if (gated) await tagVariant(admin, row.slug, visualTags('feed', gated.template, { ok: false, reasons: gated.reasons, retries: gated.retries }, gated.photoId))
+        if (gated) await tagVariant(admin, baseSlug, visualTags('feed', gated.template, { ok: false, reasons: gated.reasons, retries: gated.retries }, gated.photoId))
         await admin
           .from('post_distribution')
           .update({ stage: 'done', last_error: noImageNote(reason, gated?.retries ?? 0), updated_at: new Date().toISOString() })
@@ -424,7 +440,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const sendImage: string = imageOutcome.url
       if (imageOutcome.gate) {
         await recordGateEvents(admin, [...retryEvents, 'pass'])
-        await tagVariant(admin, row.slug, visualTags('feed', imageOutcome.gate.template, { ok: true, reasons: [], retries: imageOutcome.gate.retries }, imageOutcome.gate.photoId))
+        await tagVariant(admin, baseSlug, visualTags('feed', imageOutcome.gate.template, { ok: true, reasons: [], retries: imageOutcome.gate.retries }, imageOutcome.gate.photoId))
       }
       const already = row.sent_platforms ?? []
       const platforms = platformsFor('photo', target.platforms, target.provider).filter((p) => !already.includes(p))
@@ -462,7 +478,22 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const promptLine = !isNewsRow && !isRecapRow ? commentPromptLine({ title, keyword: primaryKeyword }) : null
       // Per-network captions (own limit, hashtag cap and UTM source). The old single caption below stays as the
       // last-resort fallback for any network with no entry.
-      const baseCaptions = buildNetworkFallbacks(captionFacts, platforms, networkLink, () => promptLine)
+      let baseCaptions = buildNetworkFallbacks(captionFacts, platforms, networkLink, () => promptLine)
+      // Evergreen re-share: what this page already said (caption log, stored hook lines, hook styles). The hook the no-AI caption opened with the first time
+      // counts as used too, and the no-AI caption is turned to the next stored FAQ question or takeaway until it opens with something new.
+      const history = isEvergreenRow ? await loadEvergreenHistory(admin, baseSlug) : null
+      if (history) {
+        for (const p of platforms) history.earlierHooks.push(baseCaptions[p] ?? '')
+        const faqList = [...(captionFacts.faqQuestions ?? [])]
+        const takeList = [...(captionFacts.keyTakeaways ?? [])]
+        for (let turn = 1; turn < Math.max(faqList.length, takeList.length, 2); turn++) {
+          const candidate = buildNetworkFallbacks({ ...captionFacts, faqQuestions: rotateList(faqList, turn), keyTakeaways: rotateList(takeList, turn) }, platforms, networkLink, () => promptLine)
+          if (platforms.every((p) => hookIsFresh(candidate[p] ?? '', history.earlierHooks))) {
+            baseCaptions = candidate
+            break
+          }
+        }
+      }
       const link = networkLink(platforms[0])
       const fallbackCaption = buildFallbackCaption(captionFacts, platforms[0], link, {
         networks: platforms,
@@ -487,10 +518,23 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         const hookStyles: Record<string, HookStyle> = {}
         const ctaStyles: Record<string, CtaStyle> = {}
         const links: Record<string, string> = {}
-        const grounding = isGuideRow ? guideSource?.grounding : await loadGrounding(admin, row.slug)
+        const grounding = isGuideRow ? guideSource?.grounding : await loadGrounding(admin, baseSlug)
         // One style per network for THIS post, round-robin over each network's own history, so no two networks share a style where possible;
         // "number" is only a choice when the post has a number it can quote. At least half the networks must end the first line with a question.
-        Object.assign(hookStyles, assignHookStyles(platforms, (p) => valuesFromRows(variantRows, `hook_style:${p}`, 12), { hasNumber: hasGroundableNumber(`${title} ${post?.meta_description ?? ''} ${grounding ?? ''}`), steer: makeHookSteer(await loadOptimizerState(admin), 'post') }))
+        // A re-share steers away from the hook styles this page already used (when other styles are left), so its caption is not the same pitch again.
+        const learnedSteer = makeHookSteer(await loadOptimizerState(admin), 'post')
+        const usedStyles = history?.usedStyles
+        const steer: HookSteer | undefined = usedStyles && usedStyles.size
+          ? {
+              ...learnedSteer,
+              allowed: (n, styles) => {
+                const allowed = learnedSteer?.allowed?.(n, styles) ?? styles
+                const unused = allowed.filter((s) => !usedStyles.has(s))
+                return unused.length ? unused : allowed
+              },
+            }
+          : learnedSteer
+        Object.assign(hookStyles, assignHookStyles(platforms, (p) => valuesFromRows(variantRows, `hook_style:${p}`, 12), { hasNumber: hasGroundableNumber(`${title} ${post?.meta_description ?? ''} ${grounding ?? ''}`), steer }))
         const questionFirstLine = questionNetworks(platforms, hookStyles)
         const commentPrompts: Record<string, string> = {}
         for (const [i, p] of platforms.entries()) {
@@ -498,7 +542,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           // The network's position offsets the tie-break so an empty history does not give every
           // account the same call to action.
           ctaStyles[p] = rotateStyle(valuesFromRows(variantRows, `cta_style:${p}`, 12), CTA_STYLES, i)
-          links[p] = socialLink(pageUrl, p, row.slug, surface, hookStyles[p])
+          links[p] = socialLink(pageUrl, p, baseSlug, surface, hookStyles[p])
           if (promptLine && wantsCommentPrompt(p)) commentPrompts[p] = promptLine
         }
         hookStylesUsed = hookStyles
@@ -513,17 +557,35 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         }
         if (Object.keys(patch).length) {
           const stamped = { ...patch, hook_style_at: new Date().toISOString() }
-          await tagVariant(admin, row.slug, stamped)
+          await tagVariant(admin, baseSlug, stamped)
           // Keep this pass's in-memory history current for the next queued row.
           variantRows.unshift({ variant_tags: stamped, updated_at: stamped.hook_style_at })
         }
       }
       // The single point where the payload is built: always the checked image, never text only (lib/post-media.ts).
       const send = sendWithMedia(target, sendImage)
-      const result = await sendTailored(send, platforms, tailored, baseCaptions, sharedCaption, target.provider)
+      // Evergreen re-share: a network whose caption opens like an earlier one for this page is left out (a re-share must say something new). A tailored caption
+      // that repeats an earlier hook is dropped so that network falls back to the no-AI caption, which was already turned to a new hook above.
+      let sendPlatforms = platforms
+      if (history) {
+        if (tailored) {
+          const kept: PlatformCaptions = {}
+          for (const [p, text] of Object.entries(tailored)) if (text && hookIsFresh(text, history.earlierHooks)) kept[p] = text
+          tailored = kept
+        }
+        const fresh = freshNetworks(platforms, (p) => tailored?.[p] ?? baseCaptions[p] ?? sharedCaption, history.earlierHooks)
+        sendPlatforms = fresh.send
+        if (sendPlatforms.length === 0) {
+          evergreenSkipped++
+          await admin.from('post_distribution').update({ stage: 'done', last_error: 'Skipped: no fresh hook (every caption opened like an earlier one for this page), so nothing was posted.', updated_at: new Date().toISOString() }).eq('content_type', 'post').eq('slug', row.slug)
+          continue
+        }
+      }
+      const result = await sendTailored(send, sendPlatforms, tailored, baseCaptions, sharedCaption, target.provider)
       const sentPlatforms = [...new Set([...already, ...result.sent])]
       // The caption text each reached network really got, with the style it used ("fallback" when it was built without one), for the admin list and the loop.
-      await recordCaptions(admin, result.sent.map((p) => ({ slug: row.slug, network: p, format: isRecapRow ? ('recap' as const) : ('post' as const), style: tailored?.[p] ? (hookStylesUsed[p] ?? 'fallback') : 'fallback', text: result.texts[p] ?? '' })))
+      await recordCaptions(admin, result.sent.map((p) => ({ slug: isEvergreenRow ? baseSlug : row.slug, network: p, format: isRecapRow ? ('recap' as const) : isEvergreenRow ? ('evergreen' as const) : ('post' as const), style: tailored?.[p] ? (hookStylesUsed[p] ?? 'fallback') : 'fallback', text: result.texts[p] ?? '' })))
+      if (isEvergreenRow) await recordEvergreenHooks(admin, baseSlug, result.sent.map((p) => result.texts[p] ?? ''))
 
       if (result.ok && result.confirmed === false) {
         // Upload-Post accepted the request (202 / job_id / scheduled) but hasn't confirmed it
@@ -580,7 +642,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
         .eq('slug', row.slug)
     }
   }
-  const gateNote = (newsSkipped ? `, ${newsSkipped} news skipped (news is not posted to social)` : '') + (visualSkipped ? `, ${visualSkipped} skipped by the image check` : '') + (deferred ? `, ${deferred} waiting (image check could not run)` : '')
+  const gateNote = (newsSkipped ? `, ${newsSkipped} news skipped (news is not posted to social)` : '') + (evergreenSkipped ? `, ${evergreenSkipped} re-share skipped (no fresh hook)` : '') +(visualSkipped ? `, ${visualSkipped} skipped by the image check` : '') + (deferred ? `, ${deferred} waiting (image check could not run)` : '')
   return `${posted} posted, ${failed} failed, ${needsReview} needs review${gateNote}, ${rows.length} attempted`
 }
 

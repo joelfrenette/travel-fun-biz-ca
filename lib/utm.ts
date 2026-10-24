@@ -71,7 +71,7 @@ export function utmLink(url: string, tags: UtmTags, opts: { overwrite?: boolean 
 
 /** Where a social post points: each surface gets its own utm_content prefix, so a blog photo post, a guide post, a trip post,
  * a news post, a carousel, a reel and the bio link page never share one content value. */
-export type SocialSurface = 'post' | 'guide' | 'trip' | 'news' | 'carousel' | 'video' | 'bio' | 'recap'
+export type SocialSurface = 'post' | 'guide' | 'trip' | 'news' | 'carousel' | 'video' | 'bio' | 'recap' | 'evergreen'
 
 /** utm_content for a social link: "<hook_style>-<format>" (for example "question-video" or "mistake-post"; the style is the hook
  * style, or "fallback" when no style was chosen), so clicks can be compared per hook style and per format. utm_campaign is already

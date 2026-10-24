@@ -93,7 +93,7 @@ export const CAPTION_LOG_KEY = 'social_caption_log'
 export const CAPTION_LOG_MAX = 200
 export const CAPTION_TEXT_MAX = 900
 
-export type CaptionFormat = 'post' | 'carousel' | 'video' | 'recap'
+export type CaptionFormat = 'post' | 'carousel' | 'video' | 'recap' | 'evergreen'
 
 export interface CaptionLogEntry {
   /** ISO time the caption was handed to the provider. */
@@ -110,7 +110,7 @@ export interface CaptionLogEntry {
 
 const cleanEntry = (e: Partial<CaptionLogEntry>): CaptionLogEntry | null =>
   e && typeof e.slug === 'string' && typeof e.network === 'string' && typeof e.text === 'string'
-    ? { at: typeof e.at === 'string' ? e.at : new Date(0).toISOString(), slug: e.slug.slice(0, 160), network: e.network.slice(0, 80), format: e.format === 'carousel' || e.format === 'video' || e.format === 'recap' ? e.format : 'post', style: typeof e.style === 'string' && e.style ? e.style.slice(0, 40) : 'fallback', text: e.text.slice(0, CAPTION_TEXT_MAX) }
+    ? { at: typeof e.at === 'string' ? e.at : new Date(0).toISOString(), slug: e.slug.slice(0, 160), network: e.network.slice(0, 80), format: e.format === 'carousel' || e.format === 'video' || e.format === 'recap' || e.format === 'evergreen' ? e.format : 'post', style: typeof e.style === 'string' && e.style ? e.style.slice(0, 40) : 'fallback', text: e.text.slice(0, CAPTION_TEXT_MAX) }
     : null
 
 /** The stored log, newest first. Bad JSON or a non-array reads as empty. */
