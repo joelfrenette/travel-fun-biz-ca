@@ -1,6 +1,7 @@
 import { SITE_URL, SITE_NAME } from '@/lib/site'
 import { CHECKLIST_URL, type PlainAction } from '@/lib/plain-steps'
 import type { Brief } from '@/lib/debrief'
+import { checkBriefLines } from '@/lib/system-check'
 
 // The look of the daily brief email: a red header, yesterday's numbers as tiles, numbered action cards
 // with a big button, and colour-coded sections (green = fixed by itself, amber = waiting on you). Built
@@ -84,6 +85,29 @@ export function briefHtml(b: Brief): string {
 
   const panel = (bg: string, inner: string) => `<table ${T} width="100%"><tr><td bgcolor="${bg}" style="background:${bg};border-radius:10px;padding:12px 16px">${inner}</td></tr></table>`
 
+  // Today's follow-ups: what is still open on the Daily follow-ups list, each with a one-tap button. Left out when the list could not be built.
+  const followups =
+    b.followups && b.followups.length
+      ? section(
+          `Today's follow-ups (${b.followups.length})`,
+          b.followups
+            .map(
+              (f) =>
+                `<table ${T} width="100%" style="border:1px solid ${LINE};margin-bottom:10px"><tr><td style="padding:12px 14px">` +
+                `<div style="font-size:15px;font-weight:800;color:${INK}">${esc(f.title)} <span style="font-size:12px;font-weight:600;color:${SOFT}">about ${f.minutes} min</span></div>` +
+                `<div style="font-size:14px;line-height:20px;color:${SOFT};padding:3px 0 8px 0">${esc(f.why)}</div>` +
+                `${button(f.url, 'Open it')}</td></tr></table>`,
+            )
+            .join('') + `<div style="font-size:14px"><a href="${SITE_URL}/admin/follow-ups" style="color:${RED};font-weight:700">See the whole list &rarr;</a></div>`,
+          '#3763c9',
+        )
+      : ''
+  // The system check: the counts and the stages that are not green. Plain lines from lib/system-check.ts.
+  const checkLines = b.check !== undefined ? checkBriefLines(b.check) : []
+  const systemCheck = checkLines.length
+    ? section('System check', panel(b.check && b.check.overall === 'green' ? '#e8f6ee' : '#fbf0dd', bullets(checkLines, b.check && b.check.overall === 'green' ? '#1a7d4a' : '#a9660b') + `<div style="font-size:14px;padding-top:2px"><a href="${SITE_URL}/admin/system-check" style="color:${RED};font-weight:700">Open the system check &rarr;</a></div>`), '#a9660b')
+    : ''
+
   const yesterday = section('Yesterday', tiles(b.stats) + bullets(b.yesterday))
   const today = section('Today', bullets(b.today, '#3763c9'), '#3763c9')
   const working = section('What is working', bullets(b.working, '#1a7d4a'), '#1a7d4a')
@@ -129,7 +153,7 @@ export function briefHtml(b: Brief): string {
   return (
     `<table ${T} width="100%" bgcolor="#f4efec" style="background:#f4efec;font-family:${FONT}"><tr><td align="center" style="padding:24px 10px">` +
     `<table ${T} width="640" align="center" bgcolor="#ffffff" style="width:640px;max-width:100%;background:#ffffff">` +
-    header + needs + yesterday + today + working + growth + healed + edits + tripPages + waiting + footer +
+    header + needs + followups + yesterday + today + working + growth + systemCheck + healed + edits + tripPages + waiting + footer +
     `</table></td></tr></table>`
   )
 }

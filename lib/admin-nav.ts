@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Search, FileText, Globe, TrendingUp, Link2, Image,
-  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers, Gem, ChartPie, CalendarCheck,
+  Newspaper, MessageSquare, BarChart3, Package, Bot, Settings, Milestone, Tags, Quote, Activity, LineChart, Receipt, Users, Share2, Layers, Gem, ChartPie, CalendarCheck, ListChecks, ShieldCheck, PencilLine, ClipboardCheck,
 } from "lucide-react"
 
 export interface AdminNavItem {
@@ -212,6 +212,27 @@ const unsortedTools: AdminNavItem[] = [
     status: "Active",
     href: "/admin/news",
   },
+  {
+    title: "Daily follow-ups",
+    description: "Today's short to-do list: the growth tips, the best SEO fixes, leads to answer, the 15 minute social routine and the setup steps still open. Tick Done or push to Later.",
+    icon: ListChecks,
+    status: "Active",
+    href: "/admin/follow-ups",
+  },
+  {
+    title: "System check",
+    description: "One list in funnel order, each line green, amber or red with one plain sentence, what the site fixed by itself, and what needs you.",
+    icon: ShieldCheck,
+    status: "Active",
+    href: "/admin/system-check",
+  },
+  {
+    title: "Content edits",
+    description: "Every change the site made to its own pages, with the reason, and an Undo for each.",
+    icon: PencilLine,
+    status: "Active",
+    href: "/admin/content-edits",
+  },
 ]
 
 export const adminTools: AdminNavItem[] = [...unsortedTools].sort((a, b) => a.title.localeCompare(b.title))
@@ -220,12 +241,21 @@ export const adminTools: AdminNavItem[] = [...unsortedTools].sort((a, b) => a.ti
 // not necessary — alphabetical is predictable and matches the existing dashboard grid ordering).
 export const adminNavItems: AdminNavItem[] = [dashboardNavItem, ...adminTools]
 
+
 // ---------------------------------------------------------------------------------------------------
-// The sidebar. A short list of groups with short names. It is built from the same items as above (looked up by title,
-// so a title typed wrong fails loudly at start-up and scripts/check-today-queue.ts proves every module appears exactly
-// once). Today is first and carries the count of cards waiting; Dashboard is the traffic and tools part of the same
-// page, lower down. Modules that are not built yet live in one collapsed "Later" group at the bottom.
+// The sidebar, as data. It follows the order of the day: first the things to do (Today, Daily follow-ups, System check),
+// then the live numbers, then making and posting, growing, and money. Every link in those five sections carries a step
+// number that the menu DRAWS from this data (the number is the position in the list, never typed by hand), so moving a
+// link moves its number. Advanced and Setup are not steps: they are closed until someone opens them, and everything not
+// built yet sits in one "Later" sub-list inside Advanced.
+//
+// Modules are looked up by title, so a title typed wrong fails loudly at start-up, and scripts/check-admin-v2.ts proves
+// every module appears exactly once.
 // ---------------------------------------------------------------------------------------------------
+
+/** The setup checklist Joel follows (grade 5 steps for every account and key). One place; the dashboard uses it too. */
+export const SETUP_STEPS_URL = "https://claude.ai/artifact/PN6caspQe9V6RUUsJ2vNcw"
+
 export const todayNavItem: AdminNavItem = {
   title: "Today",
   description: "The yes and no cards that need you, after a quick system check.",
@@ -242,42 +272,143 @@ export const dashboardAnchorItem: AdminNavItem = {
   status: "Active",
 }
 
-export interface AdminNavEntry extends AdminNavItem {
-  /** Drawn a little to the right, under the item above it. */
+/** Which number the menu shows next to a link: the Today card count, the open follow-ups, or the system check light. */
+export type NavBadge = "today" | "followups" | "check"
+
+export interface NavLink extends AdminNavItem {
+  /** Stable id for the link. Modules use their title. */
+  key: string
+  badge?: NavBadge
+  /** Opens in a new tab (the setup checklist). */
+  external?: boolean
+  /** Drawn a little to the right, under the link above it. */
   nested?: boolean
+  /** A second door into a module that already has its own numbered link: never counted as a module, never highlighted. */
+  shortcut?: boolean
 }
 
-export interface AdminNavGroup {
+export interface NavSection {
   id: string
   title: string
-  items: AdminNavEntry[]
+  /** One line under the section name (a tooltip, and the heading text for screen readers). */
+  hint: string
+  /** True for the daily steps: their links get consecutive step numbers. */
+  numbered: boolean
   /** Open the first time the menu is seen. A person's own open/closed choice is remembered after that. */
   defaultOpen: boolean
+  links: NavLink[]
+  /** Advanced only: modules that are not built yet, in one greyed sub-list. */
+  later?: NavLink[]
 }
 
-function pick(title: string, nested = false): AdminNavEntry {
+export interface NumberedNavLink extends NavLink {
+  /** 1, 2, 3 ... in menu order for the daily sections; null for Advanced and Setup. */
+  step: number | null
+}
+export interface NumberedNavSection extends Omit<NavSection, "links"> {
+  links: NumberedNavLink[]
+}
+
+function mod(title: string, extra: Partial<Pick<NavLink, "badge" | "nested">> = {}): NavLink {
   const found = unsortedTools.find((t) => t.title === title)
   if (!found) throw new Error(`admin-nav: no module titled "${title}"`)
-  return nested ? { ...found, nested: true } : found
+  return { ...found, key: title, ...extra }
 }
 
-const GROUPED_TITLES = [
-  "Posts: Blog", "Posts: Blog Auto-Writer", "Posts: News", "Posts: Guides", "Posts: Trips",
-  "Content Autopilot", "Post Distribution",
-  "Search Rankings", "Keyword Research", "SEO & GEO Manager", "SEO engines", "Link building", "Website Value", "Users and Analytics",
-  "Leads", "Orders", "Affiliate Links", "Testimonials",
-  "System Health", "Project Tracker",
+const SECTIONS: NavSection[] = [
+  {
+    id: "do-first",
+    title: "Do first",
+    hint: "The three things to open every day, in this order.",
+    numbered: true,
+    defaultOpen: true,
+    links: [
+      { ...todayNavItem, key: "Today", badge: "today" },
+      mod("Daily follow-ups", { badge: "followups" }),
+      mod("System check", { badge: "check" }),
+    ],
+  },
+  {
+    id: "live",
+    title: "Live numbers",
+    hint: "How the site is doing right now.",
+    numbered: true,
+    defaultOpen: true,
+    links: [{ ...dashboardAnchorItem, key: "Dashboard" }, mod("Search Rankings"), mod("Users and Analytics"), mod("Website Value")],
+  },
+  {
+    id: "make",
+    title: "Make and post",
+    hint: "What gets written and sent out.",
+    numbered: true,
+    defaultOpen: true,
+    links: [mod("Posts: Blog"), mod("Posts: News"), mod("Posts: Guides"), mod("Posts: Trips"), mod("Content Autopilot"), mod("Post Distribution")],
+  },
+  {
+    id: "grow",
+    title: "Grow",
+    hint: "Ways to get more visitors.",
+    numbered: true,
+    defaultOpen: true,
+    links: [mod("SEO & GEO Manager"), mod("SEO engines"), mod("Keyword Research"), mod("Link building")],
+  },
+  {
+    id: "money",
+    title: "Money",
+    hint: "Leads, orders and the pages that earn.",
+    numbered: true,
+    defaultOpen: true,
+    links: [mod("Leads"), mod("Orders"), mod("Affiliate Links"), mod("Testimonials")],
+  },
+  {
+    id: "advanced",
+    title: "Advanced",
+    hint: "Not needed every day.",
+    numbered: false,
+    defaultOpen: false,
+    links: [mod("Posts: Blog Auto-Writer"), mod("Project Tracker"), mod("System Health"), mod("Content edits")],
+    // Everything not built yet, in one place.
+    later: unsortedTools
+      .filter((t) => t.status === "Coming Soon")
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .map((t) => ({ ...t, key: t.title })),
+  },
+  {
+    id: "setup",
+    title: "Setup",
+    hint: "One-off jobs: the checklist and the link building tasks.",
+    numbered: false,
+    defaultOpen: false,
+    links: [
+      {
+        key: "Setup checklist",
+        title: "Setup checklist",
+        description: "The step by step list for every account and key.",
+        icon: ClipboardCheck,
+        href: SETUP_STEPS_URL,
+        status: "Active",
+        external: true,
+      },
+      { ...mod("Link building"), key: "Link building tasks", title: "Link building tasks", shortcut: true },
+    ],
+  },
 ]
 
-export const adminNavGroups: AdminNavGroup[] = [
-  { id: "content", title: "Content", defaultOpen: true, items: [pick("Posts: Blog"), pick("Posts: Blog Auto-Writer", true), pick("Posts: News"), pick("Posts: Guides"), pick("Posts: Trips")] },
-  { id: "social", title: "Social", defaultOpen: true, items: [pick("Content Autopilot"), pick("Post Distribution")] },
-  { id: "growth", title: "Growth", defaultOpen: true, items: [pick("Search Rankings"), pick("Keyword Research"), pick("SEO & GEO Manager"), pick("SEO engines"), pick("Link building"), pick("Website Value"), pick("Users and Analytics")] },
-  { id: "money", title: "Money", defaultOpen: true, items: [pick("Leads"), pick("Orders"), pick("Affiliate Links"), pick("Testimonials")] },
-  { id: "system", title: "System", defaultOpen: true, items: [pick("System Health"), pick("Project Tracker")] },
-  // Everything not built yet, in one place, closed until someone opens it.
-  { id: "later", title: "Later", defaultOpen: false, items: unsortedTools.filter((t) => !GROUPED_TITLES.includes(t.title)).sort((a, b) => a.title.localeCompare(b.title)) },
-]
+/** Gives every link in a numbered section its step number: 1, 2, 3 ... in the order the sections and links are listed. */
+export function numberSections(sections: NavSection[]): NumberedNavSection[] {
+  let step = 0
+  return sections.map((s) => ({
+    ...s,
+    links: s.links.map((l) => ({ ...l, step: s.numbered ? ++step : null })),
+  }))
+}
 
-/** The two pinned entries above the groups. */
-export const adminNavTop: AdminNavItem[] = [todayNavItem, dashboardAnchorItem]
+export const adminNavSections: NumberedNavSection[] = numberSections(SECTIONS)
+
+/** Every link that opens a page, in menu order (the phone bottom bar and the checks use it). */
+export const adminNavLinks: NumberedNavLink[] = adminNavSections.flatMap((s) => s.links)
+
+/** The numbered step of a link by key, or null. */
+export function stepOf(key: string): number | null {
+  return adminNavLinks.find((l) => l.key === key)?.step ?? null
+}
