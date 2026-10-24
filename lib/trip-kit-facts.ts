@@ -9,6 +9,8 @@
 //  * Arrival and departure hours, schedules, ship, hotel and supplier inclusions that are not in the row or its sources
 //    are never guessed: they go on a "to confirm" list that only the admin sees.
 
+import { splitSentencesSafe, dangling } from '@/lib/sentence-safe'
+
 export const TRIP_KIT_VERSION = 1
 
 export const tripKitKey = (packageId: string) => `trip_kit:${packageId}`
@@ -237,11 +239,8 @@ const PRICE_RE = new RegExp(
 export const isPriceText = (s: string): boolean => PRICE_RE.test(s)
 
 export function splitSentences(text: string): string[] {
-  return text
-    .replace(/\r/g, '')
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
+  // Abbreviation-aware: "St. Lawrence", "Mt. Etna", "9 a.m.", "J. K. Rowling" never split a sentence.
+  return splitSentencesSafe(text)
 }
 
 /** The text with every sentence that talks about money removed. Pure. */
@@ -529,9 +528,12 @@ export function itemsOfSection(body: string, max = 14): RefItem[] {
     if (!line || /^=+/.test(line) || line.length > 700) continue
     // Only list lines count: a numbered line ("5 Sponza Palace ...") or an indented one. Plain paragraphs are prose.
     if (!/^\d+\s/.test(line) && !/^\s/.test(raw)) continue
-    const m = /^(?:\d+\s+)?([A-ZÀ-Ý][^(,.;:@—]{2,52}?)(?:\s*[(,.;:]|$)(.*)$/.exec(line)
+    // The name stops at the first real punctuation, but a full stop after St, Mt, Dr ... belongs to the name
+    // ("Cathedral of St. Lawrence", not "Cathedral of St").
+    const m = /^(?:\d+\s+)?((?=[A-ZÀ-Ý])(?:\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft)\.|(?!\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft)\.)[^(,.;:@—]){3,53}?)(?:\s*[(,.;:]|$)(.*)$/.exec(line)
     if (!m) continue
     const name = m[1].trim()
+    if (dangling(name)) continue
     if (/\d/.test(name) || name.split(/\s+/).length > 7 || /\b(?:is|are|was|were|has|have)\b/.test(name) || /^(?:see|note|the following|for more|there (?:is|are))\b/i.test(name)) continue
     if (out.some((x) => fold(x.name) === fold(name))) continue
     out.push({ name, blurb: scrubReferenceText(m[2].replace(/^[\s).,;:]+/, ''), 1) })

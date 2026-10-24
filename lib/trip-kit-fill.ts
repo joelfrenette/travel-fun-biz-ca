@@ -454,7 +454,7 @@ export function metaYearWrong(meta: string | null, from: string | null, to: stri
   return yearsIn(meta).some((y) => !ok.has(y))
 }
 
-const asStrings = (v: unknown, max: number, len = 120): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => removeDashes(x.replace(/\s+/g, ' ').trim()).slice(0, len)).filter(Boolean).slice(0, max) : [])
+const asStrings = (v: unknown, max: number, len = 120): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => removeDashes(x.replace(/\s+/g, ' ').trim())).filter((x) => x && x.length <= len).slice(0, max) : [])
 
 function sourcedFacts(v: unknown, label: string, hay: string, source: { label: string; url: string | null }, max: number, reject: string[]): KitFact[] {
   const out: KitFact[] = []

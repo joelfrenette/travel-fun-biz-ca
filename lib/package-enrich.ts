@@ -8,6 +8,7 @@ import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/packag
 import { dateGrounded, type ExtractedDraft, type ModelUsage } from '@/lib/package-extract'
 import type { PackageEdit, PackageSourceRow } from '@/lib/package-sources'
 import { hasContactDetails, urlHoldsContact } from '@/lib/trip-duration'
+import { firstCutOff } from '@/lib/sentence-safe'
 import {
   removeDashes,
   agencyClaims,
@@ -374,6 +375,11 @@ export function copyBlockers(text: string, ctx: { grounding: string; field: stri
   const names = namedThingsNotInBrief(t, ctx.grounding)
   if (names.length) blockers.push(`name not in the source: ${names.slice(0, 3).join(', ')}`)
   if (/https?:\/\/|\bwww\./i.test(t)) blockers.push('web address in text')
+  // A sentence that stops mid-thought ("... Cathedral of St." / "... the Fortress of St and gardens") is never published.
+  if (!isUrlField) {
+    const cut = firstCutOff(t)
+    if (cut) blockers.push(`sentence is cut off (${cut})`)
+  }
   return blockers
 }
 
