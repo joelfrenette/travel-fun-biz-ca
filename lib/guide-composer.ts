@@ -2,6 +2,7 @@ import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/
 import { guideKinds, type GuideKind, type GuideSection, type GuideFaq } from '@/lib/guides'
 import { PLANNED_PLACE_RULE } from '@/lib/guide-plan'
 import { isGeographyPhrase, isPlaceNameOrModifier } from '@/lib/geography'
+import { questionsPromptBlock } from '@/lib/question-intel'
 
 // Writes one guide page (destination, hotel, resort, cruise line, ship, river cruise, yacht) from a grounded
 // brief, then checks it with plain-code rules before anything can go live. Same discipline as
@@ -36,6 +37,8 @@ export interface GuideBrief {
   links: { path: string; label: string }[]
   /** True for a place from the planned destination list (lib/guide-plan.ts): a planned trip is not a visit, and the prompt says so. */
   planned?: boolean
+  /** Real searcher questions (Search Console, our own pages) the FAQ may use (lib/question-intel.ts). Empty or missing: the prompt is unchanged. */
+  questions?: string[]
 }
 
 export interface ComposedGuide {
@@ -145,7 +148,7 @@ ${article}
 Return ONLY minified JSON with exactly these keys:
 {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"meta_title":"...","meta_description":"...","og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."],"hero_query":"..."}
 Rules:
-- faq: 4 to 6 real questions a searcher would ask about ${brief.name} (most should contain the name). Each answer is 1 to 3 plain sentences, the first words answer the question directly, and it only repeats things the article says. No links in answers.
+- faq: 4 to 6 real questions a searcher would ask about ${brief.name} (most should contain the name). Each answer is 1 to 3 plain sentences, the first words answer the question directly, and it only repeats things the article says. No links in answers.${questionsPromptBlock(brief.questions, 'article')}
 - key_takeaways: 3 to 5 one-line takeaways (each under 140 characters), no links.
 - meta_title: under 60 characters, contains "${brief.name}", says what the page is for.
 - meta_description: under 155 characters, contains "${brief.name}", honest, no fake urgency.

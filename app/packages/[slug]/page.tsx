@@ -22,7 +22,8 @@ import { translate } from "@/lib/i18n"
 import { SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, pageAlternates, priceOnRequestLine } from "@/lib/site"
 import { tripHeading, tripTitle } from "@/lib/package-seo"
 import { ogImageEntry } from "@/lib/og-path"
-import { jsonLdHtml, buildBreadcrumbJsonLd, buildRecapQuotesJsonLd } from "@/lib/jsonld"
+import { jsonLdHtml, buildRecapQuotesJsonLd } from "@/lib/jsonld"
+import { Breadcrumbs } from "@/components/breadcrumbs"
 import { loadRecapBundle } from "@/lib/recap-public"
 import { TripRecapExtras } from "@/components/trip-recap-extras"
 import { getPublishedTestimonialsForPackage } from "@/lib/testimonials"
@@ -158,8 +159,8 @@ export default async function PackagePage({ params }: Props) {
       ]
   // Review markup ONLY for quotes that are approved, carry the permission tick, and are shown on this page (TripRecapExtras).
   if (isPastTrip && recapBundle && recapBundle.quotes.length > 0) jsonLd.push(...buildRecapQuotesJsonLd(pkg.name, recapBundle.quotes))
+  // The BreadcrumbList for every trip page is emitted by <Breadcrumbs> in the hero card, next to the visible trail.
   if (isPastTrip) {
-    jsonLd.push(buildBreadcrumbJsonLd([{ name: "Home", url: absoluteUrl("/") }, { name: "Trips", url: absoluteUrl("/packages") }, { name: pkg.name, url: pageUrl }]))
     const start = pkg.available_from ?? pkg.available_to
     if (start) {
       // The trip happened, so the Event keeps its real past dates; the destination is the only place named.
@@ -203,6 +204,7 @@ export default async function PackagePage({ params }: Props) {
           </div>
           <div className="container mx-auto px-4">
             <div className="-mt-24 relative z-10 max-w-4xl rounded-xl border bg-card p-6 shadow-lg sm:p-8">
+              <Breadcrumbs crumbs={[{ name: translate(language, "Home"), path: "/" }, { name: translate(language, "Trips"), path: "/packages" }, { name: pkg.name }]} currentPath={`/packages/${pkg.slug}`} className="mb-3 text-xs text-muted-foreground" />
               <div className="mb-3 flex flex-wrap gap-2">
                 <Badge className="bg-primary text-primary-foreground font-bold uppercase">{translate(language, pkg.category)}</Badge>
                 {isPastTrip && <Badge variant="outline" className="font-bold uppercase">{translate(language, "Past Trip Recap")}</Badge>}

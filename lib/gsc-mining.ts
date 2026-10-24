@@ -7,6 +7,7 @@ import { intentOf, type Intent } from '@/lib/keyword-cluster'
 import { GROUP_SIMILARITY, groupBySimilarity, jaccard, stems } from '@/lib/keyword-score'
 import { bestPageFor, MATCH_THRESHOLD, type SeoPage } from '@/lib/seo-pages'
 import { topicConflict, type PostFact } from '@/lib/blog-topics'
+import { bucketQueries, emptyIntel, parseIntel, type QueryIntel } from '@/lib/question-intel'
 
 // QUERY MINING (SEO engine 1). Reads what people type into Google before landing on (or missing) this site and answers two questions:
 //   a) NEW PAGE OPPORTUNITIES: searches Google already shows us for where no page of ours is a good match. Related searches are grouped
@@ -225,6 +226,8 @@ export interface MiningState {
   /** Topics pushed to the queue per UTC day (kept for the last 7 days). */
   pushed: { day: string; keyword: string; topicId: string }[]
   note: string
+  /** Question-style, buyer-intent and 7+ word searches (hub WP5). Optional: results stored before this existed have none. */
+  intel?: QueryIntel
 }
 
 export const emptyMiningState = (): MiningState => ({ at: '', source: 'none', rowCount: 0, proposals: [], refresh: [], pushed: [], note: '' })
@@ -243,6 +246,7 @@ export function parseMiningState(raw: string | null | undefined): MiningState {
       refresh: Array.isArray(v.refresh) ? (v.refresh as RefreshTarget[]).slice(0, MAX_REFRESH) : [],
       pushed: Array.isArray(v.pushed) ? (v.pushed as MiningState['pushed']).filter((x) => x && typeof x.day === 'string' && typeof x.keyword === 'string').slice(-30) : [],
       note: typeof v.note === 'string' ? v.note : '',
+      ...(v.intel ? { intel: parseIntel(v.intel) } : {}),
     }
   } catch {
     return emptyMiningState()
@@ -289,7 +293,7 @@ export interface MiningInput {
 export function mine(input: MiningInput, now: Date = new Date()): Omit<MiningState, 'pushed'> {
   const live = input.pairs.length > 0
   const queries = live ? queryRowsFromPairs(input.pairs) : input.stored
-  if (queries.length === 0) return { at: now.toISOString(), source: 'none', rowCount: 0, proposals: [], refresh: [], note: 'Search Console gave no rows (not set up, or no data yet), so nothing was mined.' }
+  if (queries.length === 0) return { at: now.toISOString(), source: 'none', rowCount: 0, proposals: [], refresh: [], note: 'Search Console gave no rows (not set up, or no data yet), so nothing was mined.', intel: emptyIntel() }
   return {
     at: now.toISOString(),
     source: live ? 'live' : 'stored',
@@ -297,6 +301,7 @@ export function mine(input: MiningInput, now: Date = new Date()): Omit<MiningSta
     proposals: findOpportunities(queries, input.pages),
     refresh: live ? strikingRefreshTargets(input.pairs, input.pages) : [],
     note: live ? '' : 'The live page report was not available, so the saved daily snapshot was used (no page-level numbers: the refresh list is empty).',
+    intel: bucketQueries(queries),
   }
 }
 

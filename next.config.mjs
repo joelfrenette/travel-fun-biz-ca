@@ -10,6 +10,12 @@ function legacyComRedirects() {
   return JSON.parse(readFileSync(path, 'utf8'))
 }
 
+// Plain JSON for the same reason as above (this file runs under Node before the TS alias exists).
+function securityHeaders() {
+  const path = fileURLToPath(new URL('./data/security-headers.json', import.meta.url))
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
 // 2026-10-09: the autoblog wrote six near-identical Rhine posts in one day (a stale-read bug, fixed).
 // Their links were already posted on social, so the five extras are unpublished and 301 to the one
 // kept, instead of showing a not-found page.
@@ -24,6 +30,13 @@ const duplicatePostRedirects = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Basic security headers on every response (hub WP7). Deliberately NOT here: Strict-Transport-Security (Vercel sets it, Joel's call)
+  // and any Content-Security-Policy (a wrong one breaks the consent banner and the Google tags). No page of the site uses the camera,
+  // the microphone or the location (checked with a search of app/, components/ and lib/ on 2026-10-24), so those three are denied.
+  // The list lives in data/security-headers.json so scripts/check-head-hygiene.ts tests the exact same values.
+  async headers() {
+    return [{ source: '/:path*', headers: securityHeaders() }]
+  },
   async redirects() {
     return [...legacyComRedirects(), ...duplicatePostRedirects]
   },

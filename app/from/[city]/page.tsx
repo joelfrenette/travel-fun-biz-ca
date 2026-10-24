@@ -11,7 +11,8 @@ import { getAllPublishedPackages } from "@/lib/package-grouping"
 import { listPublishedGuideLinks, pickTopDestinationGuides, guidePath } from "@/lib/guides"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { generateSlug } from "@/lib/utils"
-import { SITE_NAME, absoluteUrl, formatDateRange, pageAlternates, priceOnRequestLine, site } from "@/lib/site"
+import { ogImageEntry } from "@/lib/og-path"
+import { DEFAULT_OG_IMAGE, SITE_NAME, absoluteUrl, formatDateRange, pageAlternates, priceOnRequestLine, site } from "@/lib/site"
 import { jsonLdHtml, buildBreadcrumbJsonLd, buildFaqPageJsonLd } from "@/lib/jsonld"
 import { FROM_CITIES, fromCityBySlug, fromDescription, fromFaq, fromHeading, fromPath, fromTitle, isFromPageIndexable, otherCities, upcomingTrips } from "@/lib/from-cities"
 
@@ -36,13 +37,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = fromTitle(city, SITE_NAME)
   const description = fromDescription(city, trips.length)
   const url = absoluteUrl(fromPath(city))
+  // Share picture (hub WP6): the existing rendered card of the first upcoming trip on the page (already drawn and cached by
+  // /og/packages/<slug>), else the site's default picture. No new picture is generated for this page.
+  const image = trips.length > 0 ? ogImageEntry("packages", trips[0].slug, trips[0].name) : { url: DEFAULT_OG_IMAGE, alt: SITE_NAME }
   return {
     title,
     description,
     alternates: pageAlternates(fromPath(city)),
     ...(isFromPageIndexable(trips.length, city.slug) ? {} : { robots: { index: false, follow: true } }),
-    openGraph: { title, description, url, type: "website", siteName: SITE_NAME },
-    twitter: { card: "summary", title, description },
+    openGraph: { title, description, url, type: "website", siteName: SITE_NAME, images: [image] },
+    twitter: { card: "summary_large_image", title, description, images: [image.url] },
   }
 }
 
