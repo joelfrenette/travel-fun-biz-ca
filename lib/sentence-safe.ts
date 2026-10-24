@@ -50,18 +50,29 @@ export function splitSentencesSafe(text: string): string[] {
   return out.filter(Boolean)
 }
 
-const DANGLE_WORDS = ['of', 'the', 'a', 'an', 'and', 'or', 'to', 'with', 'from', 'by', 'into', 'onto', 'near', 'between', 'via', 'as', 'but', 'than', 'that', 'which', 'its', 'their', 'our', 'your', 'at']
+// Only words that can never end a real sentence. "to", "by", "with", "from", "at", "for" are left out on purpose:
+// "plenty to look forward to." and "as the river rolls by." are complete.
+const DANGLE_WORDS = ['of', 'the', 'a', 'an', 'and', 'or', 'but', 'than', 'into', 'onto', 'between', 'via', 'which', 'its', 'their', 'our', 'your']
 const DANGLE_END = new RegExp(`(?:^|[\\s("'\\u201c])(?:${DANGLE_WORDS.join('|')})[.!?\\u2026:;,]*$`, 'i')
 /** A title abbreviation that is cut off: followed by nothing, punctuation or a lowercase word ("of St and gardens", "of St."). */
 const TITLE_CUT = new RegExp(
   `(?:^|[\\s("'\\u201c])(?:${[...TITLE_ABBR, 'Saint'].join('|')})(?:\\.(?=\\s*$|\\s+[a-z]|\\s*[,;:!?\\u2026)])|(?=\\s+[a-z]|\\s*[,;:!?\\u2026)]|\\s*$))`,
 )
 
+// "Cathedral of St. For beach time, ..." : the name was cut at the full stop and the next sentence started. A capitalised
+// word that starts sentences (never a saint's or a place's name) right after the abbreviation gives it away.
+const SENTENCE_STARTERS = [
+  'The', 'A', 'An', 'And', 'But', 'Or', 'For', 'You', 'Your', 'It', 'Its', 'There', 'Then', 'Here', 'This', 'That', 'These', 'Those', 'We', 'Our',
+  'In', 'On', 'At', 'With', 'If', 'As', 'To', 'From', 'By', 'When', 'While', 'After', 'Before', 'Enjoy', 'Visit', 'See', 'Take', 'Stroll', 'Climb',
+  'Wander', 'Explore', 'Relax', 'Spend', 'Head', 'Walk', 'Discover', 'Admire', 'Pause', 'Stop', 'Step', 'Join', 'Sail', 'Dine', 'Taste', 'Ask', 'Let', 'Is', 'Are',
+]
+const TITLE_CUT_NEXT = new RegExp(`(?:^|[\\s("'\\u201c])(?:${[...TITLE_ABBR, 'Saint'].join('|')})\\.\\s+(?:${SENTENCE_STARTERS.join('|')})\\b`)
+
 /** Why a sentence is cut off mid-thought, or null when it ends properly. Pure. */
 export function dangling(sentence: string): string | null {
   const s = sentence.trim().replace(/[”"')\]]+$/, '')
   if (!s) return null
-  if (TITLE_CUT.test(s)) return 'a name is cut off after a title abbreviation (St, Mt, Dr ...)'
+  if (TITLE_CUT.test(s) || TITLE_CUT_NEXT.test(s)) return 'a name is cut off after a title abbreviation (St, Mt, Dr ...)'
   if (DANGLE_END.test(s)) return 'ends on a connecting word (of, the, and ...)'
   return null
 }

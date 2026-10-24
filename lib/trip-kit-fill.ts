@@ -12,6 +12,7 @@ import { isPastTrip } from '@/lib/past-trip'
 import { seoScore, type SeoResult } from '@/lib/seo-score'
 import { buildPackageItem, relatedLinksLine, appendRelatedLine, type LinkTarget } from '@/lib/content-repair-adapters'
 import { removeDashes } from '@/lib/guide-composer'
+import { firstCutOff } from '@/lib/sentence-safe'
 import { resolveReference, pickPlacePhoto, liveJson, livePhotoSearch, type JsonFetcher, type PhotoSearch, type PlacePhoto } from '@/lib/trip-kit-refs'
 import { tripKitBlockers, tripKitThingsOk } from '@/lib/trip-kit-gate'
 import {
@@ -209,6 +210,12 @@ export interface FactSheet {
   supplier: { url: string; text: string } | null
 }
 
+/** True when any reference name, blurb or intro in a cached fact sheet is cut off at an abbreviation. Pure. */
+export function sheetHasCutOff(sheet: FactSheet): boolean {
+  const bad = (s: string) => /(?:^|[\s-])(?:St|Sts|Ste|Mt|Dr|Fr|Mr|Mrs|Ms|Ft)\.?$/.test(s.trim()) || firstCutOff(s) !== null
+  return sheet.places.some((p) => !!p.ref && (bad(p.ref.intro) || [...p.ref.see, ...p.ref.doItems].some((i) => bad(i.name) || bad(i.blurb))))
+}
+
 interface CachedState {
   sheet?: FactSheet
   /** Model answers by prompt hash, so a repeat run costs nothing. */
@@ -240,7 +247,8 @@ export async function buildFactSheet(pkg: DbPackage, b: TextBundle, deps: FillDe
   } catch {
     state = {}
   }
-  const cached = state.sheet
+  // A sheet cached before the abbreviation fix holds names like "Basilica of St" and blurbs ending "on St.": never reuse it.
+  const cached = state.sheet && !sheetHasCutOff(state.sheet) ? state.sheet : undefined
   if (!opts.refresh && cached && cached.rowHash === rowHash && deps.now().getTime() - Date.parse(cached.fetchedAt) < FACTS_MAX_AGE_MS) return { sheet: cached, state, notes: ['fact sheet reused from cache'] }
 
   // 1. Which places? An itinerary or a list in the row first (free); otherwise the model reads the text; last resort the trip name.

@@ -4,6 +4,7 @@ import { splitSentencesSafe, dangling, firstCutOff } from '../lib/sentence-safe'
 import { splitSentences, itemsOfSection } from '../lib/trip-kit-facts'
 import { tripKitBlockers, thingBlockers, tripKitThingsOk } from '../lib/trip-kit-gate'
 import { copyBlockers } from '../lib/package-enrich'
+import { sheetHasCutOff } from '../lib/trip-kit-fill'
 
 let failed = 0
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -30,6 +31,10 @@ check('trip-kit splitSentences is the safe one', splitSentences('Visit St. Mark 
 check('dangling: "of St."', !!dangling('Climb to the prized Cathedral of St.'))
 check('dangling: "of St and gardens"', !!firstCutOff('Wander the Fortress of St and gardens.'))
 check('dangling: ends on of / the / and', !!dangling('Stroll through the old town of') && !!dangling('Enjoy the') && !!dangling('Sail past Hvar and.'))
+check('dangling: "Cathedral of St. For beach time" (cut at the stop, next sentence began)', !!firstCutOff('Visit the House of Culture, along with the Cathedral of St. For beach time, relax at the beach.'))
+check('not dangling: St. Thomas / St. Johns / Mt. Etna mid-sentence', firstCutOff('Charlotte Amalie in St. Thomas and St. Johns in Antigua, near Mt. Etna.') === null)
+check('not dangling: sentence starter after a real abbreviation-free stop', firstCutOff('Visit the cathedral. For beach time, relax.') === null)
+check('not dangling: sentences that legitimately end on to / by', firstCutOff('There is plenty to look forward to. Relax as the river rolls by. Who is this trip suited to?') === null)
 check('not dangling: Church of Saint Blaise', dangling('Visit the Church of Saint Blaise.') === null)
 check('not dangling: St. Lawrence full', firstCutOff('Visit the Cathedral of St. Lawrence in Trogir.') === null)
 check('not dangling: ordinary sentence', firstCutOff('We sail to Hvar. Then we visit the walled city of Dubrovnik.') === null)
@@ -54,6 +59,12 @@ check('itemsOfSection keeps "Cathedral of St. Lawrence"', items.some((i) => i.na
 check('itemsOfSection keeps "Fortress of St. Michael"', items.some((i) => i.name === 'Fortress of St. Michael'), items)
 check('itemsOfSection keeps Church of Saint Blaise', items.some((i) => i.name === 'Church of Saint Blaise'), items)
 check('no item name ends in a bare abbreviation', items.every((i) => !/\b(St|Mt|Dr)$/.test(i.name)), items)
+
+// ─── A fact sheet cached before the fix is never reused ──────────────────────────────
+const mkSheet = (name: string, blurb: string) => ({ v: 1 as const, fetchedAt: '', rowHash: '', routeKnown: true, supplier: null, places: [{ mention: { name: 'Trogir', region: null, kind: 'city' as const, near: null }, ref: { place: 'Trogir', title: 'Trogir', label: 'Wikivoyage' as const, url: '', intro: 'A old town.', see: [{ name, blurb }], doItems: [], context: '' } }] })
+check('cached sheet with "Basilica of St" is rejected', sheetHasCutOff(mkSheet('Basilica of St', 'A church.')))
+check('cached sheet with a blurb ending "on St." is rejected', sheetHasCutOff(mkSheet('Museum', 'Photos of sites on St.')))
+check('cached sheet with full names is kept', !sheetHasCutOff(mkSheet('Cathedral of St. Lawrence', 'A Romanesque cathedral.')))
 
 if (failed) {
   console.log(`\n${failed} check(s) FAILED`)
