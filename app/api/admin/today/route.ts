@@ -8,6 +8,7 @@ import {
 } from '@/lib/today-state'
 import { buildTodayQueue, lastActionOf, readSystemCheck, readWins } from '@/lib/today-queue'
 import { runCardAction, undoCardAction } from '@/lib/today-actions'
+import { parseSnoozeDays } from '@/lib/today-card-actions'
 
 import { getSystemCheck, loadFixes, readStoredCheck } from '@/lib/system-check-run'
 import { summarizeCheck, type CheckSummary } from '@/lib/system-check'
@@ -78,7 +79,7 @@ async function save(admin: ReturnType<typeof getSupabaseAdmin>, snoozed: ReturnT
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
-    const body = (await request.json().catch(() => null)) as { id?: unknown; kind?: unknown; op?: unknown; confirm?: unknown; title?: unknown } | null
+    const body = (await request.json().catch(() => null)) as { id?: unknown; kind?: unknown; op?: unknown; confirm?: unknown; title?: unknown; days?: unknown } | null
     if (!body || typeof body.op !== 'string' || !TODAY_OPS.includes(body.op)) return NextResponse.json({ error: 'op must be approve, reject, snooze or undo.' }, { status: 400 })
     const admin = getSupabaseAdmin()
     const now = Date.now()
@@ -129,7 +130,8 @@ export async function POST(request: Request) {
     if (parsed.kind === 'hot-lead' && op !== 'snooze') return NextResponse.json({ error: 'A hot lead is answered by choosing an agent. Use Assign to, or Later.' }, { status: 400 })
 
     if (op === 'snooze') {
-      hideDays = def.snoozeDays
+      // The Later menu sends 1, 3 or 7 days; nothing else is accepted. No days = the kind's own length.
+      hideDays = parseSnoozeDays(body.days) ?? def.snoozeDays
       message = `Later. It comes back in ${hideDays} day${hideDays === 1 ? '' : 's'}.`
       if (def.snoozeMinutes) {
         hideMinutes = def.snoozeMinutes
