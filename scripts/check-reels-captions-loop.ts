@@ -198,7 +198,7 @@ const lk = new URL(socialLink('https://travelfunbiz.ca/blog/boat-or-boots', 'ins
 check('a reel link has utm_content question-video and utm_campaign = the slug', lk.searchParams.get('utm_content') === 'question-video' && lk.searchParams.get('utm_campaign') === 'boat-or-boots' && lk.searchParams.get('utm_source') === 'instagram')
 check('post, carousel and recap links use <style>-<format>; no style gives the format alone; the bio page keeps bio-', socialContent('post', 'mistake') === 'mistake-post' && socialContent('carousel', 'comparison') === 'comparison-carousel' && socialContent('recap', 'fallback') === 'fallback-recap' && socialContent('video') === 'video' && socialContent('bio', 'post-x') === 'bio-post-x')
 check('autopilot tags the carousel link with the carousel hook style and the reel with its hook style', auto.includes("readVariantTag(admin, row.slug, 'carousel_hook')") && auto.includes("postLink(row.slug, 'video', hookUsed)"))
-check('distribution tags every network link with that network\'s own style, and recap links use the post slug', /socialLink\(pageUrl, p, row\.slug, surface, hookStyles\[p\]\)/.test(dist) && /socialLink\(pageUrl, p, postSlug, surface, 'fallback'\)/.test(dist))
+check('distribution tags every network link with that network\'s own style, and recap links use the post slug', /socialLink\(pageUrl, p, baseSlug, surface, hookStyles\[p\]\)/.test(dist) && /socialLink\(pageUrl, p, postSlug, surface, 'fallback'\)/.test(dist))
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`)
 process.exit(failures === 0 ? 0 : 1)
