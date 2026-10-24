@@ -18,6 +18,7 @@ import { checkCadence, guideCadenceKey, guideLimits, recordPublish } from '@/lib
 import { inferScope } from '@/lib/guide-scope'
 import { MODE_HOLD_NOTE } from '@/lib/guide-list'
 import { BACKFILL_KIND_ORDER, backfillProgress, effectiveGuideCaps, planBackfill, readBackfillState, type BackfillPlan, type BackfillProgress, type BackfillState } from '@/lib/guide-backfill'
+import { loadQuestionHints } from '@/lib/question-hints'
 import { clearGuideFailure, readGuideFailures, recordGuideFailure, recentGuideFailureCount, MAX_GUIDE_ATTEMPTS, BREAKER_FAILURES, BREAKER_HOURS } from '@/lib/guide-failures'
 import {
   GUIDE_KINDS,
@@ -176,6 +177,9 @@ export async function buildBrief(admin: SupabaseClient, cand: GuideCandidate): P
   const allowedPaths = new Set(links.map((l) => (l.path === '/#contact' ? '/' : l.path)))
   allowedPaths.add('/')
 
+  // Real searcher questions for the FAQ (hub WP5): stored Search Console searches and question headings in our own posts. [] when none.
+  const questions = await loadQuestionHints(admin, [cand.name, ...keywords])
+
   const briefPackages: BriefPackage[] = matched.map((p) => ({
     name: p.name,
     slug: p.slug,
@@ -186,7 +190,7 @@ export async function buildBrief(admin: SupabaseClient, cand: GuideCandidate): P
   }))
 
   return {
-    brief: { kind: cand.kind, name: cand.name, parentName, packages: briefPackages, keywords, blurb, links, ...(cand.planned ? { planned: true } : {}) },
+    brief: { kind: cand.kind, name: cand.name, parentName, packages: briefPackages, keywords, blurb, links, ...(cand.planned ? { planned: true } : {}), ...(questions.length ? { questions } : {}) },
     relatedPackageIds: matched.map((p) => p.id),
     allowedPaths,
   }

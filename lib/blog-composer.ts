@@ -3,6 +3,7 @@ import { slugify } from '@/lib/content-dedupe'
 import { type ContentStyle } from '@/lib/content-styles'
 import { weakOpenerOf, titleHookInstruction, coverHeadlineInstruction, cleanCoverHeadline } from '@/lib/hook-rules'
 import { qualityBlockers, BANNED_PHRASES, type TripDates } from '@/lib/blog-quality'
+import { questionsPromptBlock } from '@/lib/question-intel'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-composer.ts (Factory Phase 2:
 // blog/autoblog). Trimmed: dropped the paid-keyword-volume lookup and Google-autocomplete
@@ -58,6 +59,8 @@ export interface ComposeOptions {
   /** Absolute time (Date.now() scale) by which composing should be wrapping up. The function that
    * calls this has a hard limit, so optional steps are skipped when the time left is short. */
   deadlineMs?: number
+  /** Real searcher questions (Search Console, our own posts) the FAQ step may use. See lib/question-hints.ts. */
+  questions?: string[]
 }
 
 /** Optional steps are skipped when fewer than this many ms remain before the caller's deadline. */
@@ -77,6 +80,8 @@ export interface ComposerContext {
   allowedLinks: AllowedLink[]
   body: string
   title: string
+  /** Real searcher questions offered to the FAQ step (lib/question-intel.ts). Empty or missing: the prompt is unchanged. */
+  questions?: string[]
 }
 
 const NO_FABRICATION = `Never claim personal experience, a specific past trip, a named traveler, a specific date, or a price - you are a marketing writer, not someone who has been on this trip. Write from general travel-planning knowledge and what a first-time visitor would want to know.`
@@ -136,7 +141,7 @@ ${coverHeadlineInstruction()}
 
 Return ONLY minified JSON: {"title":"...","seo_title":"...","seo_description":"...","cover_headline":"..."}`
     case 'enrich':
-      return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. Answer as the travel agency would: never mention "the text", "the post" or "the article" (no "The text suggests..."), and never claim something is the only, first or best of its kind in a place. No prices, dates, availability, digits, number words or counts of any kind, and no links (answers are plain text).\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits, number words or counts.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post. No digits or numbers.\n- og_description: a social share description, 110 characters or fewer. No digits or numbers.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.${ctx.seedSecondary.length ? ` Prefer these exact phrases if the post actually uses them: ${ctx.seedSecondary.slice(0, 3).join(', ')}.` : ''}\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
+      return `Post title: ${ctx.title}\nPrimary keyword: ${ctx.keywords[0] ?? ''}\nTarget keywords: ${ctx.keywords.join(', ')}\n\nHere is the finished post:\n\n${ctx.body}\n\n${NO_FABRICATION}\n\nWrite the extra search and social fields for this post:\n- faq: 3 to 5 objects {"q","a"}. Each q is a real question a searcher would type before booking this kind of trip, written the way a person would ask it. Each a answers it directly in one to three plain sentences, using only what the post says or general travel knowledge. Answer as the travel agency would: never mention "the text", "the post" or "the article" (no "The text suggests..."), and never claim something is the only, first or best of its kind in a place. No prices, dates, availability, digits, number words or counts of any kind, and no links (answers are plain text).${questionsPromptBlock(ctx.questions)}\n- key_takeaways: 3 to 5 one-line takeaways (under 120 characters each) that summarise the post. No digits, number words or counts.\n- og_title: a social share title, 60 characters or fewer, more curious than the SEO title but still honest and still about this post. No digits or numbers.\n- og_description: a social share description, 110 characters or fewer. No digits or numbers.\n- primary_keyword: the one search phrase (3-6 words) this post targets; use the primary keyword above unless it is clearly unusable.\n- secondary_keywords: 3 to 6 supporting search phrases taken from or close to the target keywords.${ctx.seedSecondary.length ? ` Prefer these exact phrases if the post actually uses them: ${ctx.seedSecondary.slice(0, 3).join(', ')}.` : ''}\nNever use the long dash character. Return ONLY minified JSON: {"faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"og_title":"...","og_description":"...","primary_keyword":"...","secondary_keywords":["..."]}`
   }
 }
 
@@ -200,6 +205,7 @@ export async function composeFullPost(angle: string, seedKeywords?: string | str
     allowedLinks: opts.allowedLinks ?? [],
     body: '',
     title: '',
+    questions: opts.questions,
   }
 
   const keywordsResult = await runComposerStep<{ keywords?: string[] }>('keywords', ctx)

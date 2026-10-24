@@ -4,6 +4,7 @@ import { listPostsAdmin, createPost, type Post } from '@/lib/posts'
 import { listPublishedGuideLinks, guidePath, isGuideKind, type GuideKind } from '@/lib/guides'
 import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, checkTopicConflict, rankByGsc, readGscQueries, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
+import { loadQuestionHints } from '@/lib/question-hints'
 import { withSiteLinks } from '@/lib/blog-quality'
 import { deleteEdits } from '@/lib/content-edits'
 import { rejectedPostSlugs } from '@/lib/blog-reheal'
@@ -490,7 +491,9 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   const healDeadline = Math.min(runStart + 270_000, hardStop)
   // The post is written for the topic's whole keyword set (primary first), not just one phrase.
   const seedKeywords = topic.keywords?.length ? topic.keywords : [topic.keyword]
-  const composed = await composeFullPost(groundedAngle, seedKeywords, { style, allowedLinks, deadlineMs })
+  // Real searcher questions for the FAQ step (hub WP5): stored Search Console searches and question headings in our own posts. [] when none.
+  const questions = await loadQuestionHints(admin, seedKeywords)
+  const composed = await composeFullPost(groundedAngle, seedKeywords, { style, allowedLinks, deadlineMs, ...(questions.length ? { questions } : {}) })
   if (!composed) {
     if (queueRowId) {
       const attempts = await recordComposeFailure(admin, queueRowId)

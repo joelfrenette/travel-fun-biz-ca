@@ -33,6 +33,8 @@ import { jsonLdHtml } from "@/lib/jsonld"
 import { site, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate, pageAlternates } from "@/lib/site"
 import { ogImageEntry, structuredImages, type OgPrefix } from "@/lib/og-path"
 import { heroAlt } from "@/lib/image-quality"
+import { buildToc } from "@/lib/toc"
+import { TableOfContents } from "@/components/table-of-contents"
 
 // ONE shared page for every guide kind (destinations, hotels, resorts, cruise lines, ships, river cruises,
 // yachts). The route files under app/<kind>/[slug]/page.tsx are thin wrappers around GuidePage and
@@ -187,6 +189,7 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
   // summary, the quick facts (under the title, or in the photo card when there is no trip card), the key takeaways, the
   // article and the FAQ answers. Nothing stored is changed.
   const linked = linkedGuidePage(guide, affiliateRules, kind === "destinations" ? "destinations" : "guides", feature.kind === "facts" ? "right" : "left")
+  const toc = buildToc(linked.bodyHtml, { extra: guide.faq.length > 0 ? [{ id: "guide-faq", text: "Frequently asked questions" }] : [] })
   const packages: TravelPackage[] = feature.kind === "upcoming" ? [feature.trip, ...feature.rest] : []
   const heroInHeader = feature.kind === "facts" && !!feature.image
   const otherPast = pastRows.filter((r) => !!r.slug && !(feature.kind === "past" && feature.trip.id === r.id))
@@ -265,7 +268,9 @@ export async function GuidePage({ kind, slug }: { kind: GuideKind; slug: string 
           <GuideTakeaways guide={guide} parts={linked.takeaways} />
           <ContextCta blockId="after_quick_answer" subject={guide.name} packageName={packages[0]?.name} phone={site.phone} />
           <GuideFacts input={factsInput} />
-          <GuideArticle guide={guide} html={linked.bodyHtml} />
+          {/* Contents list with jump links (hub WP6): only when the article has four or more "##" headings. */}
+          <TableOfContents items={toc.items} />
+          <GuideArticle guide={guide} html={toc.html} />
           <GuideFaqList guide={guide} answers={linked.answers} />
           <AffiliateAutoDisclosure count={linked.count} language={language} />
 

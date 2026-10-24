@@ -21,12 +21,13 @@ import { FROM_CITIES, fromPath } from "@/lib/from-cities"
 // The layout supplies title and description; the home page adds its own canonical and hreflang (en-CA self, x-default).
 export const metadata: Metadata = { alternates: pageAlternates("/") }
 import { jsonLdHtml } from "@/lib/jsonld"
-import { buildOrganizationJsonLd } from "@/lib/org-jsonld"
+import { buildOrganizationJsonLd, buildWebSiteJsonLd } from "@/lib/org-jsonld"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { homeFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 
 const organizationJsonLd = buildOrganizationJsonLd()
+const webSiteJsonLd = buildWebSiteJsonLd()
 
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
@@ -43,6 +44,7 @@ export default async function HomePage() {
       <Header language={language} currency={currency} />
       <main className="flex-1">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(organizationJsonLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(webSiteJsonLd) }} />
         <HeroSection language={language} descriptionParts={linked.parts(copy.hero)} />
         <PackagesSection
           packages={packages}

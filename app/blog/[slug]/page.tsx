@@ -28,6 +28,8 @@ import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { AffiliateParts, AffiliateAutoDisclosure } from "@/components/affiliate-text"
 import { publicPostImage } from "@/lib/post-defaults"
 import { postImageSrcSet, POST_IMAGE_SIZES } from "@/lib/post-image-srcset"
+import { buildToc } from "@/lib/toc"
+import { TableOfContents } from "@/components/table-of-contents"
 import { isNewsPost, newsArchived, newsHeading, newsSourceFromBody } from "@/lib/news-post"
 
 export const revalidate = 300
@@ -95,7 +97,9 @@ export default async function BlogPostPage({ params }: Props) {
   // What the call to action names: the destination of the linked package when there is one, else the post primary keyword, else its title.
   const linkedPackage = post.related_package_id ? relatedPackages.find((p) => p.id === post.related_package_id) : undefined
   const ctaName = isNews ? "your next trip" : linkedPackage?.destination?.trim() || post.primary_keyword?.trim() || post.title
-  const [articleBefore, articleAfter] = splitAfterQuickAnswer(linked.html(fieldSet.body))
+  // Contents list with jump links (hub WP6): only for an article with four or more "##" headings. The FAQ section sits after the article, so it is added to the list.
+  const toc = buildToc(linked.html(fieldSet.body), { extra: faq.length > 0 ? [{ id: "faq-heading", text: "Frequently asked questions" }] : [] })
+  const [articleBefore, articleAfter] = splitAfterQuickAnswer(toc.html)
   // Show "Updated" only when the post was really edited more than a day after it was published.
   const publishedMs = post.publish_date ? new Date(post.publish_date).getTime() : NaN
   const updatedMs = post.updated_at ? new Date(post.updated_at).getTime() : NaN
@@ -192,6 +196,7 @@ export default async function BlogPostPage({ params }: Props) {
 
           {/* One context-aware block right after the Quick answer (or before the article when there is none). */}
           {articleBefore && <div className="markdown-body" dangerouslySetInnerHTML={{ __html: articleBefore }} />}
+          <TableOfContents items={toc.items} className="my-8" />
           <div className="my-8"><ContextCta blockId="after_quick_answer" subject={ctaName} packageName={linkedPackage?.name} phone={site.phone} /></div>
           {articleAfter && <div className="markdown-body" dangerouslySetInnerHTML={{ __html: articleAfter }} />}
 

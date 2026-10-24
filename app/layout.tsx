@@ -62,6 +62,10 @@ export default function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Feed discovery (hub WP7). Written here, not in the metadata alternates, because a page that sets its own alternates (most do, for hreflang) replaces the layout's. */}
+        <link rel="alternate" type="application/rss+xml" title={`${SITE_NAME} Blog`} href="/feed.xml" />
+      </head>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}

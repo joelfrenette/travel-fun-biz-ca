@@ -4,6 +4,7 @@ import { Heart, Users, ShieldCheck } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Button } from "@/components/ui/button"
+import { Breadcrumbs } from "@/components/breadcrumbs"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 import { WHO_WE_ARE_SECTIONS } from "@/content/who-we-are"
@@ -50,6 +51,7 @@ export default async function WhoWeArePage() {
       <main className="flex-1">
         <div className="border-b bg-muted/30">
           <div className="container mx-auto px-4 py-10">
+            <Breadcrumbs crumbs={[{ name: "Home", path: "/" }, { name: "Who We Are" }]} currentPath="/who-we-are" />
             <h1 className="text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">Who We Are</h1>
             <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">
               <AffiliateParts parts={linked.parts(copy.intro)} />
