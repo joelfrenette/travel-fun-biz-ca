@@ -28,6 +28,7 @@ const INVENTORY: Record<string, TodayKindId> = {
   'failed carousel or video (Retry, Dismiss)': 'failed-render',
   'paused video making (Resume now)': 'video-paused',
   'new lead needing a reply': 'lead-reply',
+  'hot lead (call-back request or a form with a phone number) waiting for the office to choose an agent': 'hot-lead',
   'trip sent by an agent (Approve, Send back)': 'agent-submission',
   'news brief awaiting Approve and publish / Reject': 'news-draft',
   'guide post about a named place, auto-held': 'held-guide-post',

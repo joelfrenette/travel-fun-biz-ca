@@ -7,6 +7,7 @@ import { Check, ExternalLink, Clock, Undo2, X, ArrowRight } from "lucide-react"
 import { GROUP_LABEL, TODAY_KINDS, actionFor, needsConfirm } from "@/lib/today-cards"
 import { authHeaders, fetchToday, type TodayData } from "@/components/admin/today-client"
 import { cn } from "@/lib/utils"
+import { HotLeadPanel } from "@/components/admin/hot-lead-panel"
 
 // Today: the system check, then the swipe cards. One card at a time. Swipe right (or the right arrow, or the right
 // button) is the yes; swipe left (or the left arrow, or the left button) is the no; Later hides the card for a few
@@ -65,6 +66,11 @@ export function TodayStack() {
       if (busy || !card || !def) return
       // The left side of a card with one real answer means Later.
       const effective: Op = op === "reject" && !def.secondary ? "snooze" : op
+      // A hot lead is never answered by a swipe or an arrow key: an agent is chosen in the card's own panel. Left (and Later) only hides it for 30 minutes.
+      if (card.kind === "hot-lead" && effective !== "snooze") {
+        setDx(0)
+        return
+      }
       if (effective !== "snooze") {
         const need = needsConfirm(card.kind, effective)
         if (need && !(confirming && confirming.id === card.id && confirming.op === effective)) {
@@ -140,7 +146,7 @@ export function TodayStack() {
   }, [decide, undo])
 
   const onDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest("a,button")) return
+    if ((e.target as HTMLElement).closest("a,button,input,select,textarea")) return
     startX.current = e.clientX
     startY.current = e.clientY
     dragging.current = false
@@ -267,11 +273,23 @@ export function TodayStack() {
                 <ExternalLink className="h-4 w-4" aria-hidden="true" /> {card.link.label}
               </a>
             )}
+            {card.kind === "hot-lead" && card.hot && (
+              <HotLeadPanel
+                key={card.id}
+                hot={card.hot}
+                busy={busy}
+                onLater={() => void decide("snooze")}
+                onAssigned={(message, warnings) => {
+                  say([message, ...warnings].join(" "), warnings.length > 0)
+                  void load(true)
+                }}
+              />
+            )}
           </div>
         </div>
       )}
 
-      {card && def && (
+      {card && def && card.kind !== "hot-lead" && (
         <>
           <div className="sticky bottom-[3.75rem] z-30 mt-4 grid grid-cols-2 gap-3 bg-background/95 py-2 md:static md:bg-transparent md:py-0">
             <button

@@ -20,6 +20,8 @@ export const contactSubmissionSchema = contactFormSchema.extend({
   submittedAt: z.string().optional(),
   // Hidden hint from an /agents/<slug> page. Not trusted: it is only written into the lead's note for the office to read.
   agent_interest: z.string().regex(/^[a-z0-9-]{1,60}$/).optional(),
+  // Hidden hint from a trip page "Request a callback from a live agent" button (lib/lead-desk.ts). callback = hot lead for the lead desk.
+  intent: z.enum(['callback', 'quote', 'info']).optional(),
   attribution: attributionSchema.optional(),
 })
 

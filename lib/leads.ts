@@ -3,11 +3,38 @@ import type { ContactSubmission } from '@/lib/schemas/contact'
 import { isTestPerson } from '@/lib/test-data'
 import { notifyNewLead } from '@/lib/alerts'
 import { touchFromAttribution, insertWithTouchFallback } from '@/lib/lead-touch'
+import { isHotLead, normalizeIntent, type LeadIntent } from '@/lib/lead-desk'
+import { announceHotLead } from '@/lib/lead-desk-store'
+
+interface DeskFacts {
+  hot: boolean
+  intent: LeadIntent | null
+  message: string | null
+}
+
+function deskFacts(l: { intent?: unknown; phone?: string | null; message?: string | null; package?: string | null }): DeskFacts {
+  return { hot: isHotLead(l), intent: normalizeIntent(l.intent), message: l.message ?? null }
+}
+
+// Marks the saved row as hot (and records the intent), then alerts the lead desk once. The columns come from migration 0055;
+// before it is applied the update fails quietly and the alert still goes out. Nobody is assigned here: the office decides.
+async function markAndAnnounceHot(id: string, isTest: boolean, a: ContactSubmission['attribution'], pkg: string | null | undefined, desk: DeskFacts): Promise<void> {
+  try {
+    await getSupabaseAdmin().from('leads').update({ hot: desk.hot, intent: desk.intent }).eq('id', id)
+  } catch {
+    // the desk columns are optional until the migration is applied
+  }
+  if (!desk.hot) return
+  await announceHotLead({ id, isTest, intent: desk.intent, package: pkg, pagePath: a?.page_path, utmSource: a?.utm_source, message: desk.message })
+}
 
 // Fire-and-forget: the new lead email can never fail or slow the form (it catches everything itself).
-function announceLead(id: string | undefined | null, isTest: boolean, a: ContactSubmission['attribution'], pkg?: string | null): void {
+function announceLead(id: string | undefined | null, isTest: boolean, a: ContactSubmission['attribution'], pkg?: string | null, desk?: DeskFacts): void {
   try {
     if (!id) return
+    if (desk && (desk.hot || desk.intent)) void markAndAnnounceHot(id, isTest, a, pkg, desk).catch(() => undefined)
+    // A hot lead gets the lead desk alert (email to Joel, Shelby and Leslie, plus a text) instead of the plain new lead email.
+    if (desk?.hot) return
     void notifyNewLead({ id, isTest, package: pkg, pagePath: a?.page_path, utmSource: a?.utm_source }).catch(() => undefined)
   } catch {
     // never the visitor's problem
@@ -41,7 +68,7 @@ export async function recordLead(lead: ContactSubmission, forwarded: { ok: boole
     const { data, error } = await insertWithTouchFallback(base, touchFromAttribution(lead.attribution), (row) =>
       getSupabaseAdmin().from('leads').insert(row).select('id').single(),
     )
-    if (!error) announceLead((data as { id?: string } | null)?.id, isTest, lead.attribution, lead.package)
+    if (!error) announceLead((data as { id?: string } | null)?.id, isTest, lead.attribution, lead.package, deskFacts(lead))
   } catch {
     // the backup itself failing is never the visitor's problem
   }
@@ -56,6 +83,8 @@ export interface LeadBackup {
   travelDate?: string
   travelers?: string
   message?: string
+  /** callback | quote | info, from a hidden field on the form (lib/lead-desk.ts). */
+  intent?: string
   attribution?: ContactSubmission['attribution']
 }
 
@@ -89,7 +118,7 @@ export async function saveLeadFirst(lead: LeadBackup): Promise<string | null> {
       getSupabaseAdmin().from('leads').insert(row).select('id').single(),
     )
     const id = error ? null : ((data as { id?: string } | null)?.id ?? null)
-    announceLead(id, isTest, lead.attribution, lead.package)
+    announceLead(id, isTest, lead.attribution, lead.package, deskFacts(lead))
     return id
   } catch {
     return null
@@ -125,5 +154,15 @@ export interface LeadRow {
   utm_content?: string | null
   /** The page the form was on. Stored even without analytics consent. */
   page_path?: string | null
+  /** Lead desk (migration 0055). hot = a call-back request or a form with a phone number. Absent before the migration is applied. */
+  hot?: boolean
+  intent?: string | null
+  status?: string | null
+  assigned_agent_id?: string | null
+  assigned_agent_name?: string | null
+  assigned_at?: string | null
+  assigned_by?: string | null
+  first_contact_at?: string | null
+  desk_note?: string | null
   created_at: string
 }

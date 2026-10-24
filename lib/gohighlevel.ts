@@ -202,6 +202,59 @@ export async function subscribeTripAlertToGoHighLevel(values: { email: string; n
   }
 }
 
+// ---- Lead desk helpers (lib/lead-desk-store.ts) -------------------------------------------------------------
+// Agents are NOT GoHighLevel users, so we never set a contact owner: an assignment is a tag (agent-<slug>) plus a note.
+// All of these need the current API (private token); the legacy key cannot do them. None throws.
+type Plain = { ok: true } | { ok: false; error: string }
+
+/** The GoHighLevel contact id for an email address, or null when there is none (or GoHighLevel is not set up). */
+export async function findGhlContactId(email: string): Promise<string | null> {
+  const cfg = config()
+  if (!cfg || !cfg.v2 || !email) return null
+  try {
+    const res = await fetch(`${V2_API}/contacts/search/duplicate?locationId=${encodeURIComponent(cfg.locationId)}&email=${encodeURIComponent(email)}`, { headers: authHeaders(cfg), cache: 'no-store', signal: AbortSignal.timeout(15_000) })
+    if (!res.ok) return null
+    const json = (await res.json().catch(() => null)) as { contact?: { id?: string } } | null
+    return json?.contact?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function addGhlTags(contactId: string, tags: string[]): Promise<Plain> {
+  const cfg = config()
+  if (!cfg || !cfg.v2) return { ok: false, error: 'GoHighLevel is not set up for tags (needs the private token)' }
+  try {
+    const res = await fetch(`${V2_API}/contacts/${encodeURIComponent(contactId)}/tags`, { method: 'POST', headers: authHeaders(cfg), body: JSON.stringify({ tags }), signal: AbortSignal.timeout(15_000) })
+    return res.ok ? { ok: true } : { ok: false, error: `GoHighLevel responded ${res.status} to the tag` }
+  } catch {
+    return { ok: false, error: 'Could not reach GoHighLevel' }
+  }
+}
+
+export async function addGhlNote(contactId: string, body: string): Promise<Plain> {
+  const cfg = config()
+  if (!cfg || !cfg.v2) return { ok: false, error: 'GoHighLevel is not set up for notes (needs the private token)' }
+  try {
+    const res = await fetch(`${V2_API}/contacts/${encodeURIComponent(contactId)}/notes`, { method: 'POST', headers: authHeaders(cfg), body: JSON.stringify({ body }), signal: AbortSignal.timeout(15_000) })
+    return res.ok ? { ok: true } : { ok: false, error: `GoHighLevel responded ${res.status} to the note` }
+  } catch {
+    return { ok: false, error: 'Could not reach GoHighLevel' }
+  }
+}
+
+/** Sends one text message to a GoHighLevel contact (the conversations message endpoint). Used for the desk alert. */
+export async function sendGhlSms(contactId: string, message: string): Promise<Plain> {
+  const cfg = config()
+  if (!cfg || !cfg.v2) return { ok: false, error: 'GoHighLevel is not set up for texts (needs the private token)' }
+  try {
+    const res = await fetch(`${V2_API}/conversations/messages`, { method: 'POST', headers: authHeaders(cfg), body: JSON.stringify({ type: 'SMS', contactId, message }), signal: AbortSignal.timeout(15_000) })
+    return res.ok ? { ok: true } : { ok: false, error: `GoHighLevel responded ${res.status} to the text` }
+  } catch {
+    return { ok: false, error: 'Could not reach GoHighLevel' }
+  }
+}
+
 export async function subscribeNewsletterToGoHighLevel(values: NewsletterSubmission): Promise<Result> {
   const cfg = config()
   if (!cfg) return { ok: false, error: 'GoHighLevel is not configured' }

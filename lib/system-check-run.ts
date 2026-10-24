@@ -10,6 +10,7 @@ import { loadView } from '@/lib/seo-playbook-view'
 import { readStoredAiSpend } from '@/lib/ai-tripwire'
 import { DECISIONS_KEY, parseDecisions } from '@/lib/auto-decisions'
 import { VISUAL_GATE_STATS_KEY, parseStats, sumRecent } from '@/lib/visual-gate-stats'
+import { readHotWait } from '@/lib/lead-desk-store'
 import { readDone } from '@/lib/followups-run'
 import { FOLLOWUPS_DONE_KEY, applyMark, serializeDone, siteDay } from '@/lib/followups'
 import { buildFixList, fixIdOf, stageOfFixId, withMarks, type FixView } from '@/lib/system-check-fixes'
@@ -106,7 +107,10 @@ export async function readCheckFacts(admin: SupabaseClient, deps: CheckDeps = {}
     return parseDecisions(raw)
   })
 
-  return { now, watchdog, crawl, seo, jobs, ai, orders, gateSkips7d, decisions }
+  // The lead desk: hot leads still waiting for an agent. Null before migration 0055 (the columns are not there), which just leaves the stage as it was.
+  const hotLeads = await safe(() => readHotWait(admin, now))
+
+  return { now, watchdog, crawl, seo, jobs, ai, orders, gateSkips7d, decisions, hotLeads }
 }
 
 /** Reads the facts and judges them. Never throws. */

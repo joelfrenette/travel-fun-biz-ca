@@ -22,6 +22,7 @@ export interface TodayAction {
 }
 
 export const TODAY_KIND_IDS = [
+  'hot-lead',
   'failed-post',
   'failed-render',
   'video-paused',
@@ -62,6 +63,8 @@ export interface TodayKindDef {
   undo: { primary: boolean; secondary: boolean }
   /** How many days the "Later" button hides a card of this kind. */
   snoozeDays: number
+  /** When set, Later hides the card for this many MINUTES instead of snoozeDays (the hot lead card: 30). */
+  snoozeMinutes?: number
   /** For a button in mode keep: how many days the card stays hidden. */
   keepDays?: number
   /** For a button in mode open: how many days the card rests after you opened it. */
@@ -82,6 +85,19 @@ export const DISMISS_ACTIONS = ['dismiss-ghl', 'dismiss-guides', 'dismiss-page-c
 export type DismissAction = (typeof DISMISS_ACTIONS)[number]
 
 export const TODAY_KINDS: Record<TodayKindId, TodayKindDef> = {
+  // The lead desk (lib/lead-desk.ts): someone asked for a call, or sent a form with a phone number. The office (Joel, Shelby, Leslie)
+  // chooses the agent, never the system. The card has its own "Assign to" panel instead of the two big buttons; Later hides it for 30 minutes
+  // and it stays until an agent is assigned. The two button fields below are only the definition the rest of the queue needs.
+  'hot-lead': {
+    kind: 'hot-lead', group: 'urgent', order: 0, badge: 'Hot lead',
+    why: 'Someone asked for a call, or sent a form with a phone number. Choose an agent for them.',
+    facts: ['Who', 'Trip or page', 'Came from', 'What they asked'],
+    primary: { label: 'Assign to an agent', hint: 'Opens the agent list. You choose; nothing is chosen for you.', mode: 'open' },
+    secondary: null,
+    undo: { primary: false, secondary: false }, snoozeDays: 1, snoozeMinutes: 30, openDays: 1, idPattern: UUID,
+    routes: { primary: 'POST /api/admin/leads/assign (saved on the lead, GoHighLevel tag and note, email to the chosen agent)', secondary: null, undo: null },
+    routeFiles: ['app/api/admin/leads/assign/route.ts'],
+  },
   'failed-post': {
     kind: 'failed-post', group: 'urgent', order: 1, badge: 'Post failed',
     why: 'This post did not go out to social media.',
@@ -282,6 +298,19 @@ export interface TodayFact {
   value: string
 }
 
+/** What the hot lead card needs besides the plain facts. Admin only (the Today route is behind isAuthorized). */
+export interface HotLeadCardData {
+  leadId: string
+  createdAt: string
+  name: string
+  email: string
+  phone: string | null
+  package: string | null
+  pagePath: string | null
+  source: string | null
+  asked: string
+}
+
 /** One card in the queue. The id is `${kind}:${key}`; everything the server needs to act is inside the id (so a
  * browser can never smuggle extra data in), and it is checked against the kind's idPattern before anything runs. */
 export interface TodayCard {
@@ -294,6 +323,8 @@ export interface TodayCard {
   link?: { label: string; href: string }
   /** Sorts cards of the same kind: lower first. Usually how old the thing is. */
   sortKey: number
+  /** Only on a hot-lead card. */
+  hot?: HotLeadCardData
 }
 
 export const isKindId = (v: unknown): v is TodayKindId => typeof v === 'string' && (TODAY_KIND_IDS as readonly string[]).includes(v)
