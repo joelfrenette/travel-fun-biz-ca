@@ -30,6 +30,7 @@ import {
   fold,
   attributionList,
   buildToConfirm,
+  dateRangeText,
   type PlaceMention,
   type Reference,
   type KitStop,
@@ -47,7 +48,7 @@ import {
 export const RUN_CALL_CAP = 4
 export const DAILY_CALL_CAP = 14
 export const GOOD_ENOUGH_COMPLETENESS = 75
-export const MAX_STOP_CARDS = 10
+export const MAX_STOP_CARDS = 12
 export const KIT_SOURCE_NAME = 'Trip page kit (stored text and cited reference pages)'
 const FACTS_MAX_AGE_MS = 30 * 24 * 3600 * 1000
 const GALLERY_TARGET = 3
@@ -313,7 +314,10 @@ const WRITER_RULES = `HARD RULES:
 5. Name no hotel, ship, restaurant, person or place that is not in the texts below. Things to do must come from the names listed for that place.
 6. No dashes of any kind (use commas or full stops), no web addresses, no phone numbers, no markdown symbols (plain paragraphs separated by a blank line).
 7. Canadian spelling, warm, plain English, short sentences (about 15 words on average).
-8. Never name or suggest a specific agent or host to contact.`
+8. Never name or suggest a specific agent or host to contact.
+9. Never say where the trip begins or ends, which day or in what order a place is visited, or how long a stop lasts, unless STORED TEXT says so. Say "the route includes" or "along the way".
+10. Never write "we would love", "we love", "we have", "we offer" or "our team has". To invite action write "a travel specialist can help you plan this" or "ask about this trip".
+11. When you give the length of the trip, copy it from LENGTH (for example "12 days") instead of spelling out a number in words.`
 
 function referenceBlock(places: ResolvedPlace[]): string {
   return places
@@ -331,7 +335,7 @@ export function writerPrompt(pkg: DbPackage, b: TextBundle, sheet: FactSheet, wa
   const placeNames = sheet.places.filter((p) => p.ref).slice(0, MAX_STOP_CARDS).map((p) => p.mention.name)
   const spec = [
     `"promise": one line (under 140 characters) saying what this trip is, no price, contains no digits`,
-    wanted.description ? `"full_description": 420 to 520 words, plain paragraphs. The FIRST sentence must contain the exact trip name "${pkg.name}". Cover what the trip is, where it goes, what the places are like (from PLACES), what is included only if STORED TEXT says so, and end by inviting the reader to talk to a travel specialist.` : null,
+    wanted.description ? `"full_description": 470 to 560 words (never fewer than 440), plain paragraphs. The FIRST sentence must contain the exact trip name "${pkg.name}". Cover what the trip is, where it goes, what the places are like (from PLACES), what is included only if STORED TEXT says so, and end by inviting the reader to talk to a travel specialist.` : null,
     wanted.highlights ? `"highlights": 6 to 8 short lines (each under 90 characters), each a fact from the texts` : null,
     wanted.meta ? `"meta_title": under 60 characters containing the trip name; "meta_description": 100 to 150 characters, honest, no price` : null,
     wanted.keywords ? `"keywords": 6 to 10 search phrases built only from places and trip types in the texts` : null,
@@ -395,7 +399,7 @@ export interface FillPlan {
   notes: string[]
   skipped: string[]
   /** Fields whose generated copy was rejected by the gate, with the reasons. */
-  held: { field: string; reasons: string[] }[]
+  held: { field: string; reasons: string[]; sample?: string }[]
   merged: DbPackage
 }
 
@@ -474,7 +478,9 @@ export async function planTripKit(
   const sheet = fs.sheet
   b = bundleText(pkg, storedSources, sheet.supplier?.text ?? null)
   const refText = sheet.places.map((p) => (p.ref ? `${p.ref.intro}\n${[...p.ref.see, ...p.ref.doItems].map((i) => `${i.name}. ${i.blurb}`).join('\n')}` : '')).join('\n')
-  const grounding = `${b.grounding}\n${refText}\n${pkg.name}\n${pkg.destination}`
+  const grounding0 = `${b.grounding}\n${refText}\n${pkg.name}\n${pkg.destination}\nLength: ${pkg.duration}\nDates: ${pkg.available_from ?? ''} ${pkg.available_to ?? ''} ${dateRangeText(pkg.available_from, pkg.available_to) ?? ''} ${(pkg.departure_dates ?? []).join(' ')}`
+  // "Onofrio's Fountain" and "Onofrio Fountain" are the same name: the gate sees both spellings.
+  const grounding = `${grounding0}\n${grounding0.replace(/['’]s\b/g, '')}`
 
   // What to write: only fields that are empty (never overwrite text a person wrote), plus a meta description with a wrong year.
   const row = pkg as unknown as Record<string, unknown>
@@ -518,7 +524,7 @@ export async function planTripKit(
       const d = typeof answer.full_description === 'string' ? removeDashes(answer.full_description.trim()) : ''
       const bl = d ? tripKitBlockers(d, { grounding, field: 'full_description' }) : ['no description']
       if (d && !containsPhrase(d.split(/(?<=[.!?])\s/)[0] ?? '', pkg.name) && !containsPhrase(d.slice(0, 400), pkg.name)) bl.push('the first sentences do not contain the trip name')
-      if (d && d.split(/\s+/).length < 300) bl.push(`too short (${d.split(/\s+/).length} words, needs 300 or more)`)
+      if (d && d.split(/\s+/).length < 400) bl.push(`too short (${d.split(/\s+/).length} words, needs 400 or more)`)
       problems.push(...bl)
     }
     if (problems.length === 0 || attempt === 1) break
@@ -610,8 +616,8 @@ export async function planTripKit(
   if (wanted.description && raw) {
     const d = typeof raw.full_description === 'string' ? removeDashes(raw.full_description.trim()).replace(/\r\n?/g, '\n') : ''
     const bl = d ? tripKitBlockers(d, { grounding, field: 'full_description' }) : ['no description']
-    if (d.split(/\s+/).length < 300) bl.push('too short')
-    if (bl.length) held.push({ field: 'full_description', reasons: bl.slice(0, 4) })
+    if (d.split(/\s+/).length < 400) bl.push('too short')
+    if (bl.length) held.push({ field: 'full_description', reasons: bl.slice(0, 6), sample: d.slice(0, 1500) })
     else put('full_description', d)
   }
   if (wanted.highlights && raw) {

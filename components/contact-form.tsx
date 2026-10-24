@@ -28,6 +28,8 @@ interface ContactFormProps {
   language: Language
   /** The site phone (site.phone), shown in the rate-limit and network error messages. */
   phone?: string | null
+  /** "callback": the lead is a request for a callback from a live agent. The note is added to the message; attribution is unchanged. */
+  intent?: "callback"
 }
 
 const travelerOptions = [
@@ -38,7 +40,7 @@ const travelerOptions = [
   { value: "9+", label: "9+ People" },
 ]
 
-export function ContactForm({ preselectedPackage, packageOptions, language, phone }: ContactFormProps) {
+export function ContactForm({ preselectedPackage, packageOptions, language, phone, intent }: ContactFormProps) {
   const { toast } = useToast()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -98,7 +100,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
       const response = await fetch("/api/submit-lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, package: packageName, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
+        body: JSON.stringify({ ...values, ...(intent === "callback" ? { message: `[Callback requested] ${values.message ?? ""}`.trim() } : {}), package: packageName, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
       })
 
       if (!response.ok) {

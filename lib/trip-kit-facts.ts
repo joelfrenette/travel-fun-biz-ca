@@ -483,7 +483,7 @@ export function buildToConfirm(input: {
   if (!/\b(arriv|depart|dock|berth)\w*[^.\n]{0,30}\d{1,2}[:.]\d{2}/i.test(text) && input.kit.stops.some((s) => s.kind === 'port')) out.push('Hours in port (arrival and departure) for each port: not stored, so the page shows none.')
   if (/all[- ]inclusive/i.test(text) && !input.kit.included.some((f) => /all[- ]inclusive|drinks|meals|food/i.test(f.text))) out.push('What "all inclusive" covers at this resort (drinks, restaurants, activities): confirm with the supplier.')
   for (const p of input.priceMentions) out.push(`Price wording found in a stored text and kept OFF the page: "${p.slice(0, 120)}". Confirm it, then tick "Price confirmed by an agent".`)
-  for (const o of input.kit.otherStops) out.push(`"${o}" is on the route but no reference page was matched, so it has no card. Check the spelling.`)
+  for (const o of input.kit.otherStops) out.push(`"${o}" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.`)
   return [...new Set(out)].slice(0, 30)
 }
 
