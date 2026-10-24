@@ -206,7 +206,7 @@ expect('a route handler call forwards the caller\'s own Authorization header', /
 // ---- 12. The sidebar
 // The numbered, sectioned menu is proved in full by scripts/check-admin-v2.ts; this file keeps the checks that tie it to Today.
 const navLinks = adminNavSections.flatMap((s) => s.links)
-expect('Today is the first link in the menu and goes to /admin, Dashboard follows at /admin/dashboard', navLinks[0].title === 'Today' && navLinks[0].href === '/admin' && navLinks.some((i) => i.title === 'Dashboard' && i.href === '/admin/dashboard') && !navLinks.some((i) => (i.href ?? '').includes('#dashboard')))
+expect('System check is the first link in the menu, Today is second and goes to /admin, Dashboard is fourth at /admin/dashboard', navLinks[0].title === 'System check' && navLinks[1].title === 'Today' && navLinks[1].href === '/admin' && navLinks[3].title === 'Dashboard' && navLinks.some((i) => i.title === 'Dashboard' && i.href === '/admin/dashboard') && !navLinks.some((i) => (i.href ?? '').includes('#dashboard')))
 const grouped = [...navLinks.filter((i) => !i.shortcut), ...adminNavSections.flatMap((s) => s.later ?? [])].map((i) => i.title)
 const modules = adminNavItems.slice(1).map((i) => i.title) // adminNavItems[0] is the old Dashboard entry
 expect('no menu item is lost: every old module appears in a section', modules.every((t) => grouped.includes(t)), modules.filter((t) => !grouped.includes(t)).join(','))
@@ -214,7 +214,7 @@ expect('same links as before (no route renamed)', navLinks.filter((i) => !i.shor
 expect('the tool grid under the cards still lists every module', adminTools.length === modules.length)
 
 // ---- 13. Copy: no long dashes in anything new
-const NEW_FILES = ['lib/today-cards.ts', 'lib/today-state.ts', 'lib/today-issues.ts', 'lib/today-queue.ts', 'lib/today-actions.ts', 'app/api/admin/today/route.ts', 'components/admin/today-stack.tsx', 'components/admin/system-check-strip.tsx', 'components/admin/today-client.ts', 'components/admin/admin-shell.tsx']
+const NEW_FILES = ['lib/today-cards.ts', 'lib/today-state.ts', 'lib/today-issues.ts', 'lib/today-queue.ts', 'lib/today-actions.ts', 'app/api/admin/today/route.ts', 'components/admin/today-stack.tsx', 'components/admin/today-client.ts', 'components/admin/admin-shell.tsx']
 expect('no long dash in any new file', NEW_FILES.every((f) => !DASH.test(read(f).replace(/\/\/[^\n]*/g, '').replace(/─/g, ''))), NEW_FILES.filter((f) => DASH.test(read(f).replace(/\/\/[^\n]*/g, ''))).join(','))
 expect('no long dash in any kind text or menu title', TODAY_KIND_IDS.every((k) => !DASH.test(JSON.stringify({ ...TODAY_KINDS[k], idPattern: '' }))) && adminNavSections.every((x) => !DASH.test(x.title + x.hint + x.links.map((i) => i.title + i.description).join(''))))
 expect('no source text uses the word "Reject" on a button that only hides', TODAY_KIND_IDS.every((k) => { const s = TODAY_KINDS[k].secondary; return !s || s.mode === 'run' || !/^reject/i.test(s.label) }))
@@ -222,13 +222,13 @@ expect('no source text uses the word "Reject" on a button that only hides', TODA
 // ---- 14. The page and the shell
 const page = read('app/admin/page.tsx')
 const dashPage = read('app/admin/dashboard/page.tsx')
-expect('/admin is Today only and the dashboard moved to /admin/dashboard with all its content', page.indexOf('<TodayStack') > 0 && !page.includes('<FunnelPanel') && !page.includes('adminTools.map') && !page.includes('<DashboardRangePills') && dashPage.includes('<TrafficChartCard') && dashPage.includes('<FunnelPanel') && dashPage.includes('adminTools.map') && !dashPage.includes('<TodayStack'))
+expect('/admin is Today only and the dashboard moved to /admin/dashboard with all its content', page.indexOf('<TodayStack') > 0 && !page.includes('<FunnelPanel') && !page.includes('adminTools.map') && !page.includes('<DashboardRangePills') && dashPage.includes('<TrafficChartCard') && dashPage.includes('<FunnelPanel') && !dashPage.includes('adminTools.map') && !dashPage.includes('<TodayStack'))
 const stack = read('components/admin/today-stack.tsx')
-expect('the stack is accessible: live counter, status note, labelled buttons, keyboard, Later, Undo', /aria-live="polite"/.test(stack) && /role="status"/.test(stack) && /ArrowRight/.test(stack) && /ArrowLeft/.test(stack) && /ArrowDown/.test(stack) && /Undo last/.test(stack) && /left today/.test(stack) && /All clear\. The machine has it\./.test(stack) && /aria-describedby/.test(stack))
+expect('the stack is accessible: live counter, status note, labelled buttons, keyboard, Later, Undo', /aria-live="polite"/.test(stack) && /role="status"/.test(stack) && /ArrowRight/.test(stack) && /ArrowLeft/.test(stack) && /ArrowDown/.test(stack) && /Undo last/.test(stack) && /left today/.test(stack) && /All done for today/.test(stack) && /aria-describedby/.test(stack) && !/SystemCheckStrip|FollowupsPanel/.test(stack))
 expect('the stack has a swipe with a distance threshold and does not block vertical scroll', /SWIPE_PX/.test(stack) && /touchAction: "pan-y"/.test(stack))
 const shell = read('components/admin/admin-shell.tsx')
 expect('the shell remembers open groups in localStorage inside try/catch', /adminNavOpen/.test(shell) && /try \{\s*localStorage\.setItem\(OPEN_KEY/.test(shell) && /try \{\s*const v = JSON\.parse\(localStorage\.getItem\(OPEN_KEY/.test(shell))
-expect('the shell shows the Today count in the menu and the phone bottom bar, Today first', /<Badge kind=\{link\.badge\} badges=\{badges\}/.test(shell) && /aria-label="Quick links"/.test(shell) && shell.indexOf('label="Today"') > 0 && shell.indexOf('label="Today"') < shell.indexOf('label="Follow-ups"') && shell.indexOf('label="Follow-ups"') < shell.indexOf('label="Check"'))
+expect('the shell shows the Today count in the menu and the phone bottom bar, Check then Today then Follow-ups', /<Badge kind=\{link\.badge\} badges=\{badges\}/.test(shell) && /aria-label="Quick links"/.test(shell) && shell.indexOf('label="Check"') > 0 && shell.indexOf('label="Check"') < shell.indexOf('label="Today"') && shell.indexOf('label="Today"') < shell.indexOf('label="Follow-ups"'))
 const nav = read('lib/admin-nav.ts')
 expect('the old flat list is kept for the dashboard grid and older checks', /export const adminNavItems/.test(nav) && /export const adminTools/.test(nav))
 

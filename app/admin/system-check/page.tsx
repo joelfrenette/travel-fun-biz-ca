@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { RefreshCw } from "lucide-react"
+import { ArrowRight, ClipboardCopy, RefreshCw, Wand2 } from "lucide-react"
 import type { CheckResult, CheckSummary } from "@/lib/system-check"
 import type { FixSummary, FixView } from "@/lib/system-check-fixes"
-import { announceBadges, authHeaders } from "@/components/admin/today-client"
+import { buildClaudePrompt, type CheckDiff, type HealReport } from "@/lib/system-check-prompt"
+import { announceBadges, authHeaders, checkAlreadyRanToday, copyText, markCheckRan } from "@/components/admin/today-client"
 import { cn } from "@/lib/utils"
 
 // The automated system check: one list in funnel order. Each line is green, amber or red, with one plain sentence, the real
 // number, what the site fixed by itself, and what needs you (with a link). The answer is read again at most every 5 minutes.
 
-type Loaded = CheckResult & { summary: CheckSummary; cached: boolean; warning?: string; fixes: FixView[]; fixSummary: FixSummary }
+type HealAnswer = { report: HealReport; cooledDown: boolean; cooldownSeconds: number; diff: CheckDiff }
+type Loaded = CheckResult & { summary: CheckSummary; cached: boolean; warning?: string; fixes: FixView[]; fixSummary: FixSummary; heal?: HealAnswer }
 
 const DOT: Record<string, string> = { green: "bg-emerald-500", amber: "bg-amber-500", red: "bg-red-500" }
 const WORD: Record<string, string> = { green: "OK", amber: "Check", red: "Problem" }
@@ -26,6 +28,10 @@ export default function SystemCheckPage() {
   const [data, setData] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [phase, setPhase] = useState<"idle" | "check" | "heal">("idle")
+  const [heal, setHeal] = useState<HealAnswer | null>(null)
+  const [copied, setCopied] = useState<"" | "ok" | "fail">("")
+  const [promptText, setPromptText] = useState("")
 
   const [tickBusy, setTickBusy] = useState<string | null>(null)
 
@@ -45,39 +51,120 @@ export default function SystemCheckPage() {
   }
 
   // "Run check now" is a POST: it reads everything again and saves the answer. The first load is a plain GET (a saved answer under 5 minutes old is reused).
-  const load = useCallback(async (force = false) => {
+  const load = useCallback(async (force = false, op: "run" | "heal" = "run") => {
     setBusy(true)
+    setPhase(op === "heal" ? "heal" : "check")
     try {
       const res = force
-        ? await fetch("/api/admin/system-check", { method: "POST", headers: authHeaders(), body: JSON.stringify({ op: "run" }), cache: "no-store" })
+        ? await fetch("/api/admin/system-check", { method: "POST", headers: authHeaders(), body: JSON.stringify({ op }), cache: "no-store" })
         : await fetch("/api/admin/system-check", { headers: authHeaders(), cache: "no-store" })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(typeof body.error === "string" ? body.error : `HTTP ${res.status}`)
-      setData(body as Loaded)
-      announceBadges({ check: (body as Loaded).overall })
+      const next = body as Loaded
+      setData(next)
+      if (next.heal) {
+        setHeal(next.heal)
+        setPromptText(buildClaudePrompt({ now: new Date(), check: next, heal: next.heal.report, diff: next.heal.diff, siteUrl: window.location.origin }))
+      }
+      setCopied("")
+      announceBadges({ check: next.overall })
       setError(null)
+      if (force) markCheckRan()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load the system check.")
     } finally {
       setBusy(false)
+      setPhase("idle")
     }
   }, [])
 
+  // On a new login (or a new tab, or a new day) the check runs fresh by itself, once. After that, moving around the admin only
+  // reads the saved answer.
   useEffect(() => {
-    void load()
+    void load(!checkAlreadyRanToday())
   }, [load])
+
+  async function copyForClaude() {
+    if (!data) return
+    const text = promptText || buildClaudePrompt({ now: new Date(), check: data, heal: heal?.report ?? null, diff: heal?.diff ?? null, siteUrl: window.location.origin })
+    setCopied((await copyText(text)) ? "ok" : "fail")
+  }
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-6">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">System check</h1>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-2xl font-bold">
+            {data && <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full", DOT[data.overall])} aria-hidden="true" />}
+            System check
+            {data && <span className="sr-only"> ({HEAD[data.overall]})</span>}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">Every part of the machine, in the order a visitor moves through it. Green is fine. Amber is worth a look. Red needs you.</p>
         </div>
-        <button type="button" disabled={busy} onClick={() => void load(true)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-40">
-          <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} aria-hidden="true" /> Run check now
+        <button
+          type="button"
+          disabled={busy || !data}
+          onClick={() => void load(true, "heal")}
+          data-testid="auto-heal"
+          title="Runs the safe repairs the site already makes by itself, once, then checks again"
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40"
+        >
+          <Wand2 className={cn("h-4 w-4", phase === "heal" && "animate-pulse")} aria-hidden="true" /> {phase === "heal" ? "Healing..." : "Auto-heal"}
         </button>
       </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="check-actions">
+        <button type="button" disabled={busy} onClick={() => void load(true)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-40">
+          <RefreshCw className={cn("h-4 w-4", phase === "check" && "animate-spin")} aria-hidden="true" /> Run check now
+        </button>
+        {heal && (
+          <button type="button" onClick={() => void copyForClaude()} data-testid="copy-for-claude" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-primary/50 px-3 text-sm font-medium text-primary hover:bg-muted">
+            <ClipboardCopy className="h-4 w-4" aria-hidden="true" /> {copied === "ok" ? "Copied. Paste it into Claude Code" : "Copy for Claude"}
+          </button>
+        )}
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          <Link href="/admin" data-testid="skip" className="inline-flex min-h-11 items-center rounded-lg border px-3 text-sm hover:bg-muted">
+            Skip
+          </Link>
+          {data && !busy && (
+            <Link href="/admin" data-testid="continue" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700">
+              Continue to admin <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          )}
+        </span>
+      </div>
+
+      {busy && (
+        <p role="status" aria-live="polite" data-testid="check-progress" className="mb-4 flex items-center gap-2 rounded-lg border bg-muted/40 p-3 text-sm">
+          <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+          {phase === "heal" ? "Auto-heal is making the safe repairs, then checking again. This can take up to a minute." : "Running a fresh check of every stage..."}
+        </p>
+      )}
+      {copied === "fail" && heal && (
+        <div className="mb-4">
+          <p role="alert" className="mb-1 text-sm text-destructive">Your browser blocked copying. Select this text and copy it yourself.</p>
+          <textarea readOnly rows={8} value={promptText} onFocus={(e) => e.currentTarget.select()} className="w-full rounded-lg border bg-muted/40 p-2 font-mono text-xs" />
+        </div>
+      )}
+      {heal && !busy && (
+        <section aria-label="Auto-heal result" data-testid="heal-result" className="mb-4 rounded-lg border bg-card p-3 text-sm">
+          <p className="font-semibold">
+            Auto-heal finished: {heal.diff.fixed.length} fixed, {heal.diff.stillOpen.length} still open{heal.diff.newlyWorse.length ? `, ${heal.diff.newlyWorse.length} newly worse` : ""}.
+          </p>
+          {heal.cooledDown && <p className="mt-1 text-xs text-muted-foreground">It ran a moment ago, so this is that answer ({heal.cooldownSeconds}s before it can run again).</p>}
+          {heal.report.paused && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">Automation is paused, so nothing was repaired.</p>}
+          {heal.diff.fixed.length > 0 && <p className="mt-1">Fixed: {heal.diff.fixed.map((f) => f.label).join(", ")}.</p>}
+          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+            {heal.report.steps.map((st) => (
+              <li key={st.id}>
+                {st.label}: {st.ran ? (st.acted ? `changed ${st.acted}` : "nothing to change") : "skipped"}
+                {st.note ? `. ${st.note}` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">Every repair is in the Autopilot decisions log with an Undo. Press Copy for Claude to hand what is left to Claude Code.</p>
+        </section>
+      )}
 
       {error && (
         <p role="alert" className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">

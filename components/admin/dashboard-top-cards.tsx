@@ -3,6 +3,7 @@
 import type { ReactNode } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import type { TopPagesResponse, TopPostsResponse } from "@/lib/dashboard-top-data"
+import type { TopKeywordsResponse } from "@/lib/dashboard-keywords"
 import { TOP_PAGE_TYPE_LABELS, type BestPick } from "@/lib/dashboard-top"
 import { RANGE_PHRASE, type DashRange } from "@/lib/dashboard-range"
 import type { Loadable } from "@/components/admin/dashboard-cards"
@@ -229,6 +230,79 @@ export function TopPostsCard({ range, state }: { range: DashRange; state: Loadab
           Visits are recorded after consent and matched on the link tags (utm_campaign is the post, utm_source the network, utm_content the hook style and format).
           Visits per send uses photo post, guide, trip, news and recap sends from the distribution log; carousel and video sends are not in it. A name needs 5 sends to be ranked.
           {d.rowsCounted > d.rows.length ? ` Showing ${d.rows.length} of ${d.rowsCounted} rows.` : ""}
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ---------- Top keywords ----------
+export function TopKeywordsCard({ range, state }: { range: DashRange; state: Loadable<TopKeywordsResponse> }) {
+  const title = "Top keywords"
+  if (state.kind === "loading") return <TableSkeleton title={title} />
+  if (state.kind === "error") return <Problem title="Top keywords could not be read"><p>{state.message}</p></Problem>
+  const d = state.data
+  const phrase = RANGE_PHRASE[range]
+  if (d.status === "not_connected") {
+    return (
+      <Problem title={title}>
+        <p className="text-muted-foreground">Google Search Console is not connected, so there are no keywords to show. Nothing here is estimated.</p>
+      </Problem>
+    )
+  }
+  if (d.status === "error") {
+    return (
+      <Problem title="Top keywords could not be read">
+        <p>Search Console {COULD_NOT} ({d.error}).</p>
+      </Problem>
+    )
+  }
+  return (
+    <Card className="col-span-full" data-testid="top-keywords">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg">{title}</CardTitle>
+        <CardDescription>
+          The searches on Google that brought the most clicks, {phrase}
+          {d.startDate && d.endDate ? ` (${d.startDate} to ${d.endDate}${d.clamped ? ", Search Console keeps 16 months" : ""})` : ""}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {d.rows.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Google did not show this site for any search in this range.</div>
+        ) : (
+          <Scroller>
+            <thead>
+              <tr>
+                <th className={th}>Search</th>
+                <th className={`${th} text-right`}>Clicks</th>
+                <th className={`${th} text-right`}>Impressions</th>
+                <th className={`${th} text-right`}>Position</th>
+                <th className={th}>Page Google shows</th>
+                <th className={th}>Our target page</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.rows.map((r) => (
+                <tr key={r.query}>
+                  <td className={`${td} max-w-[260px] break-words font-medium`}>{r.query}</td>
+                  <td className={`${td} ${num}`}>{r.clicks.toLocaleString()}</td>
+                  <td className={`${td} ${num}`}>{r.impressions.toLocaleString()}</td>
+                  <td className={`${td} ${num}`}>{r.position === null ? <span className="text-muted-foreground">n/a</span> : `#${r.position}`}</td>
+                  <td className={`${td} max-w-[220px] break-all`}>
+                    {r.page ? (
+                      <a className="text-primary underline" href={r.page} target="_blank" rel="noopener noreferrer">{r.page}</a>
+                    ) : (
+                      <span className="text-muted-foreground">{d.pagesRead ? "none named" : COULD_NOT}</span>
+                    )}
+                  </td>
+                  <td className={`${td} max-w-[220px] break-all`}>{r.target ? <a className="text-primary underline" href={r.target} target="_blank" rel="noopener noreferrer">{r.target}</a> : <span className="text-muted-foreground">not chosen</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Scroller>
+        )}
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          From Google Search Console, which lags about 2 days. Position is the average place in the results (lower is better). The target page is the one picked for that phrase in Keyword Research.
         </p>
       </CardContent>
     </Card>

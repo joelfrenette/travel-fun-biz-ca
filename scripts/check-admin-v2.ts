@@ -35,8 +35,8 @@ expect('the sections are in the order of the day', adminNavSections.map((s) => s
 expect('the section names are Do first, Live numbers, Make and post, Grow, Money, Advanced, Setup', adminNavSections.map((s) => s.title).join('|') === 'Do first|Live numbers|Make and post|Grow|Money|Advanced|Setup')
 
 const WORKFLOW = [
-  'Today', 'Daily follow-ups', 'System check',
-  'Dashboard', 'Search Rankings', 'Users and Analytics', 'Website Value',
+  'System check', 'Today', 'Daily follow-ups', 'Dashboard',
+  'Search Rankings', 'Users and Analytics', 'Website Value',
   'Posts: Blog', 'Posts: News', 'Posts: Guides', 'Posts: Trips', 'Content Autopilot', 'Post Distribution',
   'SEO & GEO Manager', 'SEO engines', 'Keyword Research', 'Link building',
   'Leads', 'Orders', 'Affiliate Links', 'Testimonials',
@@ -45,13 +45,14 @@ const numbered = adminNavLinks.filter((l) => l.step !== null)
 expect('the daily links are exactly the 21 steps, in workflow order', numbered.map((l) => l.title).join('|') === WORKFLOW.join('|'), numbered.map((l) => l.title).join('|'))
 expect('the step numbers are contiguous from 1 to 21 in menu order', numbered.map((l) => l.step).join(',') === Array.from({ length: 21 }, (_, i) => i + 1).join(','), numbered.map((l) => l.step).join(','))
 expect('the number is drawn from the data: moving a link moves its number', (() => {
-  const swapped: NavSection[] = adminNavSections.slice(0, 1).map((s) => ({ ...s, links: [s.links[1], s.links[0], s.links[2]] }))
+  const swapped: NavSection[] = adminNavSections.slice(0, 1).map((s) => ({ ...s, links: [s.links[1], s.links[0], s.links[2], s.links[3]] }))
   const n = numberSections(swapped)[0].links
-  return n[0].title === 'Daily follow-ups' && n[0].step === 1 && n[1].title === 'Today' && n[1].step === 2
+  return n[0].title === 'Today' && n[0].step === 1 && n[1].title === 'System check' && n[1].step === 2
 })())
-expect('stepOf finds a link by key', stepOf('Today') === 1 && stepOf('Link building') === 17 && stepOf('Testimonials') === 21 && stepOf('Posts: Blog Auto-Writer') === null)
-expect('Today, Daily follow-ups and System check carry the three badges, in that order', adminNavLinks[0].badge === 'today' && adminNavLinks[1].badge === 'followups' && adminNavLinks[2].badge === 'check' && adminNavLinks.filter((l) => l.badge).length === 3)
-expect('Do first links go to /admin, /admin/follow-ups and /admin/system-check', adminNavLinks[0].href === '/admin' && adminNavLinks[1].href === '/admin/follow-ups' && adminNavLinks[2].href === '/admin/system-check')
+expect('System check is step 1, Today 2, Daily follow-ups 3, Dashboard 4', stepOf('System check') === 1 && stepOf('Today') === 2 && stepOf('Daily follow-ups') === 3 && stepOf('Dashboard') === 4)
+expect('stepOf finds a link by key', stepOf('Today') === 2 && stepOf('Link building') === 17 && stepOf('Testimonials') === 21 && stepOf('Posts: Blog Auto-Writer') === null)
+expect('System check, Today and Daily follow-ups carry the three badges, in that order', adminNavLinks[0].badge === 'check' && adminNavLinks[1].badge === 'today' && adminNavLinks[2].badge === 'followups' && adminNavLinks.filter((l) => l.badge).length === 3)
+expect('Do first links go to /admin/system-check, /admin, /admin/follow-ups and /admin/dashboard', adminNavLinks[0].href === '/admin/system-check' && adminNavLinks[1].href === '/admin' && adminNavLinks[2].href === '/admin/follow-ups' && adminNavLinks[3].href === '/admin/dashboard')
 
 const byId = (id: string) => adminNavSections.find((s) => s.id === id)!
 expect('Advanced and Setup are collapsed by default; the five daily sections are open', !byId('advanced').defaultOpen && !byId('setup').defaultOpen && ['do-first', 'live', 'make', 'grow', 'money'].every((id) => byId(id).defaultOpen))
@@ -79,8 +80,8 @@ expect('a section with the open page in it opens by itself even when collapsed b
 expect('the badge counts come from ONE fetch of the queue (the shell calls fetchToday once, pages only announce)', (shell.match(/fetchToday\(/g) ?? []).length === 1 && /readCachedBadges\(\)/.test(shell) && /BADGES_EVENT/.test(shell))
 const client = read('components/admin/today-client.ts')
 expect('the shared client keeps one request in flight and caches the answer briefly', /inflight/.test(client) && /FRESH_MS/.test(client) && /export function announceBadges/.test(client) && (client.match(/fetch\(/g) ?? []).length === 1)
-expect('the phone bottom bar is Today, Follow-ups, Check, Menu, in that order, plus the drawer', (() => {
-  const a = shell.indexOf('label="Today"'), b = shell.indexOf('label="Follow-ups"'), c = shell.indexOf('label="Check"'), d = shell.indexOf('Open the full menu')
+expect('the phone bottom bar is Check, Today, Follow-ups, Menu, in that order, plus the drawer', (() => {
+  const a = shell.indexOf('label="Check"'), b = shell.indexOf('label="Today"'), c = shell.indexOf('label="Follow-ups"'), d = shell.indexOf('Open the full menu')
   return a > 0 && a < b && b < c && c < d && /aria-label="Quick links"/.test(shell) && /grid-cols-4/.test(shell) && /role="dialog"/.test(shell) && /md:hidden/.test(shell)
 })())
 expect('the phone bar links go to the right pages', /href="\/admin\/follow-ups"/.test(shell) && /href="\/admin\/system-check"/.test(shell) && /href="\/admin" label="Today"/.test(shell))
@@ -330,9 +331,10 @@ expect('newsletter signups and trip alerts are not leads waiting for a reply', /
 // =================================================================================================
 const page = read('app/admin/page.tsx')
 const stack = read('components/admin/today-stack.tsx')
-expect('/admin order: system check strip, the swipe cards, the follow-ups (collapsible); the dashboard is NOT on this page', stack.indexOf('<SystemCheckStrip') > 0 && stack.indexOf('<SystemCheckStrip') < stack.indexOf('data-testid="today-card"') && stack.indexOf('data-testid="today-card"') < stack.indexOf('<FollowupsPanel collapsible') && page.indexOf('<TodayStack') > 0 && !page.includes('id="dashboard"') && !page.includes('<DashboardRangePills') && !page.includes('<FunnelPanel'))
-expect('the strip links to the system check and shows the worst stage', /href="\/admin\/system-check"/.test(read('components/admin/system-check-strip.tsx')) && /check\.worst/.test(read('components/admin/system-check-strip.tsx')))
-expect('the follow-ups section is collapsible and remembers its state inside try/catch', /aria-expanded=\{open\}/.test(read('components/admin/followups-panel.tsx')) && /try \{\s*localStorage\.setItem\(OPEN_KEY/.test(read('components/admin/followups-panel.tsx')))
+expect('/admin is ONLY the swipe cards: no system check strip, no follow-ups section, no dashboard', page.indexOf('<TodayStack') > 0 && stack.includes('data-testid="today-card"') && !/SystemCheckStrip|FollowupsPanel|system-check-strip/.test(stack) && !page.includes('id="dashboard"') && !page.includes('<DashboardRangePills') && !page.includes('<FunnelPanel') && !existsSync(join(process.cwd(), 'components/admin/system-check-strip.tsx')))
+expect('the empty Today says "All done for today" with links to Daily follow-ups and the Dashboard', /All done for today/.test(stack) && /href="\/admin\/follow-ups"/.test(stack) && /href="\/admin\/dashboard"/.test(stack) && /data-testid="today-empty"/.test(stack))
+expect('the Today cards keep Later and Undo, and the menu keeps the card count badge', /Undo last/.test(stack) && /Later/.test(stack) && adminNavLinks.find((l) => l.title === 'Today')!.badge === 'today')
+expect('the follow-ups list is its own page with only the list (no collapsible wrapper any more)', !/aria-expanded=\{open\}/.test(read('components/admin/followups-panel.tsx')) && !/collapsible/.test(read('components/admin/followups-panel.tsx')))
 const seo = TODAY_KINDS['seo-fix']
 expect("'seo-fix' is a registered Today card kind: Do it opens the fix, Later hides it for 7 days", TODAY_KIND_IDS.includes('seo-fix') && seo.primary.label === 'Do it' && seo.primary.mode === 'open' && seo.secondary === null && seo.snoozeDays === 7 && actionFor('seo-fix', 'approve')?.label === 'Do it' && actionFor('seo-fix', 'reject') === null)
 expect('an open button never needs a confirm tap and the card id is checked', !needsConfirm('seo-fix', 'approve') && parseCardId('seo-fix:tech-sitemap')?.kind === 'seo-fix' && parseCardId('seo-fix:../x') === null)
@@ -343,11 +345,11 @@ expect('the Today route also returns the system check summary, the top fixes and
 // 6. Dashboard is its own page; the system check ends in a "Fix these today" list
 // =================================================================================================
 expect('Dashboard menu entry is step 4 and goes to /admin/dashboard; Today stays /admin; no #dashboard anchor anywhere in the nav', stepOf('Dashboard') === 4 && adminNavLinks.find((l) => l.title === 'Dashboard')!.href === '/admin/dashboard' && adminNavLinks.find((l) => l.title === 'Today')!.href === '/admin' && !/#dashboard/.test(read('lib/admin-nav.ts')) && adminNavItems[0].href === '/admin/dashboard')
-expect('the dashboard page exists, has the range pills, tiles, the one traffic chart, top tables, funnel and tool grid, and keeps the range storage', (() => {
+expect('the dashboard page exists, has the range pills, the tiles, the one traffic chart FIRST, top pages, top posts, top keywords and the funnel, and no admin tools grid', (() => {
   const d = read('app/admin/dashboard/page.tsx')
-  return existsSync(join(process.cwd(), 'app/admin/dashboard/page.tsx')) && ['<DashboardRangePills', '<StatTile', '<TrafficChartCard', '<TopPagesCard', '<TopPostsCard', '<FunnelPanel', 'adminTools.map', 'RANGE_STORAGE_KEY'].every((s) => d.includes(s)) && !d.includes('<TodayStack') && !/<TrafficCard|<SearchCard|<VisitsCard/.test(d)
+  return existsSync(join(process.cwd(), 'app/admin/dashboard/page.tsx')) && ['<DashboardRangePills', '<StatTile', '<TrafficChartCard', '<TopPagesCard', '<TopPostsCard', '<TopKeywordsCard', '<FunnelPanel', 'RANGE_STORAGE_KEY'].every((s) => d.includes(s)) && !d.includes('adminTools') && !d.includes('Admin Tools') && !d.includes('<TodayStack') && !/<TrafficCard|<SearchCard|<VisitsCard/.test(d) && d.indexOf('<TrafficChartCard') < d.indexOf('<TopPagesCard') && d.indexOf('<TopPagesCard') < d.indexOf('<TopPostsCard') && d.indexOf('<TopPostsCard') < d.indexOf('<TopKeywordsCard') && d.indexOf('<TopKeywordsCard') < d.indexOf('<FunnelPanel')
 })())
-expect('nothing in the app links to /admin#dashboard any more', ['components/admin/admin-shell.tsx', 'components/admin/today-stack.tsx', 'components/admin/system-check-strip.tsx', 'lib/brief-html.ts', 'lib/today-queue.ts', 'lib/admin-nav.ts'].every((f) => !/admin#dashboard/.test(read(f))))
+expect('nothing in the app links to /admin#dashboard any more', ['components/admin/admin-shell.tsx', 'components/admin/today-stack.tsx', 'lib/brief-html.ts', 'lib/today-queue.ts', 'lib/admin-nav.ts'].every((f) => !/admin#dashboard/.test(read(f))))
 
 const FIX_NOW = new Date('2026-10-24T12:00:00Z')
 const base = evaluateCheck(unreadFacts(FIX_NOW))
@@ -382,12 +384,11 @@ expect('the system check route has a POST that is admin-checked first, with Run 
 expect('a tick is only accepted for a stage that is on the current fix list, and goes into the follow-ups store', /buildFixList\(stored\)\.some/.test(read('lib/system-check-run.ts')) && /FOLLOWUPS_DONE_KEY/.test(read('lib/system-check-run.ts')))
 const checkPage = read('app/admin/system-check/page.tsx')
 expect('the system check page ends with "Fix these today", says All clear when green, and has Run check now (POST)', /Fix these today/.test(checkPage) && /All clear/.test(checkPage) && /Run check now/.test(checkPage) && /method: "POST"/.test(checkPage) && checkPage.indexOf('<ol className="space-y-3">') < checkPage.indexOf('Fix these today') && /tick\(f\.stage, "done"\)/.test(checkPage) && /tick\(f\.stage, "later"\)/.test(checkPage) && /href=\{f\.to\.href\}/.test(checkPage))
-const stripSrc = read('components/admin/system-check-strip.tsx')
-expect('the Today strip shows the top fixes with a link each, or All clear', /fixes\.top\.map/.test(stripSrc) && /Fix these today/.test(stripSrc) && /All clear/.test(stripSrc) && /fixes=\{data\?\.fixes \?\? null\}/.test(read('components/admin/today-stack.tsx')))
+expect('the Fix these today list lives on the system check page only (no longer on Today)', /Fix these today/.test(checkPage) && !/Fix these today/.test(read('components/admin/today-stack.tsx')))
 expect('fix sentences are grade-6 plain: short and no long dash (the voice check proves the stage wording)', allUnread.every((f) => f.sentence.split(/\s+/).length <= 40 && !DASH.test(f.sentence + f.to.text + f.label)))
 
 // copy
-const NEW_FILES = ['lib/admin-nav.ts', 'lib/system-check.ts', 'lib/system-check-fixes.ts', 'lib/traffic-series.ts', 'app/admin/dashboard/page.tsx', 'components/admin/dashboard-cards.tsx','lib/system-check-run.ts', 'lib/followups.ts', 'lib/followups-run.ts', 'lib/brief-html.ts', 'app/api/admin/system-check/route.ts', 'app/api/admin/follow-ups/route.ts', 'app/admin/system-check/page.tsx', 'app/admin/follow-ups/page.tsx', 'components/admin/followups-panel.tsx', 'components/admin/system-check-strip.tsx', 'components/admin/today-client.ts', 'components/admin/admin-shell.tsx']
+const NEW_FILES = ['lib/admin-nav.ts', 'lib/system-check.ts', 'lib/system-check-fixes.ts', 'lib/traffic-series.ts', 'app/admin/dashboard/page.tsx', 'components/admin/dashboard-cards.tsx','lib/system-check-run.ts', 'lib/followups.ts', 'lib/followups-run.ts', 'lib/brief-html.ts', 'app/api/admin/system-check/route.ts', 'app/api/admin/follow-ups/route.ts', 'app/admin/system-check/page.tsx', 'app/admin/follow-ups/page.tsx', 'components/admin/followups-panel.tsx', 'components/admin/today-client.ts', 'lib/system-check-prompt.ts', 'lib/system-check-heal.ts', 'lib/followups-actions.ts', 'lib/followups-assist-run.ts', 'lib/dashboard-keywords.ts', 'components/admin/admin-shell.tsx']
 const bad = NEW_FILES.filter((f) => DASH.test(read(f).replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/─/g, '')))
 expect('no long dash in any new or changed file (comments aside)', bad.length === 0, bad.join(','))
 expect('no new environment variable was added (nothing to document in .env.example)', !/process\.env\./.test(read('lib/system-check.ts') + read('lib/system-check-run.ts') + read('lib/followups.ts') + read('lib/followups-run.ts')))

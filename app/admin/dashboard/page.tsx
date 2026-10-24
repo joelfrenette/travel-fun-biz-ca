@@ -1,17 +1,16 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { adminTools, SETUP_STEPS_URL } from "@/lib/admin-nav"
+import { SETUP_STEPS_URL } from "@/lib/admin-nav"
 import type { Ga4RangeReport } from "@/lib/ga4"
 import type { SearchRangeResult, VisitsRangeResult } from "@/lib/dashboard-data"
 import type { TopPagesResponse, TopPostsResponse } from "@/lib/dashboard-top-data"
-import { TopPagesCard, TopPostsCard } from "@/components/admin/dashboard-top-cards"
+import type { TopKeywordsResponse } from "@/lib/dashboard-keywords"
+import { TopKeywordsCard, TopPagesCard, TopPostsCard } from "@/components/admin/dashboard-top-cards"
 import { FunnelPanel } from "@/components/admin/funnel-panel"
 import { DashboardRangePills } from "@/components/admin/dashboard-range-pills"
 import { StatTile, TrafficChartCard, searchNote, type Loadable, type TrafficInputs } from "@/components/admin/dashboard-cards"
-import { CHANNEL_COLORS, DEFAULT_RANGE, RANGE_PHRASE, RANGE_STORAGE_KEY, SERIES_COLORS, bucketFor, resolveRange, type DashRange } from "@/lib/dashboard-range"
+import { DEFAULT_RANGE, RANGE_PHRASE, RANGE_STORAGE_KEY, SERIES_COLORS, bucketFor, resolveRange, type DashRange } from "@/lib/dashboard-range"
 
 function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -43,7 +42,6 @@ function useRangeData<T>(url: string, range: DashRange, enabled: boolean): { sta
 
 // ─── Admin Dashboard (its own page; Today lives at /admin) ───────────────────────
 export default function AdminDashboardPage() {
-  const router = useRouter()
   const [range, setRange] = useState<DashRange>(DEFAULT_RANGE)
   const [rangeReady, setRangeReady] = useState(false)
 
@@ -80,6 +78,7 @@ export default function AdminDashboardPage() {
   const visits = useRangeData<VisitsRangeResult>("/api/admin/dashboard-visits", range, rangeReady)
   const topPages = useRangeData<TopPagesResponse>("/api/admin/dashboard-top-pages", range, rangeReady)
   const topPosts = useRangeData<TopPostsResponse>("/api/admin/dashboard-top-posts", range, rangeReady)
+  const topKeywords = useRangeData<TopKeywordsResponse>("/api/admin/dashboard-top-keywords", range, rangeReady)
   const notConnected = ga.raw?.json?.configured === false && ga.state.kind === "ready"
   const phrase = RANGE_PHRASE[range]
 
@@ -109,7 +108,7 @@ export default function AdminDashboardPage() {
       <div id="dashboard" className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="mt-1 text-muted-foreground">Traffic, the funnel and every tool. What needs a decision today is on the Today page.</p>
+          <p className="mt-1 text-muted-foreground">Where your visitors come from, what they look at, and what Google shows. The past 30 days to start with.</p>
         </div>
         <div className="flex flex-col gap-1 sm:items-end">
           <DashboardRangePills value={range} onChange={chooseRange} />
@@ -117,15 +116,16 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {/* 1. The first graphic: combined traffic from every source, colour coded, with the breakdown inside it. */}
+      <div className="mb-8">
+        <TrafficChartCard range={range} bucket={bucketFor(range)} inputs={trafficInputs} setupUrl={SETUP_STEPS_URL} />
+      </div>
+
+      {/* 2. Visitors: the few numbers that matter. */}
+      <h2 className="mb-3 text-lg font-semibold">Visitors</h2>
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatTile label="Sessions" value={num(g?.sessions)} note={gaNote()} color="#2563eb" loading={gaLoading} />
         <StatTile label="Users" value={num(g?.users)} note={gaNote()} color="#7c3aed" loading={gaLoading} />
-        <StatTile label="Organic search sessions" value={num(g?.organicSearch)} note={gaNote()} color={CHANNEL_COLORS["Organic Search"]} loading={gaLoading} />
-        <StatTile label="Direct sessions" value={num(g?.direct)} note={gaNote()} color={CHANNEL_COLORS.Direct} loading={gaLoading} />
-        <StatTile label="Referral sessions" value={num(g?.referral)} note={gaNote()} color={CHANNEL_COLORS.Referral} loading={gaLoading} />
-        <StatTile label="Social sessions" value={num(g?.social)} note={gaNote()} color={CHANNEL_COLORS["Organic Social"]} loading={gaLoading} />
-      </div>
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile label="Google Search clicks" value={searchValue(s?.totals?.clicks)} note={searchTileNote} color={SERIES_COLORS.clicks} loading={searchLoading} />
         <StatTile label="Google Search impressions" value={searchValue(s?.totals?.impressions)} note={searchTileNote} color={SERIES_COLORS.impressions} loading={searchLoading} />
         <StatTile
@@ -144,48 +144,17 @@ export default function AdminDashboardPage() {
         />
       </div>
 
+      {/* 3. Top pages, top posts, top keywords. */}
       <div className="mb-8 space-y-6">
-        <TrafficChartCard range={range} bucket={bucketFor(range)} inputs={trafficInputs} setupUrl={SETUP_STEPS_URL} />
         <TopPagesCard range={range} state={topPages.state} />
         <TopPostsCard range={range} state={topPosts.state} />
+        <TopKeywordsCard range={range} state={topKeywords.state} />
       </div>
 
       <div className="mb-8">
         <FunnelPanel range={range} />
       </div>
-
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold">Admin Tools</h2>
-        <p className="text-sm text-muted-foreground">Select a tool to get started. Features will be activated as we build them together.</p>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {adminTools.map((tool) => (
-          <Card
-            key={tool.title}
-            className={`group relative overflow-hidden transition-shadow hover:shadow-lg ${tool.href ? "cursor-pointer" : ""}`}
-            onClick={() => tool.href && router.push(tool.href)}
-          >
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="rounded-lg bg-primary/10 p-2">
-                  <tool.icon className="h-5 w-5 text-primary" />
-                </div>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
-                  tool.status === "Active"
-                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                    : "bg-muted text-muted-foreground"
-                }`}>
-                  {tool.status}
-                </span>
-              </div>
-              <CardTitle className="mt-3 text-base">{tool.title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">{tool.description}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   )
 }
+

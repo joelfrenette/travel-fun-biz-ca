@@ -5,7 +5,31 @@
 
 import type { Ga4RangeReport } from './ga4'
 import type { SearchRangeResult, VisitsRangeResult } from './dashboard-data'
-import { CHANNEL_COLORS, SERIES_COLORS, bucketLabel, type Bucket } from './dashboard-range'
+import { CHANNEL_COLORS, DASH_CHANNELS, SERIES_COLORS, bucketLabel, type Bucket, type DashChannel } from './dashboard-range'
+
+// The first chart on the dashboard is a STACKED chart: one colour-coded layer per traffic source (Google Analytics channel), with the
+// combined total as a line on top. Each row therefore also carries one `ch_*` value per channel (see channelKey). The users, Google
+// Search and recorded-visit series are extra lines the person can switch on. The stack and the total come from the same numbers, so the
+// layers always add up to the line.
+
+export type ChannelKey = `ch_${string}`
+export const channelKey = (c: DashChannel): ChannelKey => `ch_${c.toLowerCase().replace(/\s+/g, '_')}`
+
+/** The total line on top of the stack (the sum of every source). */
+export const TOTAL_ID = 'sessions' as const
+/** Lines the person can switch on beside the stack. They are off at first so the first picture stays about the sources. */
+export const EXTRA_IDS = ['users', 'clicks', 'impressions', 'visits'] as const
+export const EXTRA_DEFAULT_HIDDEN: readonly SeriesId[] = [...EXTRA_IDS]
+
+export interface ChannelLayer {
+  channel: DashChannel
+  key: ChannelKey
+  color: string
+  /** Sessions over the range. */
+  total: number
+  /** Share of all sessions, 0 to 100 (one decimal). 0 when there are no sessions. */
+  share: number
+}
 
 export const SERIES_IDS = ['sessions', 'users', 'organic', 'direct', 'referral', 'social', 'clicks', 'impressions', 'visits'] as const
 export type SeriesId = (typeof SERIES_IDS)[number]
@@ -22,7 +46,7 @@ export interface SeriesSpec {
 }
 
 export const SERIES_SPECS: Record<SeriesId, SeriesSpec> = {
-  sessions: { id: 'sessions', label: 'Sessions', color: '#2563eb', axis: 'left', dash: undefined, source: 'Google Analytics' },
+  sessions: { id: 'sessions', label: 'Total traffic (all sources)', color: '#2563eb', axis: 'left', dash: undefined, source: 'Google Analytics' },
   users: { id: 'users', label: 'Users', color: '#7c3aed', axis: 'left', dash: undefined, source: 'Google Analytics' },
   organic: { id: 'organic', label: 'Organic search sessions', color: CHANNEL_COLORS['Organic Search'], axis: 'left', dash: undefined, source: 'Google Analytics' },
   direct: { id: 'direct', label: 'Direct sessions', color: CHANNEL_COLORS.Direct, axis: 'left', dash: undefined, source: 'Google Analytics' },
@@ -46,13 +70,15 @@ export interface TrafficSeries extends SeriesSpec {
   total: number | null
 }
 
-export type TrafficRow = { key: string; label: string } & Partial<Record<SeriesId, number>>
+export type TrafficRow = { key: string; label: string } & Partial<Record<SeriesId, number>> & Partial<Record<ChannelKey, number>>
 
 export interface TrafficChart {
   bucket: Bucket
   rows: TrafficRow[]
   /** All nine, in a fixed order, available or not. */
   series: TrafficSeries[]
+  /** The colour-coded layers of the stack, one per traffic source that brought sessions, biggest first. Empty when Google Analytics could not be read. */
+  channels: ChannelLayer[]
   /** Only the ones that are missing, each with the reason. */
   unavailable: { id: SeriesId; label: string; reason: string }[]
   /** True when at least one available series has a point above zero. */
@@ -88,6 +114,7 @@ export function buildTrafficSeries(bucket: Bucket, ga: GaInput, search: SearchIn
       const sum = Object.values(b.channels).reduce<number>((a, n) => a + finite(n), 0)
       sessionsSum += sum
       row.sessions = sum
+      for (const c of DASH_CHANNELS) row[channelKey(c)] = finite(b.channels[c])
       row.organic = finite(b.channels['Organic Search'])
       row.direct = finite(b.channels.Direct)
       row.referral = finite(b.channels.Referral)
@@ -144,10 +171,24 @@ export function buildTrafficSeries(bucket: Bucket, ga: GaInput, search: SearchIn
   const availableIds = series.filter((s) => s.available).map((s) => s.id)
   for (const r of rows) for (const id of availableIds) if (r[id] === undefined) r[id] = 0
 
+  // The stack: only when Google Analytics was read. A channel with no sessions in the range is left out of the picture (the legend
+  // under the chart still says how many sources were quiet).
+  const channels: ChannelLayer[] = []
+  if (ga.status === 'ok') {
+    const grand = ga.report.buckets.reduce((a, b) => a + Object.values(b.channels).reduce<number>((x, n) => x + finite(n), 0), 0)
+    for (const c of DASH_CHANNELS) {
+      const total = ga.report.buckets.reduce((a, b) => a + finite(b.channels[c]), 0)
+      if (total > 0) channels.push({ channel: c, key: channelKey(c), color: CHANNEL_COLORS[c], total, share: grand > 0 ? Math.round((total / grand) * 1000) / 10 : 0 })
+    }
+    channels.sort((a, b) => b.total - a.total)
+    for (const r of rows) for (const c of DASH_CHANNELS) if (r[channelKey(c)] === undefined) r[channelKey(c)] = 0
+  }
+
   return {
     bucket,
     rows,
     series,
+    channels,
     unavailable: series.filter((s) => !s.available).map((s) => ({ id: s.id, label: s.label, reason: s.reason })),
     hasData: rows.some((r) => availableIds.some((id) => (r[id] ?? 0) > 0)),
   }
@@ -159,6 +200,31 @@ export function unavailableNote(chart: TrafficChart): string {
   const byReason = new Map<string, string[]>()
   for (const u of chart.unavailable) byReason.set(u.reason, [...(byReason.get(u.reason) ?? []), u.label.replace(' (right scale)', '')])
   return `Not drawn: ${[...byReason].map(([reason, labels]) => `${labels.join(', ')} (${reason})`).join('; ')}. Nothing here is a zero that was not counted.`
+}
+
+export interface TooltipLine {
+  label: string
+  color: string
+  value: number
+  /** Share of that point's total, 0 to 100 (whole numbers). */
+  share: number
+}
+
+/** What the tooltip shows for one point: every source with sessions at that point (value and share of that point), biggest first, and
+ * the total. The channel values are the ones in the stack, so the lines always add up to the total. Pure. */
+export function tooltipBreakdown(row: TrafficRow, channels: readonly ChannelLayer[]): { total: number; lines: TooltipLine[] } {
+  const vals = channels.map((c) => ({ c, v: finite(row[c.key]) }))
+  const total = vals.reduce((a, x) => a + x.v, 0)
+  const lines = vals
+    .filter((x) => x.v > 0)
+    .sort((a, b) => b.v - a.v)
+    .map((x) => ({ label: x.c.channel, color: x.c.color, value: x.v, share: total > 0 ? Math.round((x.v / total) * 100) : 0 }))
+  return { total, lines }
+}
+
+/** The extra lines (users, Google Search, recorded visits) that can be drawn beside the stack. Pure. */
+export function extraLines(chart: TrafficChart, hidden: readonly SeriesId[]): TrafficSeries[] {
+  return visibleSeries(chart, hidden).filter((s) => (EXTRA_IDS as readonly string[]).includes(s.id))
 }
 
 /** Which series ids are drawn, given the ones the person switched off. Pure. */

@@ -319,13 +319,14 @@ const SECTIONS: NavSection[] = [
   {
     id: "do-first",
     title: "Do first",
-    hint: "The three things to open every day, in this order.",
+    hint: "The four things to open every day, in this order.",
     numbered: true,
     defaultOpen: true,
     links: [
+      mod("System check", { badge: "check" }),
       { ...todayNavItem, key: "Today", badge: "today" },
       mod("Daily follow-ups", { badge: "followups" }),
-      mod("System check", { badge: "check" }),
+      { ...dashboardAnchorItem, key: "Dashboard" },
     ],
   },
   {
@@ -334,7 +335,7 @@ const SECTIONS: NavSection[] = [
     hint: "How the site is doing right now.",
     numbered: true,
     defaultOpen: true,
-    links: [{ ...dashboardAnchorItem, key: "Dashboard" }, mod("Search Rankings"), mod("Users and Analytics"), mod("Website Value")],
+    links: [mod("Search Rankings"), mod("Users and Analytics"), mod("Website Value")],
   },
   {
     id: "make",

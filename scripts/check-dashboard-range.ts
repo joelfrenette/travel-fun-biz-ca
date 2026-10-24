@@ -4,7 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  DASH_RANGES, DASH_CHANNELS, CHANNEL_COLORS, parseRange, resolveRange, rangeDays, bucketFor, ga4DateRange, ga4BucketDimension,
+  DASH_RANGES, DASH_CHANNELS, CHANNEL_COLORS, DEFAULT_RANGE, RANGE_STORAGE_KEY, parseRange, resolveRange, rangeDays, bucketFor, ga4DateRange, ga4BucketDimension,
   dashChannelOf, emptyChannelCounts, legendEntries, visitChannelToDash, gscWindow, isoWeekKey, bucketKey, ga4KeyToBucketKey, rollUpSearch, rollUpVisits,
 } from '../lib/dashboard-range'
 import { buildRangeReport } from '../lib/ga4'
@@ -20,11 +20,15 @@ const src = (p: string) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8'
 // ---------- range parsing ----------
 check('DASH_RANGES are 7, 30, 365, all', DASH_RANGES.join(',') === '7,30,365,all')
 check('parseRange accepts the four values', (['7', '30', '365', 'all'] as const).every((r) => parseRange(r) === r))
-check('parseRange: bad values fall back to all time (the default)', ['', 'abc', '14', '0', '-5', '999', 'ALL ', null, undefined, {}, 12].every((v) => parseRange(v as unknown) === 'all'))
+check('the default range is the past 30 days', DEFAULT_RANGE === '30')
+check('parseRange: bad values fall back to 30 days (the default)', ['', 'abc', '14', '0', '-5', '999', null, undefined, {}, 12].every((v) => parseRange(v as unknown) === '30'))
+check('parseRange: "ALL " (case and spaces ignored) is still all time', parseRange('ALL ') === 'all')
+check('the stored-range key is versioned, so an old stored "all" cannot override the new default', (RANGE_STORAGE_KEY as string) !== 'tfb-dashboard-range' && /-v\d+$/.test(RANGE_STORAGE_KEY))
+check('a first visit with nothing stored and no URL value shows 30 days', resolveRange(null, null) === '30')
 check('parseRange: numbers 7 and 365 work', parseRange(7) === '7' && parseRange(365) === '365')
 check('resolveRange: URL wins over storage', resolveRange('7', '365') === '7')
 check('resolveRange: bad URL uses storage', resolveRange('nonsense', '365') === '365')
-check('resolveRange: both bad = all time (the default)', resolveRange('x', 'y') === 'all' && resolveRange(null, null) === 'all' && resolveRange(undefined, undefined) === 'all')
+check('resolveRange: both bad = 30 days (the default)', resolveRange('x', 'y') === '30' && resolveRange(null, null) === '30' && resolveRange(undefined, undefined) === '30')
 check('rangeDays: 7/30/365/all', rangeDays('7') === 7 && rangeDays('30') === 30 && rangeDays('365') === 365 && rangeDays('all') === null)
 
 // ---------- GA4 dates and buckets ----------
@@ -113,8 +117,9 @@ const page = src('app/admin/dashboard/page.tsx')
 const pills = src('components/admin/dashboard-range-pills.tsx')
 check('pills are buttons with aria-pressed and a labelled group', /aria-pressed=\{active\}/.test(pills) && /role="group"/.test(pills) && /<button/.test(pills))
 check('page remembers the range in localStorage inside try/catch and in the URL', /localStorage\.setItem\(RANGE_STORAGE_KEY/.test(page) && /try \{[\s\S]{0,80}localStorage\.getItem\(RANGE_STORAGE_KEY/.test(page) && /searchParams\.set\("range"/.test(page) && /replaceState/.test(page))
-check('page passes the range to every card', /FunnelPanel range=\{range\}/.test(page) && /api\/admin\/analytics/.test(page) && /api\/admin\/dashboard-search/.test(page) && /api\/admin\/dashboard-visits/.test(page))
-check('page has Direct and Referral tiles', /Direct sessions/.test(page) && /Referral sessions/.test(page))
+check('page passes the range to every card', /FunnelPanel range=\{range\}/.test(page) && /api\/admin\/analytics/.test(page) && /api\/admin\/dashboard-search/.test(page) && /api\/admin\/dashboard-visits/.test(page) && /api\/admin\/dashboard-top-keywords/.test(page))
+check('the page starts on the default range (30 days) and reads only the versioned storage key', /useState<DashRange>\(DEFAULT_RANGE\)/.test(page) && !/tfb-dashboard-range['"]/.test(page))
+check('the per-source numbers moved into the first chart (colour legend with totals), not separate tiles', /source-legend/.test(src('components/admin/dashboard-cards.tsx')) && !/Direct sessions/.test(page))
 
 // ---------- routes guarded, no em dashes ----------
 for (const f of ['app/api/admin/analytics/route.ts', 'app/api/admin/dashboard-search/route.ts', 'app/api/admin/dashboard-visits/route.ts', 'app/api/admin/funnel/route.ts']) {

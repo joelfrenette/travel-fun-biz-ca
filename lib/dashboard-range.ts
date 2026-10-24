@@ -3,8 +3,9 @@
 
 export type DashRange = '7' | '30' | '365' | 'all'
 export const DASH_RANGES: readonly DashRange[] = ['7', '30', '365', 'all']
-export const DEFAULT_RANGE: DashRange = 'all'
-export const RANGE_STORAGE_KEY = 'tfb-dashboard-range'
+export const DEFAULT_RANGE: DashRange = '30'
+/** Versioned: an older stored choice (for example "all", which used to be the default) lives under the old key and is ignored, so the new 30-day default shows. */
+export const RANGE_STORAGE_KEY = 'tfb-dashboard-range-v2'
 
 export const RANGE_LABELS: Record<DashRange, string> = {
   '7': 'Last 7 days',

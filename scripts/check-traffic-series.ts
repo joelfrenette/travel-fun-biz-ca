@@ -2,8 +2,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildRangeReport } from '../lib/ga4'
-import { SERIES_IDS, SERIES_SPECS, buildTrafficSeries, toggleHidden, unavailableNote, visibleSeries, type GaInput, type SearchInput, type VisitsInput } from '../lib/traffic-series'
-import { CHANNEL_COLORS, SERIES_COLORS, emptyChannelCounts } from '../lib/dashboard-range'
+import { EXTRA_DEFAULT_HIDDEN, EXTRA_IDS, SERIES_IDS, SERIES_SPECS, buildTrafficSeries, channelKey, extraLines, toggleHidden, tooltipBreakdown, unavailableNote, visibleSeries, type GaInput, type SearchInput, type VisitsInput } from '../lib/traffic-series'
+import { CHANNEL_COLORS, DASH_CHANNELS, SERIES_COLORS, emptyChannelCounts } from '../lib/dashboard-range'
 import type { SearchRangeResult, VisitsRangeResult } from '../lib/dashboard-data'
 
 let failures = 0
@@ -75,7 +75,7 @@ expect('everything read but nothing counted: no data (a real zero), nothing name
 // ---- 4. the note
 expect('the note is empty when nothing is missing', unavailableNote(all) === '')
 const note = unavailableNote(gaOff)
-expect('the note groups series by reason, says which are not drawn, and uses plain words', /^Not drawn: Sessions, Users, Organic search sessions, Direct sessions, Referral sessions, Social sessions \(Google Analytics is not connected\)\./.test(note) && /not a zero|is a zero that was not counted/.test(note) && !/[—–]/.test(note), note)
+expect('the note groups series by reason, says which are not drawn, and uses plain words', /^Not drawn: Total traffic \(all sources\), Users, Organic search sessions, Direct sessions, Referral sessions, Social sessions \(Google Analytics is not connected\)\./.test(note) && /not a zero|is a zero that was not counted/.test(note) && !/[—–]/.test(note), note)
 expect('the note does not carry the "(right scale)" tag', !/right scale/.test(unavailableNote(seErr)) && /Google Search impressions/.test(unavailableNote(seErr)))
 
 // ---- 5. toggles
@@ -92,8 +92,25 @@ expect('the channel counts helper is unchanged', Object.keys(emptyChannelCounts(
 
 // ---- 7. wiring
 const cards = read('components/admin/dashboard-cards.tsx')
-expect('the dashboard has ONE traffic chart: no separate Google Analytics, Search or Visits chart cards', /export function TrafficChartCard/.test(cards) && !/export function (TrafficCard|SearchCard|VisitsCard)/.test(cards) && (cards.match(/<LineChart/g) ?? []).length === 1 && !/<AreaChart/.test(cards))
+expect('the dashboard has ONE traffic chart: no separate Google Analytics, Search or Visits chart cards', /export function TrafficChartCard/.test(cards) && !/export function (TrafficCard|SearchCard|VisitsCard)/.test(cards) && (cards.match(/<ComposedChart/g) ?? []).length === 1 && !/<AreaChart|<LineChart/.test(cards))
 expect('the legend is a set of toggle buttons with aria-pressed, impressions get a right-hand YAxis', /aria-pressed/.test(cards) && /yAxisId="right"/.test(cards) && /toggleHidden/.test(cards))
+
+// ---- 8. the stacked, colour-coded combined chart (the first graphic on the dashboard)
+expect('the stack has one layer per source that brought sessions, biggest first, in the channel colours', all.channels.map((c) => c.channel).join(',') === 'Organic Search,Direct,Referral,Organic Social,Paid Social' && all.channels.every((c) => c.color === CHANNEL_COLORS[c.channel]), all.channels.map((c) => c.channel).join(','))
+expect('layer totals and shares add up: the layers sum to the total line and the shares to 100', all.channels.reduce((a, c) => a + c.total, 0) === all.series.find((s) => s.id === 'sessions')!.total && Math.abs(all.channels.reduce((a, c) => a + c.share, 0) - 100) < 0.6, all.channels.map((c) => `${c.channel}:${c.total}:${c.share}`).join(' '))
+expect('every row carries one value per channel and they sum to that row\'s total', all.rows.every((r) => DASH_CHANNELS.reduce((a, c) => a + (r[channelKey(c)] ?? 0), 0) === r.sessions))
+expect('paid social stays its own layer (the old social line merged it, the stack does not)', all.channels.find((c) => c.channel === 'Paid Social')!.total === 1 && all.channels.find((c) => c.channel === 'Organic Social')!.total === 2)
+const tip = tooltipBreakdown(all.rows[0], all.channels)
+expect('the tooltip lists each source with its value and its share of that day, biggest first, and the total', tip.total === 18 && tip.lines.map((l) => `${l.label}:${l.value}:${l.share}`).join(',') === 'Organic Search:10:56,Direct:5:28,Organic Social:2:11,Paid Social:1:6', tip.lines.map((l) => `${l.label}:${l.value}:${l.share}`).join(','))
+expect('a day with no sessions shows no lines and a zero total (no divide by zero)', tooltipBreakdown(all.rows[2], all.channels).total === 0 && tooltipBreakdown(all.rows[2], all.channels).lines.length === 0)
+expect('no stack when Google Analytics could not be read (never a made-up breakdown)', gaOff.channels.length === 0 && buildTrafficSeries('day', { status: 'error' }, seOk, viOk).channels.length === 0 && gaOff.rows.every((r) => DASH_CHANNELS.every((c) => r[channelKey(c)] === undefined)))
+expect('the extras (users, clicks, impressions, visits) start switched off and can be drawn beside the stack', EXTRA_DEFAULT_HIDDEN.join(',') === EXTRA_IDS.join(',') && extraLines(all, EXTRA_DEFAULT_HIDDEN).length === 0 && extraLines(all, []).map((s) => s.id).join(',') === 'users,clicks,impressions,visits' && extraLines(gaOff, []).map((s) => s.id).join(',') === 'clicks,impressions,visits')
+expect('the card: stacked Areas share one stackId, the total is a Line on top, and a custom tooltip shows value and share', /<Area[^>]*stackId="sources"/.test(cards) && /dataKey=\{TOTAL_ID\}/.test(cards) && /tooltipBreakdown/.test(cards) && /data-testid="source-legend"/.test(cards) && /data-testid="traffic-tooltip"/.test(cards))
+expect('the colour legend shows each source with its total and share and is a set of toggle buttons', /c\.total\.toLocaleString\(\)/.test(cards) && /c\.share/.test(cards) && /aria-pressed=\{!off\}/.test(cards))
+expect('the chart is the first thing on the dashboard, before the tiles and the tables', (() => {
+  const d = read('app/admin/dashboard/page.tsx')
+  return d.indexOf('<TrafficChartCard') > 0 && d.indexOf('<TrafficChartCard') < d.indexOf('<StatTile') && d.indexOf('<TrafficChartCard') < d.indexOf('<TopPagesCard')
+})())
 expect('the chart fits a phone: responsive container, wrapping grid legend, 36px+ tap targets', /ResponsiveContainer/.test(cards) && /min-h-9/.test(cards) && /grid-cols-1/.test(cards))
 expect('the GA4 setup help text survives for the not-connected case', /Google Analytics is not connected/.test(cards) && /Open the Setup steps/.test(cards))
 

@@ -10,7 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { LogOut, ExternalLink, Menu, X, ChevronDown, ChevronRight, CalendarCheck, ListChecks, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { adminNavSections, type NavBadge, type NumberedNavLink } from "@/lib/admin-nav"
-import { BADGES_EVENT, fetchToday, readCachedBadges, type NavBadges } from "@/components/admin/today-client"
+import { BADGES_EVENT, clearCheckRan, fetchToday, readCachedBadges, type NavBadges } from "@/components/admin/today-client"
+
+const LANDED_KEY = "adminLanded"
 
 // ─── Admin Login Form ───────────────────────────────────────────────
 function LoginView({ onLogin }: { onLogin: (token: string, email: string) => void }) {
@@ -333,9 +335,35 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("keydown", onKey)
   }, [mobileNavOpen])
 
+  // Every sign-in lands on the System check, which runs a fresh check by itself. A session that starts without a sign-in (the saved
+  // token, in a new tab or on a new day) does the same, but only when it opened the Today page: a deep link to another page is
+  // never hijacked. The landing flag lives in sessionStorage, so a Skip or Continue to Today is not sent back.
+  useEffect(() => {
+    if (state !== "ready") return
+    let seen = false
+    try {
+      seen = sessionStorage.getItem(LANDED_KEY) === new Date().toISOString().slice(0, 10)
+      sessionStorage.setItem(LANDED_KEY, new Date().toISOString().slice(0, 10))
+    } catch {
+      seen = true
+    }
+    if (!seen && pathname === "/admin") {
+      clearCheckRan()
+      router.replace("/admin/system-check")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
+
   function handleLogin(_token: string, loginEmail: string) {
     setEmail(loginEmail)
+    clearCheckRan()
+    try {
+      sessionStorage.setItem(LANDED_KEY, new Date().toISOString().slice(0, 10))
+    } catch {
+      // ignore
+    }
     setState("ready")
+    router.replace("/admin/system-check")
   }
 
   async function handleLogout() {
@@ -420,11 +448,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </header>
         <main className="min-w-0 flex-1 pb-20 md:pb-0">{children}</main>
       </div>
-      {/* Phone bottom bar: the three things to open every day, then the full menu. */}
+      {/* Phone bottom bar: the three things to open every day (Check, Today, Follow-ups), then the full menu (the Dashboard is step 4 in it). */}
       <nav aria-label="Quick links" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-card md:hidden">
+        <BottomLink href="/admin/system-check" label="Check" active={pathname.startsWith("/admin/system-check")} icon={ShieldCheck} light={badges.check} />
         <BottomLink href="/admin" label="Today" active={pathname === "/admin"} icon={CalendarCheck} count={badges.today} />
         <BottomLink href="/admin/follow-ups" label="Follow-ups" active={pathname.startsWith("/admin/follow-ups")} icon={ListChecks} count={badges.followups} />
-        <BottomLink href="/admin/system-check" label="Check" active={pathname.startsWith("/admin/system-check")} icon={ShieldCheck} light={badges.check} />
         <button type="button" onClick={() => setMobileNavOpen(true)} aria-label="Open the full menu" className="flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium text-foreground/70">
           <Menu className="h-5 w-5" aria-hidden="true" />
           Menu

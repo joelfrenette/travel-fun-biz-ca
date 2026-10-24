@@ -95,3 +95,56 @@ export function fetchToday(force = false): Promise<TodayData> {
     })
   return inflight
 }
+
+/** Copies text to the clipboard. Uses navigator.clipboard, and a hidden textarea when that is blocked (older phones, plain http). Returns true when it worked. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the textarea
+  }
+  try {
+    const ta = document.createElement("textarea")
+    ta.value = text
+    ta.setAttribute("readonly", "")
+    ta.style.position = "fixed"
+    ta.style.top = "0"
+    ta.style.opacity = "0"
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    const ok = document.execCommand("copy")
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+/** The once-per-login flag: the system check page runs a fresh check by itself when this is not today's date. sessionStorage, so a new tab runs it again. */
+export const CHECK_RAN_KEY = "adminCheckRan"
+const today = () => new Date().toISOString().slice(0, 10)
+export function checkAlreadyRanToday(): boolean {
+  try {
+    return sessionStorage.getItem(CHECK_RAN_KEY) === today()
+  } catch {
+    return false
+  }
+}
+export function markCheckRan(): void {
+  try {
+    sessionStorage.setItem(CHECK_RAN_KEY, today())
+  } catch {
+    // blocked storage: the check just runs again next time
+  }
+}
+export function clearCheckRan(): void {
+  try {
+    sessionStorage.removeItem(CHECK_RAN_KEY)
+  } catch {
+    // ignore
+  }
+}

@@ -1,11 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Check, ExternalLink, Clock, Undo2, X, ArrowRight } from "lucide-react"
 import { GROUP_LABEL, TODAY_KINDS, actionFor, needsConfirm } from "@/lib/today-cards"
-import { SystemCheckStrip } from "@/components/admin/system-check-strip"
-import { FollowupsPanel } from "@/components/admin/followups-panel"
 import { authHeaders, fetchToday, type TodayData } from "@/components/admin/today-client"
 import { cn } from "@/lib/utils"
 
@@ -191,8 +190,6 @@ export function TodayStack() {
 
   return (
     <section aria-label="Today" className="mx-auto w-full max-w-xl">
-      <SystemCheckStrip system={data?.system ?? null} check={data?.check ?? null} fixes={data?.fixes ?? null} />
-
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <h2 className="text-2xl font-bold">Today</h2>
         <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -211,22 +208,17 @@ export function TodayStack() {
       {!data && !loadError && <div className="h-64 animate-pulse rounded-xl border bg-muted/40" aria-hidden="true" />}
 
       {data && !card && (
-        <div className="rounded-xl border bg-card p-6 text-center">
-          <h3 className="text-xl font-semibold">All clear. The machine has it.</h3>
+        <div className="rounded-xl border bg-card p-6 text-center" data-testid="today-empty">
+          <h3 className="text-xl font-semibold">All done for today</h3>
           <p className="mt-1 text-sm text-muted-foreground">Nothing needs your yes or no right now.</p>
-          <dl className="mt-4 grid grid-cols-2 gap-3 text-left sm:grid-cols-4">
-            {[
-              ["Posts published", data.wins.postsPublished],
-              ["Social posts sent", data.wins.socialSent],
-              ["Guides written", data.wins.guidesWritten],
-              ["New leads", data.wins.leads],
-            ].map(([name, value]) => (
-              <div key={name as string} className="rounded-lg bg-muted/50 p-3">
-                <dd className="text-2xl font-bold leading-none">{value === null ? "n/a" : (value as number)}</dd>
-                <dt className="mt-1 text-xs text-muted-foreground">{name as string} today</dt>
-              </div>
-            ))}
-          </dl>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link href="/admin/follow-ups" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90">
+              Daily follow-ups <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+            <Link href="/admin/dashboard" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-4 text-sm font-medium hover:bg-muted">
+              Dashboard <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
           {data.snoozedCount > 0 && <p className="mt-3 text-xs text-muted-foreground">{data.snoozedCount} card{data.snoozedCount === 1 ? " is" : "s are"} hidden until later.</p>}
         </div>
       )}
@@ -339,16 +331,6 @@ export function TodayStack() {
         </div>
       )}
 
-      {data && data.problems.length > 0 && (
-        <ul className="mt-3 space-y-1 rounded-lg border border-amber-500/50 bg-amber-500/5 p-3 text-xs">
-          {data.problems.map((p) => (
-            <li key={p}>{p}</li>
-          ))}
-        </ul>
-      )}
-
-      {/* Third on the page: the daily follow-ups, under the cards. Collapsible, and the dashboard comes after it. */}
-      <FollowupsPanel collapsible />
     </section>
   )
 }

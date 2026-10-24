@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server'
 import { isAuthorized } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { getSystemCheck, loadFixes, tickFix } from '@/lib/system-check-run'
+import { revalidatePath } from 'next/cache'
+import { getSystemCheck, loadFixes, readStoredCheck, tickFix } from '@/lib/system-check-run'
+import { runAutoHeal } from '@/lib/system-check-heal'
+import { diffChecks } from '@/lib/system-check-prompt'
 import { summarizeCheck } from '@/lib/system-check'
 import { summarizeFixes } from '@/lib/system-check-fixes'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 30
+export const maxDuration = 60
 
 async function answer(force: boolean) {
   const admin = getSupabaseAdmin()
@@ -26,6 +29,8 @@ async function answer(force: boolean) {
 //       fixed by itself and what needs a person, plus `fixes`: the "Fix these today" list built from the amber and red stages, most
 //       impactful first, each with today's tick. An answer younger than 5 minutes is reused; ?force=1 reads everything again.
 // POST  {op: 'run'}                          "Run check now": reads everything again and saves the answer, then returns it like GET.
+//       {op: 'heal'}                          "Auto-heal": runs the existing safe, capped repairs once (lib/system-check-heal.ts; no AI call,
+//                                             kill switch and caps respected, each repair logged with Undo), then returns a fresh check plus `heal`.
 //       {op: 'done'|'later'|'reopen', stage}  tick one fix for today (kept in the daily follow-ups store).
 // Read only (apart from saving its own answer and the ticks in app_settings). No AI call, nothing posted.
 export async function GET(request: Request) {
@@ -42,6 +47,24 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as { op?: unknown; stage?: unknown } | null
     if (body?.op === 'run') return NextResponse.json(await answer(true))
+    if (body?.op === 'heal') {
+      // Auto-heal: one safe, capped pass through the repairs the site already makes daily, then a fresh check and what changed.
+      const admin = getSupabaseAdmin()
+      const before = await readStoredCheck(admin)
+      const run = await runAutoHeal(admin)
+      for (const p of run.changedPaths) {
+        try {
+          revalidatePath(p)
+        } catch {
+          // a cache miss must not fail the heal
+        }
+      }
+      const after = await answer(true)
+      return NextResponse.json({
+        ...after,
+        heal: { report: run.report, cooledDown: run.cooledDown, cooldownSeconds: run.cooldownSeconds, diff: diffChecks(before, after) },
+      })
+    }
     if (body?.op === 'done' || body?.op === 'later' || body?.op === 'reopen') {
       const r = await tickFix(getSupabaseAdmin(), body.stage, body.op)
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
