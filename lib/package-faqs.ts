@@ -140,7 +140,8 @@ export function stemWord(w: string): string {
 }
 const stemKey = (w: string) => stemWord(w).slice(0, 5)
 
-const wordsOf = (t: string): string[] => t.toLowerCase().match(/[a-z]+(?:'[a-z]+)?/g) ?? []
+const foldAccents = (t: string): string => t.normalize('NFD').replace(/[̀-ͯ]/g, '')
+const wordsOf = (t: string): string[] => foldAccents(t.toLowerCase()).match(/[a-z]+(?:'[a-z]+)?/g) ?? []
 const contentWords = (t: string): string[] => wordsOf(t).filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
 
 /** Share of an answer's content words that occur (by light stem) in the row text, 0 to 1. */
@@ -162,7 +163,7 @@ export function capitalisedStrangers(answer: string, grounding: string): string[
     const tokens = sentence.match(/[\p{L}][\p{L}'’-]*/gu) ?? []
     tokens.forEach((tok, i) => {
       if (i === 0 || tok === 'I' || !/^\p{Lu}/u.test(tok)) return
-      const bare = tok.toLowerCase().replace(/['’]s$/, '')
+      const bare = foldAccents(tok.toLowerCase()).replace(/['’]s$/, '')
       if (!known.has(bare)) out.push(tok)
     })
   }

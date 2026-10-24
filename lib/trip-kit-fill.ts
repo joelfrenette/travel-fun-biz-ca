@@ -347,9 +347,13 @@ export function writerPrompt(pkg: DbPackage, b: TextBundle, sheet: FactSheet, wa
     `"not_included": same shape, for things the text says are NOT included (flights only if the text says so)`,
     `"good_to_know": array of {"label":"Deposit|Final payment|Passport and visas|Cancellation|Age|Activity level|Meals|Group size|Other","text":"...","quote":"copied exactly"} ONLY for facts the text states (no amounts)`,
   ].filter(Boolean)
+  // Rules added only when the stored text needs them, so every other trip's cached answer stays valid.
+  const extraRules: string[] = []
+  if (/adults?[- ]only/i.test(b.stored)) extraRules.push('14. Never write "adults only" or "adults-only" next to resort, hotel or ship. Write "a resort for guests aged eighteen and over" instead.')
+  if (/[A-Z][a-z]+['’]s\s+[A-Z]/.test(b.stored)) extraRules.push('15. Never use a possessive on a place name. (This overrides rule 13.) Write "the Valley of the Temples at Agrigento", not "Agrigento\'s Valley of the Temples".')
   return `You are writing page copy for ONE trip page on TravelFunBiz.ca, a Canadian travel agency (hosted group trips, cruises, singles getaways). The page's goal is to start a conversation with a travel specialist.
 
-${WRITER_RULES}
+${WRITER_RULES}${extraRules.length ? `\n${extraRules.join('\n')}` : ''}
 ${past ? '\nThis trip date has passed. Write so it is true whether or not the trip ran: describe the planned route and the places, use "the trip was planned around", and do not invite booking this departure (invite the reader to ask about a similar trip).' : ''}${feedback.length ? `\nYour last answer was rejected for: ${feedback.join('; ')}. Fix exactly those problems.\n` : ''}
 TRIP: ${pkg.name}
 DESTINATION: ${pkg.destination}${pkg.country ? `, ${pkg.country}` : ''}
@@ -404,6 +408,14 @@ export interface FillPlan {
   /** Fields whose generated copy was rejected by the gate, with the reasons. */
   held: { field: string; reasons: string[]; sample?: string }[]
   merged: DbPackage
+}
+
+/** The writer sometimes drops accents ("Paraiso" for "Paraíso"). Put back the spelling the stored text uses. Pure. */
+export function restoreAccents(text: string, source: string): string {
+  const accented = new Map<string, string>()
+  for (const w of source.match(/[\p{L}]+/gu) ?? []) if (/[^\u0000-\u007f]/.test(w)) accented.set(fold(w), w)
+  if (accented.size === 0) return text
+  return text.replace(/[\p{L}]+/gu, (w) => (/[^\u0000-\u007f]/.test(w) ? w : (accented.get(fold(w)) ?? w)))
 }
 
 function stripEmoji(s: string): string {
@@ -483,7 +495,7 @@ export async function planTripKit(
   const refText = sheet.places.map((p) => (p.ref ? `${p.ref.intro}\n${[...p.ref.see, ...p.ref.doItems].map((i) => `${i.name}. ${i.blurb}`).join('\n')}` : '')).join('\n')
   const grounding0 = `${b.grounding}\n${refText}\n${pkg.name}\n${pkg.destination}\nLength: ${pkg.duration}\nDates: ${pkg.available_from ?? ''} ${pkg.available_to ?? ''} ${dateRangeText(pkg.available_from, pkg.available_to) ?? ''} ${(pkg.departure_dates ?? []).join(' ')}`
   // "Onofrio's Fountain" and "Onofrio Fountain" are the same name: the gate sees both spellings.
-  const grounding = `${grounding0}\n${grounding0.replace(/['’]s\b/g, '')}`
+  const grounding = `${grounding0}\n${grounding0.replace(/['’]s\b/gi, '')}\n${grounding0.replace(/[-‐-―]/g, ' ')}`
 
   // What to write: only fields that are empty (never overwrite text a person wrote), plus a meta description with a wrong year.
   const row = pkg as unknown as Record<string, unknown>
@@ -525,14 +537,14 @@ export async function planTripKit(
     raw = answer
     const problems: string[] = []
     if (wanted.description) {
-      const d = typeof answer.full_description === 'string' ? removeDashes(answer.full_description.trim()) : ''
+      const d = typeof answer.full_description === 'string' ? restoreAccents(removeDashes(answer.full_description.trim()), grounding) : ''
       const bl = d ? tripKitBlockers(d, { grounding, field: 'full_description' }) : ['no description']
       if (d && !containsPhrase(d.split(/(?<=[.!?])\s/)[0] ?? '', pkg.name) && !containsPhrase(d.slice(0, 400), pkg.name)) bl.push('the first sentences do not contain the trip name')
       if (d && d.split(/\s+/).length < 400) bl.push(`too short (${d.split(/\s+/).length} words, needs 400 or more)`)
       problems.push(...bl)
     }
     if (wanted.extend) {
-      const e = typeof answer.extra_paragraphs === 'string' ? removeDashes(answer.extra_paragraphs.trim()) : ''
+      const e = typeof answer.extra_paragraphs === 'string' ? restoreAccents(removeDashes(answer.extra_paragraphs.trim()), grounding) : ''
       problems.push(...(e ? tripKitBlockers(e, { grounding, field: 'extra' }).filter((x) => !/^too/.test(x)) : ['no extra paragraphs']))
     }
     if (problems.length === 0 || attempt === 1) break
@@ -630,14 +642,14 @@ export async function planTripKit(
   }
 
   if (wanted.description && raw) {
-    const d = typeof raw.full_description === 'string' ? removeDashes(raw.full_description.trim()).replace(/\r\n?/g, '\n') : ''
+    const d = typeof raw.full_description === 'string' ? restoreAccents(removeDashes(raw.full_description.trim()), grounding).replace(/\r\n?/g, '\n') : ''
     const bl = d ? tripKitBlockers(d, { grounding, field: 'full_description' }) : ['no description']
     if (d.split(/\s+/).length < 400) bl.push('too short')
     if (bl.length) held.push({ field: 'full_description', reasons: bl.slice(0, 6), sample: d.slice(0, 1500) })
     else put('full_description', d)
   }
   if (wanted.extend && raw) {
-    const e = typeof raw.extra_paragraphs === 'string' ? removeDashes(raw.extra_paragraphs.trim()).replace(/\r\n?/g, '\n') : ''
+    const e = typeof raw.extra_paragraphs === 'string' ? restoreAccents(removeDashes(raw.extra_paragraphs.trim()), grounding).replace(/\r\n?/g, '\n') : ''
     const bl = e ? tripKitBlockers(e, { grounding, field: 'extra' }).filter((x) => !/^too/.test(x)) : ['no extra paragraphs']
     if (e.split(/\s+/).length < 80) bl.push('too short')
     if (bl.length) held.push({ field: 'full_description (added paragraphs)', reasons: bl.slice(0, 5), sample: e.slice(0, 600) })
@@ -683,20 +695,27 @@ export async function planTripKit(
     const key = `faqs:${hashOf(`${mergedForFaq.full_description}|${mergedForFaq.price_includes}|${mergedForFaq.not_included}`)}`
     const cachedFaqs = fs.state.answers?.[key]?.faqs
     if (Array.isArray(cachedFaqs) && cachedFaqs.length) faqs = cachedFaqs
-    else if (budget.left > 0) {
-      budget.left--
-      budget.used++
-      const r = await deps.faqs(mergedForFaq)
-      if (r.usage) {
-        usage.input += r.usage.input
-        usage.output += r.usage.output
+    else {
+      // The FAQ writer varies from call to call and its gate is strict, so a failed try is repeated once (cap permitting).
+      for (let attempt = 0; attempt < 2 && !faqs; attempt++) {
+        if (budget.left <= 0) {
+          notes.push('no AI calls left for the FAQs')
+          break
+        }
+        budget.left--
+        budget.used++
+        const r = await deps.faqs(mergedForFaq)
+        if (r.usage) {
+          usage.input += r.usage.input
+          usage.output += r.usage.output
+        }
+        if (r.faqs.length) {
+          faqs = r.faqs
+          fs.state.answers = { ...(fs.state.answers ?? {}), [key]: { faqs: r.faqs } }
+          await cache.set(tripKitFactsKey(pkg.id), JSON.stringify(fs.state))
+        } else if (attempt === 1 || !r.called) notes.push(`FAQs: ${r.error ?? 'none passed the gate'}`)
       }
-      if (r.faqs.length) {
-        faqs = r.faqs
-        fs.state.answers = { ...(fs.state.answers ?? {}), [key]: { faqs: r.faqs } }
-        await cache.set(tripKitFactsKey(pkg.id), JSON.stringify(fs.state))
-      } else notes.push(`FAQs: ${r.error ?? 'none passed the gate'}`)
-    } else notes.push('no AI calls left for the FAQs')
+    }
     if (faqs) put('ai_faqs', faqs)
   }
 

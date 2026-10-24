@@ -74,7 +74,7 @@ async function main() {
       .filter((s) => s.kind !== 'photo' && s.file_name !== fill.KIT_SOURCE_NAME && s.extracted_text)
       .map((s) => s.extracted_text as string)
     const budget = await fill.dailyBudget(admin, new Date())
-    const b = { left: APPLY ? 4 : 4, used: 0 }
+    const b = { left: 6, used: 0 }
     const plan = await fill.planTripKit(p, sources, deps, cache, { existing: site.existing, targets: site.targets }, b, { refresh: REFRESH })
     let appliedInfo: unknown = null
     let afterReal = null
