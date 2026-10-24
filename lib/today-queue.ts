@@ -19,6 +19,7 @@ import { isAutopilotOn } from '@/lib/autopilot'
 import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeAllCrons, judgeCron } from '@/lib/cron-health'
 import { startOfSiteDayIso } from '@/lib/content-edits'
+import { readSeoFixCandidates, SEO_FIX_MAX } from '@/lib/seo-playbook-todo'
 
 // Builds the Today queue: every human decision, as cards, most urgent first. Each source is read on its own inside a
 // try/catch, so a source that cannot be read (a table that is not there yet) is reported in `problems` and never
@@ -163,6 +164,14 @@ async function promoteCards(admin: SupabaseClient): Promise<TodayCard[]> {
   return out.sort((a, b) => a.sortKey - b.sortKey).slice(0, 2)
 }
 
+/** The few biggest SEO fixes still open (failing, high impact) from the SEO playbook audit. "Do it" opens the fix page; Later hides it for 7 days. */
+async function seoFixCards(admin: SupabaseClient): Promise<TodayCard[]> {
+  const fixes = await readSeoFixCandidates(admin, SEO_FIX_MAX)
+  return fixes.map((c) =>
+    card('seo-fix', c.id, c.title, facts(fact('What to do', c.hint), fact('Why it matters', c.why)), -c.impact * 10 + c.effort, { link: { label: 'Open the fix', href: c.href } }),
+  )
+}
+
 // ---------------------------------------------------------------------------------------------------
 // The queue
 // ---------------------------------------------------------------------------------------------------
@@ -214,6 +223,7 @@ export async function buildTodayQueue(admin: SupabaseClient, now: number = Date.
     ['Blog drafts', () => blogDraftCards(admin)],
     ['Leads', () => leadCards(admin)],
     ['Trips to promote', () => promoteCards(admin)],
+    ['SEO fixes', () => seoFixCards(admin)],
   ]
   const results = await Promise.all(sources.map(async ([name, run]) => {
     try {

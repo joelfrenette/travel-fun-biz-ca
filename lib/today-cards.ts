@@ -40,6 +40,7 @@ export const TODAY_KIND_IDS = [
   'recap-prompt',
   'thin-page',
   'affiliate-setup',
+  'seo-fix',
 ] as const
 export type TodayKindId = (typeof TODAY_KIND_IDS)[number]
 
@@ -260,6 +261,16 @@ export const TODAY_KINDS: Record<TodayKindId, TodayKindDef> = {
     undo: { primary: true, secondary: true }, snoozeDays: 3, keepDays: 7, openDays: 1, idPattern: /^partner$/,
     routes: { primary: 'open /admin/affiliate-links', secondary: 'no change (hidden for a while)', undo: 'show the card again' },
     routeFiles: ['app/api/admin/affiliate-partners/route.ts'],
+  },
+  'seo-fix': {
+    kind: 'seo-fix', group: 'prompt', order: 19, badge: 'SEO fix',
+    why: 'This is one of the biggest SEO fixes still open on the SEO and GEO Manager.',
+    facts: ['What to do', 'Why it matters'],
+    primary: { label: 'Do it', hint: 'Opens the page where the fix is made. The card rests for a day.', mode: 'open' },
+    secondary: null,
+    undo: { primary: true, secondary: false }, snoozeDays: 7, openDays: 1, idPattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$/,
+    routes: { primary: 'open the fix page (the page or the item on /admin/seo-manager)', secondary: null, undo: 'show the card again' },
+    routeFiles: ['app/api/admin/seo-playbook/route.ts'],
   },
 }
 

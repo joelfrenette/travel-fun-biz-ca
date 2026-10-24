@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { adminTools } from "@/lib/admin-nav"
+import { adminTools, SETUP_STEPS_URL } from "@/lib/admin-nav"
 import type { Ga4RangeReport } from "@/lib/ga4"
 import type { SearchRangeResult, VisitsRangeResult } from "@/lib/dashboard-data"
 import type { TopPagesResponse, TopPostsResponse } from "@/lib/dashboard-top-data"
@@ -14,8 +14,6 @@ import { StatTile, TrafficCard, SearchCard, VisitsCard, searchNote, type Loadabl
 import { CHANNEL_COLORS, DEFAULT_RANGE, RANGE_PHRASE, RANGE_STORAGE_KEY, SERIES_COLORS, resolveRange, type DashRange } from "@/lib/dashboard-range"
 import { TodayStack } from "@/components/admin/today-stack"
 
-// Setup checklist Joel follows (grade-5 steps for every account and key).
-const SETUP_STEPS_URL = "https://claude.ai/artifact/PN6caspQe9V6RUUsJ2vNcw"
 
 function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -102,7 +100,7 @@ export default function AdminPage() {
 
   return (
     <div className="container mx-auto px-4 py-6">
-      {/* Today comes first: the system check, then the yes/no cards. The dashboard follows below. */}
+      {/* Today comes first, in this order: the system check strip, the swipe cards, the daily follow-ups (collapsible). The dashboard follows below. */}
       <div className="mb-10">
         <TodayStack />
       </div>

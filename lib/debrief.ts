@@ -17,6 +17,10 @@ import { styleKeyLabel, SCORE_BASIS, NO_CLICKS_TEXT } from '@/lib/style-choice'
 import { promotionBriefLine } from '@/lib/promotion'
 import { growthDigestText, type GrowthDigest } from '@/lib/growth-digest'
 import { readGrowthDigest } from '@/lib/growth-digest-read'
+import { briefFollowups, type BriefFollowItem } from '@/lib/followups'
+import { loadFollowups } from '@/lib/followups-run'
+import { checkBriefLines, type CheckResult } from '@/lib/system-check'
+import { getCheckForBrief } from '@/lib/system-check-run'
 
 // The daily brief: one email at 7 am (site time) from "Aiva from TravelFunBiz.ca" with what happened
 // yesterday, what is planned today, and the few things only a person can do, each with the exact link
@@ -67,6 +71,10 @@ export interface Brief {
   trackerItems: { title: string; priority: string }[]
   /** The Growth digest (lib/growth-digest.ts): is the traffic engine working? Null/absent when it could not be built at all. */
   growth?: GrowthDigest | null
+  /** The daily follow-ups still open, each with a one-tap link. Absent when the list could not be built. */
+  followups?: BriefFollowItem[] | null
+  /** The automated system check (lib/system-check.ts). Null when it could not be read at all. */
+  check?: CheckResult | null
 }
 
 export interface EditsSection {
@@ -294,6 +302,17 @@ export async function buildBrief(admin: SupabaseClient, now = new Date()): Promi
     tripPages,
     trackerItems: trackerItems.slice(0, 4),
     growth: await readGrowthDigest(admin, now),
+    followups: await readBriefFollowups(admin, now),
+    check: await getCheckForBrief(admin, { now }).catch(() => null),
+  }
+}
+
+/** The follow-ups still open at 7 am, with full links. Null when the list could not be built (the section is then left out). */
+async function readBriefFollowups(admin: SupabaseClient, now: Date): Promise<BriefFollowItem[] | null> {
+  try {
+    return briefFollowups(await loadFollowups(admin, { now, force: true }), SITE_URL)
+  } catch {
+    return null
   }
 }
 
@@ -316,6 +335,10 @@ export function renderBrief(b: Brief): { subject: string; html: string; text: st
     'WHAT IS WORKING',
     ...b.working.map((t) => `- ${t}`),
     ...(b.healed.length ? ['', 'FIXED BY ITSELF', ...b.healed.map((t) => `- ${t}`)] : []),
+    ...(b.followups && b.followups.length
+      ? ['', `TODAY'S FOLLOW-UPS (${b.followups.length})`, ...b.followups.flatMap((f, i) => [`${i + 1}. ${f.title} (about ${f.minutes} min)`, `   ${f.why}`, `   Open: ${f.url}`]), `All of them: ${SITE_URL}/admin/follow-ups`]
+      : []),
+    ...(b.check !== undefined ? ['', 'SYSTEM CHECK', ...checkBriefLines(b.check).map((t) => `- ${t}`), `Details: ${SITE_URL}/admin/system-check`] : []),
     ...(b.growth ? ['', growthDigestText(b.growth), `Growth card: ${SITE_URL}/admin/autopilot`] : []),
     ...(b.edits.total > 0 || b.edits.healLines.length
       ? [

@@ -10,7 +10,7 @@ import {
 } from '../lib/today-state'
 import { cardsFromIssues } from '../lib/today-issues'
 import { buildSystemCheck } from '../lib/today-queue'
-import { adminNavItems, adminNavGroups, adminNavTop, adminTools } from '../lib/admin-nav'
+import { adminNavItems, adminNavSections, adminTools } from '../lib/admin-nav'
 import type { Issue } from '../lib/issues'
 import { judgeCron } from '../lib/cron-health'
 
@@ -38,6 +38,7 @@ const INVENTORY: Record<string, TodayKindId> = {
   'blog draft awaiting publish (with its quality check)': 'blog-draft',
   'supplier page says a trip changed (Dismiss)': 'supplier-change',
   'other Needs attention items with a Dismiss button': 'issue-dismiss',
+  'a high-impact SEO fix still open on the SEO and GEO Manager (Do it opens the fix, Later hides 7 days)': 'seo-fix',
   'Promote this package prompt': 'promote-prompt',
   'past trip with no recap yet (daily recap prompt)': 'recap-prompt',
   'thin trip page awaiting details (enrichment decision)': 'thin-page',
@@ -203,26 +204,19 @@ expect('the actions reuse existing code (resolveIssue, decideSubmission, setDist
 expect('a route handler call forwards the caller\'s own Authorization header', /headers\.set\('authorization', auth\)/.test(actions))
 
 // ---- 12. The sidebar
-const topTitles = adminNavTop.map((i) => i.title)
-expect('Today is first, Dashboard second, both link to /admin', topTitles[0] === 'Today' && topTitles[1] === 'Dashboard' && adminNavTop[0].href === '/admin' && adminNavTop[1].href === '/admin#dashboard')
-const grouped = adminNavGroups.flatMap((g) => g.items.map((i) => i.title))
+// The numbered, sectioned menu is proved in full by scripts/check-admin-v2.ts; this file keeps the checks that tie it to Today.
+const navLinks = adminNavSections.flatMap((s) => s.links)
+expect('Today is the first link in the menu and goes to /admin, Dashboard follows at /admin#dashboard', navLinks[0].title === 'Today' && navLinks[0].href === '/admin' && navLinks.some((i) => i.title === 'Dashboard' && i.href === '/admin#dashboard'))
+const grouped = [...navLinks.filter((i) => !i.shortcut), ...adminNavSections.flatMap((s) => s.later ?? [])].map((i) => i.title)
 const modules = adminNavItems.slice(1).map((i) => i.title) // adminNavItems[0] is the old Dashboard entry
-expect('no menu item is lost: every old module appears in a group', modules.every((t) => grouped.includes(t)), modules.filter((t) => !grouped.includes(t)).join(','))
-expect('no menu item is doubled: each module appears exactly once', grouped.length === new Set(grouped).size && grouped.length === modules.length, `${grouped.length} vs ${modules.length}`)
-expect('same links as before (no route renamed)', adminNavGroups.flatMap((g) => g.items).every((i) => adminNavItems.some((o) => o.title === i.title && o.href === i.href)))
-expect('the group names are short and few', adminNavGroups.length <= 6 && adminNavGroups.every((g) => g.title.length <= 10) && adminNavGroups.map((g) => g.title).join(',') === 'Content,Social,Growth,Money,System,Later', adminNavGroups.map((g) => g.title).join(','))
-const g = (id: string) => adminNavGroups.find((x) => x.id === id)!.items.map((i) => i.title)
-expect('Content holds the four post screens, with the auto-writer under Blog', g('content').join('|') === 'Posts: Blog|Posts: Blog Auto-Writer|Posts: News|Posts: Guides|Posts: Trips' && adminNavGroups[0].items[1].nested === true)
-expect('Social, Growth, Money and System hold the right modules', g('social').join('|') === 'Content Autopilot|Post Distribution' && g('growth').join('|') === 'Search Rankings|Keyword Research|SEO & GEO Manager|SEO engines|Link building|Website Value|Users and Analytics' && g('money').join('|') === 'Leads|Orders|Affiliate Links|Testimonials' && g('system').join('|') === 'System Health|Project Tracker')
-const later = adminNavGroups.find((x) => x.id === 'later')!
-expect('Later is last, closed by default, and holds only Coming Soon modules', adminNavGroups[adminNavGroups.length - 1] === later && later.defaultOpen === false && later.items.length > 0 && later.items.every((i) => i.status === 'Coming Soon' && i.href === null))
-expect('every other group is open by default and holds only live modules', adminNavGroups.filter((x) => x !== later).every((x) => x.defaultOpen && x.items.every((i) => i.status === 'Active' && !!i.href)))
+expect('no menu item is lost: every old module appears in a section', modules.every((t) => grouped.includes(t)), modules.filter((t) => !grouped.includes(t)).join(','))
+expect('same links as before (no route renamed)', navLinks.filter((i) => !i.shortcut && i.href && modules.includes(i.title)).every((i) => adminNavItems.some((o) => o.title === i.title && o.href === i.href)))
 expect('the tool grid under the cards still lists every module', adminTools.length === modules.length)
 
 // ---- 13. Copy: no long dashes in anything new
 const NEW_FILES = ['lib/today-cards.ts', 'lib/today-state.ts', 'lib/today-issues.ts', 'lib/today-queue.ts', 'lib/today-actions.ts', 'app/api/admin/today/route.ts', 'components/admin/today-stack.tsx', 'components/admin/system-check-strip.tsx', 'components/admin/today-client.ts', 'components/admin/admin-shell.tsx']
 expect('no long dash in any new file', NEW_FILES.every((f) => !DASH.test(read(f).replace(/\/\/[^\n]*/g, '').replace(/─/g, ''))), NEW_FILES.filter((f) => DASH.test(read(f).replace(/\/\/[^\n]*/g, ''))).join(','))
-expect('no long dash in any kind text or menu title', TODAY_KIND_IDS.every((k) => !DASH.test(JSON.stringify({ ...TODAY_KINDS[k], idPattern: '' }))) && adminNavGroups.every((x) => !DASH.test(x.title + x.items.map((i) => i.title + i.description).join(''))))
+expect('no long dash in any kind text or menu title', TODAY_KIND_IDS.every((k) => !DASH.test(JSON.stringify({ ...TODAY_KINDS[k], idPattern: '' }))) && adminNavSections.every((x) => !DASH.test(x.title + x.hint + x.links.map((i) => i.title + i.description).join(''))))
 expect('no source text uses the word "Reject" on a button that only hides', TODAY_KIND_IDS.every((k) => { const s = TODAY_KINDS[k].secondary; return !s || s.mode === 'run' || !/^reject/i.test(s.label) }))
 
 // ---- 14. The page and the shell
@@ -233,7 +227,7 @@ expect('the stack is accessible: live counter, status note, labelled buttons, ke
 expect('the stack has a swipe with a distance threshold and does not block vertical scroll', /SWIPE_PX/.test(stack) && /touchAction: "pan-y"/.test(stack))
 const shell = read('components/admin/admin-shell.tsx')
 expect('the shell remembers open groups in localStorage inside try/catch', /adminNavOpen/.test(shell) && /try \{\s*localStorage\.setItem\(OPEN_KEY/.test(shell) && /try \{\s*const v = JSON\.parse\(localStorage\.getItem\(OPEN_KEY/.test(shell))
-expect('the shell shows the Today count in the menu and the phone bottom bar, Today first', /<CountBadge count=\{todayCount\}/.test(shell) && /aria-label="Quick links"/.test(shell) && shell.indexOf('href="/admin" aria-current') < shell.indexOf('href="/admin/blog"'))
+expect('the shell shows the Today count in the menu and the phone bottom bar, Today first', /<Badge kind=\{link\.badge\} badges=\{badges\}/.test(shell) && /aria-label="Quick links"/.test(shell) && shell.indexOf('label="Today"') > 0 && shell.indexOf('label="Today"') < shell.indexOf('label="Follow-ups"') && shell.indexOf('label="Follow-ups"') < shell.indexOf('label="Check"'))
 const nav = read('lib/admin-nav.ts')
 expect('the old flat list is kept for the dashboard grid and older checks', /export const adminNavItems/.test(nav) && /export const adminTools/.test(nav))
 

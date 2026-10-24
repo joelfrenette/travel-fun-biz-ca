@@ -9,8 +9,25 @@ import {
 import { buildTodayQueue, lastActionOf, readSystemCheck, readWins } from '@/lib/today-queue'
 import { runCardAction, undoCardAction } from '@/lib/today-actions'
 
+import { getSystemCheck, readStoredCheck } from '@/lib/system-check-run'
+import { summarizeCheck, type CheckSummary } from '@/lib/system-check'
+import { readFollowupsCount } from '@/lib/followups-run'
+import type { Issue } from '@/lib/issues'
+
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
+
+/** The system check summary for the strip: a 5 minute cached answer, or a fresh one; if that takes over 8 seconds, the last stored answer. */
+async function readCheckSummary(admin: ReturnType<typeof getSupabaseAdmin>, issues: Issue[]): Promise<CheckSummary | null> {
+  try {
+    const fresh = getSystemCheck(admin, { issues }).then((g) => g.result)
+    const slow = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+    const result = (await Promise.race([fresh, slow])) ?? (await readStoredCheck(admin))
+    return result ? summarizeCheck(result) : null
+  } catch {
+    return null
+  }
+}
 
 // GET   the Today queue: the cards to decide now (most urgent first), the counts, the last decision, the System check strip
 //       and today's wins.
@@ -23,8 +40,10 @@ export async function GET(request: Request) {
   try {
     const admin = getSupabaseAdmin()
     const queue = await buildTodayQueue(admin)
-    const [system, wins] = await Promise.all([readSystemCheck(admin, queue.issues), readWins(admin)])
+    const [system, wins, check, followups] = await Promise.all([readSystemCheck(admin, queue.issues), readWins(admin), readCheckSummary(admin, queue.issues), readFollowupsCount(admin)])
     return NextResponse.json({
+      check,
+      followups,
       cards: queue.cards,
       count: queue.cards.length,
       total: queue.total,

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Check, ExternalLink, Clock, Undo2, X, ArrowRight } from "lucide-react"
 import { GROUP_LABEL, TODAY_KINDS, actionFor, needsConfirm } from "@/lib/today-cards"
 import { SystemCheckStrip } from "@/components/admin/system-check-strip"
+import { FollowupsPanel } from "@/components/admin/followups-panel"
 import { authHeaders, fetchToday, type TodayData } from "@/components/admin/today-client"
 import { cn } from "@/lib/utils"
 
@@ -190,7 +191,7 @@ export function TodayStack() {
 
   return (
     <section aria-label="Today" className="mx-auto w-full max-w-xl">
-      <SystemCheckStrip system={data?.system ?? null} />
+      <SystemCheckStrip system={data?.system ?? null} check={data?.check ?? null} />
 
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <h2 className="text-2xl font-bold">Today</h2>
@@ -345,6 +346,9 @@ export function TodayStack() {
           ))}
         </ul>
       )}
+
+      {/* Third on the page: the daily follow-ups, under the cards. Collapsible, and the dashboard comes after it. */}
+      <FollowupsPanel collapsible />
     </section>
   )
 }

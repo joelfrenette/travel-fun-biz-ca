@@ -12,6 +12,7 @@ import { runFunnelWatchdog } from '@/lib/funnel-watchdog'
 import { runSiteCrawl, CRAWL_BUDGET_MS } from '@/lib/site-crawl-run'
 import { runSeoEngines, SEO_BUDGET_MS } from '@/lib/seo-engines-run'
 import { AUDIT_BUDGET_MS, runSeoPlaybookAudit } from '@/lib/seo-playbook-audit'
+import { getSystemCheck } from '@/lib/system-check-run'
 import { revalidatePath } from 'next/cache'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
@@ -146,7 +147,22 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] seo playbook audit failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${seo}${crawl}${playbook}` })
+    // System check: reads the answers the steps above just stored (watchdog, site crawl, SEO audit, AI spend, heartbeats) and keeps its own
+    // answer in app_settings system_check_state, so the Today strip and the 7 am brief read it without recomputing. Settings reads only
+    // (no network, no AI call); started only when a few seconds of the 60 are left. getSystemCheck never throws.
+    let sysCheck = ''
+    try {
+      if (58_000 - (Date.now() - startedAt) > 4_000) {
+        const g = await getSystemCheck(getSupabaseAdmin(), { force: true })
+        const bad = g.result.stages.filter((s) => s.light !== 'green').length
+        sysCheck = `; system check: ${g.result.overall}${bad ? `, ${bad} stage${bad === 1 ? '' : 's'} to look at` : ''}${g.saveWarning ? ' (not saved)' : ''}`
+      } else {
+        sysCheck = '; system check skipped (time budget already used)'
+      }
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] system check failed:', e)
+    }
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${seo}${crawl}${playbook}${sysCheck}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found
