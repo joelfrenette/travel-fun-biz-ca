@@ -4,11 +4,15 @@
 // discounts, fake urgency, and any money amount.
 
 import { copyBlockers } from '@/lib/package-enrich'
+import { SUPERLATIVE_PATTERNS } from '@/lib/guide-composer'
 import { averageSentenceWords } from '@/lib/seo-score'
 import { isPriceText, fold } from '@/lib/trip-kit-facts'
 
 /** Blocker labels from copyBlockers that the "best" policy lets through (opinion, not a checkable claim). */
 const OPINION_LABELS = new Set(['best', 'reputation claim'])
+/** Labels that pass when the very same word is in the grounding text (the source itself says it). Awards, star ratings,
+ * number one, top-rated, world-class and diamonds are never exempt. */
+const STATED_OK = new Set(['size or age superlative', 'most popular or similar', 'first or only claim'])
 
 const UNVERIFIABLE: [RegExp, string][] = [
   [/\bguarantee[sd]?\b|\bguaranteed\b/i, 'guarantee'],
@@ -26,9 +30,19 @@ export interface GateContext {
 
 /** Reasons a piece of kit copy must not go live. Empty means clean. */
 export function tripKitBlockers(text: string, ctx: GateContext): string[] {
-  const base = copyBlockers(text, ctx).filter((b) => {
+  // "adults only resort" is an age rule, not a "only resort" claim.
+  const checked = text.replace(/\badults?[- ]only\b/gi, 'adults')
+  const g = fold(ctx.grounding)
+  const base = copyBlockers(checked, ctx).filter((b) => {
     const m = /^superlative or rating claim \((.+)\)$/.exec(b)
-    return !(m && OPINION_LABELS.has(m[1]))
+    if (!m) return true
+    if (OPINION_LABELS.has(m[1])) return false
+    // A size, age, popularity or first/only word is allowed when the stored text or the cited reference page uses that same word.
+    if (STATED_OK.has(m[1])) {
+      const hits = SUPERLATIVE_PATTERNS.filter(([, label]) => label === m[1]).flatMap(([p]) => checked.match(new RegExp(p.source, 'gi')) ?? [])
+      if (hits.length > 0 && hits.every((h) => g.includes(fold(h)))) return false
+    }
+    return true
   })
   const out = [...base]
   if (isPriceText(text)) out.push('a price, deposit amount or discount (prices only show when an agent confirmed them)')
