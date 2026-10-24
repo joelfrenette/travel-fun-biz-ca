@@ -28,7 +28,55 @@ export const AGENT_PUBLIC_COLUMNS = [
 ] as const
 
 /** Columns that must never appear in a public select, a page, JSON-LD or an API response a visitor can reach. */
-export const AGENT_PRIVATE_COLUMNS = ['email', 'phone', 'address', 'notes', 'internal_tags'] as const
+export const AGENT_PRIVATE_COLUMNS = ['email', 'phone', 'address', 'notes', 'internal_tags', 'office_role'] as const
+
+// ─── Office team (CEO, CTO, Manager) ────────────────────────────────────────────────
+// One roster person can hold an office role AND be an agent (one agents row, no second table). The role is ADMIN ONLY:
+// it is never in AGENT_PUBLIC_COLUMNS, never in toPublicAgent, never in JSON-LD. A public job title, if wanted, is the
+// existing headline field.
+
+export const OFFICE_ROLES = ['ceo', 'cto', 'mgr'] as const
+export type OfficeRole = (typeof OFFICE_ROLES)[number]
+
+export const OFFICE_ROLE_LABEL: Record<OfficeRole, string> = { ceo: 'CEO', cto: 'CTO', mgr: 'Manager' }
+
+export const isOfficeRole = (v: unknown): v is OfficeRole => typeof v === 'string' && (OFFICE_ROLES as readonly string[]).includes(v)
+
+/** Reads a role from a database value or a spreadsheet cell. '' / none / null = no role. An unknown word is 'invalid'. */
+export function parseOfficeRole(value: unknown): OfficeRole | null | 'invalid' {
+  if (value === null || value === undefined) return null
+  if (typeof value !== 'string') return 'invalid'
+  const t = value.trim().toLowerCase().replace(/\./g, '').replace(/[\s_-]+/g, ' ')
+  if (t === '' || t === 'none' || t === 'no' || t === 'agent') return null
+  if (t === 'ceo' || t === 'chief executive officer') return 'ceo'
+  if (t === 'cto' || t === 'chief technology officer') return 'cto'
+  if (t === 'mgr' || t === 'manager' || t === 'mgmt') return 'mgr'
+  return 'invalid'
+}
+
+/** Pure: who holds each role in a roster. A role nobody holds is null. If a bad import ever left two holders, the first by name wins. */
+export function officeHolders<T extends { id?: unknown; display_name?: unknown; office_role?: unknown }>(agents: T[]): Record<OfficeRole, T | null> {
+  const out: Record<OfficeRole, T | null> = { ceo: null, cto: null, mgr: null }
+  const sorted = [...agents].sort((a, b) => String(a.display_name ?? '').localeCompare(String(b.display_name ?? ''), 'en', { sensitivity: 'base' }))
+  for (const a of sorted) {
+    const r = parseOfficeRole(a.office_role)
+    if (r && r !== 'invalid' && !out[r]) out[r] = a
+  }
+  return out
+}
+
+/** Pure: the office team in CEO, CTO, Manager order (one entry per role that is held). */
+export function officeTeam<T extends { id?: unknown; display_name?: unknown; office_role?: unknown }>(agents: T[]): { role: OfficeRole; agent: T }[] {
+  const h = officeHolders(agents)
+  return OFFICE_ROLES.flatMap((role) => (h[role] ? [{ role, agent: h[role] as T }] : []))
+}
+
+/** Pure: giving `role` to `agentId`. `from` is the current holder who would lose it (null when free or already this person's). */
+export function planOfficeRole<T extends { id?: unknown; display_name?: unknown; office_role?: unknown }>(agents: T[], agentId: string | null, role: OfficeRole | null): { from: T | null } {
+  if (!role) return { from: null }
+  const holder = officeHolders(agents)[role]
+  return { from: holder && String(holder.id) !== agentId ? holder : null }
+}
 
 export const AGENT_PUBLIC_SELECT = AGENT_PUBLIC_COLUMNS.join(', ')
 
@@ -255,6 +303,8 @@ export interface AgentEditable {
   address?: string | null
   notes?: string | null
   internal_tags?: string[]
+  /** Admin only. null = no office role. */
+  office_role?: OfficeRole | null
 }
 
 const orNull = (s: string): string | null => (s ? s : null)
@@ -295,6 +345,11 @@ export function cleanAgentInput(input: Record<string, unknown>): { ok: true; val
   if ('address' in input) v.address = orNull(cleanText(input.address, 300))
   if ('notes' in input) v.notes = orNull(cleanText(input.notes, 2000, true))
   if ('internal_tags' in input) v.internal_tags = cleanList(input.internal_tags, 20, 40)
+  if ('office_role' in input) {
+    const r = parseOfficeRole(input.office_role)
+    if (r === 'invalid') errors.push('Pick CEO, CTO, Manager or no office role.')
+    else v.office_role = r
+  }
   return errors.length ? { ok: false, errors } : { ok: true, value: v }
 }
 

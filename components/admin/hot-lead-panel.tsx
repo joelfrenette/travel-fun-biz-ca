@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Clock, Mail, Phone, UserCheck } from "lucide-react"
 import type { HotLeadCardData } from "@/lib/today-cards"
-import { filterAgents, waitLight, waitMinutes, waitText, type PickerEntry } from "@/lib/lead-desk"
+import { filterAgents, groupPickerEntries, officeBadge, waitLight, waitMinutes, waitText, type PickerEntry } from "@/lib/lead-desk"
 import { authHeaders } from "@/components/admin/today-client"
 import { cn } from "@/lib/utils"
 
@@ -60,6 +60,33 @@ export function HotLeadPanel({ hot, busy, onLater, onAssigned }: { hot: HotLeadC
   }
 
   const shown = useMemo(() => filterAgents(agents ?? [], query), [agents, query])
+  // Office team first (they are agents too), then the ones who know this kind of trip, then everyone else.
+  const groups = useMemo(() => groupPickerEntries(shown), [shown])
+  const sections: { key: string; heading: string; entries: PickerEntry[] }[] = [
+    { key: "office", heading: "Office team", entries: groups.office },
+    { key: "suggested", heading: "Suggested by specialty", entries: groups.suggested },
+    { key: "others", heading: "Everyone else", entries: groups.others },
+  ].filter((g) => g.entries.length > 0)
+
+  const row = (e: PickerEntry) => (
+    <li key={e.agent.id}>
+      <button
+        type="button"
+        onClick={() => setChosen(e)}
+        aria-pressed={chosen?.agent.id === e.agent.id}
+        className={cn("flex min-h-11 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted", chosen?.agent.id === e.agent.id && "border-emerald-600 bg-emerald-600/10")}
+      >
+        <span className="min-w-0">
+          <span className="block truncate font-medium">{e.agent.display_name}</span>
+          {e.agent.specialties.length > 0 && <span className="block truncate text-xs text-muted-foreground">{e.agent.specialties.slice(0, 4).join(", ")}</span>}
+        </span>
+        <span className="flex shrink-0 items-center gap-1">
+          {officeBadge(e.agent.office_role) && <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold" data-testid="office-badge">{officeBadge(e.agent.office_role)}</span>}
+          {e.suggested && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">suggested</span>}
+        </span>
+      </button>
+    </li>
+  )
 
   const confirm = async () => {
     if (!chosen || sending) return
@@ -122,31 +149,21 @@ export function HotLeadPanel({ hot, busy, onLater, onAssigned }: { hot: HotLeadC
             <p className="text-sm font-semibold">Choose who works this lead</p>
             <button type="button" onClick={() => { setOpen(false); setChosen(null) }} className="min-h-9 rounded-md px-2 text-sm underline underline-offset-2">Close</button>
           </div>
-          <p className="mb-2 text-xs text-muted-foreground">The list is only a help. Agents who know this kind of trip are shown first. Nobody is chosen until you choose.</p>
+          <p className="mb-2 text-xs text-muted-foreground">The list is only a help. The office team is listed first (they are agents too), then agents who know this kind of trip. Nobody is chosen until you choose.</p>
           <label className="sr-only" htmlFor="agent-search">Search agents</label>
           <input id="agent-search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name or what they know" className="mb-2 h-11 w-full rounded-md border bg-background px-3 text-sm" autoComplete="off" />
           {loadError && <p role="alert" className="mb-2 text-sm text-destructive">{loadError}</p>}
           {!agents && !loadError && <p className="text-sm text-muted-foreground">Loading agents...</p>}
           {agents && agents.length === 0 && <p className="text-sm text-muted-foreground">No agents are on the roster yet. Add them in Agents first.</p>}
-          <ul className="max-h-64 space-y-1 overflow-y-auto" aria-label="Agents">
-            {shown.map((e) => (
-              <li key={e.agent.id}>
-                <button
-                  type="button"
-                  onClick={() => setChosen(e)}
-                  aria-pressed={chosen?.agent.id === e.agent.id}
-                  className={cn("flex min-h-11 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted", chosen?.agent.id === e.agent.id && "border-emerald-600 bg-emerald-600/10")}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{e.agent.display_name}</span>
-                    {e.agent.specialties.length > 0 && <span className="block truncate text-xs text-muted-foreground">{e.agent.specialties.slice(0, 4).join(", ")}</span>}
-                  </span>
-                  {e.suggested && <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">suggested</span>}
-                </button>
-              </li>
+          <div className="max-h-64 space-y-2 overflow-y-auto" aria-label="Agents">
+            {sections.map((g) => (
+              <section key={g.key} aria-label={g.heading} data-testid={`picker-${g.key}`}>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{g.heading}</h3>
+                <ul className="space-y-1">{g.entries.map(row)}</ul>
+              </section>
             ))}
-            {agents && agents.length > 0 && shown.length === 0 && <li className="text-sm text-muted-foreground">No agent matches that search.</li>}
-          </ul>
+            {agents && agents.length > 0 && shown.length === 0 && <p className="text-sm text-muted-foreground">No agent matches that search.</p>}
+          </div>
 
           {chosen && (
             <div className="mt-3 space-y-2 border-t pt-3">

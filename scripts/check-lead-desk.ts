@@ -4,6 +4,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  DESK_OFFICE_KEY, groupPickerEntries, mergeDeskRecipients, officeAlertOn, officeBadge,
   ALERT_STATE_MAX, CALLBACK_PREFIX, DESK_EMAILS_KEY, DESK_SMS_KEY, agentTag, buildAgentEmail, buildDeskEmail, buildDeskSms, claimAlert, filterAgents, ghlAssignNote, hasPhone,
   hotWaitLight, hotWaitSentence, isHotLead, needsAgent, normalizeIntent, orderAgents, parseAlertState, parseDeskEmails, parseSmsContactIds, reminderDue, waitLight, waitMinutes, waitText,
   type PickerAgent,
@@ -61,6 +62,28 @@ async function main() {
   expect('the search box matches a name, a specialty or a region and keeps the order', filterAgents(alaska, 'disney').length === 1 && filterAgents(alaska, 'AMY')[0].agent.id === '2' && filterAgents(alaska, '').length === 5 && filterAgents(alaska, 'zzz').length === 0)
   expect('a word the lead typed can suggest too', orderAgents(agents, { package: 'Custom Package', message: 'We want a honeymoon in the summer' })[0].agent.id === '2')
 
+  // ---- 3b. The office team (CEO, CTO, Manager) are agents too: listed first, never chosen for anyone
+  const O = (id: string, name: string, specialties: string[], role: PickerAgent['office_role'] = null, status = 'published'): PickerAgent => ({ ...A(id, name, specialties, status), office_role: role })
+  const withOffice: PickerAgent[] = [
+    O('1', 'Zed Example', ['Disney'], 'mgr'),
+    O('2', 'Amy Sample', ['Honeymoons'], 'ceo'),
+    O('3', 'Cal Demo', ['Cruises', 'Alaska']),
+    O('4', 'Bea Fixture', ['Caribbean cruises'], null, 'ready'),
+    O('5', 'Old Hand', ['Cruises'], 'cto', 'archived'),
+    O('6', 'Dan Plain', ['Alaska'], 'cto', 'draft'),
+    O('7', 'Gus Other', []),
+  ]
+  const ordered = orderAgents(withOffice, { package: 'Alaska Cruise from Vancouver', pagePath: '/packages/alaska-cruise-2026' })
+  const grouped = groupPickerEntries(ordered)
+  expect('every roster person is listed, office team included, even a draft one; only an archived person is left out', ordered.length === 6 && ordered.some((e) => e.agent.display_name === 'Amy Sample') && ordered.some((e) => e.agent.display_name === 'Dan Plain') && !ordered.some((e) => e.agent.id === '5'))
+  expect('the office team comes first in CEO, CTO, Manager order', grouped.office.map((e) => e.agent.display_name).join() === 'Amy Sample,Dan Plain,Zed Example', grouped.office.map((e) => `${e.agent.display_name}:${e.agent.office_role}`).join())
+  expect('then agents suggested by specialty, then everyone else', grouped.suggested.map((e) => e.agent.display_name).join() === 'Cal Demo,Bea Fixture' && grouped.others.map((e) => e.agent.display_name).join() === 'Gus Other')
+  expect('nobody is dropped or listed twice, and an office member who matches the trip is still under Office team', grouped.office.length + grouped.suggested.length + grouped.others.length === ordered.length && new Set([...grouped.office, ...grouped.suggested, ...grouped.others].map((e) => e.agent.id)).size === ordered.length && grouped.office.some((e) => e.agent.id === '6' && e.suggested))
+  expect('still nothing preselected: no entry or group carries a chosen, selected or default flag', [...grouped.office, ...grouped.suggested, ...grouped.others].every((e) => !('selected' in e) && !('chosen' in e) && !('default' in e)) && Object.keys(grouped).join() === 'office,suggested,others')
+  expect('with nobody on the office team the list is the plain suggested-then-rest list', (() => { const g = groupPickerEntries(alaska); return g.office.length === 0 && g.suggested.map((e) => e.agent.id).join() === '3,4' && g.others.map((e) => e.agent.id).join() === '2,6,1' })())
+  expect('office badges read CEO, CTO, Manager and nothing for others', officeBadge('ceo') === 'CEO' && officeBadge('cto') === 'CTO' && officeBadge('mgr') === 'Manager' && officeBadge(null) === '' && officeBadge('boss') === '')
+  expect('the search box also finds the office team by role', filterAgents(ordered, 'ceo').map((e) => e.agent.id).join() === '2' && filterAgents(ordered, 'office team').length === 3)
+
   // ---- 4. Desk settings
   expect('desk emails parse from a JSON list or a plain list, drop bad ones and duplicates', parseDeskEmails('["Shelby.Desk@example.com", "leslie.desk@example.com", "nope", "Shelby.Desk@example.com"]').join() === 'shelby.desk@example.com,leslie.desk@example.com' && parseDeskEmails('a@example.com, b@example.com;bad@x').join() === 'a@example.com,b@example.com' && parseDeskEmails('').length === 0 && parseDeskEmails(null).length === 0)
   expect('sms contact ids parse the same way and refuse junk', parseSmsContactIds('["abc123XYZ", "x", "bad id"]').join() === 'abc123XYZ' && parseSmsContactIds('ghlContact01, ghlContact02').length === 2 && parseSmsContactIds(undefined).length === 0)
@@ -115,6 +138,63 @@ async function main() {
   const rn = await sendDeskAlert({ ...lead, id: '' }, 'a', deps)
   expect('a lead with no id is not alerted', rn.status === 'not-configured')
 
+  const { fakeAdmin } = await import('./fake-admin')
+  // ---- 6b. "Also alert the office team": optional, default OFF, private roster emails, de-duplicated, generic body
+  expect('the switch is off unless the setting says on', !officeAlertOn(null) && !officeAlertOn(undefined) && !officeAlertOn('') && !officeAlertOn('off') && !officeAlertOn('maybe') && officeAlertOn('on') && officeAlertOn(' ON ') && officeAlertOn('true') && DESK_OFFICE_KEY === 'lead_desk_alert_office_team')
+  expect('recipients merge without duplicates, case differences or bad addresses, desk list first', mergeDeskRecipients(['Desk.One@example.com', 'desk.two@example.com'], ['desk.one@example.com', 'ceo.person@example.com', 'nope', ' CEO.person@example.com ']).join() === 'desk.one@example.com,desk.two@example.com,ceo.person@example.com')
+  const officeDb = {
+    tables: {
+      agents: [
+        { id: 'o1', display_name: 'Ceo Person', email: 'ceo.person@example.com', office_role: 'ceo', status: 'published' },
+        { id: 'o2', display_name: 'Cto Person', email: 'cto.person@example.com', office_role: 'cto', status: 'draft' },
+        { id: 'o3', display_name: 'Mgr Person', email: 'Mgr.Person@example.com', office_role: 'mgr', status: 'ready' },
+        { id: 'o4', display_name: 'Plain Agent', email: 'plain.agent@example.com', office_role: null, status: 'published' },
+      ] as Record<string, unknown>[],
+    },
+  }
+  const officeMail: { to: string[]; subject: string; text: string }[] = []
+  const officeStore: Record<string, string> = { [DESK_EMAILS_KEY]: '["desk.one@example.com","ceo.person@example.com"]' }
+  const officeDeps = {
+    admin: fakeAdmin(officeDb), fetchImpl: (async (_u: unknown, init?: { body?: string }) => { officeMail.push(JSON.parse(init?.body ?? '{}')); return { ok: true } as Response }) as unknown as typeof fetch,
+    get: async (k: string) => officeStore[k] ?? null, set: async (k: string, v: string) => { officeStore[k] = v }, now: () => new Date(NOW), adminUrl: 'https://example.com/admin', sendSms: async () => ({ ok: true }),
+  }
+  const allTo = () => officeMail.flatMap((m) => m.to)
+  await announceHotLead({ ...lead, id: 'office-off-default' }, officeDeps)
+  expect('by default (setting missing) only the desk list is emailed, even with office roles on the roster', officeMail.length === 1 && officeMail[0].to.join() === 'desk.one@example.com,ceo.person@example.com')
+  officeStore[DESK_OFFICE_KEY] = 'off'
+  await announceHotLead({ ...lead, id: 'office-off-explicit' }, officeDeps)
+  expect('set to off it is the same: no office address is added', officeMail.length === 2 && officeMail[1].to.join() === 'desk.one@example.com,ceo.person@example.com' && !allTo().some((e) => /cto\.person|mgr\.person|plain\.agent/.test(e)))
+  officeStore[DESK_OFFICE_KEY] = 'on'
+  const onRes = await announceHotLead({ ...lead, id: 'office-on' }, officeDeps)
+  const onMails = officeMail.slice(2)
+  const onTo = onMails.flatMap((m) => m.to)
+  expect('switched on, the CEO, CTO and Manager roster emails are added, the desk list is still emailed, and nobody is emailed twice', onRes.status === 'sent' && onRes.email === 'sent' && onMails[0].to.join() === 'desk.one@example.com,ceo.person@example.com' && new Set(onTo).size === onTo.length && ['desk.one@example.com', 'ceo.person@example.com', 'cto.person@example.com', 'mgr.person@example.com'].every((e) => onTo.includes(e)), onTo.join())
+  expect('an agent with no office role is never added', !onTo.includes('plain.agent@example.com'))
+  expect('the office copy has exactly the same generic body: no name, email or phone, only the trip and the admin link', onMails.length === 2 && onMails.every((m) => m.subject === onMails[0].subject && m.text === onMails[0].text) && !/@|Person|Agent|416|555/.test(onMails[0].text.replace('https://example.com/admin', '')) && onMails[0].text.includes('Alaska Cruise'), onMails[0].text)
+  await announceHotLead({ ...lead, id: 'office-on' }, officeDeps)
+  expect('a lead still alerts once: asking again sends nothing, to the desk or the office team', officeMail.length === 4)
+  await announceHotLead({ ...lead, id: 'office-test', isTest: true }, officeDeps)
+  expect('a test lead sends nothing to the office team either', officeMail.length === 4)
+  const remMails = officeMail.length
+  await sendDeskAlert({ ...lead, id: 'office-on' }, 'r', officeDeps, 20)
+  expect('the one reminder also reaches the office team when the switch is on', officeMail.length === remMails + 2 && officeMail.slice(remMails).flatMap((m) => m.to).includes('cto.person@example.com') && /Reminder/.test(officeMail[remMails].subject))
+  const strictDeps = { ...officeDeps, fetchImpl: (async (_u: unknown, init?: { body?: string }) => { const b = JSON.parse(init?.body ?? '{}') as { to: string[] }; if (b.to.some((e) => /cto\.person/.test(e))) throw new Error('domain not verified'); officeMail.push(b as never); return { ok: true } as Response }) as unknown as typeof fetch }
+  const strictBefore = officeMail.length
+  const strictRes = await announceHotLead({ ...lead, id: 'office-refused' }, strictDeps)
+  expect('if the mail service refuses the office addresses, the desk alert still goes and counts as sent', strictRes.status === 'sent' && strictRes.email === 'sent' && officeMail.length === strictBefore + 1 && officeMail[strictBefore].to.join() === 'desk.one@example.com,ceo.person@example.com')
+  const noRoleDb = { ...officeDeps, admin: fakeAdmin({ tables: { agents: [{ id: 'x1', display_name: 'Plain', email: 'plain.agent@example.com', office_role: null, status: 'published' }] } }) }
+  const noRoleBefore = officeMail.length
+  await announceHotLead({ ...lead, id: 'office-no-roles' }, noRoleDb)
+  expect('on, but nobody holds a role yet: just the desk list, no error', officeMail.length === noRoleBefore + 1 && officeMail[noRoleBefore].to.join() === 'desk.one@example.com,ceo.person@example.com')
+  officeStore[DESK_EMAILS_KEY] = ''
+  const fallbackBefore = officeMail.length
+  await announceHotLead({ ...lead, id: 'office-fallback' }, officeDeps)
+  expect('with no desk list, the usual fallback address stays first and the office team is added after it', officeMail[fallbackBefore].to.join() === 'fallback.admin@example.com' && officeMail.slice(fallbackBefore).flatMap((m) => m.to).includes('mgr.person@example.com'))
+  const brokenOffice = { ...officeDeps, admin: { from: () => { throw new Error('no table') } } as never }
+  const brokenBefore = officeMail.length
+  const brokenRes = await announceHotLead({ ...lead, id: 'office-db-down' }, brokenOffice)
+  expect('if the roster cannot be read, the desk alert still goes', brokenRes.status === 'sent' && officeMail.length === brokenBefore + 1)
+
   // ---- 7. The reminder: one, after 15 minutes, only while unassigned
   const due = (over: Partial<Parameters<typeof reminderDue>[0]> = {}) => reminderDue({ createdAt: minsAgo(20), alreadyReminded: false, now: NOW, ...over })
   expect('no reminder before 15 minutes, one at 15', !due({ createdAt: minsAgo(14.9) }) && due({ createdAt: minsAgo(15) }) && due({ createdAt: minsAgo(40) }))
@@ -127,8 +207,7 @@ async function main() {
   ]
   expect('pickReminders chooses only the overdue, unassigned, real lead that was not reminded', pickReminders(rows, {}, NOW).map((l) => l.id).join() === 'r-old' && pickReminders(rows, { 'r-old': { a: 'x', r: 'y' } }, NOW).length === 0)
 
-  const { fakeAdmin } = await import('./fake-admin')
-  const iso = (m: number) => minsAgo(m)
+  const iso =(m: number) => minsAgo(m)
   const db = {
     tables: {
       app_settings: [] as Record<string, unknown>[],
@@ -158,8 +237,8 @@ async function main() {
     tables: {
       app_settings: [] as Record<string, unknown>[],
       agents: [
-        { id: 'a-pub', slug: 'amy-sample', display_name: 'Amy Sample', status: 'published', email: 'amy.agent@example.com', phone: '416-555-0111', specialties: ['Cruises'], region: 'Ontario' },
-        { id: 'a-draft', slug: 'bea-fixture', display_name: 'Bea Fixture', status: 'draft', email: 'bea.agent@example.com', phone: '416-555-0112', specialties: [], region: null },
+        { id: 'a-pub', slug: 'amy-sample', display_name: 'Amy Sample', status: 'published', email: 'amy.agent@example.com', phone: '416-555-0111', specialties: ['Cruises'], region: 'Ontario', office_role: 'ceo' },
+        { id: 'a-draft', slug: 'bea-fixture', display_name: 'Bea Fixture', status: 'draft', email: 'bea.agent@example.com', phone: '416-555-0112', specialties: [], region: null, office_role: 'mgr' },
         { id: 'a-ready', slug: 'cal-demo', display_name: 'Cal Demo', status: 'ready', email: null, phone: null, specialties: [], region: null },
         { id: 'a-old', slug: 'old-hand', display_name: 'Old Hand', status: 'archived', email: 'old.agent@example.com', phone: null, specialties: [], region: null },
       ] as Record<string, unknown>[],
@@ -176,6 +255,20 @@ async function main() {
   const pick = await listPickerAgents(aadmin)
   expect('the picker list has no private fields and no archived agent', pick.length === 3 && pick.every((a) => !('email' in a) && !('phone' in a) && !('address' in a) && !('notes' in a)))
   const noAuto = (adb.tables.leads as Record<string, unknown>[]).every((l) => l.assigned_agent_id === null)
+  expect('the picker carries the office role label for the badge and nothing private with it', pick.find((a) => a.id === 'a-pub')?.office_role === 'ceo' && pick.find((a) => a.id === 'a-draft')?.office_role === 'mgr' && pick.find((a) => a.id === 'a-ready')?.office_role === null && JSON.stringify(pick).indexOf('@') === -1 && !/555-01/.test(JSON.stringify(pick)))
+  const colsAsked: string[] = []
+  const olderDb = {
+    from: () => ({
+      select: (cols: string) => {
+        colsAsked.push(cols)
+        const res = cols.includes('office_role') ? { data: null, error: { message: 'column agents.office_role does not exist' } } : { data: [{ id: 'x', slug: 'x', display_name: 'X Person', specialties: [], status: 'draft', region: null }], error: null }
+        const chain: Record<string, unknown> = { in: () => chain, order: () => chain, limit: () => chain, then: (r: (v: unknown) => unknown) => r(res) }
+        return chain
+      },
+    }),
+  } as never
+  const olderPick = await listPickerAgents(olderDb)
+  expect('before migration 0057 the picker still loads (no badges), with no private column asked for', olderPick.length === 1 && olderPick[0].office_role === null && colsAsked.length === 2 && colsAsked.every((c) => !/email|phone|address|notes/.test(c)))
   expect('before anyone chooses, no lead has an agent', noAuto)
   const asg = await assignLead(aadmin, { leadId: 'L1', agentId: 'a-pub', assignedBy: 'Leslie' }, aDeps)
   const l1 = adb.tables.leads[0]
@@ -256,7 +349,10 @@ async function main() {
   expect('every new file exists', files.every((f) => existsSync(join(process.cwd(), f))))
   expect('no long dash in any new file', files.every((f) => !DASH.test(read(f).replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, ''))), files.filter((f) => DASH.test(read(f).replace(/\/\/[^\n]*/g, ''))).join(','))
   const storeSrc = read('lib/lead-desk-store.ts')
-  expect('the agent picker query selects no private column', /from\('agents'\)\.select\('id, slug, display_name, specialties, status, region'\)/.test(storeSrc))
+  expect('the agent picker query selects no private column (only the office role label beyond the old list)', /admin\.from\('agents'\)\.select\(cols\)/.test(storeSrc) && storeSrc.includes("pick('id, slug, display_name, specialties, status, region, office_role')") && storeSrc.includes("pick('id, slug, display_name, specialties, status, region')"))
+  expect('the Office team badge, heading and grouping are wired into the picker panel, with no preselection', /groupPickerEntries/.test(read('components/admin/hot-lead-panel.tsx')) && /Office team/.test(read('components/admin/hot-lead-panel.tsx')) && /Suggested by specialty/.test(read('components/admin/hot-lead-panel.tsx')) && /useState<PickerEntry \| null>\(null\)/.test(read('components/admin/hot-lead-panel.tsx')) && !/setChosen\([^n)]/.test(read('components/admin/hot-lead-panel.tsx').replace(/setChosen\(e\)/g, '').replace(/setChosen\(null\)/g, '')))
+  expect('the office alert reads private roster emails only inside listOfficeEmails and only when the switch is on', /officeAlertOn\(await get\(DESK_OFFICE_KEY\)/.test(storeSrc) && (storeSrc.match(/listOfficeEmails\(/g) ?? []).length === 2 && /select\('email, office_role'\)/.test(storeSrc))
+  expect('the office-alert key is documented in .env.example and the migration is 0057', /lead_desk_alert_office_team/.test(read('.env.example')) && existsSync(join(process.cwd(), 'supabase/migrations/0057_agents_office_role.sql')))
   expect('the private agent email is only read inside assignLead', (storeSrc.match(/email/g) ?? []).length > 0 && !/listPickerAgents[\s\S]{0,400}email/.test(storeSrc.slice(storeSrc.indexOf('export async function listPickerAgents'), storeSrc.indexOf('export async function deskSmsConfigured'))))
   expect('nothing assigns an agent except assignLead (the form routes, the pipeline, the reminder and the Today actions never write assigned_agent_id)', (storeSrc.match(/assigned_agent_id: input\./g) ?? []).length === 1 && ['lib/leads.ts', 'lib/pipeline.ts', 'lib/today-actions.ts', 'lib/today-queue.ts', 'app/api/submit-lead/route.ts', 'app/api/admin/today/route.ts'].every((f) => !/assigned_agent_id\s*:|assigned_agent_id'\s*:/.test(read(f))))
   expect('assignLead is only called from the admin assign route', ['lib', 'app', 'components'].every(() => true) && read('app/api/admin/leads/assign/route.ts').includes('assignLead(') && !read('lib/pipeline.ts').includes('assignLead') && !read('lib/leads.ts').includes('assignLead'))

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { agentsCall, agentsHeaders, arr, s, type Row } from "@/components/admin/agents-api"
-import { ACHIEVEMENT_KINDS, publishBlockers } from "@/lib/agents"
+import { ACHIEVEMENT_KINDS, OFFICE_ROLES, OFFICE_ROLE_LABEL, isOfficeRole, planOfficeRole, publishBlockers } from "@/lib/agents"
 
 interface Cert { name: string; issuer: string; year: string; verified: boolean }
 
@@ -14,8 +14,11 @@ function certsOf(v: unknown): Cert[] {
   return Array.isArray(v) ? (v as Row[]).map((c) => ({ name: s(c.name), issuer: s(c.issuer), year: c.year == null ? "" : s(c.year), verified: c.verified === true })) : []
 }
 
-export function AgentsEditor({ agent, achievements, onClose, onChanged }: { agent: Row | null; achievements: Row[]; onClose: () => void; onChanged: () => void }) {
+export function AgentsEditor({ agent, achievements, roster, onClose, onChanged }: { agent: Row | null; achievements: Row[]; roster: Row[]; onClose: () => void; onChanged: () => void }) {
   const [id, setId] = useState<string | null>(agent ? s(agent.id) : null)
+  const initialRole = isOfficeRole(agent?.office_role) ? (agent?.office_role as string) : ""
+  const [officeRole, setOfficeRole] = useState(initialRole)
+  const [savedRole, setSavedRole] = useState(initialRole)
   const [name, setName] = useState(s(agent?.display_name))
   const [slug, setSlug] = useState(s(agent?.slug))
   const [headline, setHeadline] = useState(s(agent?.headline))
@@ -59,8 +62,20 @@ export function AgentsEditor({ agent, achievements, onClose, onChanged }: { agen
   })
 
   async function save() {
-    const r = await run(() => agentsCall<{ agent: Row }>({ action: "save", id, agent: payload() }), "Saved.")
-    if (r) { setId(s(r.agent.id)); setSlug(s(r.agent.slug)); setStatus(s(r.agent.status)); onChanged() }
+    // The office role is sent only when it changed (so a save never touches it by accident). Taking a role another person holds
+    // moves it, and only after the admin confirms.
+    const roleChanged = officeRole !== savedRole
+    let move = false
+    if (roleChanged && isOfficeRole(officeRole)) {
+      const { from } = planOfficeRole(roster as never[], id, officeRole)
+      if (from) {
+        if (!confirm(`${s((from as Row).display_name)} is the ${OFFICE_ROLE_LABEL[officeRole]} now. Make ${name || "this person"} the ${OFFICE_ROLE_LABEL[officeRole]} instead? ${s((from as Row).display_name)} stays on the roster as an agent.`)) return
+        move = true
+      }
+    }
+    const body = roleChanged ? { ...payload(), office_role: officeRole, move_office_role: move } : payload()
+    const r = await run(() => agentsCall<{ agent: Row }>({ action: "save", id, agent: body }), "Saved.")
+    if (r) { setId(s(r.agent.id)); setSlug(s(r.agent.slug)); setStatus(s(r.agent.status)); setSavedRole(officeRole); onChanged() }
   }
   async function setStatusTo(next: "draft" | "ready" | "published") {
     if (!id) { setErr("Save the agent first."); return }
@@ -179,6 +194,14 @@ export function AgentsEditor({ agent, achievements, onClose, onChanged }: { agen
         <div className={field}><Label htmlFor="ag-phone">Phone</Label><Input id="ag-phone" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
         <div className={`${field} md:col-span-3`}><Label htmlFor="ag-addr">Address</Label><Input id="ag-addr" value={address} onChange={(e) => setAddress(e.target.value)} /></div>
         <div className={`${field} md:col-span-3`}><Label htmlFor="ag-notes">Notes</Label><Textarea id="ag-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+        <div className={`${field} md:col-span-3`}>
+          <Label htmlFor="ag-office">Office role</Label>
+          <select id="ag-office" className="h-10 w-full max-w-xs rounded-md border bg-background px-2 text-sm" value={officeRole} onChange={(e) => setOfficeRole(e.target.value)}>
+            <option value="">None</option>
+            {OFFICE_ROLES.map((r) => <option key={r} value={r}>{OFFICE_ROLE_LABEL[r]}</option>)}
+          </select>
+          <p className="text-xs text-muted-foreground">Only one person holds each role. This person is still an agent and can be given leads. The role is never shown on the site; if you want a public job title, write it in the Headline.</p>
+        </div>
       </fieldset>
 
       <div className="flex flex-wrap items-center gap-2">

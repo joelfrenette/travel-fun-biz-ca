@@ -10,6 +10,7 @@ import { buildPreview, type ImportFieldKey } from '@/lib/agents-import'
 import { cleanSelfService, hashProfileToken, makeProfileToken, profileLinkExpiry, profileLinkState } from '@/lib/agents-token'
 import { isTokenFormat } from '@/lib/agent-invites'
 import { queueIdeas } from '@/lib/blog-topics'
+import { otherHolders, setOfficeRole, takenMessage } from '@/lib/agents-office'
 
 // Database side of the agent profiles. Server only.
 //   PUBLIC reads: getSupabaseAdmin() + the explicit AGENT_PUBLIC_SELECT column list, then toPublicAgent() (which also
@@ -115,6 +116,25 @@ export async function saveAgent(id: string | null, input: Record<string, unknown
   if (!cleaned.ok) return cleaned
   const v = cleaned.value as AgentEditable & Record<string, unknown>
   if (!id && !v.display_name) return { ok: false, errors: ['A name is needed.'] }
+  // The office role (admin only) is written on its own, after the profile, so a role someone else holds is never moved by accident:
+  // it needs move_office_role: true (the editor sends it after the admin confirms).
+  const wantsRole = 'office_role' in v
+  const role = v.office_role ?? null
+  const moveRole = input.move_office_role === true
+  delete v.office_role
+  if (wantsRole && role) {
+    try {
+      const holders = await otherHolders(admin(), role, id)
+      if (holders.length > 0 && !moveRole) return { ok: false, errors: [takenMessage(role, holders)] }
+    } catch {
+      return { ok: false, errors: ['The office role column is not in the database yet. Apply migration 0057_agents_office_role.sql, then try again.'] }
+    }
+  }
+  const withRole = async (row: Row): Promise<{ ok: true; agent: Row } | { ok: false; errors: string[] }> => {
+    if (!wantsRole) return { ok: true, agent: row }
+    const r = await setOfficeRole(admin(), String(row.id), role, moveRole)
+    return r.ok ? { ok: true, agent: { ...row, office_role: role } } : { ok: false, errors: [`The profile was saved, but the office role was not: ${r.error}`] }
+  }
   if (v.slug) v.slug = await uniqueSlug(v.slug, id ?? undefined)
   else if (!id && v.display_name) {
     const { slugify } = await import('@/lib/agents')
@@ -128,11 +148,11 @@ export async function saveAgent(id: string | null, input: Record<string, unknown
     if ((cur as Row).status === 'published' && publishBlockers(merged as never).length) v.status = 'draft'
     const { data, error } = await admin().from('agents').update({ ...v, updated_at: new Date().toISOString() }).eq('id', id).select('*').single()
     if (error) return { ok: false, errors: [error.message] }
-    return { ok: true, agent: data as Row }
+    return withRole(data as Row)
   }
   const { data, error } = await admin().from('agents').insert({ ...v, status: 'draft', consent_photo: v.consent_photo === true, consent_bio: v.consent_bio === true }).select('*').single()
   if (error) return { ok: false, errors: [error.message] }
-  return { ok: true, agent: data as Row }
+  return withRole(data as Row)
 }
 
 export async function deleteAgent(id: string): Promise<string | null> {
@@ -165,9 +185,15 @@ export async function setAgentStatus(id: string, status: 'draft' | 'ready' | 'pu
 // ─── Admin: import ──────────────────────────────────────────────────────────────────
 
 export async function previewImport(sheet: { headers: string[]; rows: string[][] }, mapping: (ImportFieldKey | '')[]) {
-  const { data } = await admin().from('agents').select('slug, email').limit(2000)
-  const rows = (data ?? []) as Row[]
-  return buildPreview(sheet, mapping, { slugs: rows.map((r) => String(r.slug)), emails: rows.map((r) => (typeof r.email === 'string' ? r.email : '')).filter(Boolean) })
+  let res = await admin().from('agents').select('slug, email, office_role').limit(2000)
+  // Before migration 0057 there is no office_role column: read without it (no role is held yet).
+  if (res.error) res = (await admin().from('agents').select('slug, email').limit(2000)) as unknown as typeof res
+  const rows = (res.data ?? []) as Row[]
+  return buildPreview(sheet, mapping, {
+    slugs: rows.map((r) => String(r.slug)),
+    emails: rows.map((r) => (typeof r.email === 'string' ? r.email : '')).filter(Boolean),
+    officeRoles: rows.map((r) => (typeof r.office_role === 'string' ? r.office_role : '')).filter(Boolean),
+  })
 }
 
 export async function runImport(sheet: { headers: string[]; rows: string[][] }, mapping: (ImportFieldKey | '')[]): Promise<{ created: number; skipped: number; errors: string[] }> {
