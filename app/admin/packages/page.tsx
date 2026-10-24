@@ -44,6 +44,8 @@ import { scrapedToPackage as scrapedToPayload } from "@/lib/scraping/to-package"
 import { parsePackagesCsv, csvTemplate, type CsvRow } from "@/lib/import-csv"
 import { completenessScore } from "@/lib/package-completeness"
 import { PackageSourcesPanel } from "@/components/admin/package-sources-panel"
+import { PackageKitPanel } from "@/components/admin/package-kit-panel"
+import { PackageKitBatch } from "@/components/admin/package-kit-batch"
 import { PastTripPanel } from "@/components/admin/past-trip-panel"
 import { PromotePanel } from "@/components/admin/promote-panel"
 import { PackageWizard } from "@/components/package-wizard"
@@ -1857,7 +1859,7 @@ export default function PackagesAdminPage() {
   }
   if (view === "interview") return <div className="p-6"><AIInterview onComplete={handleCreatePackage} onCancel={() => setView("list")} /></div>
   if (view === "paste") return <div className="p-6"><PasteSourceForm onDraft={(data) => { setSeedData(data as Partial<DbPackage>); setEditingPackage(null); setView("manual") }} onCancel={() => setView("list")} /></div>
-  if (view === "manual") return <div className="p-6">{editingPackage && <div id="add-details"><PackageSourcesPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} /></div>}{editingPackage && <PastTripPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} />}{editingPackage && <PromotePanel packageId={editingPackage.id} />}<ManualForm key={formKey} onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>
+  if (view === "manual") return <div className="p-6">{editingPackage && <div id="add-details"><PackageSourcesPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} /></div>}{editingPackage && <PackageKitPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} />}{editingPackage && <PastTripPanel packageId={editingPackage.id} onChanged={() => reloadEditing(editingPackage.id)} />}{editingPackage && <PromotePanel packageId={editingPackage.id} />}<ManualForm key={formKey} onComplete={editingPackage ? handleUpdatePackage : handleCreatePackage} onCancel={() => { setView("list"); setEditingPackage(null); setSeedData(null) }} initialData={editingPackage || seedData || undefined} /></div>
   if (view === "scrape") return <div className="p-6"><ScrapeUrlForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
   if (view === "upload") return <div className="p-6"><UploadExcelForm onComplete={handleCreatePackage} onCancel={() => setView("list")} onImported={fetchPackages} existingSlugs={new Set(packages.map((p) => p.slug))} /></div>
 
@@ -1886,6 +1888,8 @@ export default function PackagesAdminPage() {
       />
 
       <TripsAutomationCard />
+
+      <div className="container mx-auto px-4 pt-4"><PackageKitBatch onDone={fetchPackages} /></div>
 
       <div className="border-b bg-card/30">
         <div className="container mx-auto flex flex-wrap items-center gap-3 px-4 py-3">

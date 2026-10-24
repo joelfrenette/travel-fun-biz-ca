@@ -265,7 +265,10 @@ export async function cleanupOldRenders(admin: SupabaseClient): Promise<string |
 export async function runAutopilotTick(admin: SupabaseClient): Promise<string> {
   const cleanup = await cleanupOldRenders(admin).catch(() => null)
   const { note } = await runAutopilotMain(admin)
-  return [note, cleanup].filter(Boolean).join('; ')
+  // Trip Page Kit: at most one thin trip page per pass, only while autopilot is on and automation is not paused.
+  let kitNote: string | null = null
+  if (await isAutopilotOn(admin).catch(() => false)) kitNote = await import('@/lib/trip-kit-run').then((m) => m.autopilotTripKitStep(admin)).catch(() => null)
+  return [note, cleanup, kitNote].filter(Boolean).join('; ')
 }
 
 async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; problems: string[] }> {

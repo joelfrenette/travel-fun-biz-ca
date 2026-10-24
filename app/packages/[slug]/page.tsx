@@ -37,6 +37,8 @@ import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { tripFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
 import { TripExtras } from "@/components/trip-extras"
 import { loadTripExtras } from "@/lib/trip-extras"
+import { loadTripKit } from "@/lib/trip-kit-store"
+import { TripKitPage } from "@/components/trip/trip-kit-page"
 
 export const revalidate = 300
 
@@ -71,7 +73,7 @@ export default async function PackagePage({ params }: Props) {
   const { language, currency } = getVisitorPreferences()
   // One rule for "past trip" (lib/past-trip.ts): recap_mode auto / recap / live. A past trip is never unpublished.
   const isPastTrip = isPastTripRow(pkg)
-  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip, tripExtras, affiliateRules, recapBundle] = await Promise.all([
+  const [allPackages, usdToTargetRate, tripTestimonials, tripGuides, nextTrip, tripExtras, affiliateRules, recapBundle, tripKitRecords] = await Promise.all([
     getPackages(),
     getUsdToRate(currency),
     getPublishedTestimonialsForPackage(pkg.id),
@@ -82,7 +84,11 @@ export default async function PackagePage({ params }: Props) {
     loadAffiliateRules(),
     // Recap Studio extras (quick answer, takeaways, approved quotes): only for a past trip, only from a published bundle.
     isPastTrip ? loadRecapBundle(pkg.id) : Promise.resolve(null),
+    // Trip Page Kit (upcoming trips): the stored route/inclusions record and the agent-confirmed price. Fails open.
+    isPastTrip ? Promise.resolve({ kit: null, price: null }) : loadTripKit(pkg.id),
   ])
+  const useKit = !isPastTrip
+  const { kit: tripKit, price: confirmedPrice } = tripKitRecords
   const happened = isPastTrip ? happenedLabel(pkg.available_from, pkg.available_to) : null
   // Every linkable text of the page in reading order (lib/affiliate-text-sources.ts): the recap, the journal of a past trip,
   // the description (the full one, else the short one), highlights, itinerary day text, what is included and not, the FAQ
@@ -152,7 +158,8 @@ export default async function PackagePage({ params }: Props) {
           ...(pkg.available_from ? { startDate: pkg.available_from } : {}),
           ...(pkg.available_to ? { endDate: pkg.available_to } : {}),
           provider: { "@type": "TravelAgency", name: SITE_NAME, url: absoluteUrl("/") },
-          ...(pkg.price_value
+          // A price is structured data only when an agent confirmed one for this trip.
+          ...(pkg.price_value && confirmedPrice
             ? { offers: { "@type": "Offer", price: pkg.price_value, priceCurrency: pkg.currency || "CAD", url: pageUrl, availability: "https://schema.org/InStock" } }
             : {}),
         },
@@ -195,6 +202,8 @@ export default async function PackagePage({ params }: Props) {
       <main className="flex-1 pb-20 lg:pb-0">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
 
+        {useKit && <TripKitPage pkg={pkg} heading={tripHeading(pkg, isPastTrip)} image={image} kit={tripKit} price={confirmedPrice} fieldSet={fieldSet} linked={linked} language={language} phone={request.phone} telHref={request.telHref} />}
+        {!useKit && (<>
         {/* Hero */}
         <section className="relative">
           <div className="relative h-[46vh] min-h-[320px] w-full overflow-hidden bg-muted">
@@ -365,6 +374,7 @@ export default async function PackagePage({ params }: Props) {
             </div>
           </aside>
         </section>
+        </>)}
 
         {tripTestimonials.length > 0 && (
           <section className="container mx-auto px-4 pb-12">
@@ -396,7 +406,7 @@ export default async function PackagePage({ params }: Props) {
           </section>
         )}
 
-        {!isPastTrip && pkg.gallery_urls?.length > 0 && (
+        {!isPastTrip && !useKit && pkg.gallery_urls?.length > 0 && (
           <section className="container mx-auto px-4 pb-12">
             <h2 className="mb-4 text-2xl font-bold">{translate(language, "Trip Photos")}</h2>
             <TripGallery images={pkg.gallery_urls} alt={pkg.name} />
@@ -437,12 +447,12 @@ export default async function PackagePage({ params }: Props) {
               <p className="mx-auto mt-3 max-w-2xl text-pretty text-muted-foreground">{translate(language, "No obligation. We reply within one business day.")}</p>
             </div>
             <Suspense fallback={null}>
-              <ContactForm preselectedPackage={pkg.name} packageOptions={Array.from(new Set([pkg.name, ...allPackages.map((p) => p.name)]))} language={language} phone={request.phone} />
+              <ContactForm preselectedPackage={pkg.name} packageOptions={Array.from(new Set([pkg.name, ...allPackages.map((p) => p.name)]))} language={language} phone={request.phone} intent={useKit ? "callback" : undefined} />
             </Suspense>
           </div>
         </section>
       </main>
-      <StickyCta packageName={pkg.name} requestLabel={translate(language, "Request Info")} bookingUrl={isPastTrip ? null : pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} phone={request.phone} callLabel={translate(language, "Call or text now")} />
+      <StickyCta packageName={pkg.name} requestLabel={useKit ? "Book a free call" : translate(language, "Request Info")} bookingUrl={isPastTrip || useKit ? null : pkg.booking_url} bookLabel={pkg.call_to_action || translate(language, "Book Now")} phone={request.phone} callLabel={useKit ? "Call or text" : translate(language, "Call or text now")} />
       <Footer language={language} />
     </div>
   )

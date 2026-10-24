@@ -30,6 +30,8 @@ interface ContactFormProps {
   phone?: string | null
   /** Agent page hint (slug). Sent as a hidden value only; the office assigns leads, never the visitor or the page. */
   agentInterest?: string
+  /** "callback": the lead is a request for a callback from a live agent. The note is added to the message; attribution is unchanged. */
+  intent?: "callback"
 }
 
 const travelerOptions = [
@@ -40,7 +42,7 @@ const travelerOptions = [
   { value: "9+", label: "9+ People" },
 ]
 
-export function ContactForm({ preselectedPackage, packageOptions, language, phone, agentInterest }: ContactFormProps) {
+export function ContactForm({ preselectedPackage, packageOptions, language, phone, agentInterest, intent }: ContactFormProps) {
   const { toast } = useToast()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -100,7 +102,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
       const response = await fetch("/api/submit-lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, ...(agentInterest ? { agent_interest: agentInterest } : {}), package: packageName, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
+        body: JSON.stringify({ ...values, ...(agentInterest ? { agent_interest: agentInterest } : {}), ...(intent === "callback" ? { intent: "callback", message: `[Callback requested] ${values.message ?? ""}`.trim() } : {}), package: packageName, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
       })
 
       if (!response.ok) {
