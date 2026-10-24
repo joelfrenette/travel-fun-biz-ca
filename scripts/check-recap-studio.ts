@@ -298,12 +298,12 @@ const fake = (json: unknown): CallFn => async () => ({ ok: true, text: JSON.stri
   const adminRoutes = ['app/api/admin/packages/[id]/recap-studio/route.ts', 'app/api/admin/recap-studio/due/route.ts']
   for (const f of adminRoutes) {
     const src = read(f)
-    const handlers = [...src.matchAll(/export async function (GET|POST)\([^)]*\)[^{]*\{\n([\s\S]*?)\n/g)]
+    const handlers = [...src.matchAll(/export async function (GET|POST)\([^)]*\)[^{]*\{\r?\n([\s\S]*?)\r?\n/g)]
     check(`${f}: every handler calls isAuthorized(request) on its first line`, handlers.length > 0 && handlers.every((h) => /isAuthorized\(request\)/.test(h[2])), handlers.map((h) => h[1]))
   }
   for (const f of ['app/api/recap/[token]/route.ts', 'app/api/recap/[token]/photos/route.ts']) {
     const src = read(f)
-    const handlers = [...src.matchAll(/export async function (GET|POST)\([^)]*\)[^{]*\{\n([\s\S]*?)\n/g)]
+    const handlers = [...src.matchAll(/export async function (GET|POST)\([^)]*\)[^{]*\{\r?\n([\s\S]*?)\r?\n/g)]
     check(`${f}: every handler validates the token first (recapGate)`, handlers.length > 0 && handlers.every((h) => /recapGate\(request, params\.token\)/.test(h[2])), handlers.map((h) => h[1]))
     check(`${f}: honeypot is checked and submissions are rate limited`, src.includes('isHoneypotFilled') && (src.includes('allowSubmit') || src.includes('GET')))
   }
