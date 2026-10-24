@@ -139,6 +139,24 @@ check('the mapping is exported as data', BLOCKER_RULES.length > 25 && BLOCKER_RU
     }
   }
   check(`all ${pushes} gate blockers are classified`, pushes > 40 && unknown.length === 0, unknown.join(' | '))
+
+  // The blog quality bar (lib/blog-quality.ts) pushes its own blockers. The older ones are healed by lib/blog-quality-fix.ts and have no rule
+  // (so they count as HARD for the guide/page-copy repair); every blocker added after the WP4 bundle MUST have a BLOCKER_RULES row.
+  const LEGACY_QUALITY_BLOCKERS = ['no content style recorded', 'too few internal links', 'no contact or trip link', 'no Quick answer line', 'banned filler phrase', 'FAQ talks about the text itself', 'unverifiable claim', 'title promises something the post lacks', 'title names a brand that is not the trip']
+  const qualityText = readFileSync(join(root, 'lib/blog-quality.ts'), 'utf8')
+  const qualityUnknown: string[] = []
+  let qualityPushes = 0
+  for (const m of qualityText.matchAll(/blockers\.push\((`[^`]*`|'[^']*')/g)) {
+    qualityPushes++
+    const literal = m[1].slice(1, -1).replace(/\$\{[^}]*\}/g, '0')
+    if (ruleFor(literal) || LEGACY_QUALITY_BLOCKERS.some((l) => literal.startsWith(l))) continue
+    qualityUnknown.push(literal)
+  }
+  check(`every new blog-quality blocker has a BLOCKER_RULES row (${qualityPushes} literal pushes scanned)`, qualityPushes >= 8 && qualityUnknown.length === 0, qualityUnknown.join(' | '))
+  // The variable pushes (a message built elsewhere) are covered by the sample list instead.
+  for (const sample of ['Quick answer length: 9 words is too short to quote, it needs 15 to 60', 'Quick answer length: 80 words is too long to quote, it needs 15 to 60', 'meta title duplicates another page ("A title")', 'meta description duplicates another page ("A description")', 'cover image alt text: cover image alt text is missing or generic']) {
+    check(`REPAIRABLE (WP4): ${sample.slice(0, 40)}`, classifyBlockers([sample]).repairable.length === 1 && ruleFor(sample) !== null, sample)
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -188,10 +206,10 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
   // 2. Offending-sentence extraction
   // -------------------------------------------------------------------------------------------------
   {
-    const g = makeGuide({ 1: ['The harbour is the best place to eat.', 'We offer tours every year.', 'A plain sentence stays.'] })
+    const g = makeGuide({ 1: ['The harbour is the world-class place to eat.', 'We offer tours every year.', 'A plain sentence stays.'] })
     const ctx = makeDetectCtx('guide', gateCtx.grounding, ['Santorini', 'Greek Isles'])
     const off = detectOffenders(guideFields(g), ctx)
-    check('extracts the superlative sentence', off.some((o) => o.text === 'The harbour is the best place to eat.' && /superlative/.test(o.why)))
+    check('extracts the superlative sentence', off.some((o) => o.text === 'The harbour is the world-class place to eat.' && /superlative/.test(o.why)))
     check('extracts the agency-claim sentence', off.some((o) => o.text === 'We offer tours every year.' && /agency/.test(o.why)))
     check('does not flag a plain sentence', !off.some((o) => o.text === 'A plain sentence stays.'))
     check('extracts exactly the two offenders', off.length === 2, String(off.length))
@@ -205,11 +223,11 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
   // 3. Deterministic fallback (no model answers)
   // -------------------------------------------------------------------------------------------------
   {
-    const bad = makeGuide({ 1: ['The harbour is the best place to eat.'] })
+    const bad = makeGuide({ 1: ['The harbour is the world-class place to eat.'] })
     check('the bad guide is blocked', guideBlockers(bad, gateCtx).some((b) => /superlative/.test(b)))
     const r = await run(bad)
-    check('fallback: the paragraph keeps 2+ sentences, so the sentence is deleted and the gate is clean', r.blockers.length === 0 && !r.fields.body.includes('best place to eat'), r.blockers.join(' | '))
-    check('fallback: edit logged with method delete, a before and an after', r.edits.length === 1 && r.edits[0].method === 'delete' && r.edits[0].field === 'body' && r.edits[0].before.includes('best place') && !r.edits[0].after.includes('best place'))
+    check('fallback: the paragraph keeps 2+ sentences, so the sentence is deleted and the gate is clean', r.blockers.length === 0 && !r.fields.body.includes('world-class place to eat'), r.blockers.join(' | '))
+    check('fallback: edit logged with method delete, a before and an after', r.edits.length === 1 && r.edits[0].method === 'delete' && r.edits[0].field === 'body' && r.edits[0].before.includes('world-class place') && !r.edits[0].after.includes('world-class place'))
     check('fallback: the model was asked once and gave nothing', r.calls === 1)
     check('fallback: nothing else in the text changed', r.fields.body.replace(/\s+/g, ' ').length < bad.body.replace(/\s+/g, ' ').length && r.fields.faq.length === 4)
     check('fallback: the result still parses into sections for a guide', r.edits[0].after.includes('## Where to stay'))
@@ -231,7 +249,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
   // 4. HARD blockers and sensitive text are never touched
   // -------------------------------------------------------------------------------------------------
   {
-    const exp = makeGuide({ 1: ['When I visited last year the harbour was calm.', 'The harbour is the best place to eat.'] })
+    const exp = makeGuide({ 1: ['When I visited last year the harbour was calm.', 'The harbour is the world-class place to eat.'] })
     const r = await run(exp)
     check('HARD: an experience claim stops the repair, the text is exactly as it came in', r.hard.length > 0 && r.edits.length === 0 && r.fields.body === exp.body && r.calls === 0)
     // Joel's rule (2026-10-10): an ungrounded price or exact date is DELETED (never reworded) where the paragraph keeps 2+ sentences.
@@ -274,7 +292,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
   // 5. The model path
   // -------------------------------------------------------------------------------------------------
   {
-    const bad = makeGuide({ 1: ['We offer tours every year.', 'The harbour is the best place to eat.'] })
+    const bad = makeGuide({ 1: ['We offer tours every year.', 'The harbour is the world-class place to eat.'] })
     const seen: string[] = []
     const model: ModelCall = async (prompt) => {
       seen.push(prompt)
@@ -288,14 +306,14 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
 
     // A rewrite that adds a number is thrown away, the fallback deletes instead.
     const sneaky: ModelCall = async () => JSON.stringify({ rewrites: [{ id: 0, text: 'The harbour has 40 cafes.' }] })
-    const rs = await run(makeGuide({ 1: ['The harbour is the best place to eat.'] }), sneaky)
+    const rs = await run(makeGuide({ 1: ['The harbour is the world-class place to eat.'] }), sneaky)
     check('model: a rewrite that adds a number is rejected, the fallback deletes the sentence', rs.blockers.length === 0 && !rs.fields.body.includes('40') && rs.edits[0].method === 'delete', rs.blockers.join(' | '))
-    check('validateRewrite rejects: longer, a new name, a new link, a price', validateRewrite('The harbour is the best place to eat.', 'The harbour is a really pleasant and quiet place to sit and eat dinner.', makeDetectCtx('guide', gateCtx.grounding)) === 'longer than the original' && validateRewrite('The harbour is the best place to eat.', 'Eat at Aquavit Terrace.', makeDetectCtx('guide', gateCtx.grounding)) !== null && validateRewrite('Eat well here.', 'Eat well [here](/packages/x).', makeDetectCtx('guide', gateCtx.grounding)) === 'adds a link' && validateRewrite('Eat well here.', 'Eat for $5.', makeDetectCtx('guide', gateCtx.grounding)) !== null)
-    check('validateRewrite accepts a shorter clean rewrite', validateRewrite('The harbour is the best place to eat.', 'The harbour is a place to eat.', makeDetectCtx('guide', gateCtx.grounding)) === null)
+    check('validateRewrite rejects: longer, a new name, a new link, a price', validateRewrite('The harbour is the world-class place to eat.', 'The harbour is a really pleasant and quiet place to sit and eat dinner.', makeDetectCtx('guide', gateCtx.grounding)) === 'longer than the original' && validateRewrite('The harbour is the world-class place to eat.', 'Eat at Aquavit Terrace.', makeDetectCtx('guide', gateCtx.grounding)) !== null && validateRewrite('Eat well here.', 'Eat well [here](/packages/x).', makeDetectCtx('guide', gateCtx.grounding)) === 'adds a link' && validateRewrite('Eat well here.', 'Eat for $5.', makeDetectCtx('guide', gateCtx.grounding)) !== null)
+    check('validateRewrite accepts a shorter clean rewrite', validateRewrite('The harbour is the world-class place to eat.', 'The harbour is a place to eat.', makeDetectCtx('guide', gateCtx.grounding)) === null)
 
     // Round 2 checks.
     const cx2 = makeDetectCtx('guide', 'x', [])
-    check('stems: "cities" matches "city", and plural neutral words match', validateRewrite('The cities are the best.', 'The city is well known.', cx2) === null && validateRewrite('The best places for guests.', 'The place for guest.', cx2) === null, String(validateRewrite('The cities are the best.', 'The city is well known.', cx2)))
+    check('stems: "cities" matches "city", and plural neutral words match', validateRewrite('The cities are world-class.', 'The city is well known.', cx2) === null && validateRewrite('The world-class places for guests.', 'The place for guest.', cx2) === null, String(validateRewrite('The cities are world-class.', 'The city is well known.', cx2)))
     check('split: a digit can end a sentence ("from $450. Book now")', bodySentences('Trips start from $450. Book now today.').length === 2 && bodySentences('1. First thing here.').length === 1)
     check('links: a target with parentheses is one link', stripAllLinks('See [Paris](/wiki/Paris_(France)) now.') === 'See Paris now.' && internalLinksOfText('[a](/x_(y))').join() === '/x_(y)')
     check('generateExtras: answered is false for a null call, true for text with nothing accepted', (await generateExtras(async () => null, guideFields(makeGuide()), ['faq'], { faqMin: 3, faqMax: 5, takeMin: 3, takeMax: 5, metaTitleMax: 60, metaDescMax: 155, ogTitleMax: 60, ogDescMax: 110 }, null, makeDetectCtx('guide', 'x', []))).answered === false && (await generateExtras(async () => '{"faq":[]}', guideFields(makeGuide()), ['faq'], { faqMin: 3, faqMax: 5, takeMin: 3, takeMax: 5, metaTitleMax: 60, metaDescMax: 155, ogTitleMax: 60, ogDescMax: 110 }, null, makeDetectCtx('guide', 'x', []))).answered === true)
@@ -305,20 +323,20 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
       const cx = makeDetectCtx(type, 'Rhine trip', [])
       const rej = (label: string, original: string, rewrite: string) => check(`subset guard (${type}): ${label} is rejected`, validateRewrite(original, rewrite, cx) !== null, String(validateRewrite(original, rewrite, cx)))
       rej('"four-night" -> "week-long"', 'It is a four-night sailing.', 'It is a week-long sailing.')
-      rej('"wheelchair accessible"', 'The ship is the best for families.', 'The ship is wheelchair accessible.')
+      rej('"wheelchair accessible"', 'The ship is world-class for families.', 'The ship is wheelchair accessible.')
       rej('"free to enter"', 'The museum is world-class.', 'The museum is free to enter.')
       rej('"safe for all travellers with visas"', 'The old town is famous.', 'The old town is safe for all travellers with visas.')
-      rej('"We guarantee"', 'The staff are the best.', 'We guarantee the staff.')
+      rej('"We guarantee"', 'The staff are world-class.', 'We guarantee the staff.')
       rej('"Hotel Hassler"', 'The hotel is famous.', 'Hotel Hassler is famous.')
       rej('"we offered"', 'The tours are famous.', 'We offered tours.')
       check(`subset guard (${type}): "famous" -> "well known" is accepted`, validateRewrite('The old town is famous for its markets.', 'The old town is well known for its markets.', cx) === null, String(validateRewrite('The old town is famous for its markets.', 'The old town is well known for its markets.', cx)))
-      check(`subset guard (${type}): dropping the flagged words is accepted`, validateRewrite('The old town has the best markets.', 'The old town has markets.', cx) === null)
+      check(`subset guard (${type}): dropping the flagged words is accepted`, validateRewrite('The old town has world-class markets.', 'The old town has markets.', cx) === null)
     }
 
     // The model may delete.
     const del: ModelCall = async () => JSON.stringify({ rewrites: [{ id: 0, delete: true }] })
-    const rdl = await run(makeGuide({ 1: ['The harbour is the best place to eat.'] }), del)
-    check('model: a delete is honoured when the paragraph allows it', rdl.blockers.length === 0 && !rdl.fields.body.includes('best place'))
+    const rdl = await run(makeGuide({ 1: ['The harbour is the world-class place to eat.'] }), del)
+    check('model: a delete is honoured when the paragraph allows it', rdl.blockers.length === 0 && !rdl.fields.body.includes('world-class place'))
 
     // Calls are capped at two per item, whatever happens.
     let calls = 0
@@ -326,7 +344,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
       calls++
       return 'not json'
     }
-    const worst = makeGuide({ 1: ['The harbour is the best place to eat.'] }, { faq: [] })
+    const worst = makeGuide({ 1: ['The harbour is the world-class place to eat.'] }, { faq: [] })
     const rw = await repairContent(guideItem(worst), { model: counting })
     check('calls: at most 2 model calls per guide (one for the missing FAQ, one for the reword)', calls <= 2 && rw.calls === calls, String(calls))
     let postCalls = 0
@@ -362,7 +380,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
     const withNumber: ModelCall = async () => JSON.stringify({ faq: [1, 2, 3, 4].map((n) => ({ q: `Is Santorini question ${'abcd'[n - 1]}?`, a: `It has ${n * 100} villages.` })), key_takeaways: [] })
     const rn = await run(makeGuide({}, { faq: [] }), withNumber)
     check('generate: answers with a number that is not in the text are dropped', rn.fields.faq.length === 0 && rn.blockers.some((b) => /missing FAQ/.test(b)))
-    const withSuper: ModelCall = async () => JSON.stringify({ faq: [1, 2, 3, 4].map((n) => ({ q: `Is Santorini question ${'abcd'[n - 1]}?`, a: 'It is the best island.' })) })
+    const withSuper: ModelCall = async () => JSON.stringify({ faq: [1, 2, 3, 4].map((n) => ({ q: `Is Santorini question ${'abcd'[n - 1]}?`, a: 'It is the world-class island.' })) })
     const rsu = await run(makeGuide({}, { faq: [] }), withSuper)
     check('generate: answers that trip the superlative list are dropped', rsu.fields.faq.length === 0)
 
@@ -404,7 +422,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
   // 8. Posts and page copy
   // -------------------------------------------------------------------------------------------------
   {
-    const goodBody = ['A river cruise is a relaxed way to see several towns without repacking.', '', '**Quick answer:** A river cruise suits first timers who want an easy pace.', '', '## Why a river cruise works for first timers', '', 'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details, ask us in [the contact section](/#contact), read [our blog](/blog) or browse [our trips](/). ' + 'word '.repeat(460), '', '### Pace', '', 'Most people find the pace gentle. It is easy to settle in. You unpack once.', '', 'Have a think about who you would travel with, and our team can help you work that out.'].join('\n')
+    const goodBody = ['A river cruise is a relaxed way to see several towns without repacking.', '', '**Quick answer:** A river cruise suits first timers who want an easy pace, one bed all week and several towns without repacking.', '', '## Why a river cruise works for first timers', '', 'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details, ask us in [the contact section](/#contact), read [our blog](/blog) or browse [our trips](/). ' + 'word '.repeat(460), '', '### Pace', '', 'Most people find the pace gentle. It is easy to settle in. You unpack once.', '', 'Have a think about who you would travel with, and our team can help you work that out.'].join('\n')
     const good: ComposedPost = {
       title: 'River cruise for first timers',
       slug: 'river-cruise-for-first-timers',
@@ -607,7 +625,7 @@ const run = (g: ComposedGuide, model: ModelCall = noModel) => repairContent(guid
 
     // Repair end to end (fake database): audit rows are written, a HARD item takes no slot.
     const w2 = fakeAdmin()
-    const bad = makeGuide({ 1: ['The harbour is the best place to eat.'] })
+    const bad = makeGuide({ 1: ['The harbour is the world-class place to eat.'] })
     const out = await repairComposedGuide(w2.admin, bad, gateCtx, { kind: 'destinations', slug: 'santorini', path: '/destinations/santorini', links, model: noModel })
     check('wrapper: repaired, clean, audit rows written before use', out.blockers.length === 0 && out.logIds.length === 1 && w2.edits.length === 1 && w2.edits[0].content_id === null && w2.edits[0].path === '/destinations/santorini')
     check('wrapper: one slot taken and the spend estimate recorded', w2.settings.filter((s) => s.key.startsWith('content_repair_slot:')).length === 1 && w2.settings.some((s) => s.key.startsWith('content_repair_spend:')))

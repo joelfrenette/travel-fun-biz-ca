@@ -73,7 +73,7 @@ check('B: engine inserts approved only through the decision', /status: decision\
 check('B: autopilot API exposes the auto-approved count', /autoApproved: summariseAutoApprovals/.test(src('app/api/admin/autopilot/route.ts')))
 
 // ---- C: re-heal stuck blog drafts ----
-const goodBody = ['A river cruise is a relaxed way to see several towns without repacking.', '', '**Quick answer:** A river cruise suits first timers who want an easy pace.', '', '## Why a river cruise works for first timers', '', 'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details, ask us in [the contact section](/#contact) or browse [our trips](/). ' + 'word '.repeat(460), '', '### Pace', '', 'Most people find the pace gentle. It is easy to settle in. You unpack once.', '', 'Have a think about who you would travel with, and our team can help you work that out.'].join('\n')
+const goodBody = ['A river cruise is a relaxed way to see several towns without repacking.', '', '**Quick answer:** A river cruise suits first timers who want an easy pace, one bed all week and several towns without repacking.', '', '## Why a river cruise works for first timers', '', 'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details, ask us in [the contact section](/#contact) or browse [our trips](/). ' + 'word '.repeat(460), '', '### Pace', '', 'Most people find the pace gentle. It is easy to settle in. You unpack once.', '', 'Have a think about who you would travel with, and our team can help you work that out.'].join('\n')
 const draftRow = (n: number, bodyExtra: string, over: Record<string, unknown> = {}) => ({
   id: `post-${n}`, slug: `river-cruise-${n}`, status: 'draft', title: 'River cruise for first timers', body: goodBody.replace('You unpack once.', `You unpack once.${bodyExtra}`),
   meta_title: 'River cruise for first timers', meta_description: 'A plain guide for first-time river cruisers.', tags: ['river cruise first timers'],
@@ -209,7 +209,7 @@ async function main() {
   check('E: release hours parse: unset 24, 0 never, bad text 24, capped at 720', parseReleaseHours(null) === 24 && parseReleaseHours('') === 24 && parseReleaseHours('0') === 0 && parseReleaseHours('abc') === 24 && parseReleaseHours('-3') === 24 && parseReleaseHours('6') === 6 && parseReleaseHours('9999') === 720 && DEFAULT_GUIDE_RELEASE_HOURS === 24)
   const cleanSrc = { title: 'Hotel Aurora guide', meta_description: 'What to expect at Hotel Aurora, a quiet seaside hotel, and who it suits.', grounding: '- Quiet seaside hotel\n- Rooms face the harbour' }
   check('E: a plain caption passes', guideCaptionProblems(cleanSrc).length === 0, guideCaptionProblems(cleanSrc).join('|'))
-  check('E: a superlative is a problem', guideCaptionProblems({ ...cleanSrc, meta_description: 'The best hotel on the coast, and a quiet one.' }).some((p) => /superlative/.test(p)))
+  check('E: a superlative is a problem', guideCaptionProblems({ ...cleanSrc, meta_description: 'The award-winning hotel on the coast, and a quiet one.' }).some((p) => /superlative/.test(p)))
   check('E: a number outside the guide facts is a problem, one inside is fine', guideCaptionProblems({ ...cleanSrc, meta_description: 'A quiet hotel with 450 rooms.' }).some((p) => /number not in/.test(p)) && guideCaptionProblems({ ...cleanSrc, meta_description: 'A quiet hotel with 450 rooms.', grounding: '- 450 rooms' }).length === 0)
   check('E: a long dash and an empty description are problems', guideCaptionProblems({ ...cleanSrc, title: `Hotel ${String.fromCharCode(8212)} Aurora` }).length > 0 && guideCaptionProblems({ ...cleanSrc, meta_description: null }).length > 0)
 
@@ -237,7 +237,7 @@ async function main() {
     const base = (): Db => ({
       tables: {
         app_settings: [{ key: 'distribution_mode', value: 'auto' }],
-        guides: [guideRow('old'), guideRow('fresh'), guideRow('manual'), guideRow('superl', { meta_description: 'The best hotel on the coast and who it suits.' })],
+        guides: [guideRow('old'), guideRow('fresh'), guideRow('manual'), guideRow('superl', { meta_description: 'The award-winning hotel on the coast and who it suits.' })],
         post_distribution: [ledger('old', 25), ledger('fresh', 2), ledger('manual', 30, { last_error: null }), ledger('superl', 30)],
       },
     })

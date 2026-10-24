@@ -317,7 +317,7 @@ HARD RULES:
 1. Use ONLY facts stated in the TRIP DETAILS below. If the details do not say something, leave that question out. Never guess, round, or add typical details.
 2. Write NO digits (0-9) unless the exact same number appears in the TRIP DETAILS. Keep other amounts vague, in words.
 3. Never mention refunds, deposits, cancellation, visas, passports, vaccines, medical or insurance matters, fitness or access needs unless the TRIP DETAILS state them. For anything like that, do not write a question at all.
-4. Never use: best, number one, award-winning, 5-star, top-rated, world-class, finest, luxury, iconic, famous, renowned, legendary, must-see, brand new, largest, most popular, unforgettable, once in a lifetime.
+4. Never use: number one, award-winning, 5-star, top-rated, world-class, luxury, iconic, famous, renowned, legendary, must-see, brand new, largest, most popular, unforgettable, once in a lifetime.
 5. Never claim personal experience or a past trip, never say what the agency or its hosts have done or always do. You may say "we can help you plan" and speak to the reader as "you".
 6. Name no hotel, ship, restaurant, person or place that is not in the TRIP DETAILS.
 7. No dashes of any kind, no web addresses, no markdown. Canadian spelling, warm, plain English, each answer 1 to 3 sentences.

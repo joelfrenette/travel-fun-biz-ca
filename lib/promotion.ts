@@ -277,7 +277,7 @@ Rules:
 - primary_keyword: one phrase from the list above, copied exactly. Use a different primary_keyword for each idea. secondary_keywords: 0 to 4 other phrases from the list, copied exactly.
 - title_idea: a clear working headline, 10 to 100 characters. angle: one sentence, 20 to 300 characters, that names the trip or its destination and says what the post helps the reader decide.
 - Never use the long dash character; use commas or full stops.
-- No superlatives or rankings anywhere (best, top, ultimate, number one, must-see, world-class, perfect, greatest): the quality gate rejects them.
+- No rankings, ratings or award claims anywhere (ultimate, number one, must-see, world-class, perfect, greatest): the quality gate rejects them. Opinion words such as best are fine.
 
 Return ONLY minified JSON of this exact shape, nothing else:
 {"ideas":[{"primary_keyword":"...","title_idea":"...","angle":"...","secondary_keywords":["..."]}]}`
@@ -290,7 +290,7 @@ export interface IdeaDraft {
   angle: string
 }
 
-const SUPERLATIVE = /\b(?:best|top|ultimate|number one|must-see|world-class|perfect|greatest|finest|unbeatable)\b/i
+const SUPERLATIVE = /\b(?:ultimate|number one|must-see|world-class|perfect|greatest|unbeatable)\b/i
 const FIRST_PERSON = /\b(?:we|i)\s+(?:went|visited|stayed|sailed|loved|tried|toured|explored)\b|\bour\s+(?:stay|visit|trip last|last trip)\b/i
 const NUMBER_WORDS = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|dozen|dozens|hundred|hundreds|thousand|thousands|million|millions)\b/g
 const MONTH_RE = /\b(January|February|March|April|June|July|August|September|October|November|December)\b|\b(?:in|during|every|each|late|early|mid|of)\s+(May)\b/g

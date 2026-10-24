@@ -4,7 +4,8 @@ import { listPostsAdmin, createPost, type Post } from '@/lib/posts'
 import { listPublishedGuideLinks, guidePath, isGuideKind, type GuideKind } from '@/lib/guides'
 import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, checkTopicConflict, rankByGsc, readGscQueries, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
-import { withSiteLinks } from '@/lib/blog-quality'
+import { coverAltIssue, withSiteLinks } from '@/lib/blog-quality'
+import { coverAlt } from '@/lib/image-quality'
 import { deleteEdits } from '@/lib/content-edits'
 import { rejectedPostSlugs } from '@/lib/blog-reheal'
 import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters'
@@ -537,6 +538,8 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
       deadlineMs,
       storedBody: (body: string) => appendStyledCta(body, ctaStyle.id, groundingPackage),
       tripDates: groundingPackage ? { from: groundingPackage.available_from, to: groundingPackage.available_to } : null,
+      // WP4: the search title and description of the other live posts, so a new post cannot repeat one of them.
+      otherMeta: existingPosts.filter((p) => p.status === 'published').map((p) => ({ slug: p.slug, title: p.meta_title, description: p.meta_description })),
     }
     const gated = await repairComposedPost(
       admin,
@@ -592,13 +595,18 @@ A first draft of this post was refused by the quality checks for these reasons, 
     // A draft the heal rejected gets no photo: it is not going anywhere. The photo is filed under the FINAL slug (the heal can
     // rewrite the title, and the slug follows it). It is inside this try so that any failure also takes back the audit rows.
     const image = rejectedByHeal ? null : await attachAutoblogCoverImage(admin, imageSearchTerm, final.slug, { destination: groundingPackage?.destination ?? null, title: final.title, cardFallback: true })
+    // WP4 cover alt gate: the photo is attached after the text gate, so the alt check lives here. A cover with no useful alt text gets one
+    // built by code from the title and place (the same function the site crawl uses); it is a fix, never a reason to hold the post.
+    const coverAltText = image && coverAltIssue({ url: image.cover_image_url, alt: image.alt_text })
+      ? coverAlt({ title: final.title, destination: groundingPackage?.destination ?? null, keyword: final.primary_keyword })
+      : image?.alt_text ?? null
     post = await createPost({
       title: final.title,
       slug: final.slug,
       body: appendStyledCta(final.body, ctaStyle.id, groundingPackage),
       tags: final.tags,
       cover_image_url: image?.cover_image_url ?? null,
-      alt_text: image?.alt_text ?? null,
+      alt_text: coverAltText,
       status: publishing ? 'published' : 'draft',
       publish_date: publishing ? new Date().toISOString().slice(0, 10) : null,
       meta_title: final.seo_title,

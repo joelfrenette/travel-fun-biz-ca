@@ -7,8 +7,8 @@ import { generateMetadata as realGenerateMetadata } from '@/app/packages/[slug]/
 export const revalidate = 300
 // generateMetadata runs outside the page render's async context, so it must enter runStatic() itself. Without this its database reads
 // (the recap bundle of a past trip) go out no-store, and Next throws "Page changed from static to dynamic at runtime" (HTTP 500).
-export function generateMetadata(props: Parameters<typeof realGenerateMetadata>[0]) {
-  return runStatic(() => realGenerateMetadata(props))
+export function generateMetadata(...args: Parameters<typeof realGenerateMetadata>) {
+  return runStatic(() => realGenerateMetadata(...args))
 }
 // No pages are built ahead of time: each one is built on its first request, then cached (on-demand ISR).
 export function generateStaticParams() {

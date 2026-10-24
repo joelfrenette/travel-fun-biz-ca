@@ -3,6 +3,12 @@ import { appendStyledCta, CTA_STYLES } from '@/lib/content-styles'
 import {
   MAX_FIRST_SENTENCE_WORDS,
   MIN_INTERNAL_LINKS,
+  QUICK_ANSWER_MAX_WORDS,
+  QUICK_ANSWER_MIN_WORDS,
+  fitQuickAnswer,
+  metaDuplicates,
+  quickAnswerLengthIssue,
+  quickAnswerParts,
   bannedPhraseHits,
   faqMetaHits,
   firstSentenceIssue,
@@ -225,6 +231,11 @@ export function mechanicalFix(post: ComposedPost, ctx: FixCtx): MechanicalResult
     next.body = withQuick
     note('added a Quick answer line from the post\'s own first takeaway')
   }
+  const fitted = fitQuickAnswer(next.body, next.key_takeaways)
+  if (fitted !== next.body) {
+    next.body = fitted
+    note('brought the Quick answer to a quotable length using the post\'s own sentences')
+  }
 
   // Links: a contact or trip link first, then related reading up to the minimum.
   if (!hasContactOrTripLink(next.body)) {
@@ -264,6 +275,18 @@ export function qualityOffenders(post: ComposedPost, ctx: QualityCtx): Offender[
   const first = rawFirstSentence(post.body)
   if (issue && first && post.body.includes(first)) {
     out.push({ field: 'body', text: first, why: `${issue}: rewrite it as ONE plain sentence of at most ${MAX_FIRST_SENTENCE_WORDS} words that directly answers what a reader searching "${post.primary_keyword}" wants to know, not starting with Picture, Imagine or You`, prefix: '' })
+  }
+  // A Quick answer the plain fix could not bring into range: one rewrite of that paragraph, label kept.
+  const qaIssue = quickAnswerLengthIssue(post.body)
+  const qa = qaIssue ? quickAnswerParts(post.body) : null
+  if (qaIssue && qa && post.body.includes(qa.paragraph)) {
+    out.push({ field: 'body', text: qa.paragraph, why: `${qaIssue}: rewrite it as ONE or TWO plain sentences of ${QUICK_ANSWER_MIN_WORDS} to ${QUICK_ANSWER_MAX_WORDS} words in total, starting with the bold label ${qa.label}, using only what the post already says`, prefix: '' })
+  }
+  // Search text that repeats another page: rewrite just that text, say something different.
+  if (ctx.otherMeta?.length) {
+    const dup = metaDuplicates(post, ctx.otherMeta)
+    if (dup.title && post.seo_title) out.push({ field: 'seo_title', text: post.seo_title, why: 'this search title repeats another page\'s; reword it so it is different, keeping the topic and under 60 characters', prefix: '' })
+    if (dup.description && post.seo_description) out.push({ field: 'seo_description', text: post.seo_description, why: 'this search description repeats another page\'s; reword it so it is different, keeping the topic and under 155 characters', prefix: '' })
   }
   for (const line of post.body.split('\n')) {
     if (/^#{1,6}\s/.test(line)) continue
@@ -312,6 +335,8 @@ export function applyQualityRewrites(post: ComposedPost, offenders: Offender[], 
 
 /** The kind of a gate message, so "too few internal links (1, ...)" and "(2, ...)" count as the same blocker. */
 export function blockerKind(b: string): string {
+  // Going from "no Quick answer" to "a Quick answer that is still a little short" is progress, not a new kind of problem.
+  if (b.startsWith('Quick answer length')) return 'no Quick answer line'
   return QUALITY_PREFIXES.find((p) => b.startsWith(p)) ?? b.replace(/\s*\(.*$/, '').slice(0, 40)
 }
 

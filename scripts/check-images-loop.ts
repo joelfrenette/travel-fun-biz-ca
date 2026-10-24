@@ -105,7 +105,7 @@ expect('plan is stable: applying it and planning again leaves only the guide tha
 
 // --- wiring (source checks) ---
 const autoblog = read('lib/autoblog-run.ts')
-expect('autoblog always asks for a cover with the destination and the card fallback, and saves cover and alt', /attachAutoblogCoverImage\(admin, imageSearchTerm, final\.slug, \{[^}]*destination:[^}]*cardFallback: true/.test(autoblog) && /cover_image_url: image\?\.cover_image_url \?\? null/.test(autoblog) && /alt_text: image\?\.alt_text \?\? null/.test(autoblog))
+expect('autoblog always asks for a cover with the destination and the card fallback, and saves cover and alt', /attachAutoblogCoverImage\(admin, imageSearchTerm, final\.slug, \{[^}]*destination:[^}]*cardFallback: true/.test(autoblog) && /cover_image_url: image\?\.cover_image_url \?\? null/.test(autoblog) && /alt_text: coverAltText/.test(autoblog) && /image\?\.alt_text \?\? null/.test(autoblog))
 const blogImage = read('lib/blog-image.ts')
 expect('blog image: destination goes into the search, alt comes from coverAlt, the last resort is the branded card', /findDestinationPhoto\(query\)/.test(blogImage) && /coverAlt\(/.test(blogImage) && /ogImageUrl\('blog'/.test(blogImage))
 expect('news publish stores the card cover and alt', /cover_image_url: newsCoverUrl\(slug\)/.test(read('lib/news-publish.ts')))

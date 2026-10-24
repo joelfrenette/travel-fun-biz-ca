@@ -72,7 +72,9 @@ check('"or three days" is excused as a vague range', ungroundedWordCounts('most 
 check('"hundreds of" is blocked', has(blockersOf({ intro: goodIntro.replace('for the islands', 'with hundreds of options') }), /written in words/))
 
 // --- claims ---
-check('superlative "best resort" is blocked', has(blockersOf({ intro: goodIntro.replace('for the islands', 'for the best resort') }), /superlative/))
+check('opinion "best resort" is allowed', blockersOf({ intro: goodIntro.replace('for the islands', 'for the best resort') }).length === 0)
+check('award-winning resort is blocked', has(blockersOf({ intro: goodIntro.replace('for the islands', 'for the award-winning resort') }), /superlative/))
+check('number one resort is blocked', has(blockersOf({ intro: goodIntro.replace('for the islands', 'for the number one resort') }), /superlative/))
 check('"best time to visit" is allowed', blockersOf({ intro: goodIntro.replace('for the islands', 'for the best time to visit') }).length === 0)
 check('"luxury" is blocked', has(blockersOf({ intro: goodIntro.replace('for the islands', 'for luxury') }), /superlative/))
 check('a verdict ("is the better choice") is blocked', has(blockersOf({ intro: goodIntro.replace('for the islands', 'because Italy is the better choice') }), /verdict/))

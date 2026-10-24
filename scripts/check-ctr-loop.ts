@@ -74,7 +74,7 @@ const gateCases: [string, string, string, RegExp][] = [
   ['title too long', `${goodTitle} and then some more words to run over`, goodDesc, /title is \d+ characters/],
   ['description too short', goodTitle, 'A short description of the Rhine river cruise.', /description is \d+ characters/],
   ['description too long', goodTitle, `${goodDesc} ${goodDesc}`, /description is \d+ characters/],
-  ['superlative', 'The best Rhine river cruise from Cologne to Basel', goodDesc, /superlative/],
+  ['superlative', 'The award-winning Rhine river cruise from Cologne to Basel', goodDesc, /superlative/],
   ['luxury word', 'Luxury Rhine river cruise from Cologne to Basel', goodDesc, /superlative|name not on the page/],
   ['a price', goodTitle, `${goodDesc.slice(0, 100)} from $1,999 per person today with our advisors.`, /price/],
   ['a number not on the page', 'Rhine river cruise from Cologne to Basel, 12 days', goodDesc, /number not on the page: 12/],
@@ -161,7 +161,7 @@ async function main() {
   }
   {
     const db = baseDb()
-    const s = stubModel({ suggest: JSON.stringify({ meta_title: 'The best Rhine river cruise from Cologne to Basel', meta_description: goodDesc }) })
+    const s = stubModel({ suggest: JSON.stringify({ meta_title: 'The award-winning Rhine river cruise from Cologne to Basel', meta_description: goodDesc }) })
     const r = await runCtrLoop(fakeAdmin(db), { now: NOW, model: s.model, getPairs: async () => [] })
     check('gate: a proposal that fails the checks is never judged or applied', r.started === 0 && s.prompts.length === 1 && db.tables.content_edits.length === 0 && db.tables.posts[0].meta_title === 'Rhine cruise' && /turned down by the checks/.test(r.note), r.note)
     const retry = await runCtrLoop(fakeAdmin(db), { now: new Date(NOW.getTime() + 86_400_000), model: stubModel().model, getPairs: async () => [] })

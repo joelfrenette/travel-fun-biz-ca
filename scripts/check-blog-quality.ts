@@ -6,11 +6,19 @@ import { readFileSync } from 'node:fs'
 import { autoPublishBlockers, composerPrompt, CLOSER_VARIANTS, closerFor, type ComposedPost } from '../lib/blog-composer'
 import {
   bannedPhraseHits,
+  coverAltIssue,
   faqMetaHits,
   firstSentenceIssue,
+  fitQuickAnswer,
   internalHrefs,
   isQualityBlocker,
   isThinPost,
+  metaDuplicates,
+  metaTextsClash,
+  QUICK_ANSWER_MAX_WORDS,
+  QUICK_ANSWER_MIN_WORDS,
+  quickAnswerLengthIssue,
+  quickAnswerWords,
   qualityBlockers,
   superlativeHits,
   titleBrandIssues,
@@ -23,6 +31,7 @@ import { seoScore, type SeoInput } from '../lib/seo-score'
 import { checkTopicConflict, gscSupport, isSoloAngle, rankByGsc, readGscQueries, routeKeyOf, topicConflict, type PostFact } from '../lib/blog-topics'
 import { composedFromRow, hubLinkPlan, refreshPublishedPosts, refreshesToday, relatedLinksFor, rehealStuckDrafts, selectRefreshPicks, REFRESH_PER_DAY } from '../lib/blog-reheal'
 import { revertEdit } from '../lib/content-edits'
+import { ruleFor } from '../lib/content-repair'
 import { countBelowBar } from '../lib/blog-quality-count'
 import { fakeAdmin, type Db } from './fake-admin'
 
@@ -128,7 +137,8 @@ async function main() {
   check('B: "the only aerial tramway in the Caribbean" is an unverifiable superlative', has(qualityBlockers(goodPost({ body: tramBody }), { now, groundingText: grounding }), 'unverifiable claim'))
   check('B: the same claim passes when the facts state it', !has(qualityBlockers(goodPost({ body: tramBody }), { now, groundingText: `${grounding} It runs on the only aerial tramway in the Caribbean.` }), 'unverifiable claim'))
   check('B: ordinary advice is not a place claim ("the best time to go in spring", "the first step")', superlativeHits('The best time to go is spring. The first step is to pick a month. The most important thing is the group size.').length === 0)
-  check('B: best / first / most place claims are caught', superlativeHits('It is the best beach in Puerto Plata.').length === 1 && superlativeHits('The first cruise line in Europe to do this.').length === 1 && superlativeHits('The most scenic stretch of the Rhine.').length === 1)
+  check('B: "the best beach in Puerto Plata" is an opinion and passes; "the best" is no longer a place claim', superlativeHits('It is the best beach in Puerto Plata.').length === 0 && superlativeHits('The best river cruises for first-timers in Europe.').length === 0)
+  check('B: first / most / largest place claims are still caught', superlativeHits('It is the largest beach in Puerto Plata.').length === 1 &&superlativeHits('The first cruise line in Europe to do this.').length === 1 && superlativeHits('The most scenic stretch of the Rhine.').length === 1)
   check('B: a superlative in a FAQ answer or takeaway also blocks', has(qualityBlockers(goodPost({ faq: [{ q: 'Why this ship?', a: 'It is the largest ship on the Rhine.' }, ...good.faq.slice(1)] }), { now, groundingText: grounding }), 'unverifiable claim') && has(qualityBlockers(goodPost({ key_takeaways: ['The only river cruise in Europe', 'b', 'c'] }), { now, groundingText: grounding }), 'unverifiable claim'))
 
   const zeroLinks = goodBody.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -183,6 +193,53 @@ async function main() {
   check('B: the approved-queue path runs through runAutoblog (the approval route only changes the topic status)', /setTopicStatus\(getSupabaseAdmin\(\), params\.id, status/.test(src('app/api/admin/blog/topics/[id]/route.ts')) && !/createPost|composeFullPost/.test(src('app/api/admin/blog/topics/[id]/route.ts')))
   check('B: the stuck-draft re-check gate carries the trip dates and the style on a rewrite', /tripDates: grounded\.tripDates/.test(src('lib/blog-reheal.ts')) && /style: styleById\(composed\.content_style\)/.test(src('lib/blog-reheal.ts')))
   check('B: the writer is offered the contact, home and blog links so a post can reach 3 links', withSiteLinks([{ path: '/packages/x', label: 'x' }]).map((l) => l.path).join() === '/packages/x,/#contact,/,/blog' && /withSiteLinks\(await withGuideAndPostLinks/.test(auto))
+
+  // ---- B2: WP4 bundle: Quick answer length, unique meta text, cover alt ----
+  {
+    const qaBody = (text: string) => goodBody.replace(/\*\*Quick answer:\*\*[^\n]*/, `**Quick answer:** ${text}`)
+    const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ')
+    check('WP4 quick answer: the good post is inside 15 to 60 words', quickAnswerLengthIssue(goodBody) === null && (quickAnswerWords(goodBody) ?? 0) >= QUICK_ANSWER_MIN_WORDS)
+    check('WP4 quick answer: thresholds are 15 and 60', QUICK_ANSWER_MIN_WORDS === 15 && QUICK_ANSWER_MAX_WORDS === 60)
+    check('WP4 quick answer: 14 words is too short, 15 passes, 60 passes, 61 is too long', !!quickAnswerLengthIssue(qaBody(words(14))) && quickAnswerLengthIssue(qaBody(words(15))) === null && quickAnswerLengthIssue(qaBody(words(60))) === null && !!quickAnswerLengthIssue(qaBody(words(61))))
+    check('WP4 quick answer: a link counts as its words, not its address', quickAnswerWords(qaBody(`${words(13)} [two words](/packages/rhine-cruise-with-a-very-long-path-name)`)) === 15)
+    check('WP4 quick answer: a body with none is not a length problem (it has its own blocker)', quickAnswerLengthIssue(goodBody.replace('**Quick answer:**', 'Quick note:')) === null)
+    const shortPost = goodPost({ body: qaBody('Gentle pace.') })
+    const shortB = qualityBlockers(shortPost, { now, groundingText: grounding })
+    check('WP4 quick answer: a short one blocks with the "Quick answer length" prefix, and it is a quality blocker', has(shortB, 'Quick answer length') && shortB.filter((b) => b.startsWith('Quick answer length')).every(isQualityBlocker))
+    check('WP4 quick answer: the full publish gate holds it too', has(autoPublishBlockers(shortPost, now, { ...gateCtx, tripDates }), 'Quick answer length'))
+    const longSentences = Array.from({ length: 9 }, (_, i) => `Sentence number ${i} has exactly eight plain words in it.`).join(' ')
+    const cut = fitQuickAnswer(qaBody(longSentences), good.key_takeaways)
+    check('WP4 quick answer: a long one is cut back at a sentence end and then passes', quickAnswerLengthIssue(cut) === null && cut.includes('Sentence number 0 has') && cut.includes('Sentence number 5 has') && !cut.includes('Sentence number 6') && /\.\n\n## Why/.test(cut), cut.slice(0, 400))
+    const extended = fitQuickAnswer(qaBody('Gentle pace on the water, with one bed all week and no packing.'), ['Several towns without repacking', 'Not for free-form travellers'])
+    check('WP4 quick answer: a short one is extended with the post\'s own takeaways when that reaches the range', quickAnswerLengthIssue(extended) === null && /Several towns without repacking\./.test(extended), extended.slice(0, 300))
+    check('WP4 quick answer: when nothing reaches the range the body is left alone (the model pass handles it)', fitQuickAnswer(qaBody('Gentle.'), ['Short one']) === qaBody('Gentle.'))
+    check('WP4 quick answer: a first sentence that is itself too long cannot be cut, so the body is left alone', fitQuickAnswer(qaBody(`${words(80)}.`), []) === qaBody(`${words(80)}.`))
+    check('WP4 quick answer: an in-range one is untouched', fitQuickAnswer(goodBody, good.key_takeaways) === goodBody)
+    const mech = mechanicalFix(goodPost({ body: qaBody(longSentences) }), { now, groundingText: grounding })
+    check('WP4 quick answer: the plain-code fixer brings it into range and says so', quickAnswerLengthIssue(mech.post.body) === null && mech.reasons.some((r) => /Quick answer/.test(r)))
+    const offs = qualityOffenders(goodPost({ body: qaBody('Gentle pace.') }), { now, groundingText: grounding })
+    check('WP4 quick answer: if code cannot fix it the model gets ONE offender, the Quick answer paragraph, told to keep the label', offs.filter((o) => /Quick answer length/.test(o.why)).length === 1 && /\*\*Quick answer:\*\*/.test(offs.find((o) => /Quick answer length/.test(o.why))?.why ?? ''))
+
+    const others = [{ slug: 'other-post', title: 'Rhine river cruise for first timers', description: 'A plain guide to what a Rhine river cruise is like for first timers, who it suits and who should look elsewhere.' }]
+    check('WP4 meta: equal search text is a clash even with different case and punctuation', metaTextsClash('Rhine River Cruise, for first timers!', 'rhine river cruise for first timers') && !metaTextsClash('Rhine river cruise', 'Danube river cruise'))
+    check('WP4 meta: nearly equal long text clashes, a different one does not', metaTextsClash('A plain guide to what a Rhine river cruise is like for first timers and who it suits.', 'A plain guide to what a Rhine river cruise is like for first timers and who it suits best.') && !metaTextsClash('A plain guide to what a Rhine river cruise is like for first timers.', 'How a Croatia sailing week works for a group of friends who have never sailed.'))
+    check('WP4 meta: two short titles sharing a few words are NOT a clash', !metaTextsClash('Rhine cruise tips', 'Rhine cruise packing'))
+    const dupB = qualityBlockers(good, { now, groundingText: grounding, otherMeta: others })
+    check('WP4 meta: a title and a description that copy another live page both block', has(dupB, 'meta title duplicates another page') && has(dupB, 'meta description duplicates another page'))
+    check('WP4 meta: the same post is not a clash with itself (same slug)', !has(qualityBlockers(good, { now, groundingText: grounding, otherMeta: [{ ...others[0], slug: good.slug }] }), 'duplicates another page'))
+    check('WP4 meta: unknown other pages never block (no otherMeta given)', !has(qualityBlockers(good, { now, groundingText: grounding }), 'duplicates another page') && !has(qualityBlockers(good, { now, groundingText: grounding, otherMeta: [] }), 'duplicates another page'))
+    check('WP4 meta: a unique title and description pass', metaDuplicates({ seo_title: 'Croatia sailing for a small group', seo_description: 'What a week under sail in Croatia is like for a small group of friends.' }, others).title === null)
+    check('WP4 meta: the full publish gate carries the check through PublishGateContext', has(autoPublishBlockers(good, now, { ...gateCtx, tripDates, otherMeta: others }), 'duplicates another page'))
+    const dupOffs = qualityOffenders(good, { now, groundingText: grounding, otherMeta: others })
+    check('WP4 meta: the model is asked to reword only the duplicated search text', dupOffs.some((o) => o.field === 'seo_title') && dupOffs.some((o) => o.field === 'seo_description'))
+
+    check('WP4 cover alt: a cover with an empty or generic alt blocks', !!coverAltIssue({ url: 'https://x.test/a.jpg', alt: '' }) && !!coverAltIssue({ url: 'https://x.test/a.jpg', alt: 'image' }) && !!coverAltIssue({ url: 'https://x.test/a.jpg', alt: null }))
+    check('WP4 cover alt: a useful alt, no cover, or an unknown cover does not block', coverAltIssue({ url: 'https://x.test/a.jpg', alt: 'Rhine: castle above the river at dusk' }) === null && coverAltIssue({ url: '', alt: '' }) === null && coverAltIssue(null) === null && coverAltIssue(undefined) === null)
+    check('WP4 cover alt: reaches the gate as a quality blocker only when the cover is passed', has(qualityBlockers(good, { now, groundingText: grounding, cover: { url: 'https://x.test/a.jpg', alt: '' } }), 'cover image alt text') && !has(qualityBlockers(good, { now, groundingText: grounding }), 'cover image alt text'))
+    check('WP4 cover alt: autoblog rebuilds a missing alt with coverAlt before saving (a fix, not a hold)', /coverAltIssue\(\{ url: image\.cover_image_url, alt: image\.alt_text \}\)/.test(auto) && /alt_text: coverAltText/.test(auto))
+    check('WP4 meta: autoblog hands the other live posts\' search text to the gate', /otherMeta: existingPosts\.filter\(\(p\) => p\.status === 'published'\)/.test(auto))
+    check('WP4: every new blocker has a BLOCKER_RULES row that is repairable', ['Quick answer length: 9 words is too short to quote, it needs 15 to 60', 'meta title duplicates another page ("x")', 'meta description duplicates another page ("x")', 'cover image alt text: missing'].every((b) => ruleFor(b)?.klass === 'repairable'))
+  }
 
   // ---- C: topic conflicts and diversity ----
   const day = 86_400_000

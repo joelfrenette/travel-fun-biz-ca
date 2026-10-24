@@ -404,7 +404,7 @@ const goodWriter: CopyWriter = async () => {
   check('faq gate: a web address is blocked', bad('See https://example.com/greece for the full details of the trip.').some((b) => /web address/.test(b)))
   const dashed = gateFaqs([{ question: 'What is included in the trip?', answer: `Breakfast is included each morning ${em} and airport transfers are arranged.` }, ...good.slice(1)], ctxText)
   check('faq gate: a dash is repaired, not a reason to drop', dashed.faqs.length === 5 && !JSON.stringify(dashed.faqs).includes(em) && !JSON.stringify(dashed.faqs).includes(en))
-  check(`faq gate: fewer than ${FAQ_MIN} survivors means no FAQs at all`, gateFaqs([...good.slice(0, 3), { question: 'What does it cost in total?', answer: 'The trip costs 2,499 dollars per person.' }, { question: 'Is it the best trip?', answer: 'It is the best trip on the Greek coast.' }], ctxText).faqs.length === 0)
+  check(`faq gate: fewer than ${FAQ_MIN} survivors means no FAQs at all`, gateFaqs([...good.slice(0, 3), { question: 'What does it cost in total?', answer: 'The trip costs 2,499 dollars per person.' }, { question: 'Is it an award-winning trip?', answer: 'It is the award-winning trip on the Greek coast.' }], ctxText).faqs.length === 0)
   check('faq gate: duplicates and non-lists give nothing', gateFaqs([good[0], good[0], good[0], good[0]], ctxText).faqs.length === 0 && gateFaqs('not a list', ctxText).faqs.length === 0 && gateFaqs(null, ctxText).faqs.length === 0)
   check('faq: hasFaqs only counts real question and answer pairs', hasFaqs(good) && !hasFaqs([]) && !hasFaqs(null) && !hasFaqs([{ question: '', answer: '' }]))
 
