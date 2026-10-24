@@ -1,0 +1,3527 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "technical",
+      "label": "Technical SEO"
+    },
+    {
+      "id": "onpage",
+      "label": "On-page"
+    },
+    {
+      "id": "content",
+      "label": "Content strategy"
+    },
+    {
+      "id": "schema",
+      "label": "Schema and structured data"
+    },
+    {
+      "id": "aeo",
+      "label": "AEO (answer engines)"
+    },
+    {
+      "id": "geo",
+      "label": "GEO (generative engines)"
+    },
+    {
+      "id": "local",
+      "label": "Local SEO and profiles"
+    },
+    {
+      "id": "links",
+      "label": "Links"
+    },
+    {
+      "id": "social",
+      "label": "Social and profiles"
+    },
+    {
+      "id": "performance",
+      "label": "Performance and UX"
+    },
+    {
+      "id": "measurement",
+      "label": "Measurement"
+    }
+  ],
+  "checks": [
+    "sitemap-exists",
+    "sitemap-lastmod",
+    "sitemap-no-noindex",
+    "sitemap-submitted",
+    "gsc-verified",
+    "robots-ok",
+    "ai-crawlers-policy",
+    "llms-txt",
+    "llms-full",
+    "indexnow-key",
+    "bing-coverage",
+    "crawl-fresh",
+    "https-redirect",
+    "www-redirect",
+    "slug-clean",
+    "canonical-self",
+    "hreflang-self",
+    "status-codes",
+    "redirect-chains",
+    "broken-links",
+    "mixed-content",
+    "page-speed",
+    "titles-ok",
+    "titles-unique",
+    "meta-desc-ok",
+    "meta-desc-unique",
+    "h1-single",
+    "alt-coverage",
+    "jsonld-valid",
+    "orphan-pages",
+    "heading-order",
+    "og-image",
+    "viewport-mobile",
+    "org-schema",
+    "website-schema",
+    "sameas-links",
+    "breadcrumb-schema",
+    "faq-schema",
+    "article-dates",
+    "article-author",
+    "internal-links",
+    "thin-content",
+    "image-weight",
+    "gbp-embed",
+    "nap-consistent",
+    "cannibalization-signals",
+    "analytics-configured",
+    "rank-tracking"
+  ],
+  "items": [
+    {
+      "id": "a-sitemap",
+      "title": "Build a sitemap.xml and keep it current",
+      "category": "technical",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "sitemap-exists"
+      },
+      "why": "A sitemap is the list of pages you want search engines to find, so new posts get found fast.",
+      "how": [
+        "Open /sitemap.xml on your site.",
+        "Check it lists your posts, guides and trips.",
+        "Make sure it updates by itself when you publish."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "a-robots",
+      "title": "Add a robots.txt that points to the sitemap",
+      "category": "technical",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "robots-ok"
+      },
+      "why": "robots.txt tells crawlers where they may go, and a wrong line can hide your whole site.",
+      "how": [
+        "Open /robots.txt.",
+        "Check it does not say \"Disallow: /\" for everyone.",
+        "Check it has a Sitemap line with your sitemap address."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "a-noindex",
+      "title": "Remove noindex tags from pages that should rank",
+      "category": "technical",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "sitemap-no-noindex"
+      },
+      "why": "A noindex tag tells Google to leave a page out of search, which is a disaster on a page you want found.",
+      "how": [
+        "List pages that carry a noindex tag.",
+        "Remove the tag from any page you want in search.",
+        "Keep noindex only on thank-you, admin and thin utility pages."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "a-canonical",
+      "title": "Add a canonical tag that points at the page itself",
+      "category": "technical",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "canonical-self"
+      },
+      "why": "A canonical tag says which address is the main one, so copies do not split your ranking.",
+      "how": [
+        "View the page source and find the canonical link.",
+        "It should be the page's own address.",
+        "Fix any page that points somewhere else by mistake."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "a-https",
+      "title": "Enforce HTTPS everywhere",
+      "category": "technical",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "https-redirect"
+      },
+      "why": "Browsers warn on plain http and Google prefers secure pages.",
+      "how": [
+        "Type the plain http (not https) version of your home page in the browser.",
+        "It should jump to the https version in one step.",
+        "Fix any picture or script that still loads over http."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "tech-status-codes",
+      "title": "Every sitemap page answers 200, no 404 or 500",
+      "category": "technical",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "status-codes"
+      },
+      "why": "Pages that error waste crawl time and drop out of search.",
+      "how": [
+        "Open the site health crawl results.",
+        "Fix or remove any page that returns an error.",
+        "Take dead pages off the sitemap."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "b-index-site",
+      "title": "Get your website indexed: submit the sitemap to Google",
+      "category": "technical",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "sitemap-submitted"
+      },
+      "why": "A page that is not in Google's index cannot rank at all.",
+      "how": [
+        "Open Search Console, then Sitemaps.",
+        "Add /sitemap.xml and send it.",
+        "Check the status says Success."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-b"
+    },
+    {
+      "id": "tech-www-redirect",
+      "title": "Pick one host (www or not) and redirect the other",
+      "category": "technical",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "www-redirect"
+      },
+      "why": "If both versions load, Google sees two copies of your site.",
+      "how": [
+        "Type the www and non-www address in the browser.",
+        "One should redirect to the other in one step.",
+        "Use the same version in your sitemap and canonicals."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-index-log",
+      "title": "Check the Search Console Pages report for why pages are not indexed",
+      "category": "technical",
+      "impact": 4,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "The report names the exact reason, such as crawled but not indexed or duplicate without canonical.",
+      "how": [
+        "Open Search Console, then Pages.",
+        "Click each reason under \"Why pages aren't indexed\".",
+        "Fix the biggest group first and press Validate fix."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "a-broken-links",
+      "title": "Fix broken internal links",
+      "category": "technical",
+      "impact": 4,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "broken-links"
+      },
+      "why": "Dead links frustrate visitors and waste the link value you pass between pages.",
+      "how": [
+        "Look at the dead links the daily crawl found.",
+        "Point each one at a live page or remove it.",
+        "Re-check after a day."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "tech-redirect-moves",
+      "title": "Redirect every old or deleted address with a 301",
+      "category": "technical",
+      "impact": 4,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A 301 hands the old page's ranking to the new page instead of throwing it away.",
+      "how": [
+        "Keep a list of addresses you changed or removed.",
+        "Add a 301 redirect for each to the closest new page.",
+        "Never redirect many pages to the home page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-orphans",
+      "title": "Make sure no page is an orphan with zero links in",
+      "category": "technical",
+      "impact": 4,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "orphan-pages"
+      },
+      "why": "A page nothing links to is hard for Google to find and looks unimportant.",
+      "how": [
+        "Check the orphan list from the guide audit.",
+        "Link each orphan from a related post or guide.",
+        "Add it to a hub page if it fits."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/guides"
+    },
+    {
+      "id": "tech-duplicate",
+      "title": "Remove duplicate pages and duplicate descriptions",
+      "category": "technical",
+      "impact": 4,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "meta-desc-unique"
+      },
+      "why": "Two pages with the same text compete with each other and neither ranks well.",
+      "how": [
+        "Find pages that share a description or title.",
+        "Merge them or rewrite one.",
+        "Point the weaker one at the stronger with a canonical or 301."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "tech-thin",
+      "title": "Fix or remove thin pages",
+      "category": "technical",
+      "impact": 4,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "thin-content"
+      },
+      "why": "Pages with almost no real content drag down how Google sees the whole site.",
+      "how": [
+        "Find pages under about 300 words.",
+        "Add real detail, or merge them into a stronger page.",
+        "Noindex pages that must exist but have little to say."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/guides"
+    },
+    {
+      "id": "tech-redirect-chains",
+      "title": "Cut redirect chains to a single jump",
+      "category": "technical",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "redirect-chains"
+      },
+      "why": "Each extra redirect slows the page and loses a little ranking power.",
+      "how": [
+        "Find links and sitemap entries that redirect twice or more.",
+        "Point them straight at the final page.",
+        "Use 301 for permanent moves."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "tech-slug-clean",
+      "title": "Keep page addresses short, lower case and readable",
+      "category": "technical",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "slug-clean"
+      },
+      "why": "Short, clear addresses are easier to read, share and trust.",
+      "how": [
+        "Use lower case letters and hyphens only.",
+        "Keep each part under about 60 characters.",
+        "Drop filler words and never use underscores."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "a-slugs",
+      "title": "Clean up URL slugs",
+      "category": "technical",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "slug-clean"
+      },
+      "why": "Messy addresses with numbers and symbols look spammy and are hard to share.",
+      "how": [
+        "Check new posts get a short slug from the title.",
+        "Remove dates and ids from slugs.",
+        "Do not change a live slug without a 301 redirect."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "tech-noindex-hygiene",
+      "title": "Noindex only what you mean to hide",
+      "category": "technical",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Old noindex tags from testing are a common reason a good page never ranks.",
+      "how": [
+        "List all pages marked noindex.",
+        "Confirm each one is on purpose.",
+        "Check the robots.txt does not also block them, or Google never sees the tag."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-mixed-content",
+      "title": "Remove mixed content (http items on https pages)",
+      "category": "technical",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "mixed-content"
+      },
+      "why": "Insecure pictures or scripts trigger browser warnings and can be blocked.",
+      "how": [
+        "Find items loading over http.",
+        "Change the address to https.",
+        "Re-test the page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "tech-indexnow",
+      "title": "Ping Bing and others with IndexNow",
+      "category": "technical",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "indexnow-key"
+      },
+      "why": "IndexNow tells Bing and other engines the moment a page is new or changed.",
+      "how": [
+        "Set the INDEXNOW_KEY setting.",
+        "Check /indexnow-key.txt loads.",
+        "New posts then ping automatically."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-bing-webmaster",
+      "title": "Verify the site in Bing Webmaster Tools",
+      "category": "technical",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "bing-coverage"
+      },
+      "why": "Bing feeds several AI assistants, and verified sites get indexing reports.",
+      "how": [
+        "Sign in to Bing Webmaster Tools.",
+        "Verify the site and submit the sitemap.",
+        "Add the API key so the daily snapshot can read it."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-crawl-fresh",
+      "title": "Run a site crawl every day and read the result",
+      "category": "technical",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "crawl-fresh"
+      },
+      "why": "A daily crawl catches a broken page the day it breaks, not a month later.",
+      "how": [
+        "Check the site health card shows a recent run.",
+        "Read the new errors.",
+        "Fix errors before warnings."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "tech-hreflang",
+      "title": "Hreflang tags must list the page itself too",
+      "category": "technical",
+      "impact": 3,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "hreflang-self"
+      },
+      "why": "If you have language or country versions, Google ignores the set unless each page lists itself.",
+      "how": [
+        "Open a page that has language versions.",
+        "Check its hreflang list includes its own address.",
+        "Make each version list all the others."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-404-page",
+      "title": "Give the 404 page real links and a real 404 status",
+      "category": "technical",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A helpful 404 keeps visitors on the site, and a true 404 status stops junk pages being indexed.",
+      "how": [
+        "Open a made-up address on your site.",
+        "Check it shows your branded not-found page.",
+        "Check it still returns status 404."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-pagination",
+      "title": "Handle paginated lists with plain crawlable links",
+      "category": "technical",
+      "impact": 2,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "If page 2 and 3 of a list are only reachable by script, their posts may never be found.",
+      "how": [
+        "Use real links for next and previous pages.",
+        "Give each page its own title.",
+        "Do not noindex page 2 and beyond if it holds unique posts."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-parameters",
+      "title": "Keep tracking and filter parameters out of the index",
+      "category": "technical",
+      "impact": 2,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Addresses with ?utm= or ?sort= can create thousands of copies of one page.",
+      "how": [
+        "Make sure canonical tags ignore parameters.",
+        "Keep parameter addresses out of the sitemap.",
+        "Use one clean address in internal links."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "tech-log-files",
+      "title": "Look at server logs for crawl waste (advanced)",
+      "category": "technical",
+      "impact": 2,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Logs show if Google keeps hitting useless addresses instead of your good pages.",
+      "how": [
+        "Export a week of logs from your host.",
+        "Count Googlebot hits by address pattern.",
+        "Block or fix patterns that waste visits."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "a-meta-titles",
+      "title": "Add a meta title to every page, 15 to 65 characters",
+      "category": "onpage",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "titles-ok"
+      },
+      "why": "The title is the blue headline in Google and the strongest on-page signal.",
+      "how": [
+        "Put the main topic near the front.",
+        "Keep it under about 65 characters so it is not cut off.",
+        "Make it read like something a person would click."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/blog"
+    },
+    {
+      "id": "a-internal-links",
+      "title": "Add internal links between related pages",
+      "category": "onpage",
+      "impact": 5,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "internal-links"
+      },
+      "why": "Internal links show Google how pages relate and pass ranking power to the pages that matter.",
+      "how": [
+        "Add 3 or more links from each post to related posts, guides and trips.",
+        "Link to the money pages from your best posts.",
+        "Check there are no orphan pages."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/guides"
+    },
+    {
+      "id": "onpage-titles-unique",
+      "title": "Give every page its own unique title",
+      "category": "onpage",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "titles-unique"
+      },
+      "why": "Pages that share a title look like copies and compete in search.",
+      "how": [
+        "Find pages that share a title.",
+        "Rewrite one to say what is different.",
+        "Add the place or the trip type to tell them apart."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "a-meta-desc",
+      "title": "Add a meta description to every page",
+      "category": "onpage",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "meta-desc-ok"
+      },
+      "why": "The description is the grey text under the headline and it decides if people click.",
+      "how": [
+        "Write 120 to 160 characters.",
+        "Say what the visitor gets.",
+        "End with a reason to click."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/blog"
+    },
+    {
+      "id": "a-one-h1",
+      "title": "Use exactly one H1 per page",
+      "category": "onpage",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "h1-single"
+      },
+      "why": "The H1 is the page's main headline and tells Google and screen readers what the page is.",
+      "how": [
+        "Check each page has one H1.",
+        "Make the other big headings H2 or H3.",
+        "Put the main topic in the H1."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "a-alt-text",
+      "title": "Add alt text to every meaningful image",
+      "category": "onpage",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "alt-coverage"
+      },
+      "why": "Alt text helps blind visitors and lets Google understand and rank your pictures.",
+      "how": [
+        "Describe what the picture shows in a short phrase.",
+        "Skip the words \"image of\".",
+        "Leave alt empty only on pure decoration."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "onpage-snippets",
+      "title": "Write for featured snippets: a direct answer right under the heading",
+      "category": "onpage",
+      "impact": 4,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A clear short answer under a question heading can win the box at the top of Google.",
+      "how": [
+        "Turn a common question into an H2.",
+        "Answer it in 40 to 60 words straight away.",
+        "Then add detail below."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "onpage-faq-blocks",
+      "title": "Add an FAQ block with real questions",
+      "category": "onpage",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "faq-schema"
+      },
+      "why": "FAQ blocks win long-tail questions and give AI engines tidy answers to quote.",
+      "how": [
+        "Use questions people really ask.",
+        "Answer each in 2 to 3 sentences.",
+        "Add FAQ structured data that matches the visible text exactly."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/blog"
+    },
+    {
+      "id": "a-heading-order",
+      "title": "Fix the heading order (H1, then H2, then H3)",
+      "category": "onpage",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "heading-order"
+      },
+      "why": "Skipping heading levels confuses screen readers and makes the outline hard to follow.",
+      "how": [
+        "Read the headings in order.",
+        "Do not jump from H2 to H4.",
+        "Use headings to outline the page, not to make text bigger."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "onpage-anchor-text",
+      "title": "Use clear anchor text for internal links",
+      "category": "onpage",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "The words of a link tell Google what the target page is about.",
+      "how": [
+        "Use the topic as the link words.",
+        "Avoid \"click here\".",
+        "Vary the wording a little, do not repeat one phrase exactly everywhere."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "onpage-intro-keyword",
+      "title": "Say the main topic in the first 100 words",
+      "category": "onpage",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "The opening lines tell Google and the reader straight away what the page covers.",
+      "how": [
+        "Name the topic in the first paragraph.",
+        "Answer the question quickly.",
+        "Do not stuff the keyword in again and again."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "onpage-readability",
+      "title": "Write short sentences and short paragraphs",
+      "category": "onpage",
+      "impact": 3,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Easy text keeps people reading and is easier for AI to quote.",
+      "how": [
+        "Aim for about grade 8 reading level or lower.",
+        "Keep paragraphs to 2 or 4 lines.",
+        "Use subheadings every few paragraphs."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/blog"
+    },
+    {
+      "id": "onpage-tldr",
+      "title": "Add a TL;DR or key takeaways box at the top",
+      "category": "onpage",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A quick summary helps readers and gives AI a clean passage to quote.",
+      "how": [
+        "Write 3 to 5 bullet points.",
+        "Put them near the top.",
+        "Make each bullet a full fact, not a teaser."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/blog"
+    },
+    {
+      "id": "onpage-freshness",
+      "title": "Show the published and updated dates",
+      "category": "onpage",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "article-dates"
+      },
+      "why": "Visible dates build trust and tell search engines the page is kept up to date.",
+      "how": [
+        "Show \"Published\" and \"Updated\" on every article.",
+        "Put both dates in the Article structured data.",
+        "Only change \"Updated\" when the page really changed."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "onpage-author",
+      "title": "Show a real author with a short bio",
+      "category": "onpage",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "article-author"
+      },
+      "why": "Search quality guidelines reward content from named people with real experience.",
+      "how": [
+        "Add an author name and photo to each article.",
+        "Link the name to a bio page.",
+        "Put the author in the Article structured data."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "onpage-about-contact",
+      "title": "Have clear About, Contact and policy pages",
+      "category": "onpage",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "These pages show Google and visitors that a real business stands behind the site.",
+      "how": [
+        "Write an About page with real names and history.",
+        "Add a Contact page with address and phone.",
+        "Link both from the footer on every page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "onpage-image-names",
+      "title": "Give image files descriptive names",
+      "category": "onpage",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A file called santorini-sunset.jpg says more than IMG_4821.jpg.",
+      "how": [
+        "Rename the file before upload.",
+        "Use lower case and hyphens.",
+        "Match the name to what the picture shows."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "onpage-title-click",
+      "title": "Test title wording that earns more clicks",
+      "category": "onpage",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "The same ranking with a better title gets more visitors for free.",
+      "how": [
+        "Pick pages with many views but few clicks.",
+        "Rewrite the title with a number, a year or a benefit.",
+        "Wait 4 weeks and compare."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/rankings"
+    },
+    {
+      "id": "onpage-external-links",
+      "title": "Link out to trusted sources where it helps the reader",
+      "category": "onpage",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Linking to official sources shows you did your homework and helps AI trust the page.",
+      "how": [
+        "Link to the official tourism board or supplier page.",
+        "Open nothing in a new tab by habit.",
+        "Skip links to sites that are low quality."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "onpage-mobile-reading",
+      "title": "Read each new post on a phone before it goes out",
+      "category": "onpage",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Most visitors read on a phone, so a post that looks bad there loses them.",
+      "how": [
+        "Open the post on your phone.",
+        "Check text, pictures and buttons fit.",
+        "Fix long tables that scroll sideways."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-striking-distance",
+      "title": "Refresh pages stuck at positions 8 to 20",
+      "category": "content",
+      "impact": 5,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Pages just off page one need only a small push to get real traffic.",
+      "how": [
+        "Find queries at positions 8 to 20 in Search Console.",
+        "Improve the matching page: answer more, add detail, fix the title.",
+        "Add 2 internal links to it."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/rankings"
+    },
+    {
+      "id": "content-ai-quality",
+      "title": "Quality-check AI-written drafts before they publish",
+      "category": "content",
+      "impact": 5,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Google rewards helpful content however it is made and demotes unhelpful content made at scale.",
+      "how": [
+        "Keep the quality gate on.",
+        "Check facts, names and prices.",
+        "Add something only you know to each post."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Publishing large amounts of unreviewed AI text is spam under Google policy and can lead to a site-wide drop.",
+      "fixHref": "/admin/blog"
+    },
+    {
+      "id": "content-intent",
+      "title": "Match each page to one search intent",
+      "category": "content",
+      "impact": 5,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A page that does not match what the searcher wants will not rank, however well written.",
+      "how": [
+        "Search your keyword and look at the top 5 results.",
+        "Note if they are guides, lists, trips to book or prices.",
+        "Build the page type Google already shows."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "b-keyword-clusters",
+      "title": "Group keywords into clusters, one page per cluster",
+      "category": "content",
+      "impact": 5,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "One strong page per topic beats five weak pages that fight each other.",
+      "how": [
+        "List the phrases you want to rank for.",
+        "Group phrases that mean the same thing.",
+        "Give each group one page and add the extras as sections."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-b",
+      "fixHref": "/admin/keywords"
+    },
+    {
+      "id": "b-page-per-service",
+      "title": "Make a unique page for each service or product",
+      "category": "content",
+      "impact": 5,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A separate page per service lets each one rank for its own searches.",
+      "how": [
+        "List each service, such as cruises, resorts or group trips.",
+        "Write one page for each with real detail.",
+        "Link them all from a hub page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-b",
+      "fixHref": "/admin/packages"
+    },
+    {
+      "id": "j-gsc-queries",
+      "title": "Mine Search Console queries and build pages to match current searches",
+      "category": "content",
+      "impact": 5,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Real searches that already show your site tell you exactly which pages to write next.",
+      "how": [
+        "Open Search Console, then Performance, and sort by impressions.",
+        "Find queries with no matching page or a weak one.",
+        "Write or improve a page for each."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-idea",
+      "fixHref": "/admin/rankings"
+    },
+    {
+      "id": "j-cannibalisation",
+      "title": "Find pages competing with each other and pick one primary",
+      "category": "content",
+      "impact": 5,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "cannibalization-signals"
+      },
+      "why": "When two pages chase the same search, both rank lower than one strong page would.",
+      "how": [
+        "Find queries where two of your pages both appear.",
+        "Choose the best one as the primary page.",
+        "Link the others to it with clear anchor text, or merge them."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-idea",
+      "fixHref": "/admin/rankings"
+    },
+    {
+      "id": "content-eeat-experience",
+      "title": "Show first-hand experience: real photos, trips and stories",
+      "category": "content",
+      "impact": 5,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Experience is the E in E-E-A-T and the hardest thing for copycat sites to fake.",
+      "how": [
+        "Add photos you or your travellers took.",
+        "Say who went and when.",
+        "Share what surprised them, good and bad."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-hub-spoke",
+      "title": "Build hub and spoke topic maps",
+      "category": "content",
+      "impact": 5,
+      "effort": 3,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A strong hub page with spoke posts shows you cover a topic in full, which lifts every page.",
+      "how": [
+        "Choose a big topic as the hub.",
+        "List 8 to 15 spoke questions.",
+        "Link each spoke to the hub and the hub to each spoke."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/guides"
+    },
+    {
+      "id": "content-eeat-people",
+      "title": "Name real people: advisors, authors and travellers",
+      "category": "content",
+      "impact": 4,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Named people with real credentials build trust with both readers and Google.",
+      "how": [
+        "Add advisor names, photos and short bios.",
+        "Credit authors on every post.",
+        "Link bios to professional profiles."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-testimonials",
+      "title": "Show real testimonials from real customers",
+      "category": "content",
+      "impact": 4,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Honest customer words are strong proof and often win a click against bigger rivals.",
+      "how": [
+        "Ask happy travellers for a short quote.",
+        "Get permission to use their first name.",
+        "Add them to trip pages and the home page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Only use quotes from real customers who agreed. Fake or edited reviews break the law and can get the site penalised.",
+      "fixHref": "/admin/testimonials"
+    },
+    {
+      "id": "b-parent-child",
+      "title": "Use parent and child pages for a clear structure",
+      "category": "content",
+      "impact": 4,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A tidy tree (for example destination, then hotel) shows Google how your topics fit together.",
+      "how": [
+        "Pick a parent page for each topic.",
+        "Make child pages for the details.",
+        "Link up to the parent and down to the children."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-b",
+      "fixHref": "/admin/guides"
+    },
+    {
+      "id": "content-pruning",
+      "title": "Prune or merge pages that get no traffic and no value",
+      "category": "content",
+      "impact": 4,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Cutting dead weight helps Google focus on your best pages.",
+      "how": [
+        "List pages with no clicks in 12 months.",
+        "Improve, merge or remove each one.",
+        "Redirect removed pages to the closest match."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-decay",
+      "title": "Refresh posts whose traffic is falling",
+      "category": "content",
+      "impact": 4,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Old posts lose ground as facts go stale, and a refresh often wins it back.",
+      "how": [
+        "Find posts with falling clicks.",
+        "Update facts, prices and pictures.",
+        "Change the updated date only after a real edit."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/rankings"
+    },
+    {
+      "id": "content-seasonal",
+      "title": "Plan a seasonal content calendar",
+      "category": "content",
+      "impact": 4,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Travel searches peak weeks before a season, so content published early catches the wave.",
+      "how": [
+        "List peak booking months for your trips.",
+        "Publish related posts 8 to 12 weeks earlier.",
+        "Refresh them every year."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/blog"
+    },
+    {
+      "id": "content-comparison",
+      "title": "Write comparison and \"X vs Y\" pages",
+      "category": "content",
+      "impact": 4,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "People comparing options are close to booking, and few sites answer them well.",
+      "how": [
+        "Pick two options people compare.",
+        "Use a clear table and an honest verdict.",
+        "Link each side to its own page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/guides"
+    },
+    {
+      "id": "content-original-data",
+      "title": "Publish original data, surveys and first-hand numbers",
+      "category": "content",
+      "impact": 4,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Facts nobody else has get cited by other sites and by AI engines.",
+      "how": [
+        "Collect something you know first-hand, such as booking trends or prices paid.",
+        "Publish it with the date and method.",
+        "Share it with local and travel writers."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-update-existing",
+      "title": "Prefer improving a good page over writing a new one",
+      "category": "content",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Updating an existing page keeps its history and links.",
+      "how": [
+        "Before writing a new post, search your own site for the topic.",
+        "If a page exists, expand it.",
+        "Only write new when the intent is different."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-best-of",
+      "title": "Publish honest \"best of\" lists with your own picks",
+      "category": "content",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Lists are popular with readers and AI engines when the picks are real.",
+      "how": [
+        "Pick items you know.",
+        "Say why each is on the list and who it suits.",
+        "Update the list each year."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-cover-gaps",
+      "title": "Fill topic gaps your rivals cover and you do not",
+      "category": "content",
+      "impact": 3,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Every missing subtopic is a search you cannot win.",
+      "how": [
+        "List the headings of the top 3 rival pages.",
+        "Mark topics you skip.",
+        "Add the missing ones where they help the reader."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-programmatic",
+      "title": "Use programmatic pages only where each has unique value",
+      "category": "content",
+      "impact": 3,
+      "effort": 3,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Template pages can scale well, but near-identical pages get treated as thin or doorway content.",
+      "how": [
+        "Pick a template where each page has real data of its own.",
+        "Add something unique to each page, such as prices or local facts.",
+        "Start small and watch indexing before making more."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Programmatic pages that differ only by a swapped place name are doorway pages and can bring a penalty. Do not mass produce them.",
+      "fixHref": "/admin/guides"
+    },
+    {
+      "id": "content-length",
+      "title": "Write as long as the topic needs, no longer",
+      "category": "content",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Padding hurts, and so does a thin answer.",
+      "how": [
+        "Cover each question the reader has.",
+        "Cut waffle.",
+        "Use headings so long pages are easy to scan."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "content-video-in-post",
+      "title": "Add a short video where it helps",
+      "category": "content",
+      "impact": 2,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Video keeps people on the page and can show up in video results.",
+      "how": [
+        "Embed a clip of the place or trip.",
+        "Add a caption and a text summary.",
+        "Use a fast-loading embed."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "schema-org",
+      "title": "Organization / TravelAgency / LocalBusiness on the home page",
+      "category": "schema",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "org-schema"
+      },
+      "why": "This is how engines learn who you are, where you are and how to contact you.",
+      "how": [
+        "Add the business name, address, phone and logo.",
+        "Use the TravelAgency or LocalBusiness type.",
+        "Keep every detail identical to your Google Business Profile."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "a-schema",
+      "title": "Add valid schema markup (JSON-LD) to every page type",
+      "category": "schema",
+      "impact": 5,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "jsonld-valid"
+      },
+      "why": "Structured data tells search engines exactly what a page is, which can unlock rich results.",
+      "how": [
+        "Add the right type to each kind of page.",
+        "Test with Google's Rich Results Test.",
+        "Fix any block that is not valid JSON."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "b-breadcrumbs",
+      "title": "Add breadcrumbs, visible and in BreadcrumbList schema",
+      "category": "schema",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "breadcrumb-schema"
+      },
+      "why": "Breadcrumbs show where a page sits in the site and replace the long address in search results.",
+      "how": [
+        "Show a breadcrumb trail near the top of guides, posts and trips.",
+        "Add BreadcrumbList structured data that matches it.",
+        "Check the last item is the current page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-b"
+    },
+    {
+      "id": "schema-article",
+      "title": "Article / BlogPosting schema with author and dates",
+      "category": "schema",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "article-dates"
+      },
+      "why": "Article markup gives engines the headline, author and dates in a clean form.",
+      "how": [
+        "Add headline, image, author, datePublished and dateModified.",
+        "Match them to the visible page.",
+        "Use a real author name."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "schema-sameas",
+      "title": "Add sameAs links to your official profiles",
+      "category": "schema",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "sameas-links"
+      },
+      "why": "sameAs links tie your site to your Facebook, Instagram, YouTube and Google profiles, so engines know it is all one business.",
+      "how": [
+        "List the official profile addresses.",
+        "Add them as sameAs on the Organization.",
+        "Only link accounts you own."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "schema-faq",
+      "title": "FAQPage schema that matches the visible questions",
+      "category": "schema",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "faq-schema"
+      },
+      "why": "Marked-up questions are easy for engines and AI assistants to read and reuse.",
+      "how": [
+        "Add FAQ markup only where the questions are shown on the page.",
+        "Keep answers short and plain text.",
+        "Do not mark up ads or hidden text."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Google shows FAQ rich results for only a few sites now. Add FAQ markup for machine readers, but do not expect a visual boost."
+    },
+    {
+      "id": "schema-no-errors",
+      "title": "Re-test schema in Search Console enhancements after each template change",
+      "category": "schema",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A template bug can break markup on thousands of pages at once.",
+      "how": [
+        "Open the Enhancements reports in Search Console.",
+        "Look for new errors.",
+        "Fix the template and request a re-check."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "schema-trip",
+      "title": "TouristTrip / Product / Event schema on trip pages",
+      "category": "schema",
+      "impact": 3,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "jsonld-valid"
+      },
+      "why": "Trip markup can show dates and prices in search.",
+      "how": [
+        "Add the trip name, dates, and price range.",
+        "Use the real price or leave it out.",
+        "Keep dates current."
+      ],
+      "appliesTo": "travel",
+      "source": "best-practice"
+    },
+    {
+      "id": "schema-review",
+      "title": "Review and rating markup only for real reviews",
+      "category": "schema",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Real reviews can earn stars in search, but made-up ones can earn a penalty.",
+      "how": [
+        "Only mark up reviews that customers wrote on your page.",
+        "Show the review text on the page.",
+        "Do not rate your own business."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Self-serving or fake review markup is against Google policy and can remove all your rich results."
+    },
+    {
+      "id": "schema-image",
+      "title": "ImageObject: real image with size and description",
+      "category": "schema",
+      "impact": 2,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "og-image"
+      },
+      "why": "Good image markup helps pictures show in image search and Discover.",
+      "how": [
+        "Use a large, real photo (at least 1200 pixels wide).",
+        "Add a description.",
+        "Avoid SVG or logos as the main image."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "schema-video",
+      "title": "VideoObject schema for embedded videos",
+      "category": "schema",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Video markup can earn a video result and a thumbnail in search.",
+      "how": [
+        "Add name, description, thumbnail and upload date.",
+        "Match the video on the page.",
+        "Test it in the Rich Results Test."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "schema-website",
+      "title": "WebSite schema with the site name",
+      "category": "schema",
+      "impact": 2,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "website-schema"
+      },
+      "why": "It tells Google the exact name to show for the site in results.",
+      "how": [
+        "Add WebSite markup on the home page.",
+        "Use the short site name.",
+        "Keep it matching the title tag."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "schema-speakable",
+      "title": "Add speakable markup to short answer passages",
+      "category": "schema",
+      "impact": 1,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Speakable tells voice assistants which part of the page to read out.",
+      "how": [
+        "Pick the summary or answer paragraph.",
+        "Mark it with speakable.",
+        "Keep it to two or three sentences."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Speakable is still in beta and only works for news publishers in some countries. Low priority."
+    },
+    {
+      "id": "aeo-question-headings",
+      "title": "Use question headings that match how people ask",
+      "category": "aeo",
+      "impact": 5,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Answer engines look for a heading that matches the question and a short answer under it.",
+      "how": [
+        "Turn topics into real questions, such as \"When is the best time to visit Lisbon?\".",
+        "Use them as H2 headings.",
+        "Answer in the first sentence under the heading."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/blog"
+    },
+    {
+      "id": "aeo-direct-answer",
+      "title": "Give a 40 to 60 word direct answer under each question",
+      "category": "aeo",
+      "impact": 5,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "This length fits the featured snippet box and is easy for AI to quote.",
+      "how": [
+        "Write the plain answer first.",
+        "Count about 40 to 60 words.",
+        "Add detail, tips and links after it."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "aeo-lists-tables",
+      "title": "Use lists and tables for steps, prices and comparisons",
+      "category": "aeo",
+      "impact": 4,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Lists and tables are the format snippets and AI answers pick most often.",
+      "how": [
+        "Use numbered steps for how-to.",
+        "Use bullets for options.",
+        "Use a table when comparing three or more things."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "aeo-paa",
+      "title": "Mine People Also Ask boxes for your topics",
+      "category": "aeo",
+      "impact": 4,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "People Also Ask shows the exact follow-up questions to answer.",
+      "how": [
+        "Search your main topic in Google.",
+        "Copy the People Also Ask questions.",
+        "Answer them as short sections or FAQ entries."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/keywords"
+    },
+    {
+      "id": "aeo-voice",
+      "title": "Write answers in natural, spoken phrasing",
+      "category": "aeo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Voice assistants read short, plain answers.",
+      "how": [
+        "Read the answer out loud.",
+        "Cut jargon.",
+        "Keep it one or two sentences long."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "aeo-definitions",
+      "title": "Start topic pages with a clear one-sentence definition",
+      "category": "aeo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "\"X is Y that does Z\" sentences are what answer engines quote.",
+      "how": [
+        "Write one plain sentence that defines the topic.",
+        "Put it at the top.",
+        "Follow with the details."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "aeo-steps",
+      "title": "Use numbered steps for how-to content",
+      "category": "aeo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Steps can win a how-to snippet and are easy for AI to repeat.",
+      "how": [
+        "Number each step.",
+        "Start each with a verb.",
+        "Keep one action per step."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "aeo-fresh-facts",
+      "title": "Put prices, dates and numbers in plain text",
+      "category": "aeo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Answer engines trust specific facts they can read, not facts hidden in pictures.",
+      "how": [
+        "Write the number in the text.",
+        "Add the date it was checked.",
+        "Do not put key facts only inside images."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "aeo-bing-chat",
+      "title": "Make sure Bing indexes you, because several AI assistants use Bing",
+      "category": "aeo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "bing-coverage"
+      },
+      "why": "If Bing cannot find your pages, assistants built on Bing cannot quote them.",
+      "how": [
+        "Verify the site in Bing Webmaster Tools.",
+        "Submit the sitemap.",
+        "Turn on IndexNow."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "aeo-snippet-track",
+      "title": "Track which queries show your snippet and test new wording",
+      "category": "aeo",
+      "impact": 2,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Seeing which pages hold snippets shows what format works for you.",
+      "how": [
+        "Search your top questions each month.",
+        "Note who holds the snippet.",
+        "Rewrite your answer shorter and clearer."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-entity-consistency",
+      "title": "Keep name, address, phone and brand identical everywhere",
+      "category": "geo",
+      "impact": 5,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "nap-consistent"
+      },
+      "why": "Engines build one picture of your business from many sources, and mismatches weaken it.",
+      "how": [
+        "Write down the exact business name, address and phone.",
+        "Compare the site, Google profile, socials and directories.",
+        "Fix every mismatch."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "geo-brand-mentions",
+      "title": "Earn mentions of your brand on trusted sites",
+      "category": "geo",
+      "impact": 5,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Generative engines lean on brands that other sites talk about, with or without a link.",
+      "how": [
+        "Get named in local news, travel blogs and partner pages.",
+        "Make it easy: share a short fact sheet.",
+        "Track mentions each month."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "geo-citations-original",
+      "title": "Publish original data and quotable facts others will cite",
+      "category": "geo",
+      "impact": 5,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Engines cite the original source of a number, not the sites that repeat it.",
+      "how": [
+        "Share a fact only you hold.",
+        "State the method and date.",
+        "Give it a short, quotable sentence."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "a-llms-txt",
+      "title": "Publish an llms.txt file",
+      "category": "geo",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "llms-txt"
+      },
+      "why": "llms.txt is a plain guide that points AI tools at your best pages.",
+      "how": [
+        "Open /llms.txt on your site.",
+        "Check it lists your key pages with short descriptions.",
+        "Keep it updated when you add sections."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "geo-ai-crawlers",
+      "title": "Decide and set the crawl rules for GPTBot, ClaudeBot, PerplexityBot and Google-Extended",
+      "category": "geo",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "ai-crawlers-policy"
+      },
+      "why": "Blocking AI crawlers keeps you out of their answers, but allowing them lets them use your text, so pick on purpose.",
+      "how": [
+        "Decide: allow for visibility, or block for control.",
+        "Add a User-agent group in robots.txt for each bot.",
+        "Re-check after changes."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Blocking AI bots by mistake removes you from AI answers. Allowing them lets those companies use your text. Pick on purpose."
+    },
+    {
+      "id": "geo-fresh-dates",
+      "title": "Keep visible, honest \"updated\" dates",
+      "category": "geo",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "article-dates"
+      },
+      "why": "AI answers favour fresh pages, especially for prices, rules and events.",
+      "how": [
+        "Show the last updated date.",
+        "Update the page when facts change.",
+        "Include dateModified in the markup."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-expert-quotes",
+      "title": "Add named expert quotes and first-hand stories",
+      "category": "geo",
+      "impact": 4,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Quotes with a name and role raise trust for people and for AI.",
+      "how": [
+        "Quote an advisor, guide or traveller by name.",
+        "Add their role.",
+        "Link to their profile if they have one."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-about-expert-pages",
+      "title": "Build strong About us and expert pages",
+      "category": "geo",
+      "impact": 4,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "AI engines check who is behind a site before they trust it.",
+      "how": [
+        "Add names, credentials, years in business and awards.",
+        "Link to profiles.",
+        "Add a clear \"who we help\" line."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-llms-full",
+      "title": "Publish llms-full.txt with the full text of key pages",
+      "category": "geo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "llms-full"
+      },
+      "why": "A full text file lets AI tools read your best content without crawling every page.",
+      "how": [
+        "Open /llms-full.txt.",
+        "Check it holds the main pages as plain text.",
+        "Keep it under a sensible size."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-outbound-citations",
+      "title": "Cite authoritative sources for claims",
+      "category": "geo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Linking to official sources shows your facts are checked.",
+      "how": [
+        "Link to the tourism board, government site or supplier.",
+        "Name the source in the text.",
+        "Check the link still works."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-faq-structured",
+      "title": "Structured FAQs on key pages",
+      "category": "geo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "faq-schema"
+      },
+      "why": "Short question and answer pairs are easy for AI to lift.",
+      "how": [
+        "Add 4 to 8 FAQs to guides and trip pages.",
+        "Use real traveller questions.",
+        "Mark them up to match."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-clean-facts",
+      "title": "Keep facts on the site consistent across pages",
+      "category": "geo",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Conflicting prices or phone numbers make engines trust none of them.",
+      "how": [
+        "Keep one source for contact details and policies.",
+        "Search the site for old numbers.",
+        "Fix them all together."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "geo-reddit-quora",
+      "title": "Take part honestly in Reddit and Quora travel questions",
+      "category": "geo",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Forums are heavily cited by AI answers, and helpful, honest replies build real mentions.",
+      "how": [
+        "Answer questions where you have real knowledge.",
+        "Say who you are when it matters.",
+        "Link only where it truly helps."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Posting disguised ads or using fake accounts gets you banned and hurts the brand. Follow each forum's rules."
+    },
+    {
+      "id": "geo-share-of-voice",
+      "title": "Test what AI assistants say about you each month",
+      "category": "geo",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "You cannot fix what you never check.",
+      "how": [
+        "Ask ChatGPT, Gemini, Perplexity and Copilot 10 questions about your trips and area.",
+        "Note if you are named and what they get wrong.",
+        "Fix gaps with better pages and profiles."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-wikidata",
+      "title": "Get listed on Wikidata or Wikipedia only if you genuinely qualify",
+      "category": "geo",
+      "impact": 3,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Knowledge bases feed entity understanding, but they have strict notability rules.",
+      "how": [
+        "Read the notability rules first.",
+        "Use independent sources only.",
+        "Do not write about yourself without disclosing it."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Writing promotional pages about your own business breaks Wikipedia rules and gets removed. Only add what independent sources support."
+    },
+    {
+      "id": "geo-youtube",
+      "title": "Publish helpful videos on YouTube with transcripts",
+      "category": "geo",
+      "impact": 3,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "YouTube is one of the most cited sources in AI answers, and videos also appear in Google.",
+      "how": [
+        "Make short how-to or destination videos.",
+        "Write a clear title and description.",
+        "Add captions and link to the matching page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "geo-sitemap-for-ai",
+      "title": "Keep accurate lastmod dates in the sitemap",
+      "category": "geo",
+      "impact": 2,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "sitemap-lastmod"
+      },
+      "why": "Crawlers use lastmod to decide what to re-read.",
+      "how": [
+        "Check each sitemap entry has a lastmod.",
+        "It should change only when content changes.",
+        "Do not set every page to today."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "j-gmb-categories",
+      "title": "Pick the right main and extra GBP categories and list services",
+      "category": "local",
+      "impact": 5,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "The main category is a top local ranking factor, and services tell Google what you sell.",
+      "how": [
+        "Look at the main categories your best-ranking rivals use.",
+        "Choose the closest as your main one.",
+        "Add every service you offer with a short description."
+      ],
+      "appliesTo": "local business",
+      "source": "joel-idea"
+    },
+    {
+      "id": "local-gbp-complete",
+      "title": "Complete every part of your Google Business Profile",
+      "category": "local",
+      "impact": 5,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A full profile is the biggest local ranking lever you control.",
+      "how": [
+        "Fill in name, address, phone, hours, website and description.",
+        "Add the booking or enquiry link.",
+        "Check it every quarter."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-reviews",
+      "title": "Ask every happy customer for a Google review",
+      "category": "local",
+      "impact": 5,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Reviews are a top local ranking factor and a strong reason to click.",
+      "how": [
+        "Send a short thank-you with your review link after each trip.",
+        "Ask once, politely.",
+        "Never offer money or gifts for reviews."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice",
+      "caution": "Buying reviews, gating them (only asking happy people), or writing your own is against Google rules and can get reviews removed or the profile suspended."
+    },
+    {
+      "id": "local-nap",
+      "title": "Keep name, address and phone (NAP) identical everywhere",
+      "category": "local",
+      "impact": 5,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "nap-consistent"
+      },
+      "why": "Mixed-up details across the web make Google unsure which business is yours.",
+      "how": [
+        "Write down the one correct version.",
+        "Compare the site, profile and directories.",
+        "Fix every difference, including small ones like Suite or Ste."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "local-review-replies",
+      "title": "Reply to every review, good or bad",
+      "category": "local",
+      "impact": 4,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Replies show you care and give you a chance to use real keywords naturally.",
+      "how": [
+        "Thank people by name.",
+        "Answer complaints calmly and offer to fix them.",
+        "Reply within a few days."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-citations",
+      "title": "Get listed in the main directories and citation sites",
+      "category": "local",
+      "impact": 4,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Consistent listings back up your real address and phone.",
+      "how": [
+        "Start with Bing Places, Apple Business Connect, Yelp and trade directories.",
+        "Use the exact same NAP.",
+        "Skip low-quality directory lists."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice",
+      "caution": "Mass-submitting to hundreds of poor directories is a link scheme and adds risk, not rankings. Use a few quality, relevant ones.",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "local-links",
+      "title": "Earn local backlinks: sponsorships, events and local news",
+      "category": "local",
+      "impact": 4,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Links from local sites are strong signals for local search.",
+      "how": [
+        "Sponsor a small local event.",
+        "Send local news a story.",
+        "Ask each for a link to the relevant page."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "b-gbp-embed",
+      "title": "Embed your Google Business Profile map on the site",
+      "category": "local",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "gbp-embed"
+      },
+      "why": "A map embed ties your site to the profile and helps local visitors find you.",
+      "how": [
+        "Open your profile on Google Maps and choose Share, then Embed a map.",
+        "Copy the embed code.",
+        "Add it to the contact page and save the address in the settings."
+      ],
+      "appliesTo": "local business",
+      "source": "joel-list-b"
+    },
+    {
+      "id": "local-photos",
+      "title": "Add real photos to your profile regularly",
+      "category": "local",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Fresh, real photos get more views and trust.",
+      "how": [
+        "Add photos of the team, office and trips.",
+        "Add new ones every month.",
+        "Skip stock photos."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-products-services",
+      "title": "List products and services on the profile",
+      "category": "local",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "The product and service lists feed local search and help match queries.",
+      "how": [
+        "Add each trip type as a service.",
+        "Add a short description and link.",
+        "Update when you add offers."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-bing-places",
+      "title": "Claim Bing Places and Apple Business Connect",
+      "category": "local",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "These feed Bing, Apple Maps, Siri and some AI assistants.",
+      "how": [
+        "Create or claim the listing.",
+        "Copy your NAP exactly.",
+        "Verify by the method they offer."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-chamber",
+      "title": "Join the local chamber of commerce and tourism groups",
+      "category": "local",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Memberships bring trusted local links and mentions.",
+      "how": [
+        "Join one or two relevant groups.",
+        "Ask for a listing with a link to your site.",
+        "Add a \"member of\" badge only if true."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "local-landing-page",
+      "title": "Make the address and phone visible as text on the site",
+      "category": "local",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "nap-consistent"
+      },
+      "why": "Visible contact details back up your profile and are quoted by assistants.",
+      "how": [
+        "Put address and phone in the footer as text.",
+        "Make the phone a tap-to-call link.",
+        "Match the schema."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-competitor-profiles",
+      "title": "Study the profiles of the top 3 local rivals",
+      "category": "local",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Rivals that already win show what Google rewards in your area.",
+      "how": [
+        "Search your key local term.",
+        "Open the top 3 profiles.",
+        "Note their categories, services, photos and review counts, and beat them honestly."
+      ],
+      "appliesTo": "local business",
+      "source": "joel-idea"
+    },
+    {
+      "id": "local-review-velocity",
+      "title": "Keep a steady flow of new reviews",
+      "category": "local",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A few new reviews each month beat a burst and then silence.",
+      "how": [
+        "Aim for a steady number each month.",
+        "Add the review link to email signatures.",
+        "Track the count monthly."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-pages-service-area",
+      "title": "Describe your service area honestly",
+      "category": "local",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "It stops irrelevant enquiries and helps the right local ones.",
+      "how": [
+        "List the areas you truly serve.",
+        "Do not list a city you do not serve.",
+        "Match the Google profile service area."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice",
+      "caution": "Claiming service areas you do not cover is misleading and can lead to a profile suspension."
+    },
+    {
+      "id": "b-nearby-cities",
+      "title": "Make pages that target nearby cities only when each has unique value",
+      "category": "local",
+      "impact": 3,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Pages for nearby towns can catch local searches, but only if each is truly useful.",
+      "how": [
+        "Pick towns where you have real customers or events.",
+        "Add local facts, photos, departure info and testimonials for that town.",
+        "Skip towns where you have nothing unique to say."
+      ],
+      "appliesTo": "local business",
+      "source": "joel-list-b",
+      "caution": "Near-copies of one page with a swapped city name are doorway pages. Google can demote or remove them. Each page needs unique, useful content."
+    },
+    {
+      "id": "local-posts",
+      "title": "Post updates and offers on your Google profile",
+      "category": "local",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Posts keep the profile fresh and can add a link to your pages.",
+      "how": [
+        "Share a new post or offer weekly or every two weeks.",
+        "Add a photo and a link.",
+        "Keep it honest."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-qa",
+      "title": "Seed and answer the profile Q and A",
+      "category": "local",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Q and A answers show on your profile and help new customers decide.",
+      "how": [
+        "Check for unanswered questions.",
+        "Answer them as the owner.",
+        "Add the common questions with real answers."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "local-hours-attributes",
+      "title": "Keep hours, holiday hours and attributes up to date",
+      "category": "local",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Wrong hours cost customers and reviews.",
+      "how": [
+        "Set holiday hours early.",
+        "Add attributes like languages spoken.",
+        "Review after any change."
+      ],
+      "appliesTo": "local business",
+      "source": "best-practice"
+    },
+    {
+      "id": "j-competitor-keywords",
+      "title": "Check competitor URLs and scan the keywords they rank for",
+      "category": "links",
+      "impact": 5,
+      "effort": 2,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Rivals show which searches matter in your market and where the gaps are.",
+      "how": [
+        "List 5 rival sites.",
+        "Scan which pages and keywords bring them traffic.",
+        "Make a better page for each gap you can win."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-idea",
+      "fixHref": "/admin/keywords"
+    },
+    {
+      "id": "j-competitor-backlinks",
+      "title": "Find competitor backlinks and win the same ones",
+      "category": "links",
+      "impact": 5,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Sites that link to your rivals are already willing to link to a travel business like you.",
+      "how": [
+        "Use a backlink tool to list sites linking to 3 rivals.",
+        "Pick the ones that could also link to you.",
+        "Reach out with something worth linking to."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-idea",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "links-partners",
+      "title": "Ask suppliers and partners to link to your agent page",
+      "category": "links",
+      "impact": 4,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Suppliers you already sell for are the easiest and safest links.",
+      "how": [
+        "List your top suppliers.",
+        "Ask each to add your agency to their agent or partner list.",
+        "Send them a ready paragraph."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "links-unlinked-mentions",
+      "title": "Turn unlinked brand mentions into links",
+      "category": "links",
+      "impact": 4,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "If someone already wrote about you, a link is an easy ask.",
+      "how": [
+        "Search your brand name in quotes.",
+        "Find mentions with no link.",
+        "Politely ask them to add one."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "links-avoid-schemes",
+      "title": "Never buy links or join link exchanges",
+      "category": "links",
+      "impact": 4,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Google treats paid and traded links as spam, and the penalty can cost the whole site.",
+      "how": [
+        "Do not pay for links.",
+        "Do not trade links on a large scale.",
+        "Disavow only if you really have a toxic set."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Buying links, link exchanges and private blog networks break Google spam policy and can trigger a manual action."
+    },
+    {
+      "id": "links-internal-hubs",
+      "title": "Point strong pages at the pages you want to rank",
+      "category": "links",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "internal-links"
+      },
+      "why": "Your own links cost nothing and move ranking power where you want it.",
+      "how": [
+        "Find your most linked pages.",
+        "Link from them to the priority pages.",
+        "Use clear anchor text."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/guides"
+    },
+    {
+      "id": "links-gap",
+      "title": "Run a backlink gap report against competitors each quarter",
+      "category": "links",
+      "impact": 4,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "The gap list is a ready-made to-do list of link targets.",
+      "how": [
+        "List domains that link to two or more rivals but not you.",
+        "Sort by relevance.",
+        "Work down the list."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "links-digital-pr",
+      "title": "Do digital PR with a real story or data",
+      "category": "links",
+      "impact": 4,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A good story can earn links from news and travel sites at once.",
+      "how": [
+        "Make a short data story or travel trend piece.",
+        "Pitch it to travel and local writers.",
+        "Be honest and give sources."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Made-up stats or paid placements dressed as news can backfire and breach link rules."
+    },
+    {
+      "id": "links-resource-pages",
+      "title": "Get listed on relevant resource and \"useful links\" pages",
+      "category": "links",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "These pages are made to link out to helpful sites.",
+      "how": [
+        "Search for travel resource pages in your area.",
+        "Check your site really fits.",
+        "Send a short, polite request."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "links-broken-building",
+      "title": "Do broken-link building on travel resource pages",
+      "category": "links",
+      "impact": 3,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "You offer a working page in place of a dead one, which is helpful to the site owner.",
+      "how": [
+        "Find resource pages in your niche with dead links.",
+        "Check you have a page that fits.",
+        "Email the owner with the broken link and your suggestion."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "links-directory-rules",
+      "title": "Use directories only if they are real, relevant and free of spam",
+      "category": "links",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Good directories help a little, and bad ones can hurt.",
+      "how": [
+        "Skip any directory with obvious ads and no editing.",
+        "Prefer trade and local directories.",
+        "Never pay for bulk listings."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Paying for large directory packages is a classic spam tactic and the links give little value."
+    },
+    {
+      "id": "links-earned-log",
+      "title": "Keep a log of links you earn",
+      "category": "links",
+      "impact": 2,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A log shows what works and who to thank.",
+      "how": [
+        "Add each new link with the date and page.",
+        "Review every month.",
+        "Thank the site owner."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/links-building"
+    },
+    {
+      "id": "links-anchor-mix",
+      "title": "Keep anchor text natural for outside links",
+      "category": "links",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A set of identical keyword anchors looks like manipulation.",
+      "how": [
+        "Let people link with your brand name and plain words.",
+        "Do not ask for exact phrases.",
+        "Check your anchor mix twice a year."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "links-guest-posts",
+      "title": "Guest posts only on relevant sites that edit what they run",
+      "category": "links",
+      "impact": 2,
+      "effort": 3,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A useful article on a relevant site can bring links and readers.",
+      "how": [
+        "Pick sites your customers read.",
+        "Pitch an idea that helps their readers.",
+        "Link only where it is natural."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "caution": "Mass guest posting for links, or paying for posts with keyword anchors, is a link scheme and can lead to a penalty."
+    },
+    {
+      "id": "a-og-image",
+      "title": "Set an og:image that is a real picture (not an SVG)",
+      "category": "social",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "og-image"
+      },
+      "why": "The share image decides how your link looks on Facebook, LinkedIn, WhatsApp and in AI previews.",
+      "how": [
+        "Add an og:image at 1200 by 630 pixels.",
+        "Use JPG or PNG, never SVG.",
+        "Test the link in a share debugger."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "social-consistent-bios",
+      "title": "Use the same bio, name and link on every profile",
+      "category": "social",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Matching profiles help engines tie all your accounts to one business.",
+      "how": [
+        "Write one short bio.",
+        "Paste it on every network.",
+        "Link to the same site address."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "social-link-in-bio",
+      "title": "Use a link-in-bio page that points to your key pages",
+      "category": "social",
+      "impact": 3,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Social visitors need one clear place to go.",
+      "how": [
+        "List the top 5 pages or offers.",
+        "Use a tracked link for each.",
+        "Update it when campaigns change."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/distribution"
+    },
+    {
+      "id": "social-utm",
+      "title": "Tag social links with clean UTM parameters",
+      "category": "social",
+      "impact": 3,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Without tags, you cannot tell which posts bring leads.",
+      "how": [
+        "Use the same names for source, medium and campaign every time.",
+        "Use lower case.",
+        "Never put UTM tags on internal links."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/distribution"
+    },
+    {
+      "id": "social-repurpose",
+      "title": "Repurpose each post into short social posts and clips",
+      "category": "social",
+      "impact": 3,
+      "effort": 1,
+      "automation": "assisted",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "One good article can feed a week of posts at no extra research cost.",
+      "how": [
+        "Pull 3 key points from each post.",
+        "Turn them into captions and short clips.",
+        "Link back to the post."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/distribution"
+    },
+    {
+      "id": "social-profile-claims",
+      "title": "Claim your brand name on the main networks",
+      "category": "social",
+      "impact": 3,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "sameas-links"
+      },
+      "why": "Owning the profiles stops others using your name and gives you sameAs links.",
+      "how": [
+        "Check Facebook, Instagram, YouTube, LinkedIn and Pinterest.",
+        "Claim missing ones.",
+        "Add all to the site's sameAs list."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "social-youtube-seo",
+      "title": "Optimise YouTube titles, descriptions and chapters",
+      "category": "social",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "YouTube is a search engine, and it feeds Google and AI answers.",
+      "how": [
+        "Put the topic in the title.",
+        "Write a full description with links.",
+        "Add chapters and captions."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "social-pinterest",
+      "title": "Optimise Pinterest pins for travel searches",
+      "category": "social",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Pins keep sending traffic for months and travel is a top Pinterest topic.",
+      "how": [
+        "Make tall pins with clear text.",
+        "Use search words in the title and description.",
+        "Link each pin to the matching page."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "social-share-buttons",
+      "title": "Make sharing easy on posts",
+      "category": "social",
+      "impact": 1,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Easy sharing helps good content spread.",
+      "how": [
+        "Add share links to the post.",
+        "Test them on a phone.",
+        "Keep them light and fast."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "a-mobile",
+      "title": "Fix the mobile layout",
+      "category": "performance",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "viewport-mobile"
+      },
+      "why": "Google ranks the mobile version first and most visitors use a phone.",
+      "how": [
+        "Make sure the page has a viewport tag.",
+        "Open pages on a phone.",
+        "Fix text that is too small or buttons too close."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "a-cwv",
+      "title": "Pass Core Web Vitals: fast load, stable layout, quick response",
+      "category": "performance",
+      "impact": 5,
+      "effort": 2,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "page-speed"
+      },
+      "why": "Fast pages rank a little better and convert much better.",
+      "how": [
+        "Check Core Web Vitals in Search Console.",
+        "Fix the slowest page types first.",
+        "Re-check after a month."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "a-compress-images",
+      "title": "Compress images",
+      "category": "performance",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "image-weight"
+      },
+      "why": "Large pictures are the number one cause of slow pages.",
+      "how": [
+        "Keep most pictures under about 200 KB.",
+        "Use WebP or AVIF where you can.",
+        "Resize to the size shown."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a"
+    },
+    {
+      "id": "perf-lazy-load",
+      "title": "Lazy-load pictures below the fold",
+      "category": "performance",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Loading only what is on screen makes the first view faster.",
+      "how": [
+        "Add lazy loading to images lower on the page.",
+        "Do not lazy-load the main picture at the top.",
+        "Set width and height on every image."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "perf-no-intrusive-popups",
+      "title": "Avoid full-screen popups that cover content on mobile",
+      "category": "performance",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Google demotes pages that hide content behind popups.",
+      "how": [
+        "Use small banners instead of full-screen boxes.",
+        "Keep cookie notices compact.",
+        "Test on a phone."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "perf-caching-cdn",
+      "title": "Use caching and a CDN for pages and assets",
+      "category": "performance",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A cached page can be served in a few milliseconds from a nearby server.",
+      "how": [
+        "Cache static files for a long time.",
+        "Use the host's CDN.",
+        "Check the cache headers once."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "perf-accessibility",
+      "title": "Check accessibility: contrast, labels, keyboard use",
+      "category": "performance",
+      "impact": 3,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Accessible sites reach more people and match what search engines can read.",
+      "how": [
+        "Check text contrast.",
+        "Label every form field.",
+        "Tab through the page to check the focus order."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "perf-fonts",
+      "title": "Load fonts quickly and use few of them",
+      "category": "performance",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Heavy fonts delay the text people came to read.",
+      "how": [
+        "Use at most two font families.",
+        "Use font-display: swap.",
+        "Host fonts on your own site."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "perf-html-size",
+      "title": "Keep page weight and HTML size small",
+      "category": "performance",
+      "impact": 2,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "page-speed"
+      },
+      "why": "Heavy pages cost more crawl time and load slower on mobile.",
+      "how": [
+        "Check the page size in browser tools.",
+        "Remove unused scripts.",
+        "Split very long pages."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "perf-mobile-tap",
+      "title": "Make phone numbers and buttons easy to tap",
+      "category": "performance",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Easier taps mean more calls and enquiries from phone visitors.",
+      "how": [
+        "Use tel: links for phone numbers.",
+        "Make buttons at least 44 pixels high.",
+        "Keep space between links."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "a-search-console",
+      "title": "Verify the site in Search Console",
+      "category": "measurement",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "gsc-verified"
+      },
+      "why": "Search Console is the only place Google tells you how it sees your site.",
+      "how": [
+        "Add the site as a Domain property.",
+        "Verify with a DNS record.",
+        "Add the service account as a user so reports load in the admin."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "joel-list-a",
+      "fixHref": "/admin/rankings"
+    },
+    {
+      "id": "meas-sitemap-submitted",
+      "title": "Submit the sitemap in Search Console",
+      "category": "measurement",
+      "impact": 5,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "sitemap-submitted"
+      },
+      "why": "It makes sure Google knows every page you want indexed.",
+      "how": [
+        "Open Sitemaps in Search Console.",
+        "Add /sitemap.xml.",
+        "Check the status and number of pages found."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "meas-conversions",
+      "title": "Track conversions: enquiries, calls and bookings",
+      "category": "measurement",
+      "impact": 5,
+      "effort": 2,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Traffic is only useful if it turns into leads, so count the leads.",
+      "how": [
+        "Mark form submits and tap-to-call as conversions.",
+        "Tag each source.",
+        "Review which pages produce leads."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/leads"
+    },
+    {
+      "id": "meas-ga4",
+      "title": "Set up GA4 with consent handled",
+      "category": "measurement",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "analytics-configured"
+      },
+      "why": "Without analytics you cannot tell which pages bring enquiries.",
+      "how": [
+        "Create a GA4 property and add the measurement id.",
+        "Respect cookie consent rules.",
+        "Add the property id so the admin can read it."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/users"
+    },
+    {
+      "id": "meas-rank-tracking",
+      "title": "Track rankings for your main keywords weekly",
+      "category": "measurement",
+      "impact": 4,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "rank-tracking"
+      },
+      "why": "You need a trend line to know if work is paying off.",
+      "how": [
+        "Keep the daily snapshot turned on.",
+        "Pick 20 to 50 key phrases.",
+        "Look at movement every week."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/rankings"
+    },
+    {
+      "id": "meas-monthly-review",
+      "title": "Hold a 30-minute monthly SEO review",
+      "category": "measurement",
+      "impact": 4,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "A regular habit beats a big push twice a year.",
+      "how": [
+        "Open this checklist, Search Console and your leads.",
+        "Note the top 3 wins and 3 problems.",
+        "Pick the next 3 fixes."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "meas-alerts",
+      "title": "Get an alert when traffic or indexing drops",
+      "category": "measurement",
+      "impact": 3,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Catching a drop in days saves months of lost leads.",
+      "how": [
+        "Turn on email alerts in Search Console.",
+        "Check the health card weekly.",
+        "Act on new errors the same week."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice",
+      "fixHref": "/admin/system-health"
+    },
+    {
+      "id": "meas-bing-snapshot",
+      "title": "Watch Bing crawl and index numbers",
+      "category": "measurement",
+      "impact": 2,
+      "effort": 1,
+      "automation": "auto",
+      "verify": {
+        "kind": "check",
+        "checkId": "bing-coverage"
+      },
+      "why": "Bing powers other search tools, so its view of your site matters too.",
+      "how": [
+        "Add the Bing API key.",
+        "Read the daily snapshot.",
+        "Investigate crawl errors."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "meas-annotations",
+      "title": "Note every big site change with a date",
+      "category": "measurement",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Dates let you link a traffic change to its cause.",
+      "how": [
+        "Keep a simple change log.",
+        "Note launches, migrations and template changes.",
+        "Look at it when traffic moves."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    },
+    {
+      "id": "meas-core-update",
+      "title": "Watch Google update announcements",
+      "category": "measurement",
+      "impact": 2,
+      "effort": 1,
+      "automation": "manual",
+      "verify": {
+        "kind": "manual"
+      },
+      "why": "Big updates can move rankings, and knowing about them stops panic.",
+      "how": [
+        "Follow the Search Central blog.",
+        "When rankings jump, check the date against updates.",
+        "Do not change much for two weeks."
+      ],
+      "appliesTo": "all auto-blog sites",
+      "source": "best-practice"
+    }
+  ]
+}

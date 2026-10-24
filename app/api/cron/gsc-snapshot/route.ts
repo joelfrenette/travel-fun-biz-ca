@@ -11,6 +11,7 @@ import { runOptimizer } from '@/lib/optimizer-run'
 import { runFunnelWatchdog } from '@/lib/funnel-watchdog'
 import { runSiteCrawl, CRAWL_BUDGET_MS } from '@/lib/site-crawl-run'
 import { runSeoEngines, SEO_BUDGET_MS } from '@/lib/seo-engines-run'
+import { AUDIT_BUDGET_MS, runSeoPlaybookAudit } from '@/lib/seo-playbook-audit'
 import { revalidatePath } from 'next/cache'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
@@ -130,7 +131,22 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] site crawl failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${seo}${crawl}` })
+    // SEO playbook audit: read-only checks of the live site (sitemap, robots, llms.txt, redirects, a few sample pages) plus the stored
+    // crawl and Search Console state, kept in app_settings. Own 20 second budget, started only when enough of the 60 seconds is left
+    // (it runs after the crawl, which it reads). runSeoPlaybookAudit never throws; the extra try/catch keeps it from ever breaking the snapshot.
+    let playbook = ''
+    try {
+      const left = 57_000 - (Date.now() - startedAt)
+      if (left < 6_000) {
+        playbook = '; SEO playbook audit skipped (time budget already used)'
+      } else {
+        const a = await runSeoPlaybookAudit(getSupabaseAdmin(), { deadlineMs: Date.now() + Math.min(AUDIT_BUDGET_MS, left - 2_000) })
+        playbook = `; ${a.note}`
+      }
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] seo playbook audit failed:', e)
+    }
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${seo}${crawl}${playbook}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found

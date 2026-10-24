@@ -186,10 +186,17 @@ const unsortedTools: AdminNavItem[] = [
   },
   {
     title: "SEO & GEO Manager",
-    description: "Mass update alt tags, meta descriptions, OG images, robots.txt, AI.txt, and submit to search engines.",
+    description: "The SEO, AEO, GEO and local checklist in order of impact: what the site passes or fails automatically, what only you can do, and a place to paste tips from influencers.",
     icon: Globe,
-    status: "Coming Soon",
-    href: null,
+    status: "Active",
+    href: "/admin/seo-manager",
+  },
+  {
+    title: "SEO engines",
+    description: "Searches we should build pages for, pages competing with each other, competitor scans, and the hub and spoke map.",
+    icon: Search,
+    status: "Active",
+    href: "/admin/seo-engines",
   },
   {
     title: "Site Settings",
@@ -257,7 +264,7 @@ function pick(title: string, nested = false): AdminNavEntry {
 const GROUPED_TITLES = [
   "Posts: Blog", "Posts: Blog Auto-Writer", "Posts: News", "Posts: Guides", "Posts: Trips",
   "Content Autopilot", "Post Distribution",
-  "Search Rankings", "Keyword Research", "Link building", "Website Value", "Users and Analytics",
+  "Search Rankings", "Keyword Research", "SEO & GEO Manager", "SEO engines", "Link building", "Website Value", "Users and Analytics",
   "Leads", "Orders", "Affiliate Links", "Testimonials",
   "System Health", "Project Tracker",
 ]
@@ -265,7 +272,7 @@ const GROUPED_TITLES = [
 export const adminNavGroups: AdminNavGroup[] = [
   { id: "content", title: "Content", defaultOpen: true, items: [pick("Posts: Blog"), pick("Posts: Blog Auto-Writer", true), pick("Posts: News"), pick("Posts: Guides"), pick("Posts: Trips")] },
   { id: "social", title: "Social", defaultOpen: true, items: [pick("Content Autopilot"), pick("Post Distribution")] },
-  { id: "growth", title: "Growth", defaultOpen: true, items: [pick("Search Rankings"), pick("Keyword Research"), pick("Link building"), pick("Website Value"), pick("Users and Analytics")] },
+  { id: "growth", title: "Growth", defaultOpen: true, items: [pick("Search Rankings"), pick("Keyword Research"), pick("SEO & GEO Manager"), pick("SEO engines"), pick("Link building"), pick("Website Value"), pick("Users and Analytics")] },
   { id: "money", title: "Money", defaultOpen: true, items: [pick("Leads"), pick("Orders"), pick("Affiliate Links"), pick("Testimonials")] },
   { id: "system", title: "System", defaultOpen: true, items: [pick("System Health"), pick("Project Tracker")] },
   // Everything not built yet, in one place, closed until someone opens it.
