@@ -34,6 +34,7 @@ export function AgentsEditor({ agent, achievements, onClose, onChanged }: { agen
   const [sort, setSort] = useState(agent?.sort_order == null ? "100" : s(agent.sort_order))
   const [email, setEmail] = useState(s(agent?.email))
   const [phone, setPhone] = useState(s(agent?.phone))
+  const [address, setAddress] = useState(s(agent?.address))
   const [notes, setNotes] = useState(s(agent?.notes))
   const [status, setStatus] = useState(s(agent?.status) || "draft")
   const [msg, setMsg] = useState("")
@@ -54,7 +55,7 @@ export function AgentsEditor({ agent, achievements, onClose, onChanged }: { agen
   const payload = () => ({
     display_name: name, slug: slug || undefined, headline, bio, specialties, languages, years_experience: years, home_city: city, region, photo_url: photo,
     video_urls: videos, certifications: certs.map((c) => ({ ...c, year: c.year ? Number(c.year) : null })), consent_photo: cPhoto, consent_bio: cBio, featured,
-    sort_order: sort, email, phone, notes,
+    sort_order: sort, email, phone, address, notes,
   })
 
   async function save() {
@@ -176,6 +177,7 @@ export function AgentsEditor({ agent, achievements, onClose, onChanged }: { agen
         <legend className="px-1 text-sm font-medium">Private. Never shown on the site.</legend>
         <div className={field}><Label htmlFor="ag-email">Email</Label><Input id="ag-email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
         <div className={field}><Label htmlFor="ag-phone">Phone</Label><Input id="ag-phone" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+        <div className={`${field} md:col-span-3`}><Label htmlFor="ag-addr">Address</Label><Input id="ag-addr" value={address} onChange={(e) => setAddress(e.target.value)} /></div>
         <div className={`${field} md:col-span-3`}><Label htmlFor="ag-notes">Notes</Label><Textarea id="ag-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
       </fieldset>
 

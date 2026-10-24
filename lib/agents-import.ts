@@ -1,4 +1,4 @@
-import { cleanAgentInput, cleanText, slugify, type AgentEditable, parseCertifications } from '@/lib/agents'
+import { cleanAgentInput, cleanText, publicName, slugify, type AgentEditable, parseCertifications } from '@/lib/agents'
 
 // CSV / Excel-paste import for the agent roster (pure). Joel's 20+ agents live in a spreadsheet today. He copies the cells
 // (Excel pastes tab-separated text) or uploads a CSV, maps each column to a field, sees a PREVIEW, and only then imports.
@@ -12,6 +12,7 @@ export const IMPORT_FIELDS = [
   { key: 'last_name', label: 'Last name (joined with first name)' },
   { key: 'email', label: 'Email (private)' },
   { key: 'phone', label: 'Phone (private)' },
+  { key: 'address', label: 'Address (private)' },
   { key: 'headline', label: 'Headline' },
   { key: 'bio', label: 'Bio' },
   { key: 'specialties', label: 'Specialties' },
@@ -38,6 +39,7 @@ const SYNONYMS: [ImportFieldKey, RegExp][] = [
   ['display_name', /^(name|full[\s_-]*name|agent|agent[\s_-]*name|display[\s_-]*name)$/i],
   ['email', /e[\s_-]?mail/i],
   ['phone', /phone|mobile|cell|tel\b/i],
+  ['address', /address|mailing|street/i],
   ['headline', /headline|tagline|title|role|position/i],
   ['bio', /\bbio\b|biography|about|description|profile/i],
   ['specialties', /special|focus|expert|niche/i],
@@ -159,7 +161,7 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
     const name = raw.display_name || [raw.first_name, raw.last_name].filter(Boolean).join(' ')
     const input: Record<string, unknown> = {}
     if (name) input.display_name = name
-    for (const k of ['email', 'phone', 'headline', 'bio', 'home_city', 'region', 'notes', 'photo_url'] as const) if (raw[k]) input[k] = raw[k]
+    for (const k of ['email', 'phone', 'address', 'headline', 'bio', 'home_city', 'region', 'notes', 'photo_url'] as const) if (raw[k]) input[k] = raw[k]
     if (raw.specialties) input.specialties = raw.specialties
     if (raw.languages) input.languages = raw.languages
     if (raw.internal_tags) input.internal_tags = raw.internal_tags
@@ -170,6 +172,9 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
     const warnings: string[] = []
     if (!name) return { index, ok: false, slug: '', value: null, missing: ['name'], warnings: ['No name in this row, so it cannot be imported.'], action: 'new' as const }
     const slug = slugify(name)
+    // A parenthetical in the sheet name (a maiden name) never goes public: it is dropped from the display name and slug and
+    // kept only in the private notes.
+    if (publicName(name) !== name.replace(/\s+/g, ' ').trim()) input.notes = [raw.notes, `Name in sheet: ${name}`].filter(Boolean).join('\n')
     input.slug = slug
     const cleaned = cleanAgentInput(input)
     if (!cleaned.ok) return { index, ok: false, slug, value: null, missing: [], warnings: cleaned.errors, action: 'new' as const }

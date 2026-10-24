@@ -1,0 +1,231 @@
+// Offline checks for the travel specialist (agent) profiles: privacy columns, consent gates, certification gating,
+// no amounts in public achievements, JSON-LD, spreadsheet import mapping, the self-service token flow, the bio polish
+// guard and the content drafts. No database, no network, a fake clock. Run: pnpm dlx tsx scripts/check-agents.ts
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  AGENT_PRIVATE_COLUMNS, AGENT_PUBLIC_COLUMNS, AGENT_PUBLIC_SELECT, ACHIEVEMENT_PUBLIC_COLUMNS, ACHIEVEMENT_PUBLIC_SELECT, amountLike, buildAgentsCollectionJsonLd,
+  buildPersonJsonLd, buildProfilePageJsonLd, buildVideoJsonLd, cleanAgentInput, isPubliclyVisible, parseCertifications, parseVideoUrl, publicCertifications,
+  publishBlockers, slugify, suggestAgentOfMonth, toPublicAchievements, toPublicAgent, agentDescription, agentTitle, agentPhotoAlt, type PublicAgent,
+} from '../lib/agents'
+import { buildPreview, guessField, parseDelimited, parseSheet, IMPORT_MAX_ROWS } from '../lib/agents-import'
+import { cleanSelfService, hashProfileToken, makeProfileToken, profileLinkExpiry, profileLinkState, profileTokenMatchesHash } from '../lib/agents-token'
+import { groundedPolishProblems, polishBio, polishHash } from '../lib/agents-polish'
+import { aotmPost, profileFacts, socialCaption, toTopicIdea, ungroundedInDraft, welcomePost } from '../lib/agents-content'
+import { isTokenFormat } from '../lib/agent-invites'
+
+let failures = 0
+function check(name: string, ok: boolean, detail: unknown = '') {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  (${JSON.stringify(detail)})`}`)
+  if (!ok) failures++
+}
+
+const ctx = { siteName: 'TravelFunBiz', absoluteUrl: (p: string) => `https://travelfunbiz.ca${p}`, orgUrl: 'https://travelfunbiz.ca/' }
+
+const baseRow = {
+  id: 'a1', slug: 'jane-doe', display_name: 'Jane Doe', headline: 'Caribbean cruises for solo travellers', bio: 'Jane plans group trips and cruises for solo travellers.',
+  specialties: ['Caribbean cruises', 'Solo travel'], certifications: [{ name: 'Verified Cert', issuer: 'ACME', year: 2020, verified: true }, { name: 'Pending Cert', issuer: 'X', year: 2021, verified: false }],
+  years_experience: 12, languages: ['English', 'French'], home_city: 'Toronto', region: 'Ontario', photo_url: 'https://cdn.example.com/jane.jpg',
+  video_urls: ['https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'https://evil.example.com/v.mp4'], status: 'published', consent_photo: true, consent_bio: true, featured: true,
+  sort_order: 10, published_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-02T00:00:00Z',
+  // private columns that must never survive:
+  email: 'jane@private.test', phone: '+1 555 010 9999', notes: 'secret note', internal_tags: ['top'],
+}
+
+;(async () => {
+  // ─── Column lists ──────────────────────────────────────────────────────────────
+  check('public column list has no private column', AGENT_PRIVATE_COLUMNS.every((c) => !(AGENT_PUBLIC_COLUMNS as readonly string[]).includes(c)), AGENT_PUBLIC_COLUMNS)
+  check('public select is explicit (no star)', !AGENT_PUBLIC_SELECT.includes('*') && !ACHIEVEMENT_PUBLIC_SELECT.includes('*'))
+  check('achievement public columns exclude internal_value and public flag leak', !(ACHIEVEMENT_PUBLIC_COLUMNS as readonly string[]).includes('internal_value'))
+  check('private columns are exactly email, phone, address, notes, internal_tags', [...AGENT_PRIVATE_COLUMNS].sort().join() === 'address,email,internal_tags,notes,phone')
+
+  // Source scan: the public half of the store, and every public file, never touch private columns or select star.
+  const store = readFileSync('lib/agents-store.ts', 'utf8')
+  const publicHalf = store.slice(0, store.indexOf('// ─── Admin: roster'))
+  check('store public reads never select star', !/select\(\s*['"`]\*/.test(publicHalf))
+  check('store public reads never name a private column or internal_value', !/\b(email|phone|address|notes|internal_tags|internal_value)\b/.test(publicHalf.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')), publicHalf.match(/\b(email|phone|address|notes|internal_tags|internal_value)\b/))
+  check('store public reads use the explicit select constants', publicHalf.includes('AGENT_PUBLIC_SELECT') && publicHalf.includes('ACHIEVEMENT_PUBLIC_SELECT'))
+  function walk(dir: string): string[] {
+    return readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? walk(join(dir, f)) : [join(dir, f)]))
+  }
+  const publicFiles = [...walk('app/agents'), 'components/agents-ui.tsx', 'components/agents-strip.tsx']
+  for (const f of publicFiles) {
+    const src = readFileSync(f, 'utf8').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
+    check(`public file ${f} has no private field, mailto or tel link`, !/\b(\.email|(?<!site)\.phone|\.address|internal_value|internal_tags|\.notes)\b|mailto:|tel:/.test(src))
+  }
+  const sitePhoneInAgentPage = readFileSync('app/agents/[slug]/page.tsx', 'utf8').includes('site.phone')
+  check('agent page CTA phone is the site phone, not the agent', sitePhoneInAgentPage)
+
+  // ─── Consent and visibility ────────────────────────────────────────────────────
+  check('published + both consents renders', toPublicAgent(baseRow) !== null)
+  check('draft does not render', toPublicAgent({ ...baseRow, status: 'draft' }) === null)
+  check('ready does not render', toPublicAgent({ ...baseRow, status: 'ready' }) === null)
+  check('no photo consent: does not render', toPublicAgent({ ...baseRow, consent_photo: false }) === null)
+  check('no bio consent: does not render', toPublicAgent({ ...baseRow, consent_bio: false }) === null)
+  check('no bio: does not render', toPublicAgent({ ...baseRow, bio: '  ' }) === null)
+  check('isPubliclyVisible is strict (true only)', !isPubliclyVisible({ ...baseRow, consent_photo: 'true' }) && !isPubliclyVisible({ ...baseRow, consent_bio: 1 }))
+  const pub = toPublicAgent(baseRow) as PublicAgent
+  const leaked = JSON.stringify(pub)
+  check('a row that wrongly carried private data cannot leak it through toPublicAgent', !leaked.includes('jane@private.test') && !leaked.includes('555 010') && !leaked.includes('secret note') && !('email' in pub) && !('phone' in pub) && !('notes' in pub) && !('internal_tags' in pub), leaked)
+  check('non-embeddable video is dropped from the public agent', pub.video_urls.length === 1 && pub.video_urls[0].includes('youtube.com'), pub.video_urls)
+
+  // ─── Publish gate ──────────────────────────────────────────────────────────────
+  check('publish gate: complete agent has no blockers', publishBlockers(baseRow).length === 0)
+  check('publish gate: no photo consent blocks', publishBlockers({ ...baseRow, consent_photo: false }).some((b) => /photo consent/i.test(b)))
+  check('publish gate: no bio consent blocks', publishBlockers({ ...baseRow, consent_bio: false }).some((b) => /bio consent/i.test(b)))
+  check('publish gate: empty bio blocks', publishBlockers({ ...baseRow, bio: '' }).some((b) => /bio/i.test(b)))
+  check('publish gate: no specialty blocks', publishBlockers({ ...baseRow, specialties: [] }).some((b) => /specialty/i.test(b)))
+  check('publish gate: bad slug blocks', publishBlockers({ ...baseRow, slug: 'Bad Slug!' }).length > 0)
+
+  // ─── Certifications ────────────────────────────────────────────────────────────
+  const certs = parseCertifications(baseRow.certifications)
+  check('only verified certifications are public', publicCertifications(certs).length === 1 && publicCertifications(certs)[0].name === 'Verified Cert')
+  check('a certification from text with verified:"true" (string) is NOT verified', !parseCertifications([{ name: 'X', verified: 'true' }])[0].verified)
+  check('self-service certifications are always saved unverified', cleanSelfService({ bio: 'x'.repeat(60), specialties: 'Italy', certifications: [{ name: 'CTC', verified: true }] }).ok && (cleanSelfService({ bio: 'x'.repeat(60), specialties: 'Italy', certifications: [{ name: 'CTC', verified: true }] }) as { ok: true; value: { certifications: { verified: boolean }[] } }).value.certifications[0].verified === false)
+  const ld = JSON.stringify(buildProfilePageJsonLd(pub, ctx))
+  check('JSON-LD names only verified certifications', ld.includes('Verified Cert') && !ld.includes('Pending Cert'))
+
+  // ─── Achievements ──────────────────────────────────────────────────────────────
+  const ach = toPublicAchievements([
+    { id: '1', agent_id: 'a1', kind: 'award', title: 'Top team player 2026', period: '2026', internal_value: 250000, public: true },
+    { id: '2', agent_id: 'a1', kind: 'high_commission', title: 'Sold $250,000 in cruises', period: '2026' },
+    { id: '3', agent_id: 'a1', kind: 'growth_target', title: 'Hidden one', period: null, public: false },
+    { id: '4', agent_id: 'a1', kind: 'other', title: 'Hit 120% growth target' },
+  ])
+  check('public achievements keep only kind / title / period', ach.every((a) => Object.keys(a).sort().join() === 'agent_id,id,kind,period,title'), ach)
+  check('public achievements never carry internal_value', !JSON.stringify(ach).includes('250000') && !JSON.stringify(ach).includes('internal_value'))
+  check('an achievement with a money amount in the title is dropped', !ach.some((a) => a.id === '2'))
+  check('a non-public achievement is dropped', !ach.some((a) => a.id === '3'))
+  check('amountLike catches common amount shapes', amountLike('$5,000 in sales') && amountLike('250k in sales') && amountLike('CAD 10 dollars') === false ? true : amountLike('$5,000 in sales') && amountLike('250k in sales'))
+  check('amountLike lets plain milestones through', !amountLike('Top team player 2026') && !amountLike('Hosted a group trip to Italy') && !amountLike('Five-year anniversary'))
+
+  // ─── JSON-LD ───────────────────────────────────────────────────────────────────
+  const person = buildPersonJsonLd(pub, ctx) as Record<string, unknown>
+  const page = buildProfilePageJsonLd(pub, ctx) as Record<string, unknown>
+  const pageStr = JSON.stringify(page)
+  check('ProfilePage JSON-LD is valid JSON with the right types', page['@type'] === 'ProfilePage' && (page.mainEntity as Record<string, unknown>)['@type'] === 'Person' && page['@context'] === 'https://schema.org')
+  check('Person JSON-LD has no telephone or email', !('telephone' in person) && !('email' in person) && !pageStr.includes('jane@private') && !pageStr.includes('555'))
+  check('Person JSON-LD uses only provided data', person.name === 'Jane Doe' && person.image === pub.photo_url && JSON.stringify(person.knowsLanguage) === JSON.stringify(['English', 'French']))
+  const bare = toPublicAgent({ ...baseRow, headline: null, photo_url: null, languages: [], certifications: [], specialties: ['Italy'], video_urls: [] }) as PublicAgent
+  const bareP = buildPersonJsonLd(bare, ctx) as Record<string, unknown>
+  check('missing data produces no invented properties', !('image' in bareP) && !('knowsLanguage' in bareP) && !('hasCredential' in bareP) && !('description' in bareP))
+  const vids = buildVideoJsonLd(pub, ctx.absoluteUrl, '/agents/jane-doe')
+  check('VideoObject only for real embeddable video, no invented upload date', vids.length === 1 && vids[0]['@type'] === 'VideoObject' && !('uploadDate' in vids[0]) && String(vids[0].embedUrl).startsWith('https://www.youtube-nocookie.com/embed/'))
+  check('no video data means no VideoObject', buildVideoJsonLd({ display_name: 'X', video_urls: [] }, ctx.absoluteUrl, '/agents/x').length === 0)
+  const coll = buildAgentsCollectionJsonLd([pub], 'n', 'd', ctx) as Record<string, unknown>
+  check('CollectionPage + ItemList', coll['@type'] === 'CollectionPage' && ((coll.mainEntity as Record<string, unknown>)['@type'] === 'ItemList') && JSON.stringify(coll).includes('/agents/jane-doe'))
+  check('JSON-LD round-trips through JSON.parse', (() => { try { JSON.parse(JSON.stringify([page, coll, ...vids])); return true } catch { return false } })())
+  check('title and description are bounded', agentTitle(pub, 'TravelFunBiz').length <= 80 && agentDescription(pub).length <= 160, [agentTitle(pub, 'TravelFunBiz').length, agentDescription(pub).length])
+  check('photo alt text is honest and plain', agentPhotoAlt('Jane Doe') === 'Portrait of Jane Doe, travel specialist')
+  check('YouTube and Vimeo parse; others do not', !!parseVideoUrl('https://youtu.be/dQw4w9WgXcQ') && !!parseVideoUrl('https://vimeo.com/123456789') && !parseVideoUrl('http://youtu.be/dQw4w9WgXcQ') && !parseVideoUrl('https://evil.example.com/watch?v=dQw4w9WgXcQ') && !parseVideoUrl('javascript:alert(1)'))
+
+  // ─── Input cleaning ────────────────────────────────────────────────────────────
+  const cleaned = cleanAgentInput({ display_name: ' Jane   Doe ', slug: 'Jane Doe!', years_experience: '12 years', specialties: 'Italy; Greece, Italy', photo_url: 'http://insecure.test/a.jpg', video_urls: 'https://youtu.be/dQw4w9WgXcQ https://x.test/a' })
+  check('cleanAgentInput cleans name, slug, years, lists, photo, videos', cleaned.ok && cleaned.value.display_name === 'Jane Doe' && cleaned.value.slug === 'jane-doe' && cleaned.value.years_experience === 12 && JSON.stringify(cleaned.value.specialties) === JSON.stringify(['Italy', 'Greece']) && cleaned.value.photo_url === null && cleaned.value.video_urls?.length === 1, cleaned)
+  check('cleanAgentInput does not invent absent fields', cleanAgentInput({ display_name: 'Al' }).ok && Object.keys((cleanAgentInput({ display_name: 'Al' }) as { ok: true; value: object }).value).join() === 'display_name')
+  check('slugify strips accents and reserved words', slugify('Zoë Müller') === 'zoe-muller' && slugify('admin') !== 'admin')
+
+  // ─── CSV / Excel paste import ──────────────────────────────────────────────────
+  const tsv = 'First Name\tLast Name\tEmail\tSpecialties\tYears\tCertifications\tBio\n' +
+    'Jane\tDoe\tjane@x.test\tItaly; Greece\t12\tCTC; CLIA\t"Likes ""big"" trips,\nand cruises"\n' +
+    'Bob\tSmith\t\t\t\t\t\n' +
+    '\t\t\t\t\t\t\n' +
+    'Zed\tNoBio\tz@x.test\tCaribbean\tabc\t\t'
+  const rows = parseDelimited(tsv)
+  check('parseDelimited handles tabs, quotes, doubled quotes, embedded newline, blank rows', rows.length === 4 && rows[1][6] === 'Likes "big" trips,\nand cruises', rows)
+  check('parseDelimited handles commas and semicolons', parseDelimited('a,b\n1,2')[1][1] === '2' && parseDelimited('a;b\n1;2')[1][1] === '2')
+  const sheet = parseSheet(tsv)
+  check('parseSheet guesses columns', sheet.ok && sheet.sheet.guess.join() === 'first_name,last_name,email,specialties,years_experience,certifications,bio', sheet.ok ? sheet.sheet.guess : sheet)
+  check('guessField maps common headings', guessField('Full Name') === 'display_name' && guessField('E-mail') === 'email' && guessField('Cell') === 'phone' && guessField('Languages Spoken') === 'languages' && guessField('Shoe size') === '')
+  check('parseSheet rejects empty and header-only input', !parseSheet('').ok && !parseSheet('a,b').ok)
+  const prev = sheet.ok ? buildPreview(sheet.sheet, sheet.sheet.guess, { slugs: ['bob-smith'], emails: [] }) : []
+  check('preview builds one row per data row (blank row dropped by parser)', prev.length === 3, prev.length)
+  check('preview joins first and last name and makes a slug', prev[0].value?.display_name === 'Jane Doe' && prev[0].slug === 'jane-doe')
+  check('preview imports certifications as unverified', (prev[0].value?.certifications ?? []).length === 2 && (prev[0].value?.certifications ?? []).every((c) => c.verified === false))
+  check('preview NEVER invents: Bob has nothing but a name and every other field is missing', prev[1].value !== null && Object.keys(prev[1].value as object).sort().join() === 'display_name,slug' && prev[1].missing.includes('bio') && prev[1].missing.includes('specialties'), prev[1])
+  check('preview surfaces an existing agent as skipped', prev[1].action === 'exists')
+  check('preview warns when years is not a number and leaves it empty', prev[2].value?.years_experience == null && prev[2].warnings.some((w) => /years/i.test(w)), prev[2])
+  check('preview never sets consent or status', prev.every((p) => p.value && !('consent_photo' in p.value) && !('consent_bio' in p.value) && !('status' in p.value)))
+  check('preview flags a row without a name', buildPreview({ headers: ['Name', 'Bio'], rows: [['', 'x']] }, ['display_name', 'bio'], { slugs: [], emails: [] })[0].ok === false)
+  check('duplicate names in one paste are skipped after the first', (() => { const p = buildPreview({ headers: ['Name'], rows: [['Ann Lee'], ['Ann Lee']] }, ['display_name'], { slugs: [], emails: [] }); return p[0].action === 'new' && p[1].action === 'exists' })())
+  check('import row cap is 200', IMPORT_MAX_ROWS === 200 && (parseSheet(`Name\n${Array.from({ length: 300 }, (_, i) => `A${i}`).join('\n')}`) as { ok: true; sheet: { rows: unknown[] } }).sheet.rows.length === 200)
+
+  // Roster-shaped sheet (name, email, address) with fake sample rows only.
+  const rosterSheet = parseSheet('name\temail\taddress\nAnn Example (Maiden)\tann@example.test\t1 Sample St, Testville\nBo Sample\tbo@example.test\t2 Demo Rd, Fakeburg')
+  const rosterPrev = rosterSheet.ok ? buildPreview(rosterSheet.sheet, rosterSheet.sheet.guess, { slugs: [], emails: [] }) : []
+  check('roster sheet maps name, email, address', rosterSheet.ok && rosterSheet.sheet.guess.join() === 'display_name,email,address', rosterSheet.ok ? rosterSheet.sheet.guess : rosterSheet)
+  check('a parenthetical (maiden name) is dropped from display name and slug', rosterPrev[0].value?.display_name === 'Ann Example' && rosterPrev[0].slug === 'ann-example' && !rosterPrev[0].value?.slug?.includes('maiden'), rosterPrev[0])
+  check('the dropped parenthetical is kept only in private notes', (rosterPrev[0].value?.notes ?? '').includes('Maiden') && !JSON.stringify(toPublicAgent({ ...baseRow, ...rosterPrev[0].value, status: 'published', consent_photo: true, consent_bio: true, bio: 'b', specialties: ['x'] })).includes('Maiden'))
+  check('address and email import as private fields; nothing else is invented', rosterPrev[1].value?.address === '2 Demo Rd, Fakeburg' && rosterPrev[1].value?.email === 'bo@example.test' && !rosterPrev[1].value?.bio && !rosterPrev[1].value?.specialties && !rosterPrev[1].value?.photo_url)
+  check('address never reaches a PublicAgent', !JSON.stringify(toPublicAgent({ ...baseRow, address: '9 Secret Ln' })).includes('Secret'))
+
+  // ─── Self-service token flow ───────────────────────────────────────────────────
+  const now = new Date('2026-10-24T12:00:00Z')
+  const token = makeProfileToken()
+  const hash = hashProfileToken(token)
+  check('token is 32 url-safe chars and passes the format check', isTokenFormat(token) && token.length === 32)
+  check('only the hash is stored: hash is hex, is not the token, and matches', /^[0-9a-f]{64}$/.test(hash) && !hash.includes(token) && profileTokenMatchesHash(token, hash))
+  check('a different token or a malformed one does not match', !profileTokenMatchesHash(makeProfileToken(), hash) && !profileTokenMatchesHash('short', hash))
+  check('profile hash differs from the recap hash namespace', hash !== hashProfileToken(`${token}x`))
+  const exp = profileLinkExpiry(now)
+  check('link expires in 14 days by default', exp.getTime() - now.getTime() === 14 * 86_400_000)
+  check('link state: active, expired, revoked', profileLinkState({ expires_at: exp.toISOString(), revoked_at: null }, now).ok && !profileLinkState({ expires_at: exp.toISOString(), revoked_at: null }, new Date(exp.getTime() + 1)).ok && (profileLinkState({ expires_at: exp.toISOString(), revoked_at: now.toISOString() }, now) as { reason?: string }).reason === 'revoked')
+  const ss = cleanSelfService({ bio: 'I plan trips for families and small groups every year.', specialties: 'Italy, Greece', years_experience: '9', languages: 'English', video_urls: ['https://youtu.be/dQw4w9WgXcQ', 'https://bad.test/x'], photo_url: 'https://cdn.example.com/p.jpg', consent_bio: true, consent_photo: false, slug: 'hack', status: 'published', featured: true, email: 'a@b.test', phone: '1', notes: 'n', display_name: 'Hacked', internal_value: 5 })
+  check('self-service accepts only its own fields (no slug, status, featured, email, phone, notes, name, value)', ss.ok && !['slug', 'status', 'featured', 'email', 'phone', 'notes', 'display_name', 'internal_value'].some((k) => k in ss.value), ss.ok ? Object.keys(ss.value) : ss)
+  check('self-service keeps only embeddable video and the consents as ticked', ss.ok && ss.value.video_urls.length === 1 && ss.value.consent_bio === true && ss.value.consent_photo === false)
+  check('self-service needs a real bio and a specialty', !cleanSelfService({ bio: 'short', specialties: 'Italy' }).ok && !cleanSelfService({ bio: 'x'.repeat(80), specialties: '' }).ok)
+  const api = readFileSync('app/api/agent-profile/[token]/route.ts', 'utf8')
+  check('public profile route validates the token before anything else and never returns private columns', api.includes('resolveProfileLink') && !/\b(email|phone|notes)\b/.test(api.replace(/\/\/.*$/gm, '')))
+
+  // ─── Bio polish: grounded ──────────────────────────────────────────────────────
+  const own = 'I help families plan cruises to the Caribbean. I have worked in travel for twelve years and love helping first-time cruisers.'
+  check('polish hash is stable and trims', polishHash(own) === polishHash(`  ${own}  `) && polishHash(own) !== polishHash(`${own}!`))
+  check('polish guard passes a pure rephrase', groundedPolishProblems(own, 'I plan Caribbean cruises for families. Twelve years in travel have taught me to love helping first-time cruisers.').length === 0)
+  check('polish guard rejects a new number', groundedPolishProblems(own, 'I help families plan cruises. I have 25 years of experience.').some((p) => /number/.test(p)))
+  check('polish guard rejects a new certification claim', groundedPolishProblems(own, 'I am a certified cruise specialist who helps families plan cruises.').some((p) => /credential/.test(p)))
+  check('polish guard rejects a new name or place', groundedPolishProblems(own, 'I help families plan cruises to the Caribbean and Alaska with Carnival.').some((p) => /name/.test(p)))
+  check('polish guard rejects added contact details', groundedPolishProblems(own, 'I help families plan cruises. Email me at me@x.test.').some((p) => /contact/.test(p)))
+  check('polish guard rejects a rewrite much longer than the original', groundedPolishProblems(own, own.repeat(3)).some((p) => /longer/.test(p)))
+  const calls: string[] = []
+  const good = await polishBio(own, { configured: true, call: async (p) => { calls.push(p); return 'I plan Caribbean cruises for families, with twelve years in travel behind me.' } })
+  check('polish returns a grounded rewrite and its prompt forbids new facts', good.ok && calls.length === 1 && /ONLY the facts/.test(calls[0]) && /certification/.test(calls[0]), good)
+  const bad = await polishBio(own, { configured: true, call: async () => 'I am an award-winning specialist with 30 years of experience.' })
+  check('polish discards an ungrounded rewrite', !bad.ok, bad)
+  let called = false
+  const cached = await polishBio(own, { configured: true, cached: 'cached text', call: async () => { called = true; return 'x' } })
+  check('polish uses the cache and makes no AI call', cached.ok && cached.cached && !called)
+  check('polish refuses empty or tiny input (no text to rewrite)', !(await polishBio('hi', { configured: true, call: async () => 'x' })).ok)
+  check('polish without an AI key says so and does not call', !(await polishBio(own, { configured: false, call: async () => { called = true; return 'x' } })).ok)
+
+  // ─── Agent of the month: non-financial ─────────────────────────────────────────
+  const cand = (over: Partial<Parameters<typeof suggestAgentOfMonth>[0][number]>) => ({ id: 'x', display_name: 'X', status: 'published', consent_photo: true, consent_bio: true, bio: 'bio', photo_url: 'https://p', video_count: 0, verified_certifications: 0, public_achievements: 0, months_since_featured: null, ...over })
+  const sug = suggestAgentOfMonth([cand({ id: 'a', display_name: 'A' }), cand({ id: 'b', display_name: 'B', video_count: 1, verified_certifications: 2, public_achievements: 1 }), cand({ id: 'c', display_name: 'C', status: 'draft' }), cand({ id: 'd', display_name: 'D', consent_bio: false }), cand({ id: 'e', display_name: 'E', months_since_featured: 1 })])
+  check('suggestion ranks richer profiles first', sug[0].id === 'b')
+  check('suggestion excludes drafts and unconsented agents', !sug.some((s) => s.id === 'c' || s.id === 'd'))
+  check('suggestion penalises a recent winner', sug.findIndex((s) => s.id === 'e') > sug.findIndex((s) => s.id === 'a'))
+  check('suggestion input type has no financial field', !/sales|commission|revenue|internal_value|leads/i.test(readFileSync('lib/agents.ts', 'utf8').match(/export interface SuggestInput \{[\s\S]*?\n\}/)?.[0] ?? 'x'))
+
+  // ─── Content drafts ────────────────────────────────────────────────────────────
+  const w = welcomePost(pub)
+  const cap = socialCaption(pub)
+  const aot = aotmPost(pub, '2026-11', 'Thanks for a great month of planning.')
+  check('welcome post is grounded in the profile (no ungrounded numbers)', ungroundedInDraft(w, pub).length === 0, ungroundedInDraft(w, pub))
+  check('welcome post names only verified certifications', w.body.includes('Verified Cert') && !w.body.includes('Pending Cert'))
+  check('drafts never carry contact details or amounts', [w, cap, aot].every((d) => !/@|\+?\d{3}[\s.-]\d{3}|\$\d/.test(d.body.replace('travelfunbiz.ca', ''))), [w.body, cap.body, aot.body])
+  check('caption stays short', cap.body.length < 280, cap.body.length)
+  check('topic idea tells the writer to use only the facts and has no private data', /ONLY these facts/.test(toTopicIdea(w, pub).angle) && !toTopicIdea(w, pub).angle.includes('jane@private') && profileFacts(pub).includes('Jane Doe') && toTopicIdea(w, pub).source === 'agent-profile')
+  check('aotm draft carries the month', /November 2026/.test(aot.body))
+  const storeSrc = store
+  check('drafts are always queued as draft status and the store never auto-approves', /status: 'draft'/.test(storeSrc) && !/status: 'approved'\s*}\)/.test(storeSrc.slice(storeSrc.indexOf('export async function queueDrafts'), storeSrc.indexOf('export async function listDrafts'))))
+  check('publish queues drafts only on first publish', /const first = status === 'published' && !row\.published_at/.test(storeSrc))
+  check('import saves with both consents off', /consent_photo: false, consent_bio: false/.test(storeSrc))
+
+  // ─── Wiring ────────────────────────────────────────────────────────────────────
+  check('migration enables RLS on every agents table and defines no policy', (() => { const m = readFileSync('supabase/migrations/0054_agents.sql', 'utf8'); const t = ['agents', 'agent_achievements', 'agent_of_month', 'agent_profile_links', 'agent_profile_submissions', 'agent_content_drafts']; return t.every((x) => m.includes(`alter table public.${x} enable row level security`)) && !/create policy/i.test(m) })())
+  check('admin API checks isAuthorized on both verbs', (() => { const s = readFileSync('app/api/admin/agents/route.ts', 'utf8'); return (s.match(/isAuthorized\(request\)/g) ?? []).length >= 2 })())
+  check('home page uses the strip', readFileSync('app/page.tsx', 'utf8').includes('<AgentsStrip'))
+  check('contact form hint is a hint only (commented) and the route only writes a note', readFileSync('components/contact-form.tsx', 'utf8').includes('the office assigns leads') && readFileSync('app/api/submit-lead/route.ts', 'utf8').includes('hint only'))
+
+  console.log(failures === 0 ? '\nAll checks passed' : `\n${failures} check(s) FAILED`)
+  process.exit(failures === 0 ? 0 : 1)
+})()

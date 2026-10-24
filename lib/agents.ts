@@ -28,7 +28,7 @@ export const AGENT_PUBLIC_COLUMNS = [
 ] as const
 
 /** Columns that must never appear in a public select, a page, JSON-LD or an API response a visitor can reach. */
-export const AGENT_PRIVATE_COLUMNS = ['email', 'phone', 'notes', 'internal_tags'] as const
+export const AGENT_PRIVATE_COLUMNS = ['email', 'phone', 'address', 'notes', 'internal_tags'] as const
 
 export const AGENT_PUBLIC_SELECT = AGENT_PUBLIC_COLUMNS.join(', ')
 
@@ -87,8 +87,13 @@ export const ACHIEVEMENT_KINDS: Record<string, string> = {
 /** Slugs that would collide with a sibling route or read badly. */
 const RESERVED_SLUGS = new Set(['new', 'admin', 'api', 'profile', 'page', 'index'])
 
+/** A name as a visitor may see it: any parenthetical (for example a maiden name) is removed. */
+export function publicName(raw: string): string {
+  return raw.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 export function slugify(input: string): string {
-  const s = input
+  const s = publicName(input)
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
@@ -161,7 +166,9 @@ export function publicCertifications(certs: AgentCertification[]): AgentCertific
 
 export function cleanYears(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
-  const n = typeof value === 'number' ? value : Number(String(value).replace(/[^0-9.]/g, ''))
+  const digits = typeof value === 'number' ? String(value) : String(value).replace(/[^0-9.]/g, '')
+  if (!/\d/.test(digits)) return null
+  const n = Number(digits)
   if (!Number.isFinite(n) || n < 0 || n > 80) return null
   return Math.floor(n)
 }
@@ -245,6 +252,7 @@ export interface AgentEditable {
   sort_order?: number
   email?: string | null
   phone?: string | null
+  address?: string | null
   notes?: string | null
   internal_tags?: string[]
 }
@@ -256,7 +264,7 @@ export function cleanAgentInput(input: Record<string, unknown>): { ok: true; val
   const v: AgentEditable = {}
   const errors: string[] = []
   if ('display_name' in input) {
-    const n = cleanText(input.display_name, 80)
+    const n = publicName(cleanText(input.display_name, 80))
     if (n.length < 2) errors.push('The name needs at least 2 letters.')
     else v.display_name = n
   }
@@ -284,6 +292,7 @@ export function cleanAgentInput(input: Record<string, unknown>): { ok: true; val
   }
   if ('email' in input) v.email = orNull(cleanText(input.email, 200).toLowerCase())
   if ('phone' in input) v.phone = orNull(cleanText(input.phone, 40))
+  if ('address' in input) v.address = orNull(cleanText(input.address, 300))
   if ('notes' in input) v.notes = orNull(cleanText(input.notes, 2000, true))
   if ('internal_tags' in input) v.internal_tags = cleanList(input.internal_tags, 20, 40)
   return errors.length ? { ok: false, errors } : { ok: true, value: v }

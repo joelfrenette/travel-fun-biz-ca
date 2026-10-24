@@ -34,6 +34,8 @@ create table if not exists public.agents (
   -- PRIVATE columns: never selected by public code.
   email text,
   phone text,
+  -- Home / mailing address from the roster sheet. PRIVATE: never public, never in AGENT_PUBLIC_COLUMNS.
+  address text,
   notes text,
   internal_tags text[] not null default '{}',
   created_at timestamptz not null default now(),
