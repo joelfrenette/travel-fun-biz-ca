@@ -72,7 +72,7 @@ expect('retrying a failed post does not need a confirm tap', !needsConfirm('fail
 const issuesSrc = read('lib/issues.ts')
 const actionType = /export type IssueAction = ([^\n]+)/.exec(issuesSrc)?.[1] ?? ''
 const issueActions = [...actionType.matchAll(/'([a-z-]+)'/g)].map((m) => m[1])
-const covered = new Set<string>([...DISMISS_ACTIONS, 'retry-post', 'retry-carousel', 'retry-video', 'dismiss-carousel', 'dismiss-video', 'resume-video', 'dismiss-source-watch'])
+const covered = new Set<string>([...DISMISS_ACTIONS, 'retry-post', 'retry-carousel', 'retry-video', 'dismiss-carousel', 'dismiss-video', 'resume-video', 'dismiss-source-watch', 'snooze-recap'])
 expect('every IssueAction in lib/issues.ts is handled by a card kind', issueActions.length >= 12 && issueActions.every((a) => covered.has(a)), issueActions.filter((a) => !covered.has(a)).join(','))
 expect('the dismiss list a card may press is exactly the plain dismiss buttons', DISMISS_ACTIONS.every((a) => issueActions.includes(a)) && !DISMISS_ACTIONS.some((a) => /retry|resume|carousel|video|source-watch/.test(a)))
 
@@ -227,7 +227,7 @@ expect('no source text uses the word "Reject" on a button that only hides', TODA
 
 // ---- 14. The page and the shell
 const page = read('app/admin/page.tsx')
-expect('/admin opens on Today: the stack comes before the dashboard, which keeps its anchor and its content', page.indexOf('<TodayStack') > 0 && page.indexOf('<TodayStack') < page.indexOf('id="dashboard"') && page.indexOf('id="dashboard"') < page.indexOf('<TrafficChart') && page.includes('<FunnelPanel') && page.includes('adminTools.map'))
+expect('/admin opens on Today: the stack comes before the dashboard, which keeps its anchor and its content', page.indexOf('<TodayStack') > 0 && page.indexOf('<TodayStack') < page.indexOf('id="dashboard"') && page.indexOf('id="dashboard"') < Math.max(page.indexOf('<TrafficChart'), page.indexOf('<TrafficCard')) && page.includes('<FunnelPanel') && page.includes('adminTools.map'))
 const stack = read('components/admin/today-stack.tsx')
 expect('the stack is accessible: live counter, status note, labelled buttons, keyboard, Later, Undo', /aria-live="polite"/.test(stack) && /role="status"/.test(stack) && /ArrowRight/.test(stack) && /ArrowLeft/.test(stack) && /ArrowDown/.test(stack) && /Undo last/.test(stack) && /left today/.test(stack) && /All clear\. The machine has it\./.test(stack) && /aria-describedby/.test(stack))
 expect('the stack has a swipe with a distance threshold and does not block vertical scroll', /SWIPE_PX/.test(stack) && /touchAction: "pan-y"/.test(stack))
