@@ -30,6 +30,10 @@ import { pendingByTrip, recapsDue, snoozeTrips, studioMigrated } from '@/lib/rec
 import { dueTitle, studioPath } from '@/lib/recap-studio'
 import { readStoredAiSpend, overCeiling, usd } from '@/lib/ai-tripwire'
 import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
+import { DESK_EMAILS_KEY, parseDeskEmails } from '@/lib/lead-desk'
+import { deskSmsConfigured } from '@/lib/lead-desk-store'
+
+const LEAD_DESK_SETUP_ISSUE_ID = 'setup:lead-desk'
 
 // ONE list of everything that needs a human, gathered from every part of the pipeline: posts that
 // failed to go out, carousels and videos that failed, a paused video step, scheduled jobs that went
@@ -598,6 +602,27 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
         detail: `${guidesRes.count} guide page${guidesRes.count === 1 ? ' is' : 's are'} live, but no affiliate partner is active, so the "Fun things to do" box is hidden on all of them.`,
         fix: 'Open Affiliate Links in the admin, add a partner (name, partner ID and the search link from its dashboard), and set it to Active.',
         link: { label: 'Open Affiliate Links', href: '/admin/affiliate-links' },
+      })
+    }
+  } catch {
+    // an optional nudge is never worth failing the list
+  }
+
+  // Lead desk setup (lib/lead-desk.ts): who gets the hot lead email, and which GoHighLevel contacts get the text. Both are optional and
+  // never fail a lead; this is an amber nudge only (area 'setup' never sends the generic alert email).
+  try {
+    const emails = parseDeskEmails(await getSetting(admin, DESK_EMAILS_KEY))
+    const sms = await deskSmsConfigured(admin)
+    if (!sms || emails.length === 0) {
+      issues.push({
+        id: LEAD_DESK_SETUP_ISSUE_ID,
+        area: 'setup',
+        title: sms ? 'Lead desk emails are not set' : 'Lead desk texts are not set up',
+        detail: [
+          emails.length === 0 ? 'Hot lead emails go to the admin address only. Add Shelby and Leslie in the app_settings key lead_desk_alert_emails (a list of addresses).' : '',
+          !sms ? 'No text message is sent for a hot lead. Add the GoHighLevel contact ids to text in the app_settings key lead_desk_alert_sms_contact_ids.' : '',
+        ].filter(Boolean).join(' '),
+        fix: 'In Supabase, open the app_settings table and add the key. A lead is never lost or blocked while this is empty; the desk just hears about it by email only.',
       })
     }
   } catch {

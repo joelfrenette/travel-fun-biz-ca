@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge"
 import { Loader2, Users } from "lucide-react"
 import type { LeadRow } from "@/lib/leads"
 import { PAGE_TYPE_LABELS, pageTypeOfPath } from "@/lib/conversion"
+import { needsAgent } from "@/lib/lead-desk"
+import { LeadDeskRow } from "@/components/admin/leads-desk"
 
 /** Every source fact stored for a lead, plainest first: the page the form was on, then how the visitor arrived. */
 function leadSourceParts(l: LeadRow): string[] {
@@ -29,6 +31,8 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState<LeadRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [onlyNeedsAgent, setOnlyNeedsAgent] = useState(false)
+  const [deskReady, setDeskReady] = useState(true)
 
   useEffect(() => {
     fetch("/api/admin/leads", { headers: authHeaders() })
@@ -36,6 +40,7 @@ export default function LeadsPage() {
       .then(({ ok, data }) => {
         if (!ok) throw new Error(data.error || "Could not load")
         setLeads(data.leads || [])
+        setDeskReady(data.deskReady !== false)
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load"))
       .finally(() => setLoading(false))
@@ -43,6 +48,9 @@ export default function LeadsPage() {
 
   // Test leads (made-up people used to try the forms) are shown, labelled, but never counted or warned about.
   const failed = leads.filter((l) => !l.forwarded_to_ghl && !l.is_test)
+  const waitingForAgent = leads.filter(needsAgent)
+  const shown = onlyNeedsAgent ? waitingForAgent : leads
+  const patchLead = (id: string, patch: Partial<LeadRow>) => setLeads((all) => all.map((l) => (l.id === id ? { ...l, ...patch } : l)))
 
   return (
     <div>
@@ -61,6 +69,14 @@ export default function LeadsPage() {
           </div>
         )}
 
+        {!deskReady && !loading && <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">The lead desk columns are not in the database yet (migration 0055), so hot leads and agents cannot be shown here.</div>}
+        {!loading && deskReady && (
+          <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm">
+            <input type="checkbox" checked={onlyNeedsAgent} onChange={(e) => setOnlyNeedsAgent(e.target.checked)} className="h-4 w-4" />
+            Needs an agent ({waitingForAgent.length})
+          </label>
+        )}
+
         {loading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
         ) : leads.length === 0 ? (
@@ -69,7 +85,7 @@ export default function LeadsPage() {
             <p>No leads yet. They'll show up here as soon as someone submits the contact form.</p>
           </div>
         ) : (
-          leads.map((l) => (
+          shown.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">No lead is waiting for an agent.</p> : shown.map((l) => (
             <Card key={l.id}>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div className="min-w-[220px] flex-1">
@@ -85,6 +101,7 @@ export default function LeadsPage() {
                     })()}
                   </p>
                   {l.ghl_error &&<p className="text-xs text-destructive">GHL: {l.ghl_error}</p>}
+                  <LeadDeskRow lead={l} onChanged={(patch) => patchLead(l.id, patch)} />
                 </div>
                 <Badge variant={l.forwarded_to_ghl ? "default" : "destructive"}>{l.forwarded_to_ghl ? "sent to GHL" : "failed"}</Badge>
               </CardContent>

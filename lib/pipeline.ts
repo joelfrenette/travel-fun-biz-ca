@@ -25,6 +25,7 @@ import { runNewsStep } from '@/lib/news-run'
 import { runAutoPolicies } from '@/lib/auto-policies'
 import { autoblogNudgePending, clearAutoblogNudge } from '@/lib/funnel-watchdog'
 import { runPublishVerifyIfDue } from '@/lib/publish-verify'
+import { runHotLeadReminders } from '@/lib/lead-desk-store'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -72,6 +73,15 @@ export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type Pip
 /** Runs on every pass, even when Autopilot is off or paused: the safe self-repairs, then the daily
  * brief email (once a day from 7 am). Neither may ever fail the pipeline. */
 async function housekeeping(admin: SupabaseClient, run: PipelineRun, startedAt = Date.now()): Promise<void> {
+  try {
+    // The lead desk reminder (lib/lead-desk-store.ts): ONE reminder email and text to the desk for a hot lead that is still
+    // unassigned after 15 minutes. It sends a message, so it respects Pause all automation (checked inside); it needs no new
+    // scheduler because this is the existing 15 minute pass. Silent when nothing is due.
+    const note = await runHotLeadReminders(admin)
+    if (note) run.steps.push({ step: 'lead-desk', ok: true, note })
+  } catch {
+    // a reminder problem is never the pipeline's problem
+  }
   try {
     const fixed = await selfHeal(admin)
     if (fixed.length) run.steps.push({ step: 'heal', ok: true, note: fixed.join(' ') })

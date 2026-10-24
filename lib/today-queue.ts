@@ -8,6 +8,8 @@ import {
   lastOpenEntry, orderCards, parseIdList, parseLog, parseSnoozed, plain, visibleCards, type LogEntry,
 } from '@/lib/today-state'
 import { listTopicQueue } from '@/lib/blog-topics'
+import { listUnassignedHot } from '@/lib/lead-desk-store'
+import { whatTheyAsked } from '@/lib/lead-desk'
 import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 import { guidePublishBlock } from '@/lib/posts-menu-2'
 import { isNewsSlug } from '@/lib/news-post'
@@ -145,6 +147,23 @@ async function leadCards(admin: SupabaseClient): Promise<TodayCard[]> {
   return out
 }
 
+/** Hot leads still waiting for an agent, oldest first. They stay until a person assigns one (Later only hides a card for 30 minutes). */
+async function hotLeadCards(admin: SupabaseClient): Promise<TodayCard[]> {
+  const rows = await listUnassignedHot(admin)
+  return rows.map((r) => {
+    const trip = r.package || r.page_path || ''
+    const asked = whatTheyAsked({ intent: r.intent, message: r.message })
+    const base = card('hot-lead', r.id, `Hot lead: ${r.name || 'no name given'}`, facts(
+      fact('Who', r.name),
+      fact('Trip or page', trip),
+      fact('Came from', r.utm_source || 'not recorded'),
+      fact('What they asked', asked),
+      // Phone, email and the live waiting time are shown by the card's own panel (components/admin/hot-lead-panel.tsx), from card.hot.
+    ), ms(r.created_at), { link: { label: 'Open Leads', href: '/admin/leads' } })
+    return { ...base, hot: { leadId: r.id, createdAt: r.created_at, name: plain(r.name || ''), email: r.email, phone: r.phone, package: r.package, pagePath: r.page_path, source: r.utm_source, asked } }
+  })
+}
+
 async function promoteCards(admin: SupabaseClient): Promise<TodayCard[]> {
   const base = 'id, slug, name, destination, category, short_description, highlights, keywords, itinerary, available_from, available_to, status'
   let res = await admin.from('travel_packages').select(`${base}, recap_mode`).eq('status', 'published').limit(80)
@@ -222,6 +241,7 @@ export async function buildTodayQueue(admin: SupabaseClient, now: number = Date.
     ['Guide review queue', () => guideReviewCards(admin)],
     ['Blog drafts', () => blogDraftCards(admin)],
     ['Leads', () => leadCards(admin)],
+    ['Hot leads', () => hotLeadCards(admin)],
     ['Trips to promote', () => promoteCards(admin)],
     ['SEO fixes', () => seoFixCards(admin)],
   ]
@@ -234,6 +254,9 @@ export async function buildTodayQueue(admin: SupabaseClient, now: number = Date.
     }
   }))
   for (const list of results) all.push(...list)
+  // A hot lead has its own card (with the agent picker), so the plain "new lead" card for the same lead is left out.
+  const hotIds = new Set(all.filter((c) => c.kind === 'hot-lead').map((c) => c.id.slice('hot-lead:'.length)))
+  if (hotIds.size > 0) for (let i = all.length - 1; i >= 0; i--) if (all[i].kind === 'lead-reply' && hotIds.has(all[i].id.slice('lead-reply:'.length))) all.splice(i, 1)
 
   // Never more than PER_KIND of one kind, and never the same id twice.
   const seen = new Set<string>()

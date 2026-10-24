@@ -9,6 +9,8 @@
 //  - no long dashes anywhere.
 // The thresholds (hours quiet, ceilings) are the ones the funnel watchdog already uses; this file only reads its stored answer.
 
+import { hotWaitLight, hotWaitSentence, waitText, type HotWait } from '@/lib/lead-desk'
+
 export type Light = 'green' | 'amber' | 'red'
 
 export const STAGE_IDS = ['production', 'quality', 'distribution', 'discovery', 'clicks', 'conversion', 'measurement', 'money', 'seo', 'jobs', 'ai'] as const
@@ -84,6 +86,8 @@ export interface CheckFacts {
   /** Picture checks that skipped a post in the last 7 days. null = could not be read. */
   gateSkips7d: number | null
   decisions: DecisionLike[] | null
+  /** Hot leads (call-back requests, forms with a phone number) still waiting for an agent. undefined = not asked; null = could not be read. */
+  hotLeads?: HotWait | null
 }
 
 export interface CheckStage {
@@ -243,7 +247,7 @@ function clicks(f: CheckFacts): CheckStage {
   return { id: 'clicks', label: STAGE_LABELS.clicks, light, read: true, sentence, number: needsData ? 'still learning' : `${under} behind`, fixed: [], needs: null }
 }
 
-function conversion(f: CheckFacts): CheckStage {
+function conversionBase(f: CheckFacts): CheckStage {
   const r = viaWatchdog(f, 'conversion', 'The lead numbers')
   if ('stage' in r) return r.stage
   const zero = num(r.w.evidence.pages_with_visits_and_no_leads)
@@ -252,6 +256,19 @@ function conversion(f: CheckFacts): CheckStage {
   const floor = num(r.w.evidence.visit_floor) ?? 100
   const sentence = zero === 0 ? `Every page with ${floor} visits has brought in a lead.` : `${count(zero, 'busy page')} ${word(zero, 'has', 'have')} no leads.`
   return { id: 'conversion', label: STAGE_LABELS.conversion, light, read: true, sentence, number: `${count(zero, 'page')} with no leads`, fixed: [], needs: null }
+}
+
+/** The lead numbers, plus the lead desk: a hot lead (a call-back request, or a form with a phone number) that has waited with no agent turns the stage amber past 15 minutes and red past 60. */
+function conversion(f: CheckFacts): CheckStage {
+  const base = conversionBase(f)
+  const hot = f.hotLeads
+  const light = hotWaitLight(hot)
+  if (!hot || !light) return base
+  const sentence = hotWaitSentence(hot)
+  const mins = Math.floor(hot.oldestMinutes)
+  const number = `${count(hot.count, 'hot lead')} waiting, oldest ${waitText(mins)}`
+  if (light === 'green') return { ...base, sentence: `${sentence} ${base.sentence}`.trim(), number: base.number ?? number }
+  return { ...base, light: worstLight([base.light, light]), sentence: `${sentence} ${base.sentence}`.trim(), number }
 }
 
 function measurement(f: CheckFacts): CheckStage {
@@ -396,6 +413,11 @@ export function evaluateCheck(f: CheckFacts): CheckResult {
   const stages = [production(f), quality(f), distribution(f), discovery(f), clicks(f), conversion(f), measurement(f), money(f), seo(f), jobs(f), ai(f)].map((s) => {
     const needs = s.light === 'green' ? null : { ...STAGE_NEEDS[s.id] }
     if (needs && s.id === 'conversion' && conversionTop && typeof conversionTop.evidence.top_page === 'string') needs.text = `Look at ${conversionTop.evidence.top_page}`
+    // A hot lead with no agent is the most urgent thing on this stage: send the person to the Today card where an agent is chosen.
+    if (needs && s.id === 'conversion' && ['amber', 'red'].includes(hotWaitLight(f.hotLeads) ?? '')) {
+      needs.text = 'Assign an agent'
+      needs.href = '/admin'
+    }
     return { ...s, fixed: fixed[s.id] ?? [], needs }
   })
   // The no-green-without-reading rule, enforced once for every stage.

@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { TODAY_KINDS, actionFor, needsConfirm, parseCardId } from '@/lib/today-cards'
 import {
-  TODAY_LOG_KEY, TODAY_OPS, TODAY_SNOOZE_KEY, addSnooze, appendLog, isDuplicate, markUndone, parseLog, parseSnoozed, plain, removeSnooze, undoVerdict, type LogEntry, type TodayOp,
+  TODAY_LOG_KEY, TODAY_OPS, TODAY_SNOOZE_KEY, addSnooze, addSnoozeMinutes, appendLog, isDuplicate, markUndone, parseLog, parseSnoozed, plain, removeSnooze, undoVerdict, type LogEntry, type TodayOp,
 } from '@/lib/today-state'
 import { buildTodayQueue, lastActionOf, readSystemCheck, readWins } from '@/lib/today-queue'
 import { runCardAction, undoCardAction } from '@/lib/today-actions'
@@ -118,14 +118,23 @@ export async function POST(request: Request) {
     const title = plain(typeof body.title === 'string' && body.title ? body.title : id).slice(0, 120)
     const entryBase = { id, kind: parsed.kind, op, title, at: new Date(now).toISOString() }
     let hideDays = 0
+    let hideMinutes = 0
     let mode: LogEntry['mode'] = 'later'
     let undoable = true
     let prev: LogEntry['prev']
     let message = 'Later. It comes back tomorrow.'
 
+    // The hot lead card is not answered with yes or no: an agent is assigned from its own panel (/api/admin/leads/assign).
+    // Only Later works here, and it hides the card for 30 minutes; the card then comes back until an agent is assigned.
+    if (parsed.kind === 'hot-lead' && op !== 'snooze') return NextResponse.json({ error: 'A hot lead is answered by choosing an agent. Use Assign to, or Later.' }, { status: 400 })
+
     if (op === 'snooze') {
       hideDays = def.snoozeDays
       message = `Later. It comes back in ${hideDays} day${hideDays === 1 ? '' : 's'}.`
+      if (def.snoozeMinutes) {
+        hideMinutes = def.snoozeMinutes
+        message = `Later. It comes back in ${hideMinutes} minutes.`
+      }
     } else {
       const action = actionFor(parsed.kind, op)
       if (!action) return NextResponse.json({ error: 'This card has only one button. Use Later for the other side.' }, { status: 400 })
@@ -153,7 +162,7 @@ export async function POST(request: Request) {
       }
     }
 
-    if (hideDays > 0) snoozed = addSnooze(snoozed, id, hideDays, now)
+    if (hideDays > 0) snoozed = hideMinutes > 0 ? addSnoozeMinutes(snoozed, id, hideMinutes, now) : addSnooze(snoozed, id, hideDays, now)
     const entry: Omit<LogEntry, 'n'> = { ...entryBase, mode, undoable: mode === 'run' ? undoable : true, ...(prev ? { prev } : {}) }
     log = appendLog(log, entry)
     const warn = await save(admin, hideDays > 0 ? snoozed : null, log)

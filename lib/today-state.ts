@@ -80,6 +80,12 @@ export function addSnooze(map: SnoozeMap, id: string, days: number, now: number 
   return { ...map, [id]: new Date(now + d * DAY_MS).toISOString() }
 }
 
+/** A short hide, in minutes (the hot lead card hides for 30). Clamped between 1 minute and 1 day. */
+export function addSnoozeMinutes(map: SnoozeMap, id: string, minutes: number, now: number = Date.now()): SnoozeMap {
+  const m = Math.min(Math.max(Math.round(minutes) || 1, 1), 24 * 60)
+  return { ...map, [id]: new Date(now + m * 60_000).toISOString() }
+}
+
 export function removeSnooze(map: SnoozeMap, id: string): SnoozeMap {
   const { [id]: _gone, ...rest } = map
   return rest
