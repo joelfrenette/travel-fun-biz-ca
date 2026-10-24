@@ -22,7 +22,10 @@ export type AutopilotPolicyName = 'retry_failed_posts' | 'approve_safe_topics' |
 /** The SEO engines' two automatic actions (lib/seo-engines-run.ts): suggest topics from Search Console searches, and add internal links
  * between pages that compete or belong together. They have their own switch and cap but are not part of the Autopilot card's list. */
 export type SeoPolicyName = 'seo_topics' | 'seo_links'
-export type PolicyName = AutopilotPolicyName | SeoPolicyName
+/** The System check "Auto-heal" AI step (lib/system-check-ai.ts). It only labels log lines (each with an Undo); it has no switch of its own
+ * because it only runs when a person clicks Auto-heal, and it is bounded by the kill switch and the heal loop's own daily call cap. */
+export type SystemCheckPolicyName = 'system_check_ai'
+export type PolicyName = AutopilotPolicyName | SeoPolicyName | SystemCheckPolicyName
 
 /** The four decisions the owner approved. They default to ON. */
 export const APPROVED_POLICIES: readonly PolicyName[] = ['retry_failed_posts', 'approve_safe_topics', 'publish_passing_news', 'release_held_posts']
@@ -30,6 +33,7 @@ export const ALL_POLICIES: readonly PolicyName[] = [...APPROVED_POLICIES, 'funne
 export const SEO_POLICIES: readonly SeoPolicyName[] = ['seo_topics', 'seo_links']
 
 export const POLICY_LABELS: Record<PolicyName, string> = {
+  system_check_ai: 'AI fix started from the System check (Auto-heal)',
   seo_topics: 'Suggest blog topics from Google searches (SEO engines)',
   seo_links: 'Add internal links between competing and related pages (SEO engines)',
   retry_failed_posts: 'Retry failed posts and resume stuck steps',
@@ -41,6 +45,7 @@ export const POLICY_LABELS: Record<PolicyName, string> = {
 
 /** Most automatic actions per policy per UTC day. Counts every logged action of that policy that changed something. */
 export const POLICY_CAPS: Record<PolicyName, number> = {
+  system_check_ai: 12,
   seo_topics: 3,
   seo_links: 3,
   retry_failed_posts: 6,
@@ -85,7 +90,7 @@ const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpub
 export const policyEnabled = (raw: string | null | undefined): boolean => raw !== 'off'
 
 export function isPolicyName(v: unknown): v is PolicyName {
-  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v))
+  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v) || v === 'system_check_ai')
 }
 
 /** Reads the stored log. Corrupt or the wrong shape reads as empty; single bad entries are dropped. Pure. */
