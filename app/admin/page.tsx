@@ -101,14 +101,15 @@ export default function AdminPage() {
 
   return (
     <div className="container mx-auto px-4 py-6">
-      <div className="mb-4">
-        <h2 className="text-2xl font-bold">Welcome back 👋</h2>
-        <p className="mt-1 text-muted-foreground">Your AI-powered travel business command center.</p>
-      </div>
-
-      <div className="mb-6 flex flex-col gap-2">
-        <DashboardRangePills value={range} onChange={chooseRange} />
-        <p className="text-xs text-muted-foreground">The range drives every card below that can follow it. Cards that cannot say so in small text.</p>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Welcome back 👋</h2>
+          <p className="mt-1 text-muted-foreground">Your AI-powered travel business command center.</p>
+        </div>
+        <div className="flex flex-col gap-1 sm:items-end">
+          <DashboardRangePills value={range} onChange={chooseRange} />
+          <p className="text-xs text-muted-foreground sm:text-right">The range drives every card below that can follow it. Cards that cannot say so in small text.</p>
+        </div>
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">

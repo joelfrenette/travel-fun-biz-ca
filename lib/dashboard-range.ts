@@ -3,7 +3,7 @@
 
 export type DashRange = '7' | '30' | '365' | 'all'
 export const DASH_RANGES: readonly DashRange[] = ['7', '30', '365', 'all']
-export const DEFAULT_RANGE: DashRange = '30'
+export const DEFAULT_RANGE: DashRange = 'all'
 export const RANGE_STORAGE_KEY = 'tfb-dashboard-range'
 
 export const RANGE_LABELS: Record<DashRange, string> = {

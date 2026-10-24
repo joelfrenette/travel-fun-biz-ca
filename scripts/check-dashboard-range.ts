@@ -20,11 +20,11 @@ const src = (p: string) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8'
 // ---------- range parsing ----------
 check('DASH_RANGES are 7, 30, 365, all', DASH_RANGES.join(',') === '7,30,365,all')
 check('parseRange accepts the four values', (['7', '30', '365', 'all'] as const).every((r) => parseRange(r) === r))
-check('parseRange: bad values fall back to 30', ['', 'abc', '14', '0', '-5', '999', 'ALL ', null, undefined, {}, 12].every((v) => parseRange(v as unknown) === (v === 'ALL ' ? 'all' : '30')))
+check('parseRange: bad values fall back to all time (the default)', ['', 'abc', '14', '0', '-5', '999', 'ALL ', null, undefined, {}, 12].every((v) => parseRange(v as unknown) === 'all'))
 check('parseRange: numbers 7 and 365 work', parseRange(7) === '7' && parseRange(365) === '365')
 check('resolveRange: URL wins over storage', resolveRange('7', '365') === '7')
 check('resolveRange: bad URL uses storage', resolveRange('nonsense', '365') === '365')
-check('resolveRange: both bad = 30', resolveRange('x', 'y') === '30' && resolveRange(null, null) === '30' && resolveRange(undefined, undefined) === '30')
+check('resolveRange: both bad = all time (the default)', resolveRange('x', 'y') === 'all' && resolveRange(null, null) === 'all' && resolveRange(undefined, undefined) === 'all')
 check('rangeDays: 7/30/365/all', rangeDays('7') === 7 && rangeDays('30') === 30 && rangeDays('365') === 365 && rangeDays('all') === null)
 
 // ---------- GA4 dates and buckets ----------
