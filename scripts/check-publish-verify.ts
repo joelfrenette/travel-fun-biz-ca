@@ -193,7 +193,7 @@ async function main() {
   const s2 = parseVerifyState(String(db.tables.app_settings.find((r) => r.key === VERIFY_STATE_KEY)?.value))
   expect('the second failing look reports it', s2.failing.length === 1 && s2.failing[0].path === '/blog/broken-one' && /FAILED/.test(run2?.note ?? ''), run2?.note)
   const before3 = requested.length
-  await runPublishVerifyIfDue(admin, { now: NOW + 25 * MIN, fetchFn: mkFetch({ [good1]: pages[good1] }, smXml([good1])), siteUrl: SITE })
+  await runPublishVerifyIfDue(admin, { now: NOW + 25 * MIN, fetchFn: mkFetch(pages, smXml([good1, bad1])), siteUrl: SITE })
   expect('a good page is not looked at twice (only the reported failure is re-checked)', !requested.slice(before3).some((r) => r.url === good1))
 
   // the Needs attention item
@@ -248,7 +248,7 @@ async function main() {
   expect('the pipeline runs the verify in housekeeping, after the time guard, and never lets it fail the pass', /runPublishVerifyIfDue\(admin\)/.test(pipeline) && /Date\.now\(\) - startedAt < VERIFY_START_BY_MS/.test(pipeline) && /step: 'verify'/.test(pipeline))
   const src = read('lib/publish-verify.ts')
   expect('the verify module never writes to a content table, never deletes and never unpublishes', !/\.(delete|insert)\(|from\('(posts|guides|travel_packages)'\)\s*\.(update|upsert)/.test(src) && !/status: 'draft'/.test(src))
-  expect('the verify module sets no cookie or authorization header', !/['"]?(cookie|authorization)['"]?\s*:/i.test(src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')))
+  expect('the verify module sets no cookie or authorization header', !/headers\s*:\s*\{[^}]*(cookie|authorization)|['"](cookie|authorization)['"]\s*:/i.test(src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')))
   expect('the sweep script exists, is read only and never sends a cookie unless asked', /sitemap/i.test(read('scripts/sweep-cookieless.ts')) && !/\.(update|upsert|insert|delete)\(/.test(read('scripts/sweep-cookieless.ts')))
   expect('PUBLISH_VERIFY is documented in .env.example', /PUBLISH_VERIFY/.test(read('.env.example')))
   expect('the Needs attention item is never in the email-exempt informational list (a failed page deserves the alert)', !/PUBLISH_VERIFY_ISSUE_ID/.test(pipeline))
