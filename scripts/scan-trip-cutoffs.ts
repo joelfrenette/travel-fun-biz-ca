@@ -61,7 +61,7 @@ async function main() {
       // fill unless the fill is run with refresh. Counted separately.
       const meta = bySlug.get(s.key.slice('trip_kit_facts:'.length)) ?? { slug: `(unknown ${s.key})`, status: '?' }
       const raw = typeof s.value === 'string' ? s.value : JSON.stringify(s.value)
-      const names = [...raw.matchAll(/"name":"([^"]*?\b(?:St|Mt|Dr|Fr|Mr|Mrs|Ms|Ft))"/g)].map((m) => m[1])
+      const names = [...raw.matchAll(/"name":"([^"]*?\b(?:St|Mt|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto))"/g)].map((m) => m[1])
       if (names.length) latent.push({ slug: meta.slug, names })
       continue
     }

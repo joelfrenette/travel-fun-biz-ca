@@ -530,7 +530,7 @@ export function itemsOfSection(body: string, max = 14): RefItem[] {
     if (!/^\d+\s/.test(line) && !/^\s/.test(raw)) continue
     // The name stops at the first real punctuation, but a full stop after St, Mt, Dr ... belongs to the name
     // ("Cathedral of St. Lawrence", not "Cathedral of St").
-    const m = /^(?:\d+\s+)?((?=[A-ZÀ-Ý])(?:\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft)\.|(?!\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft)\.)[^(,.;:@—]){3,53}?)(?:\s*[(,.;:]|$)(.*)$/.exec(line)
+    const m = /^(?:\d+\s+)?((?=[A-ZÀ-Ý])(?:\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto)\.|(?!\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto)\.)[^(,.;:@—]){3,53}?)(?:\s*[(,.;:]|$)(.*)$/.exec(line)
     if (!m) continue
     const name = m[1].trim()
     if (dangling(name)) continue

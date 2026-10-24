@@ -212,7 +212,7 @@ export interface FactSheet {
 
 /** True when any reference name, blurb or intro in a cached fact sheet is cut off at an abbreviation. Pure. */
 export function sheetHasCutOff(sheet: FactSheet): boolean {
-  const bad = (s: string) => /(?:^|[\s-])(?:St|Sts|Ste|Mt|Dr|Fr|Mr|Mrs|Ms|Ft)\.?$/.test(s.trim()) || firstCutOff(s) !== null
+  const bad = (s: string) => /(?:^|[\s-])(?:St|Sts|Ste|Mt|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto)\.?$/.test(s.trim()) || firstCutOff(s) !== null
   return sheet.places.some((p) => !!p.ref && (bad(p.ref.intro) || [...p.ref.see, ...p.ref.doItems].some((i) => bad(i.name) || bad(i.blurb))))
 }
 
@@ -559,7 +559,7 @@ export async function planTripKit(
     if (wanted.description) {
       const d = typeof answer.full_description === 'string' ? restoreAccents(removeDashes(answer.full_description.trim()), grounding) : ''
       const bl = d ? tripKitBlockers(d, { grounding, field: 'full_description' }) : ['no description']
-      if (d && !containsPhrase(d.split(/(?<=[.!?])\s/)[0] ?? '', pkg.name) && !containsPhrase(d.slice(0, 400), pkg.name)) bl.push('the first sentences do not contain the trip name')
+      if (d && !containsPhrase(splitSentences(d)[0] ?? '', pkg.name) && !containsPhrase(d.slice(0, 400), pkg.name)) bl.push('the first sentences do not contain the trip name')
       if (d && d.split(/\s+/).length < 400) bl.push(`too short (${d.split(/\s+/).length} words, needs 400 or more)`)
       problems.push(...bl)
     }

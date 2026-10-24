@@ -3,7 +3,7 @@
 // "... the Fortress of St and gardens"), which must be regenerated or dropped instead of published.
 
 /** Title abbreviations: their full stop is never a sentence end. */
-export const TITLE_ABBR = ['St', 'Sts', 'Ste', 'Mt', 'Mts', 'Dr', 'Fr', 'Mr', 'Mrs', 'Ms', 'Mme', 'Prof', 'Ft', 'Gen', 'Col', 'Capt', 'Lt', 'Sgt', 'Rev', 'Hon', 'Gov', 'Pres']
+export const TITLE_ABBR = ['St', 'Sts', 'Ste', 'Mt', 'Mts', 'Dr', 'Fr', 'Mr', 'Mrs', 'Ms', 'Mme', 'Prof', 'Ft', 'Sv', 'sv', 'Sta', 'Sto', 'Gen', 'Col', 'Capt', 'Lt', 'Sgt', 'Rev', 'Hon', 'Gov', 'Pres']
 /** Abbreviations that never end a sentence. */
 const ALWAYS_GLUE = ['No', 'Nos', 'approx', 'vs', 'cf', 'Fig', 'Vol']
 /** Abbreviations that end a sentence only when a capitalised word follows. */
