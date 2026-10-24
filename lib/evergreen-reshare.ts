@@ -286,8 +286,8 @@ export function hookKey(text: string): string {
 
 const words = (key: string): Set<string> => new Set(key.split(' ').filter((w) => w.length > 2))
 
-/** True when the caption's hook line is NOT the same as, or nearly the same as (80% of the words shared), any earlier hook line. An empty hook is
- * never fresh. Pure. */
+/** True when the caption's hook line is NOT the same as, or nearly the same as, any earlier hook line (80% of the words shared, or 80% of the shorter
+ * hook's words found in the other). An empty hook is never fresh. Pure. */
 export function hookIsFresh(text: string, earlierHooks: readonly string[]): boolean {
   const key = hookKey(text)
   if (!key) return false
@@ -302,6 +302,9 @@ export function hookIsFresh(text: string, earlierHooks: readonly string[]): bool
     for (const w of mine) if (theirs.has(w)) both++
     const union = mine.size + theirs.size - both
     if (union > 0 && both / union >= 0.8) return false
+    // A longer hook that only adds a word or two to an earlier one is the same pitch (the shorter one needs 3+ words to count).
+    const shorter = Math.min(mine.size, theirs.size)
+    if (shorter >= 3 && both / shorter >= 0.8) return false
   }
   return true
 }

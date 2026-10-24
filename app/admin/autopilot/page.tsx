@@ -14,6 +14,7 @@ import { PageCopyPanel } from "@/components/admin/page-copy-panel"
 import { SelfHealingCard } from "@/components/admin/self-healing-card"
 import { AutoDecisionsCard } from "@/components/admin/auto-decisions-card"
 import { TravelNewsCard } from "@/components/admin/travel-news-card"
+import { EvergreenCard } from "@/components/admin/evergreen-card"
 import { Loader2, Rocket, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 interface Row {
@@ -228,6 +229,7 @@ export default function AutopilotPage() {
         <SelfHealingCard />
 
         <TravelNewsCard />
+        <EvergreenCard />
 
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
