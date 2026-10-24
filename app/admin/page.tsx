@@ -10,6 +10,7 @@ import {
 import { adminTools } from "@/lib/admin-nav"
 import type { Ga4Report } from "@/lib/ga4"
 import { FunnelPanel } from "@/components/admin/funnel-panel"
+import { TodayStack } from "@/components/admin/today-stack"
 
 const channelColors: Record<string, string> = {
   google: "#4285F4", direct: "#34A853", email: "#FBBC05", facebook: "#1877F2", instagram: "#E4405F",
@@ -140,8 +141,13 @@ export default function AdminPage() {
 
   return (
     <div className="container mx-auto px-4 py-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold">Welcome back 👋</h2>
+      {/* Today comes first: the system check, then the yes/no cards. The dashboard below is unchanged. */}
+      <div className="mb-10">
+        <TodayStack />
+      </div>
+
+      <div id="dashboard" className="mb-6 scroll-mt-4 border-t pt-6">
+        <h2 className="text-2xl font-bold">Dashboard</h2>
         <p className="mt-1 text-muted-foreground">Your AI-powered travel business command center.</p>
       </div>
 
