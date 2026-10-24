@@ -48,6 +48,7 @@ export const EXCLUDED_ROUTES: ReadonlyArray<{ folder: string; reason: string }> 
   { folder: 'links', reason: 'reads ?src= (searchParams), so it is per-request by design; noindex bio page' },
   { folder: 'thank-you', reason: 'reads ?package= (searchParams), noindex confirmation page' },
   { folder: 'submit-trip/[token]', reason: 'private agent link, token in the path' },
+  { folder: 'recap/[token]', reason: 'private one-trip recap link for an agent or traveller, token in the path, noindex' },
 ]
 
 export type RouteDecision =
