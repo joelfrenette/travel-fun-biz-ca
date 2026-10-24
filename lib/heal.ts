@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { blockIfDry } from '@/lib/dry-run'
 import { submitLeadToGoHighLevel, subscribeNewsletterToGoHighLevel } from '@/lib/gohighlevel'
 
 // Self-healing: the few repairs that are provably safe to do without asking, run once per pipeline
@@ -133,6 +134,8 @@ async function healOrphans(admin: SupabaseClient): Promise<string[]> {
 
 /** Runs every safe repair. Never throws; returns what it fixed. */
 export async function selfHeal(admin: SupabaseClient): Promise<string[]> {
+  // Dry run (lib/dry-run.ts): no repair is made. The rehearsal reports what is waiting instead.
+  if (blockIfDry('heal-write', 'the safe self-repairs')) return []
   const fixed: string[] = []
   for (const heal of [healOrphans, healLeads, healVideos]) {
     try {

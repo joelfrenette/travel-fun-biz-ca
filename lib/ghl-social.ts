@@ -1,4 +1,5 @@
 import type { UploadPostSendResult } from '@/lib/upload-post'
+import { blockIfDry } from '@/lib/dry-run'
 
 // GoHighLevel Social Planner (v2 API) as a second posting provider. Dormant until
 // GOHIGHLEVEL_PRIVATE_TOKEN (a Private Integration Token with the Social Planner scopes),
@@ -74,6 +75,8 @@ export async function ghlListAccounts(): Promise<{ accounts: GhlAccount[]; error
 /** Creates one post on the given account ids right away. Never retried: a timeout may still have
  * created the post, and a duplicate public post is worse than a missed one. */
 export async function ghlCreatePost(input: { accountIds: string[]; text: string; mediaUrls?: string[]; mediaType?: 'image' | 'video'; kind?: 'post' | 'reel' }): Promise<UploadPostSendResult> {
+  // Dry run (lib/dry-run.ts): nothing is posted. Reported as dormant, which callers already treat as "not sent, not a failure".
+  if (blockIfDry('social-post', `GoHighLevel post: ${input.text.slice(0, 80)}`)) return { ok: false, dormant: true }
   if (!ghlSocialConfigured()) return { ok: false, dormant: true }
   const userId = process.env.GOHIGHLEVEL_USER_ID?.trim()
   if (!userId) return { ok: false, retryable: false, error: 'GOHIGHLEVEL_USER_ID is not set.' }

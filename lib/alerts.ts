@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { blockIfDry } from '@/lib/dry-run'
 
 // Failure alerts to the admin's own email, so a hands-off autopilot doesn't fail silently. Sent
 // through Resend (https://resend.com) when RESEND_API_KEY is set; dormant otherwise, like every
 // other integration here. A free Resend account can send to its own owner's address from
 // onboarding@resend.dev without verifying a domain, which is all an alert to ADMIN_EMAIL needs.
-const LAST_ALERT_KEY = 'autopilot_last_alert_at'
+export const LAST_ALERT_KEY = 'autopilot_last_alert_at'
 /** The last reason an email could not be delivered ('' when the last one went through). Shown in Needs
  * attention, because an email problem cannot be reported by email. */
 export const MAIL_ERROR_KEY = 'mail_last_error'
@@ -17,7 +18,7 @@ export async function noteMailResult(admin: SupabaseClient, error: string | null
 /** Where alerts and the daily brief go: NOTIFY_TO_EMAIL if set, else the admin address. */
 export const notifyTo = (fallback?: string) => process.env.NOTIFY_TO_EMAIL?.trim() || fallback || process.env.ADMIN_EMAIL?.trim() || ''
 // One email per window, however many runs fail inside it - an outage must not become an inbox flood.
-const THROTTLE_MS = 6 * 60 * 60 * 1000
+export const THROTTLE_MS = 6 * 60 * 60 * 1000
 
 export function alertsConfigured(): boolean {
   return !!process.env.RESEND_API_KEY?.trim() && !!process.env.ADMIN_EMAIL?.trim()
@@ -25,6 +26,8 @@ export function alertsConfigured(): boolean {
 
 /** Sends one alert email, at most once per throttle window. Never throws. Returns what happened. */
 export async function sendThrottledAlert(admin: SupabaseClient, subject: string, lines: string[], html?: string, opts: { ignoreThrottle?: boolean } = {}): Promise<'sent' | 'throttled' | 'not-configured' | 'failed'> {
+  // Dry run (lib/dry-run.ts): no email goes out and the throttle does not move.
+  if (blockIfDry('email', subject)) return 'throttled'
   if (!alertsConfigured()) return 'not-configured'
   try {
     const last = Date.parse((await getSetting(admin, LAST_ALERT_KEY)) ?? '')

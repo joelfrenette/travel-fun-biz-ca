@@ -17,6 +17,8 @@ import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeCron } from '@/lib/cron-health'
 import { readVisualQuality } from '@/lib/visual-gate-stats'
 import { readRecentCaptions } from '@/lib/caption-log'
+import { isDryRunSwitchOn, readDryRunSince, readDryLog, setDryRun } from '@/lib/dry-run'
+import { dryRunHours } from '@/lib/dry-run-shape'
 
 export const maxDuration = 300
 
@@ -47,8 +49,12 @@ export async function GET(request: Request) {
     const { data: leadRows } = slugs.length ? await admin.from('leads').select('utm_campaign').eq('is_test', false).in('utm_campaign', slugs) : { data: [] }
     const leadCount = new Map<string, number>()
     for (const l of (leadRows ?? []) as { utm_campaign: string }[]) leadCount.set(l.utm_campaign, (leadCount.get(l.utm_campaign) ?? 0) + 1)
+    const dryOn = await isDryRunSwitchOn(admin)
+    const drySince = dryOn ? await readDryRunSince(admin) : null
     return NextResponse.json({
       on,
+      // Dry run: the switch, how many hours it has been on (null when unknown) and the last 5 rehearsals.
+      dryRun: { on: dryOn, since: drySince, hours: dryOn ? dryRunHours(drySince, new Date()) : null, log: await readDryLog(admin) },
       readiness,
       videosPerWeek,
       shotstackEnv: shotstackEnv(),
@@ -83,6 +89,11 @@ export async function POST(request: Request) {
       const { error } = await setAutopilot(admin, body.on)
       if (error) return NextResponse.json({ error }, { status: 400 })
       return NextResponse.json({ on: body.on })
+    }
+    if (typeof body.dryRun === 'boolean') {
+      const { error } = await setDryRun(admin, body.dryRun)
+      if (error) return NextResponse.json({ error }, { status: 400 })
+      return NextResponse.json({ dryRun: body.dryRun, note: body.dryRun ? 'Dry run is on. Nothing will be published.' : 'Dry run is off. Autopilot works as normal.' })
     }
     if (typeof body.videosPerWeek === 'number') {
       const { error } = await setVideosPerWeek(admin, body.videosPerWeek)

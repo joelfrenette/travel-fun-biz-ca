@@ -7,6 +7,7 @@ import { readTrendPeaks } from '@/lib/keyword-ideas'
 import { getNearMissKeywords } from '@/lib/search-console'
 import { SITE_ID } from '@/lib/site'
 import { getSetting, setSetting } from '@/lib/app-settings'
+import { blockIfDry } from '@/lib/dry-run'
 import { generateSlug } from '@/lib/utils'
 import { isNewsSlug } from '@/lib/news-post'
 
@@ -262,6 +263,8 @@ export async function setTopicStatus(
   status: BlogTopicQueueRow['status'],
   patch: { scheduled_for?: string | null; used_slug?: string | null } = {},
 ): Promise<void> {
+  // Dry run (lib/dry-run.ts): a topic never changes status.
+  if (blockIfDry('topic-status', `topic ${id} -> ${status}`)) return
   const { scheduled_for, used_slug } = patch
   const update: Record<string, unknown> = { status }
   if (scheduled_for !== undefined) update.scheduled_for = scheduled_for

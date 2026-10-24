@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSettingStrict, setSetting } from '@/lib/app-settings'
+import { blockIfDry } from '@/lib/dry-run'
 
 // One shared rolling-window limiter for every AUTOMATIC publisher (the guide writer, the heal that publishes a held guide, the
 // blog writer, the blog re-check). A young domain that suddenly gains a dozen pages in one day crawls slowly and looks templated,
@@ -164,6 +165,8 @@ export async function checkCadence(admin: SupabaseClient, type: CadenceType, lim
 /** Writes down that `key` went live now. Call it right after the publish. Best effort: a failure is returned, not thrown, because the
  * page is already live (the guides table still shows a written guide, so the window is not blind for guides). */
 export async function recordPublish(admin: SupabaseClient, type: CadenceType, key: string, now: Date = new Date()): Promise<{ error?: string }> {
+  // Dry run (lib/dry-run.ts): nothing went live, so the publish counter does not move.
+  if (blockIfDry('counter', `publish counter ${type}:${key}`)) return {}
   try {
     const cur = await getSettingStrict(admin, CADENCE_LOG_KEY)
     if (cur.error) return { error: cur.error }

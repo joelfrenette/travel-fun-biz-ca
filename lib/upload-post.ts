@@ -5,6 +5,7 @@
  * the vendor's own docs disagree with what a real call actually returns, so these comments are
  * load-bearing, not decoration.
  */
+import { blockIfDry } from '@/lib/dry-run'
 const BASE = 'https://api.upload-post.com'
 
 export function uploadPostConfigured(): boolean {
@@ -144,6 +145,7 @@ export async function uploadPostSendText(input: {
   text: string
   scheduleDate?: string
 }): Promise<UploadPostSendResult> {
+  if (blockIfDry('social-post', `Upload-Post text: ${input.text.slice(0, 80)}`)) return { ok: false, dormant: true }
   const key = process.env.UPLOAD_POST_API_KEY?.trim()
   if (!key) return { ok: false, dormant: true }
   if (!input.user || !input.platforms.length || !input.text.trim()) {
@@ -204,6 +206,7 @@ export async function uploadPostSendPhotos(input: {
   imageUrls: string[]
   scheduleDate?: string
 }): Promise<UploadPostSendResult> {
+  if (blockIfDry('social-post', `Upload-Post photos: ${input.text.slice(0, 80)}`)) return { ok: false, dormant: true }
   const key = process.env.UPLOAD_POST_API_KEY?.trim()
   if (!key) return { ok: false, dormant: true }
   if (!input.user || !input.platforms.length) return { ok: false, retryable: false, error: 'Needs a profile and a network.' }
@@ -334,6 +337,7 @@ export async function uploadPostSendVideo(input: {
   text: string
   videoUrl: string
 }): Promise<UploadPostSendResult> {
+  if (blockIfDry('social-post', `Upload-Post video: ${input.text.slice(0, 80)}`)) return { ok: false, dormant: true }
   const key = process.env.UPLOAD_POST_API_KEY?.trim()
   if (!key) return { ok: false, dormant: true }
   if (!input.user || !input.platforms.length) return { ok: false, retryable: false, error: 'Needs a profile and a network.' }
