@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useRouter } from "next/navigation"
 import type { Currency } from "@/lib/currency"
 
 interface CurrencyToggleProps {
@@ -10,7 +9,6 @@ interface CurrencyToggleProps {
 }
 
 export function CurrencyToggle({ currency }: CurrencyToggleProps) {
-  const router = useRouter()
   const [value, setValue] = useState<Currency>(currency)
   const [pending, setPending] = useState(false)
   // The header mounts two toggles (desktop and mobile); after router.refresh() the server sends the new value, so follow it.
@@ -27,7 +25,9 @@ export function CurrencyToggle({ currency }: CurrencyToggleProps) {
         credentials: "include",
         body: JSON.stringify({ currency: normalized }),
       })
-      router.refresh()
+      // A full reload, not router.refresh(): once the cookie exists the page comes from a different copy (the
+      // visitor's own currency, not the cacheable default), and a soft refresh cannot swap between the two.
+      window.location.reload()
     } finally {
       setPending(false)
     }

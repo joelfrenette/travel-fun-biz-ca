@@ -4,6 +4,8 @@ import { getPublishedPosts } from '@/lib/posts'
 import { getPackagesForBrowse } from '@/lib/packages'
 import { buildBioLinks, bioSource, type BioLink } from '@/lib/bio-links'
 import { SITE_NAME } from '@/lib/site'
+import { LocaleEffects } from '@/components/locale-effects'
+import { getVisitorPreferences } from '@/lib/preferences'
 
 // The "link in bio" page for Instagram, TikTok and the other networks (the end card of every reel and the caption of every
 // bio-network post say "link in bio"). Server rendered and light: the newest guides, trips and posts, each link UTM tagged
@@ -41,6 +43,8 @@ export default async function LinksPage({ searchParams }: { searchParams?: { src
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-8 px-4 py-10">
+      {/* This page has no footer, so it draws the consent banner itself (the root layout no longer does). */}
+      <LocaleEffects language={getVisitorPreferences().language} />
       <header className="text-center">
         <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{SITE_NAME}</p>
         <h1 className="mt-2 text-balance text-2xl font-bold">Plan your trip</h1>
