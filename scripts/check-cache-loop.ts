@@ -54,7 +54,7 @@ const samplePaths: Record<string, string> = {
   '/best-time-to-visit/tahiti': '/x-cache/best-time-to-visit/tahiti',
   '/from/toronto': '/x-cache/from/toronto',
   '/packages': '/x-cache/packages',
-  '/packages/australia-new-zealand': '/x-cache/packages/australia-new-zealand',
+  '/blog/another-post': '/x-cache/blog/another-post',
   '/who-we-are': '/x-cache/who-we-are',
   '/destinations': '/x-cache/destinations',
   '/destinations/tahiti': '/x-cache/destinations/tahiti',
@@ -101,7 +101,7 @@ for (const [path, mirror] of Object.entries(samplePaths)) {
 check(at({ pathname: '/', defaultCurrency: 'usd', currencyCookie: 'usd' }).action === 'rewrite', 'usd site: a usd cookie is the default')
 check(at({ pathname: '/', defaultCurrency: 'usd', currencyCookie: 'cad' }).action === 'pass', 'usd site: a cad cookie is a choice')
 // Paths that must never be rewritten.
-for (const p of ['/admin', '/admin/blog', '/api/preferences', '/api/submit-lead', '/links', '/thank-you', '/submit-trip/abc', '/recap/abc', '/sitemap.xml', '/robots.txt', '/llms.txt', '/blog/rss.xml', '/og/news/x.png', '/go/abc', '/carousel/a/1', '/social-cover/a/b', '/_next/static/x.js', '/blog/a/b', '/from', '/compare', '/best-time-to-visit', '/packages/a/b', '/random-page']) {
+for (const p of ['/admin', '/admin/blog', '/api/preferences', '/api/submit-lead', '/links', '/thank-you', '/submit-trip/abc', '/recap/abc', '/sitemap.xml', '/robots.txt', '/llms.txt', '/blog/rss.xml', '/og/news/x.png', '/go/abc', '/carousel/a/1', '/social-cover/a/b', '/_next/static/x.js', '/blog/a/b', '/from', '/compare', '/best-time-to-visit', '/packages/a/b', '/packages/australia-new-zealand', '/random-page']) {
   check(at({ pathname: p }).action === 'pass', `${p} must never be rewritten`)
 }
 // Kill switch parsing.

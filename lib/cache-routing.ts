@@ -35,7 +35,6 @@ export const MIRRORED_ROUTES: ReadonlyArray<{ folder: string; pattern: RegExp }>
   { folder: 'best-time-to-visit/[destination]', pattern: /^\/best-time-to-visit\/[^/.]+$/ },
   { folder: 'from/[city]', pattern: /^\/from\/[^/.]+$/ },
   { folder: 'packages', pattern: /^\/packages$/ },
-  { folder: 'packages/[slug]', pattern: /^\/packages\/[^/.]+$/ },
   { folder: 'who-we-are', pattern: /^\/who-we-are$/ },
   ...GUIDE_KINDS.flatMap((kind) => [
     { folder: kind, pattern: new RegExp(`^\\/${kind}$`) },
@@ -48,6 +47,7 @@ export const EXCLUDED_ROUTES: ReadonlyArray<{ folder: string; reason: string }> 
   { folder: 'links', reason: 'reads ?src= (searchParams), so it is per-request by design; noindex bio page' },
   { folder: 'thank-you', reason: 'reads ?package= (searchParams), noindex confirmation page' },
   { folder: 'submit-trip/[token]', reason: 'private agent link, token in the path' },
+  { folder: 'packages/[slug]', reason: 'two trip pages returned 500 to cookieless requests through the mirror on 2026-10-24 (fine with a cookie); served unmirrored until the cause is found' },
   { folder: 'recap/[token]', reason: 'private one-trip recap link for an agent or traveller, token in the path, noindex' },
 ]
 
