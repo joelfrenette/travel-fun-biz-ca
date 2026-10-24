@@ -170,8 +170,8 @@ for (const f of ['app/api/admin/dashboard-top-pages/route.ts', 'app/api/admin/da
   const iWork = s.indexOf('getSupabaseAdmin()')
   check(`${f}: isAuthorized runs before any data access`, iAuth > 0 && iWork > iAuth && /export async function GET/.test(s))
 }
-const page = src('app/admin/page.tsx')
-check('dashboard page renders both cards after the traffic cards', page.indexOf('<VisitsCard') < page.indexOf('<TopPagesCard') && page.indexOf('<TopPagesCard') < page.indexOf('<TopPostsCard') && page.indexOf('<TopPostsCard') < page.indexOf('<FunnelPanel'))
+const page = src('app/admin/dashboard/page.tsx')
+check('dashboard page renders both cards after the traffic chart', page.indexOf('<TrafficChartCard') > 0 && page.indexOf('<TrafficChartCard') < page.indexOf('<TopPagesCard') && page.indexOf('<TopPagesCard') < page.indexOf('<TopPostsCard') && page.indexOf('<TopPostsCard') < page.indexOf('<FunnelPanel'))
 check('both cards follow the range pills', /dashboard-top-pages", range/.test(page) && /dashboard-top-posts", range/.test(page))
 const cards = src('components/admin/dashboard-top-cards.tsx')
 check('tables scroll inside the card', /overflow-x-auto/.test(cards) && /TableSkeleton/.test(cards))

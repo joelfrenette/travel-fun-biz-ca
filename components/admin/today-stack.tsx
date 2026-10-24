@@ -191,7 +191,7 @@ export function TodayStack() {
 
   return (
     <section aria-label="Today" className="mx-auto w-full max-w-xl">
-      <SystemCheckStrip system={data?.system ?? null} check={data?.check ?? null} />
+      <SystemCheckStrip system={data?.system ?? null} check={data?.check ?? null} fixes={data?.fixes ?? null} />
 
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <h2 className="text-2xl font-bold">Today</h2>

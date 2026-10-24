@@ -10,8 +10,11 @@ import { loadView } from '@/lib/seo-playbook-view'
 import { readStoredAiSpend } from '@/lib/ai-tripwire'
 import { DECISIONS_KEY, parseDecisions } from '@/lib/auto-decisions'
 import { VISUAL_GATE_STATS_KEY, parseStats, sumRecent } from '@/lib/visual-gate-stats'
+import { readDone } from '@/lib/followups-run'
+import { FOLLOWUPS_DONE_KEY, applyMark, serializeDone, siteDay } from '@/lib/followups'
+import { buildFixList, fixIdOf, stageOfFixId, withMarks, type FixView } from '@/lib/system-check-fixes'
 import {
-  SYSTEM_CHECK_KEY, SYSTEM_CHECK_STALE_MS, SYSTEM_CHECK_TTL_MS, evaluateCheck, isFresh, parseCheck, serializeCheck,
+  type StageId, SYSTEM_CHECK_KEY, SYSTEM_CHECK_STALE_MS, SYSTEM_CHECK_TTL_MS, evaluateCheck, isFresh, parseCheck, serializeCheck,
   type CheckFacts, type CheckResult, type JobFact, type WatchdogLike,
 } from '@/lib/system-check'
 
@@ -138,6 +141,33 @@ export async function getSystemCheck(admin: SupabaseClient, opts: CheckDeps & { 
   const result = await computeSystemCheck(admin, { now, issues: opts.issues })
   const saved = await setSetting(admin, SYSTEM_CHECK_KEY, serializeCheck(result)).catch((e) => ({ error: e instanceof Error ? e.message : 'could not save' }))
   return { result, cached: false, ...(saved.error ? { saveWarning: saved.error } : {}) }
+}
+
+/** The fix list for a check result, with today's ticks. If the ticks cannot be read, every item shows as open. Never throws. */
+export async function loadFixes(admin: SupabaseClient, result: CheckResult | null, now: Date = new Date()): Promise<FixView[]> {
+  const items = buildFixList(result)
+  if (items.length === 0) return []
+  try {
+    const { done } = await readDone(admin)
+    return withMarks(items, done, siteDay(now))
+  } catch {
+    return withMarks(items, {}, siteDay(now))
+  }
+}
+
+export type FixTickResult = { ok: true; fixes: FixView[] } | { ok: false; status: number; error: string }
+
+/** Ticks one fix: done or later for today, or takes the tick back. Only a stage that is on the current fix list is accepted. */
+export async function tickFix(admin: SupabaseClient, stage: unknown, op: 'done' | 'later' | 'reopen', now: Date = new Date()): Promise<FixTickResult> {
+  const id = stage && typeof stage === 'string' ? fixIdOf(stage as StageId) : ''
+  if (!stageOfFixId(id)) return { ok: false, status: 400, error: 'That is not a stage of the system check.' }
+  const stored = await readStoredCheck(admin)
+  if (!buildFixList(stored).some((f) => f.id === id)) return { ok: false, status: 404, error: 'That stage is not on the fix list any more. Check again.' }
+  const { done, readable } = await readDone(admin)
+  if (!readable) return { ok: false, status: 503, error: 'The saved ticks could not be read, so nothing was changed. Please try again.' }
+  const saved = await setSetting(admin, FOLLOWUPS_DONE_KEY, serializeDone(applyMark(done, siteDay(now), { id, persist: false }, op)))
+  if (saved.error) return { ok: false, status: 500, error: `The tick could not be saved (${saved.error}).` }
+  return { ok: true, fixes: await loadFixes(admin, stored, now) }
 }
 
 /** For the 7 am brief: the daily step stored an answer a little while ago, and that is good enough. Only a missing or day-old one is recomputed. */

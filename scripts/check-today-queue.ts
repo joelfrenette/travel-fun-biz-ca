@@ -206,7 +206,7 @@ expect('a route handler call forwards the caller\'s own Authorization header', /
 // ---- 12. The sidebar
 // The numbered, sectioned menu is proved in full by scripts/check-admin-v2.ts; this file keeps the checks that tie it to Today.
 const navLinks = adminNavSections.flatMap((s) => s.links)
-expect('Today is the first link in the menu and goes to /admin, Dashboard follows at /admin#dashboard', navLinks[0].title === 'Today' && navLinks[0].href === '/admin' && navLinks.some((i) => i.title === 'Dashboard' && i.href === '/admin#dashboard'))
+expect('Today is the first link in the menu and goes to /admin, Dashboard follows at /admin/dashboard', navLinks[0].title === 'Today' && navLinks[0].href === '/admin' && navLinks.some((i) => i.title === 'Dashboard' && i.href === '/admin/dashboard') && !navLinks.some((i) => (i.href ?? '').includes('#dashboard')))
 const grouped = [...navLinks.filter((i) => !i.shortcut), ...adminNavSections.flatMap((s) => s.later ?? [])].map((i) => i.title)
 const modules = adminNavItems.slice(1).map((i) => i.title) // adminNavItems[0] is the old Dashboard entry
 expect('no menu item is lost: every old module appears in a section', modules.every((t) => grouped.includes(t)), modules.filter((t) => !grouped.includes(t)).join(','))
@@ -221,7 +221,8 @@ expect('no source text uses the word "Reject" on a button that only hides', TODA
 
 // ---- 14. The page and the shell
 const page = read('app/admin/page.tsx')
-expect('/admin opens on Today: the stack comes before the dashboard, which keeps its anchor and its content', page.indexOf('<TodayStack') > 0 && page.indexOf('<TodayStack') < page.indexOf('id="dashboard"') && page.indexOf('id="dashboard"') < Math.max(page.indexOf('<TrafficChart'), page.indexOf('<TrafficCard')) && page.includes('<FunnelPanel') && page.includes('adminTools.map'))
+const dashPage = read('app/admin/dashboard/page.tsx')
+expect('/admin is Today only and the dashboard moved to /admin/dashboard with all its content', page.indexOf('<TodayStack') > 0 && !page.includes('<FunnelPanel') && !page.includes('adminTools.map') && !page.includes('<DashboardRangePills') && dashPage.includes('<TrafficChartCard') && dashPage.includes('<FunnelPanel') && dashPage.includes('adminTools.map') && !dashPage.includes('<TodayStack'))
 const stack = read('components/admin/today-stack.tsx')
 expect('the stack is accessible: live counter, status note, labelled buttons, keyboard, Later, Undo', /aria-live="polite"/.test(stack) && /role="status"/.test(stack) && /ArrowRight/.test(stack) && /ArrowLeft/.test(stack) && /ArrowDown/.test(stack) && /Undo last/.test(stack) && /left today/.test(stack) && /All clear\. The machine has it\./.test(stack) && /aria-describedby/.test(stack))
 expect('the stack has a swipe with a distance threshold and does not block vertical scroll', /SWIPE_PX/.test(stack) && /touchAction: "pan-y"/.test(stack))

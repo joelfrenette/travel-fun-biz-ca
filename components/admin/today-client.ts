@@ -7,6 +7,7 @@
 import type { TodayCard } from "@/lib/today-cards"
 import type { SystemCheck, TodayWins, LastAction } from "@/lib/today-queue"
 import type { CheckSummary, Light } from "@/lib/system-check"
+import type { FixSummary } from "@/lib/system-check-fixes"
 
 export interface TodayData {
   cards: TodayCard[]
@@ -17,6 +18,8 @@ export interface TodayData {
   system: SystemCheck
   /** The full system check, summed up. Null when it could not be read at all. */
   check: CheckSummary | null
+  /** The top fixes still open from the system check, and the counts. Null when the check could not be read. */
+  fixes: FixSummary | null
   /** Open follow-ups from the list built today. Null when no list has been built yet today. */
   followups: { open: number; total: number } | null
   wins: TodayWins

@@ -9,8 +9,9 @@ import {
 import { buildTodayQueue, lastActionOf, readSystemCheck, readWins } from '@/lib/today-queue'
 import { runCardAction, undoCardAction } from '@/lib/today-actions'
 
-import { getSystemCheck, readStoredCheck } from '@/lib/system-check-run'
+import { getSystemCheck, loadFixes, readStoredCheck } from '@/lib/system-check-run'
 import { summarizeCheck, type CheckSummary } from '@/lib/system-check'
+import { summarizeFixes, type FixSummary } from '@/lib/system-check-fixes'
 import { readFollowupsCount } from '@/lib/followups-run'
 import type { Issue } from '@/lib/issues'
 
@@ -18,14 +19,15 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /** The system check summary for the strip: a 5 minute cached answer, or a fresh one; if that takes over 8 seconds, the last stored answer. */
-async function readCheckSummary(admin: ReturnType<typeof getSupabaseAdmin>, issues: Issue[]): Promise<CheckSummary | null> {
+async function readCheckSummary(admin: ReturnType<typeof getSupabaseAdmin>, issues: Issue[]): Promise<{ check: CheckSummary | null; fixes: FixSummary | null }> {
   try {
     const fresh = getSystemCheck(admin, { issues }).then((g) => g.result)
     const slow = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
     const result = (await Promise.race([fresh, slow])) ?? (await readStoredCheck(admin))
-    return result ? summarizeCheck(result) : null
+    if (!result) return { check: null, fixes: null }
+    return { check: summarizeCheck(result), fixes: summarizeFixes(await loadFixes(admin, result)) }
   } catch {
-    return null
+    return { check: null, fixes: null }
   }
 }
 
@@ -40,9 +42,10 @@ export async function GET(request: Request) {
   try {
     const admin = getSupabaseAdmin()
     const queue = await buildTodayQueue(admin)
-    const [system, wins, check, followups] = await Promise.all([readSystemCheck(admin, queue.issues), readWins(admin), readCheckSummary(admin, queue.issues), readFollowupsCount(admin)])
+    const [system, wins, checked, followups] = await Promise.all([readSystemCheck(admin, queue.issues), readWins(admin), readCheckSummary(admin, queue.issues), readFollowupsCount(admin)])
     return NextResponse.json({
-      check,
+      check: checked.check,
+      fixes: checked.fixes,
       followups,
       cards: queue.cards,
       count: queue.cards.length,

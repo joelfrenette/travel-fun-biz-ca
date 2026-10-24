@@ -3,6 +3,7 @@
 import Link from "next/link"
 import type { SystemCheck } from "@/lib/today-queue"
 import type { CheckSummary } from "@/lib/system-check"
+import type { FixSummary } from "@/lib/system-check-fixes"
 import { cn } from "@/lib/utils"
 
 // The slim strip at the very top of Today: is the machine healthy? It shows the overall light and the worst stage of the full
@@ -18,7 +19,7 @@ const FRAME: Record<string, string> = {
   red: "border-red-500/50 bg-red-500/5",
 }
 
-export function SystemCheckStrip({ system, check }: { system: SystemCheck | null; check?: CheckSummary | null }) {
+export function SystemCheckStrip({ system, check, fixes }: { system: SystemCheck | null; check?: CheckSummary | null; fixes?: FixSummary | null }) {
   if (!system) {
     return <div className="mb-4 h-14 animate-pulse rounded-lg border bg-muted/40" aria-hidden="true" />
   }
@@ -34,14 +35,37 @@ export function SystemCheckStrip({ system, check }: { system: SystemCheck | null
             Open the system check
           </Link>
         </div>
-        {check.worst ? (
+        {fixes && fixes.total > 0 ? (
+          <div className="mt-1.5" data-testid="strip-fixes">
+            <p className="text-xs font-semibold">
+              {fixes.open > 0 ? `Fix these today (${fixes.open}${fixes.open > 3 ? `, top 3 shown` : ""})` : "Every fix is ticked for today"}
+            </p>
+            {fixes.top.length > 0 && (
+              <ol className="mt-1 space-y-1 text-xs">
+                {fixes.top.map((f, i) => (
+                  <li key={f.id} className="flex items-start gap-1.5">
+                    <span className="w-4 shrink-0 text-muted-foreground" aria-hidden="true">{i + 1}.</span>
+                    <span className="min-w-0">
+                      <span className="font-medium">{f.label}</span>
+                      <span className="sr-only"> ({WORD[f.light]})</span>
+                      <span className="break-words text-muted-foreground">: {f.sentence} </span>
+                      <Link href={f.to.href} className="whitespace-nowrap font-medium text-primary underline underline-offset-2">
+                        {f.to.text}
+                      </Link>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        ) : check.worst && !fixes ? (
           <p className="mt-1 text-xs">
             <span className="font-medium">{check.worst.label}</span>
             <span className="sr-only"> ({WORD[check.worst.light]})</span>
             <span className="break-words text-muted-foreground">: {check.worst.sentence}</span>
           </p>
         ) : (
-          <p className="mt-1 text-xs text-muted-foreground">Every part checked is fine.</p>
+          <p className="mt-1 text-xs text-muted-foreground">All clear. Every part checked is fine.</p>
         )}
         <p className="mt-1 text-[11px] text-muted-foreground">
           {check.counts.green} green, {check.counts.amber} amber, {check.counts.red} red

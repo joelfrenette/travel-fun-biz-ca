@@ -18,7 +18,7 @@ export const dashboardNavItem: AdminNavItem = {
   title: "Dashboard",
   description: "Traffic overview and quick stats.",
   icon: LayoutDashboard,
-  href: "/admin",
+  href: "/admin/dashboard",
   status: "Active",
 }
 
@@ -268,7 +268,7 @@ export const dashboardAnchorItem: AdminNavItem = {
   title: "Dashboard",
   description: "Traffic overview, funnel and the full tool list.",
   icon: LayoutDashboard,
-  href: "/admin#dashboard",
+  href: "/admin/dashboard",
   status: "Active",
 }
 

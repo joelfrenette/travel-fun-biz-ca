@@ -41,7 +41,7 @@ check('sumDimensionRows adds a report', named.clicks === 4 && named.impressions 
 const sc = src('lib/search-console.ts')
 check('ranking snapshot totals come from the page report', /const totals = pages\.length \? pageTotals : namedQueryTotals/.test(sc))
 
-const admin = src('app/admin/page.tsx')
+const admin = src('app/admin/dashboard/page.tsx')
 check('admin home has no sample numbers or fake badges', !/sampleData|sampleChannels|1,247|\+12%|\+8%|\+23%/.test(admin))
 const adminCards = admin + src('components/admin/dashboard-cards.tsx')
 check('admin home shows the honest not-connected state with a Setup link', /Google Analytics is not connected/.test(adminCards) && /Open the Setup steps/.test(adminCards))

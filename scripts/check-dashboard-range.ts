@@ -109,7 +109,7 @@ check('funnel: all time adds no created_at filter', /sinceIso \? q\.gte\('create
 check('funnel: impressions stage says it is always 28 days', /Always the last 28 days/.test(funnelSrc))
 
 // ---------- client wiring: pills, storage, URL ----------
-const page = src('app/admin/page.tsx')
+const page = src('app/admin/dashboard/page.tsx')
 const pills = src('components/admin/dashboard-range-pills.tsx')
 check('pills are buttons with aria-pressed and a labelled group', /aria-pressed=\{active\}/.test(pills) && /role="group"/.test(pills) && /<button/.test(pills))
 check('page remembers the range in localStorage inside try/catch and in the URL', /localStorage\.setItem\(RANGE_STORAGE_KEY/.test(page) && /try \{[\s\S]{0,80}localStorage\.getItem\(RANGE_STORAGE_KEY/.test(page) && /searchParams\.set\("range"/.test(page) && /replaceState/.test(page))
@@ -121,7 +121,7 @@ for (const f of ['app/api/admin/analytics/route.ts', 'app/api/admin/dashboard-se
   const s = src(f)
   check(`${f}: isAuthorized is the first thing in GET`, /export async function GET\(request: Request\) \{\s*\n\s*if \(!isAuthorized\(request\)\)/.test(s))
 }
-for (const f of ['lib/dashboard-range.ts', 'lib/dashboard-data.ts', 'app/admin/page.tsx', 'components/admin/dashboard-cards.tsx', 'components/admin/dashboard-range-pills.tsx', 'components/admin/funnel-panel.tsx', 'app/api/admin/dashboard-search/route.ts', 'app/api/admin/dashboard-visits/route.ts']) {
+for (const f of ['lib/dashboard-range.ts', 'lib/dashboard-data.ts', 'app/admin/page.tsx', 'app/admin/dashboard/page.tsx', 'lib/traffic-series.ts','components/admin/dashboard-cards.tsx', 'components/admin/dashboard-range-pills.tsx', 'components/admin/funnel-panel.tsx', 'app/api/admin/dashboard-search/route.ts', 'app/api/admin/dashboard-visits/route.ts']) {
   check(`${f}: no em dashes`, !src(f).includes('—'))
 }
 

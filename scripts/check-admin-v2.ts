@@ -14,6 +14,7 @@ import {
 import {
   STAGE_IDS, SYSTEM_CHECK_TTL_MS, checkBriefLines, evaluateCheck, fixedByStage, isFresh, parseCheck, serializeCheck, stageOfDecision, summarizeCheck, unreadFacts, worstLight, type CheckFacts, type DecisionLike,
 } from '../lib/system-check'
+import { buildFixList, fixIdOf, stageOfFixId, summarizeFixes, topOpenFixes, withMarks } from '../lib/system-check-fixes'
 import { TODAY_KINDS, TODAY_KIND_IDS, actionFor, needsConfirm, parseCardId } from '../lib/today-cards'
 import { briefHtml } from '../lib/brief-html'
 import type { Brief } from '../lib/debrief'
@@ -59,7 +60,7 @@ expect('Advanced holds Blog Auto-Writer, Project Tracker, System Health and Cont
 const later = byId('advanced').later ?? []
 expect('everything not built yet is one Later sub-list inside Advanced (no link, Coming Soon)', later.length > 0 && later.every((l) => l.status === 'Coming Soon' && l.href === null) && adminNavSections.filter((s) => s.id !== 'advanced').every((s) => !s.later))
 expect('Setup links to the setup checklist (SETUP_STEPS_URL, new tab) and the link building tasks', byId('setup').links[0].href === SETUP_STEPS_URL && byId('setup').links[0].external === true && byId('setup').links[1].title === 'Link building tasks' && byId('setup').links[1].href === '/admin/links-building' && byId('setup').links[1].shortcut === true)
-expect('SETUP_STEPS_URL is the one checklist link and the dashboard imports it instead of its own copy', /claude\.ai\/artifact\/PN6caspQe9V6RUUsJ2vNcw/.test(SETUP_STEPS_URL) && /SETUP_STEPS_URL \} from "@\/lib\/admin-nav"/.test(read('app/admin/page.tsx')) && !/const SETUP_STEPS_URL/.test(read('app/admin/page.tsx')))
+expect('SETUP_STEPS_URL is the one checklist link and the dashboard imports it instead of its own copy', /claude\.ai\/artifact\/PN6caspQe9V6RUUsJ2vNcw/.test(SETUP_STEPS_URL) && /SETUP_STEPS_URL \} from "@\/lib\/admin-nav"/.test(read('app/admin/dashboard/page.tsx')) && !/const SETUP_STEPS_URL/.test(read('app/admin/dashboard/page.tsx')))
 
 const modules = adminNavItems.slice(1).map((i) => i.title) // adminNavItems[0] is the old Dashboard entry
 const placed = [...adminNavSections.flatMap((s) => s.links.filter((l) => !l.shortcut && l.title !== 'Today' && l.title !== 'Dashboard' && !l.external)), ...later].map((l) => l.title)
@@ -313,7 +314,7 @@ const firstLineAuth = (file: string, methods: string[]) => {
   const hs = [...src.matchAll(/export async function (GET|POST|PATCH|PUT|DELETE)\(request: Request\) \{\r?\n([^\n]*)\n/g)]
   return hs.length === methods.length && methods.every((m) => hs.some((h) => h[1] === m && /isAuthorized\(request\)/.test(h[2])))
 }
-expect('GET /api/admin/system-check calls isAuthorized first', firstLineAuth('app/api/admin/system-check/route.ts', ['GET']))
+expect('GET and POST /api/admin/system-check call isAuthorized first', firstLineAuth('app/api/admin/system-check/route.ts', ['GET', 'POST']))
 expect('GET and POST /api/admin/follow-ups call isAuthorized first', firstLineAuth('app/api/admin/follow-ups/route.ts', ['GET', 'POST']))
 expect('the Today route still calls isAuthorized first in GET and POST', firstLineAuth('app/api/admin/today/route.ts', ['GET', 'POST']))
 const fu = read('app/api/admin/follow-ups/route.ts')
@@ -329,17 +330,64 @@ expect('newsletter signups and trip alerts are not leads waiting for a reply', /
 // =================================================================================================
 const page = read('app/admin/page.tsx')
 const stack = read('components/admin/today-stack.tsx')
-expect('/admin order: system check strip, the swipe cards, the follow-ups (collapsible), then the dashboard', stack.indexOf('<SystemCheckStrip') > 0 && stack.indexOf('<SystemCheckStrip') < stack.indexOf('data-testid="today-card"') && stack.indexOf('data-testid="today-card"') < stack.indexOf('<FollowupsPanel collapsible') && page.indexOf('<TodayStack') > 0 && page.indexOf('<TodayStack') < page.indexOf('id="dashboard"') && page.includes('<DashboardRangePills'))
+expect('/admin order: system check strip, the swipe cards, the follow-ups (collapsible); the dashboard is NOT on this page', stack.indexOf('<SystemCheckStrip') > 0 && stack.indexOf('<SystemCheckStrip') < stack.indexOf('data-testid="today-card"') && stack.indexOf('data-testid="today-card"') < stack.indexOf('<FollowupsPanel collapsible') && page.indexOf('<TodayStack') > 0 && !page.includes('id="dashboard"') && !page.includes('<DashboardRangePills') && !page.includes('<FunnelPanel'))
 expect('the strip links to the system check and shows the worst stage', /href="\/admin\/system-check"/.test(read('components/admin/system-check-strip.tsx')) && /check\.worst/.test(read('components/admin/system-check-strip.tsx')))
 expect('the follow-ups section is collapsible and remembers its state inside try/catch', /aria-expanded=\{open\}/.test(read('components/admin/followups-panel.tsx')) && /try \{\s*localStorage\.setItem\(OPEN_KEY/.test(read('components/admin/followups-panel.tsx')))
 const seo = TODAY_KINDS['seo-fix']
 expect("'seo-fix' is a registered Today card kind: Do it opens the fix, Later hides it for 7 days", TODAY_KIND_IDS.includes('seo-fix') && seo.primary.label === 'Do it' && seo.primary.mode === 'open' && seo.secondary === null && seo.snoozeDays === 7 && actionFor('seo-fix', 'approve')?.label === 'Do it' && actionFor('seo-fix', 'reject') === null)
 expect('an open button never needs a confirm tap and the card id is checked', !needsConfirm('seo-fix', 'approve') && parseCardId('seo-fix:tech-sitemap')?.kind === 'seo-fix' && parseCardId('seo-fix:../x') === null)
 expect('the Today queue builds the SEO cards from lib/seo-playbook-todo.ts', /readSeoFixCandidates/.test(read('lib/today-queue.ts')) && /\['SEO fixes'/.test(read('lib/today-queue.ts')) && /card\('seo-fix'/.test(read('lib/today-queue.ts')))
-expect('the Today route also returns the system check summary and the follow-up count', /check,\s*followups,/.test(read('app/api/admin/today/route.ts')) && /readFollowupsCount/.test(read('app/api/admin/today/route.ts')))
+expect('the Today route also returns the system check summary, the top fixes and the follow-up count', /check: checked\.check,\s*fixes: checked\.fixes,\s*followups,/.test(read('app/api/admin/today/route.ts')) && /readFollowupsCount/.test(read('app/api/admin/today/route.ts')))
+
+// =================================================================================================
+// 6. Dashboard is its own page; the system check ends in a "Fix these today" list
+// =================================================================================================
+expect('Dashboard menu entry is step 4 and goes to /admin/dashboard; Today stays /admin; no #dashboard anchor anywhere in the nav', stepOf('Dashboard') === 4 && adminNavLinks.find((l) => l.title === 'Dashboard')!.href === '/admin/dashboard' && adminNavLinks.find((l) => l.title === 'Today')!.href === '/admin' && !/#dashboard/.test(read('lib/admin-nav.ts')) && adminNavItems[0].href === '/admin/dashboard')
+expect('the dashboard page exists, has the range pills, tiles, the one traffic chart, top tables, funnel and tool grid, and keeps the range storage', (() => {
+  const d = read('app/admin/dashboard/page.tsx')
+  return existsSync(join(process.cwd(), 'app/admin/dashboard/page.tsx')) && ['<DashboardRangePills', '<StatTile', '<TrafficChartCard', '<TopPagesCard', '<TopPostsCard', '<FunnelPanel', 'adminTools.map', 'RANGE_STORAGE_KEY'].every((s) => d.includes(s)) && !d.includes('<TodayStack') && !/<TrafficCard|<SearchCard|<VisitsCard/.test(d)
+})())
+expect('nothing in the app links to /admin#dashboard any more', ['components/admin/admin-shell.tsx', 'components/admin/today-stack.tsx', 'components/admin/system-check-strip.tsx', 'lib/brief-html.ts', 'lib/today-queue.ts', 'lib/admin-nav.ts'].every((f) => !/admin#dashboard/.test(read(f))))
+
+const FIX_NOW = new Date('2026-10-24T12:00:00Z')
+const base = evaluateCheck(unreadFacts(FIX_NOW))
+const withLights = (lights: Partial<Record<(typeof STAGE_IDS)[number], 'green' | 'amber' | 'red'>>, read = true) => ({
+  ...base,
+  stages: base.stages.map((s) => ({ ...s, light: lights[s.id] ?? 'green', read })),
+})
+const allUnread = buildFixList(base)
+expect('every amber or red stage becomes one fix; all-unread gives 11, in impact order (conversion first)', allUnread.length === 11 && allUnread[0].stage === 'conversion' && allUnread[1].stage === 'money' && allUnread[2].stage === 'jobs')
+const mixed = buildFixList(withLights({ seo: 'amber', money: 'red', clicks: 'amber', jobs: 'red' }))
+expect('red comes before amber, then by impact', mixed.map((f) => f.stage).join(',') === 'money,jobs,clicks,seo', mixed.map((f) => f.stage).join(','))
+expect('a red stage that could not be read sorts below a red stage we can see', (() => {
+  const r = withLights({ money: 'red', jobs: 'red' })
+  r.stages = r.stages.map((s) => (s.id === 'money' ? { ...s, read: false } : s))
+  return buildFixList(r).map((f) => f.stage).join(',') === 'jobs,money'
+})())
+expect('all green gives an empty list (the page says All clear)', buildFixList(withLights({})).length === 0 && buildFixList(null).length === 0)
+expect('each fix carries the plain sentence and a page that exists under /admin', mixed.every((f) => f.sentence.length > 5 && f.to.href.startsWith('/admin') && f.to.text.length > 3))
+expect('every fix id fits the follow-ups store, and round-trips to its stage', STAGE_IDS.every((id) => isFollowId(fixIdOf(id)) && stageOfFixId(fixIdOf(id)) === id) && stageOfFixId('weekly:fix-nope') === null && stageOfFixId('lead:abc') === null && stageOfFixId(5) === null)
+const DAYX = '2026-10-24'
+let ticks: DoneState = {}
+ticks = applyMark(ticks, DAYX, { id: fixIdOf('money'), persist: false }, 'done')
+ticks = applyMark(ticks, DAYX, { id: fixIdOf('jobs'), persist: false }, 'later')
+const views = withMarks(mixed, ticks, DAYX)
+expect('Done and Later are read from the follow-ups store; only open fixes are in the Today top list', views.find((v) => v.stage === 'money')!.mark === 'done' && views.find((v) => v.stage === 'jobs')!.mark === 'later' && topOpenFixes(views, 3).map((v) => v.stage).join(',') === 'clicks,seo' && summarizeFixes(views).open === 2 && summarizeFixes(views).total === 4)
+expect('a tick is for one day: tomorrow the fix is open again', withMarks(mixed, ticks, '2026-10-25').every((v) => v.mark === 'open'))
+expect('the top list is capped at 3', topOpenFixes(withMarks(allUnread, {}, DAYX), 3).length === 3 && summarizeFixes(withMarks(allUnread, {}, DAYX)).open === 11)
+expect('a reopened fix is open again', withMarks(mixed, applyMark(ticks, DAYX, { id: fixIdOf('money'), persist: false }, 'reopen'), DAYX).find((v) => v.stage === 'money')!.mark === 'open')
+
+const checkRoute = read('app/api/admin/system-check/route.ts')
+expect('the system check route has a POST that is admin-checked first, with Run check now (op run) and the ticks', /export async function POST\(request: Request\) \{\s*\n\s*if \(!isAuthorized\(request\)\)/.test(checkRoute) && /op === 'run'/.test(checkRoute) && /tickFix\(/.test(checkRoute) && /answer\(true\)/.test(checkRoute))
+expect('a tick is only accepted for a stage that is on the current fix list, and goes into the follow-ups store', /buildFixList\(stored\)\.some/.test(read('lib/system-check-run.ts')) && /FOLLOWUPS_DONE_KEY/.test(read('lib/system-check-run.ts')))
+const checkPage = read('app/admin/system-check/page.tsx')
+expect('the system check page ends with "Fix these today", says All clear when green, and has Run check now (POST)', /Fix these today/.test(checkPage) && /All clear/.test(checkPage) && /Run check now/.test(checkPage) && /method: "POST"/.test(checkPage) && checkPage.indexOf('<ol className="space-y-3">') < checkPage.indexOf('Fix these today') && /tick\(f\.stage, "done"\)/.test(checkPage) && /tick\(f\.stage, "later"\)/.test(checkPage) && /href=\{f\.to\.href\}/.test(checkPage))
+const stripSrc = read('components/admin/system-check-strip.tsx')
+expect('the Today strip shows the top fixes with a link each, or All clear', /fixes\.top\.map/.test(stripSrc) && /Fix these today/.test(stripSrc) && /All clear/.test(stripSrc) && /fixes=\{data\?\.fixes \?\? null\}/.test(read('components/admin/today-stack.tsx')))
+expect('fix sentences are grade-6 plain: short and no long dash (the voice check proves the stage wording)', allUnread.every((f) => f.sentence.split(/\s+/).length <= 40 && !DASH.test(f.sentence + f.to.text + f.label)))
 
 // copy
-const NEW_FILES = ['lib/admin-nav.ts', 'lib/system-check.ts', 'lib/system-check-run.ts', 'lib/followups.ts', 'lib/followups-run.ts', 'lib/brief-html.ts', 'app/api/admin/system-check/route.ts', 'app/api/admin/follow-ups/route.ts', 'app/admin/system-check/page.tsx', 'app/admin/follow-ups/page.tsx', 'components/admin/followups-panel.tsx', 'components/admin/system-check-strip.tsx', 'components/admin/today-client.ts', 'components/admin/admin-shell.tsx']
+const NEW_FILES = ['lib/admin-nav.ts', 'lib/system-check.ts', 'lib/system-check-fixes.ts', 'lib/traffic-series.ts', 'app/admin/dashboard/page.tsx', 'components/admin/dashboard-cards.tsx','lib/system-check-run.ts', 'lib/followups.ts', 'lib/followups-run.ts', 'lib/brief-html.ts', 'app/api/admin/system-check/route.ts', 'app/api/admin/follow-ups/route.ts', 'app/admin/system-check/page.tsx', 'app/admin/follow-ups/page.tsx', 'components/admin/followups-panel.tsx', 'components/admin/system-check-strip.tsx', 'components/admin/today-client.ts', 'components/admin/admin-shell.tsx']
 const bad = NEW_FILES.filter((f) => DASH.test(read(f).replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/─/g, '')))
 expect('no long dash in any new or changed file (comments aside)', bad.length === 0, bad.join(','))
 expect('no new environment variable was added (nothing to document in .env.example)', !/process\.env\./.test(read('lib/system-check.ts') + read('lib/system-check-run.ts') + read('lib/followups.ts') + read('lib/followups-run.ts')))

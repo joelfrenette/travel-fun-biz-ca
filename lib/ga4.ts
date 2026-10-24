@@ -152,7 +152,7 @@ export interface Ga4RangeReport {
   startDate: string
   endDate: string
   /** One entry per day/week/month, oldest first, every channel present (zero-filled). */
-  buckets: { key: string; channels: Record<DashChannel, number> }[]
+  buckets: { key: string; channels: Record<DashChannel, number>; /** Unique users in that day/week/month (its own Google request, so not a sum of channels). Absent when that request failed. */ users?: number }[]
   /** Sessions per channel over the whole range; every channel is present, zero when none. */
   channelTotals: Record<DashChannel, number>
   /** users and newUsers come from a separate no-dimension request, so they are true unique counts, not sums of daily counts. */
@@ -168,8 +168,11 @@ export function buildRangeReport(
   seriesRows: { dimensionValues?: { value?: string }[]; metricValues?: { value?: string }[] }[],
   totalsRow: { metricValues?: { value?: string }[] } | undefined,
   fetchedAt = new Date().toISOString(),
+  usersRows?: { dimensionValues?: { value?: string }[]; metricValues?: { value?: string }[] }[],
 ): Ga4RangeReport {
   const bucket = bucketFor(range)
+  const usersByKey = new Map<string, number>()
+  for (const row of usersRows ?? []) usersByKey.set(ga4KeyToBucketKey(String(row.dimensionValues?.[0]?.value || ''), bucket), Number(row.metricValues?.[0]?.value) || 0)
   const byKey = new Map<string, Record<DashChannel, number>>()
   const channelTotals = emptyChannelCounts()
   let sessions = 0
@@ -188,7 +191,7 @@ export function buildRangeReport(
     bucket,
     startDate,
     endDate,
-    buckets: [...byKey].sort((a, b) => a[0].localeCompare(b[0])).map(([key, channels]) => ({ key, channels })),
+    buckets: [...byKey].sort((a, b) => a[0].localeCompare(b[0])).map(([key, channels]) => ({ key, channels, ...(usersRows ? { users: usersByKey.get(key) ?? 0 } : {}) })),
     channelTotals,
     totals: {
       sessions: totalsRow ? Number(totalsRow.metricValues?.[0]?.value) || 0 : sessions,
@@ -226,7 +229,7 @@ export async function getGa4RangeReport(range: DashRange): Promise<Ga4RangeRepor
   const dateRanges = [ga4DateRange(range)]
   const bucketDim = ga4BucketDimension(range)
 
-  const [series, totals] = await Promise.all([
+  const [series, totals, usersSeries] = await Promise.all([
     runReport(propertyId, token, {
       dateRanges,
       dimensions: [{ name: bucketDim }, { name: 'sessionDefaultChannelGroup' }],
@@ -235,8 +238,10 @@ export async function getGa4RangeReport(range: DashRange): Promise<Ga4RangeRepor
       limit: 10000,
     }),
     runReport(propertyId, token, { dateRanges, metrics: [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'newUsers' }] }),
+    // Unique users per day/week/month for the combined traffic chart. If this one fails the rest still shows, without a Users line.
+    runReport(propertyId, token, { dateRanges, dimensions: [{ name: bucketDim }], metrics: [{ name: 'totalUsers' }], orderBys: [{ dimension: { dimensionName: bucketDim } }], limit: 10000 }).catch(() => null),
   ])
-  const report = buildRangeReport(range, series.rows || [], totals.rows?.[0])
+  const report = buildRangeReport(range, series.rows || [], totals.rows?.[0], undefined, usersSeries ? usersSeries.rows || [] : undefined)
   rangeCache.set(range, { report, at: Date.now() })
   return report
 }
