@@ -4,13 +4,9 @@ import { listPostsAdmin, createPost, type Post } from '@/lib/posts'
 import { listPublishedGuideLinks, guidePath, isGuideKind, type GuideKind } from '@/lib/guides'
 import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, checkTopicConflict, rankByGsc, readGscQueries, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
-<<<<<<< HEAD
 import { loadQuestionHints } from '@/lib/question-hints'
-import { withSiteLinks } from '@/lib/blog-quality'
-=======
 import { coverAltIssue, withSiteLinks } from '@/lib/blog-quality'
 import { coverAlt } from '@/lib/image-quality'
->>>>>>> worktree-agent-ad4dab2c20a74f6ad
 import { deleteEdits } from '@/lib/content-edits'
 import { rejectedPostSlugs } from '@/lib/blog-reheal'
 import { finalizeEdits, repairComposedPost } from '@/lib/content-repair-adapters'
