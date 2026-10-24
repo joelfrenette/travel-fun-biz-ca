@@ -473,14 +473,14 @@ export function buildToConfirm(input: {
 }): string[] {
   const out: string[] = [...(input.extra ?? [])]
   const text = input.sourceText
-  const hasFlightsFact = [...input.kit.included, ...input.kit.notIncluded, ...input.kit.goodToKnow].some((f) => /flight|air ?fare/i.test(`${f.label} ${f.text}`)) || /flights?|air ?fare/i.test(`${input.pkg.price_includes ?? ''} ${input.pkg.not_included ?? ''}`)
+  const hasFlightsFact = /\b(?:flights?|air ?fare)\b[^.]{0,40}\b(?:included|excluded)|\b(?:includes?|including)\b[^.]{0,30}\b(?:flights?|air ?fare)/i.test(text) ||[...input.kit.included, ...input.kit.notIncluded, ...input.kit.goodToKnow].some((f) => /flight|air ?fare/i.test(`${f.label} ${f.text}`)) || /flights?|air ?fare/i.test(`${input.pkg.price_includes ?? ''} ${input.pkg.not_included ?? ''}`)
   if (!hasFlightsFact) out.push('Are flights included? No stored source says. The page says nothing about flights until this is known.')
   if (!/deposit/i.test(text)) out.push('Deposit amount and the date it is due: not in any stored source.')
   if (!/final payment|balance/i.test(text)) out.push('Final payment date: not in any stored source.')
   if (!/cancel|refund/i.test(text)) out.push('Cancellation terms: not in any stored source (the page says to ask your agent).')
   if (!/passport|visa/i.test(text)) out.push('Passport and visa notes: not in any stored source (the page says to ask your agent).')
   if (input.kit.routeKnown === false && input.kit.stops.length > 0) out.push('The day by day route is not stored. Add the itinerary (Add details) to replace "Where you are headed" with a full route.')
-  if (!/\b(arriv|depart|dock|berth)\w*[^.\n]{0,30}\d{1,2}[:.]\d{2}/i.test(text) && input.kit.stops.some((s) => s.kind === 'port')) out.push('Hours in port (arrival and departure) for each port: not stored, so the page shows none.')
+  if (!/\b(arriv|depart|dock|berth)\w*[^.\n]{0,30}\d{1,2}[:.]\d{2}/i.test(text) && input.kit.stops.length > 0) out.push('Hours in port (arrival and departure times) for each stop: not stored, so the page shows none.')
   if (/all[- ]inclusive/i.test(text) && !input.kit.included.some((f) => /all[- ]inclusive|drinks|meals|food/i.test(f.text))) out.push('What "all inclusive" covers at this resort (drinks, restaurants, activities): confirm with the supplier.')
   for (const p of input.priceMentions) out.push(`Price wording found in a stored text and kept OFF the page: "${p.slice(0, 120)}". Confirm it, then tick "Price confirmed by an agent".`)
   for (const o of input.kit.otherStops) out.push(`"${o}" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.`)
@@ -527,10 +527,12 @@ export function itemsOfSection(body: string, max = 14): RefItem[] {
   for (const raw of body.split('\n')) {
     const line = raw.trim()
     if (!line || /^=+/.test(line) || line.length > 700) continue
+    // Only list lines count: a numbered line ("5 Sponza Palace ...") or an indented one. Plain paragraphs are prose.
+    if (!/^\d+\s/.test(line) && !/^\s/.test(raw)) continue
     const m = /^(?:\d+\s+)?([A-ZÀ-Ý][^(,.;:@—]{2,52}?)(?:\s*[(,.;:]|$)(.*)$/.exec(line)
     if (!m) continue
     const name = m[1].trim()
-    if (/\d/.test(name) || name.split(/\s+/).length > 7 || /^(?:see|note|the following|for more|there (?:is|are))\b/i.test(name)) continue
+    if (/\d/.test(name) || name.split(/\s+/).length > 7 || /\b(?:is|are|was|were|has|have)\b/.test(name) || /^(?:see|note|the following|for more|there (?:is|are))\b/i.test(name)) continue
     if (out.some((x) => fold(x.name) === fold(name))) continue
     out.push({ name, blurb: scrubReferenceText(m[2].replace(/^[\s).,;:]+/, ''), 1) })
     if (out.length >= max) break
