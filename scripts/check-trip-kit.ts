@@ -86,7 +86,7 @@ async function main() {
     otherStops: ['Boi'], included: [], notIncluded: [], goodToKnow: [], attributions: [{ label: 'Wikivoyage', url: 'https://en.wikivoyage.org/wiki/Dubrovnik' }], toConfirm: ['secret admin note'],
   }
   const pkgRow = { name: 'Croatia Cruise', destination: 'Croatia', duration: '12 Days', available_from: '2027-06-12', available_to: '2027-06-23', departure_dates: null, price_includes: null, not_included: null, itinerary: null }
-  const heroProps = { heading: 'Croatia Cruise', category: 'Cruise', destination: 'Croatia', destinationHref: '/destinations/croatia', image: '/x.jpg', duration: '12 Days', availableFrom: '2027-06-12', availableTo: '2027-06-23', promise: 'A coastal escape.', phone: '(555) 010-0000', telHref: 'tel:+15550100000' }
+  const heroProps = { heading: 'Croatia Cruise', category: 'Cruise', destination: 'Croatia', destinationHref: '/destinations/croatia', image: '/x.jpg', imageAlt: 'Croatia Cruise', duration: '12 Days', availableFrom: '2027-06-12', availableTo: '2027-06-23', promise: 'A coastal escape.', phone: '(555) 010-0000', telHref: 'tel:+15550100000' }
   const heroNo = renderToStaticMarkup(createElement(TripKitHero, { ...heroProps, price: null }))
   check('hero without a confirmed price shows no price and no dollar sign', !/\$|trip-kit-price/.test(heroNo) && /Talk to an agent about today/.test(heroNo), heroNo.slice(0, 200))
   const heroYes = renderToStaticMarkup(createElement(TripKitHero, { ...heroProps, price: parsePriceConfirmed(rec) }))

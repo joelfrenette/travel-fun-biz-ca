@@ -168,6 +168,8 @@ export interface TextBundle {
   priceMentions: string[]
   /** Raw (price-free) stored text, for deciding what is stated. */
   stored: string
+  /** The stored source texts alone (uploaded sources), for the fact-sheet fingerprint. */
+  sourceTexts: string[]
 }
 
 export function bundleText(pkg: DbPackage, sources: string[], supplier: string | null): TextBundle {
@@ -177,7 +179,7 @@ export function bundleText(pkg: DbPackage, sources: string[], supplier: string |
   for (const block of raw) for (const s of splitSentences(block)) if (isPriceText(s)) priceMentions.push(s)
   const clean = raw.map((b) => withoutPriceSentences(b)).filter(Boolean)
   const stored = clean.join('\n')
-  return { grounding: stored, priceMentions: [...new Set(priceMentions)].slice(0, 6), stored }
+  return { grounding: stored, priceMentions: [...new Set(priceMentions)].slice(0, 6), stored, sourceTexts: sources }
 }
 
 function hashOf(s: string): string {
@@ -211,6 +213,8 @@ interface CachedState {
   sheet?: FactSheet
   /** Model answers by prompt hash, so a repeat run costs nothing. */
   answers?: Record<string, Record<string, unknown>>
+  /** Chosen Pexels photos by search text, so a repeat run does not search again (Pexels allows 200 searches an hour). */
+  photos?: Record<string, PlacePhoto>
 }
 
 function placesPrompt(b: TextBundle, pkg: DbPackage): string {
@@ -227,7 +231,9 @@ ${b.grounding.slice(0, 12_000)}
 /** Builds (or reuses) the fact sheet: places, then one reference page per place. */
 export async function buildFactSheet(pkg: DbPackage, b: TextBundle, deps: FillDeps, cache: FactCache, budget: { left: number; used: number }, opts: { refresh?: boolean } = {}): Promise<{ sheet: FactSheet; state: CachedState; notes: string[] }> {
   const notes: string[] = []
-  const rowHash = hashOf(b.grounding)
+  // The fact sheet depends on what the trip IS (name, destination, short text, links, stored sources), not on the page text the
+  // kit itself wrote later (description, itinerary), so filling a page never invalidates its own fact sheet.
+  const rowHash = hashOf([pkg.name, pkg.destination, pkg.country, pkg.region, pkg.booking_url, pkg.more_info_url, tidyShort(pkg.short_description ?? ''), ...b.sourceTexts].join('\n'))
   let state: CachedState = {}
   try {
     state = JSON.parse((await cache.get(tripKitFactsKey(pkg.id))) ?? '{}') as CachedState
@@ -268,6 +274,12 @@ export async function buildFactSheet(pkg: DbPackage, b: TextBundle, deps: FillDe
       }
       if (r.error && mentions.length === 0) notes.push(`place lookup: ${r.error}`)
     } else notes.push('no AI calls left for the place lookup')
+  }
+  // The trip's own title is not a place ("AUSTRALIA & NEW ZEALAND" is two).
+  mentions = mentions.filter((m) => fold(m.name) !== fold(pkg.name) && !/\s(?:&|and)\s/i.test(m.name))
+  // Too few places found: the places named in the trip's own name ("RHINE RIVER & SWISS ALPS", "AUSTRALIA & NEW ZEALAND") are added.
+  if (mentions.length < 2) {
+    for (const p of placesFromName(pkg.name)) if (!mentions.some((m) => fold(m.name) === fold(p.name))) mentions.push({ ...p, near: null })
   }
   if (mentions.length === 0) {
     mentions = placesFromName(pkg.name).map((p) => ({ ...p, near: null }))
@@ -556,6 +568,22 @@ export async function planTripKit(
   const stops: KitStop[] = []
   const otherStops: string[] = []
   const usedPhotoIds = new Set<number>()
+  const photoMemo: Record<string, PlacePhoto> = (fs.state.photos ??= {})
+  let photosChanged = false
+  const pickCached = async (query: string, region: string | null) => {
+    const k = fold(`${query} ${region ?? ''}`)
+    const hit = photoMemo[k]
+    if (hit && !usedPhotoIds.has(hit.id)) {
+      usedPhotoIds.add(hit.id)
+      return { photo: { url: hit.url, alt: query, credit: `Photo by ${hit.photographer} on Pexels`, creditUrl: hit.pageUrl }, raw: hit }
+    }
+    const r = await pickPlacePhoto(query, region, deps.photos, usedPhotoIds)
+    if (r) {
+      photoMemo[k] = r.raw
+      photosChanged = true
+    }
+    return r
+  }
   const galleryPool: PlacePhoto[] = []
   let cards = 0
   for (const p of sheet.places) {
@@ -568,7 +596,7 @@ export async function planTripKit(
     const a = placeAnswers[m.name] ?? {}
     const names = [...p.ref.see, ...p.ref.doItems].map((i) => i.name)
     const things = tripKitThingsOk(asStrings(a.things, 6, 170), names, `${grounding}`).slice(0, 4).map((text) => ({ text, source: { label: p.ref!.label, url: p.ref!.url } }))
-    const found = await pickPlacePhoto(m.kind === 'stay' ? (m.near ?? m.name) : m.name, m.kind === 'stay' ? null : (m.region ?? pkg.country), deps.photos, usedPhotoIds)
+    const found = await pickCached(m.kind === "stay" ? (m.near ?? m.name) : m.name, m.kind === "stay" ? null : (m.region ?? pkg.country))
     if (found) galleryPool.push(found.raw)
     stops.push({
       name: m.name,
@@ -588,9 +616,10 @@ export async function planTripKit(
   const needPhotos = haveGallery >= GALLERY_TARGET ? 0 : GALLERY_TARGET - haveGallery + 1
   for (const q of [pkg.destination, `${pkg.destination} landscape`, `${pkg.region ?? pkg.country ?? pkg.category} travel`]) {
     if (galleryPool.length >= needPhotos) break
-    const more = await pickPlacePhoto(q, null, deps.photos, usedPhotoIds)
+    const more = await pickCached(q, null)
     if (more) galleryPool.push(more.raw)
   }
+  if (photosChanged) await cache.set(tripKitFactsKey(pkg.id), JSON.stringify(fs.state))
   // The blurb is kept as the first "thing" only when it passes the same gate and names the place.
   for (const s of stops) {
     const a = placeAnswers[s.name] ?? {}
@@ -697,7 +726,7 @@ export async function planTripKit(
     if (Array.isArray(cachedFaqs) && cachedFaqs.length) faqs = cachedFaqs
     else {
       // The FAQ writer varies from call to call and its gate is strict, so a failed try is repeated once (cap permitting).
-      for (let attempt = 0; attempt < 2 && !faqs; attempt++) {
+      for (let attempt = 0; attempt < 3 && !faqs; attempt++) {
         if (budget.left <= 0) {
           notes.push('no AI calls left for the FAQs')
           break
@@ -713,7 +742,7 @@ export async function planTripKit(
           faqs = r.faqs
           fs.state.answers = { ...(fs.state.answers ?? {}), [key]: { faqs: r.faqs } }
           await cache.set(tripKitFactsKey(pkg.id), JSON.stringify(fs.state))
-        } else if (attempt === 1 || !r.called) notes.push(`FAQs: ${r.error ?? 'none passed the gate'}`)
+        } else if (attempt === 2 || !r.called) notes.push(`FAQs: ${r.error ?? 'none passed the gate'}`)
       }
     }
     if (faqs) put('ai_faqs', faqs)
@@ -781,14 +810,19 @@ export async function applyTripKitPlan(admin: SupabaseClient, plan: FillPlan, de
   for (const e of plan.edits) {
     // Re-check against the row as it is NOW: an empty-only field that a person filled in meanwhile is left alone.
     if (!plan.overwrites.includes(e.field) && !isEmptyValue(row[e.field])) continue
+    if (JSON.stringify(row[e.field] ?? null) === JSON.stringify(e.after ?? null)) continue
     updates[e.field] = e.after
     edits.push({ ...e, before: row[e.field] ?? null, at })
   }
   // Gallery photos: copy each into our storage, then add through the shared photo planner.
   let photosAdded = 0
-  if (plan.galleryPhotos.length) {
+  const photoNotes: string[] = []
+  // Only as many as the gallery needs right now (a plan made earlier may already have been partly applied).
+  const liveGallery = ((row.gallery_urls as string[] | null) ?? []).filter(Boolean).length
+  const wantPhotos = plan.galleryPhotos.slice(0, Math.max(0, GALLERY_TARGET - liveGallery + 1))
+  if (wantPhotos.length) {
     const adds: PlannedAdd[] = []
-    for (const p of plan.galleryPhotos) {
+    for (const p of wantPhotos) {
       const stored = await deps.upload(p.url, latest.slug || 'trip')
       if (stored.image_url) adds.push({ photo: p.url, stored })
     }
@@ -796,6 +830,8 @@ export async function applyTripKitPlan(admin: SupabaseClient, plan: FillPlan, de
     for (const [k, v] of Object.entries(photoPlan.updates)) updates[k] = v
     edits.push(...photoPlan.edits)
     photosAdded = photoPlan.edits.filter((e) => e.field === 'gallery_urls').length
+    photoNotes.push(...photoPlan.skipped.map((s) => `photo skipped: ${s.reason}`))
+    if (adds.length < wantPhotos.length) photoNotes.push(`${wantPhotos.length - adds.length} photo(s) could not be copied into storage`)
   }
   let result: { applied: string[]; skipped: { field: string; reason: string }[]; pkg: DbPackage | null } = { applied: [], skipped: [], pkg: latest }
   if (edits.length) {
@@ -807,7 +843,7 @@ export async function applyTripKitPlan(admin: SupabaseClient, plan: FillPlan, de
   const prev = await getSettingStrict(admin, tripKitKey(plan.packageId))
   if (prev.value) await setSetting(admin, tripKitPrevKey(plan.packageId), prev.value)
   const saved = await setSetting(admin, tripKitKey(plan.packageId), JSON.stringify(plan.kit))
-  return { applied: result.applied, skipped: result.skipped, photosAdded, kitSaved: !saved.error, pkg: result.pkg }
+  return { applied: result.applied, skipped: [...result.skipped, ...photoNotes.map((reason) => ({ field: "gallery_urls", reason }))], photosAdded, kitSaved: !saved.error, pkg: result.pkg }
 }
 
 /** Puts the previous kit JSON back (or removes the kit). Column edits are undone from Add details, Revert on the kit source. */

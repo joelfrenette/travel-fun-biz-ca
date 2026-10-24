@@ -28,7 +28,11 @@ const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n).rep
  * conversation block. Replaces the old hero and details sections; everything after it on the page is unchanged. */
 export function TripKitPage({ pkg, heading, image, kit, price, fieldSet, linked, language, phone, telHref }: TripKitPageProps) {
   const promise = kit?.promise ?? (pkg.short_description ? clip(pkg.short_description.replace(/\s+/g, " ").trim(), 160) : null)
-  const midCta = <AgentCta phone={phone} telHref={telHref} tripName={pkg.name} heading="Like the look of this route? Let us plan it with you" method="trip_kit_mid" />
+  // A cover that was uploaded is often the supplier flyer, with prices and personal phone numbers printed in the picture. The kit hero
+  // uses it only when it is a stock photo; otherwise the first stock photo of a stop (or the gallery) is the hero.
+  const stopPhoto = kit?.stops.find((s) => s.photo)?.photo?.url
+  const heroImage = pkg.image_source === "pexels" || !(stopPhoto || pkg.gallery_urls?.[0]) ? image : (stopPhoto ?? pkg.gallery_urls[0])
+  const midCta =<AgentCta phone={phone} telHref={telHref} tripName={pkg.name} heading="Like the look of this route? Let us plan it with you" method="trip_kit_mid" />
   return (
     <>
       <TripKitHero
@@ -36,7 +40,8 @@ export function TripKitPage({ pkg, heading, image, kit, price, fieldSet, linked,
         category={pkg.category}
         destination={pkg.destination}
         destinationHref={`/destinations/${generateSlug(pkg.destination)}`}
-        image={image}
+        image={heroImage}
+        imageAlt={heroImage === image ? heading : (kit?.stops.find((s) => s.photo?.url === heroImage)?.photo?.alt ?? pkg.destination)}
         duration={pkg.duration}
         availableFrom={pkg.available_from}
         availableTo={pkg.available_to}

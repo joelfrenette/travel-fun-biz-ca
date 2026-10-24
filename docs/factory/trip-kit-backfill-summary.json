@@ -1,0 +1,137 @@
+{
+ "at": "2026-10-24T18:51:19.066Z",
+ "trips": [
+  {
+   "slug": "winter-group-getaway-with-amy-liz",
+   "status": "draft",
+   "completenessBefore": 30,
+   "completenessAfter": 80,
+   "seoBefore": 88,
+   "seoAfter": 93,
+   "pass": true,
+   "stillMissing": [
+    "no list of what is not included",
+    "no itinerary"
+   ]
+  },
+  {
+   "slug": "hh-social-southern-italy-sicily",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 95,
+   "seoBefore": 54,
+   "seoAfter": 100,
+   "pass": true,
+   "stillMissing": [
+    "no list of what is not included"
+   ]
+  },
+  {
+   "slug": "tahitian-tropical-escape",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 70,
+   "seoBefore": 61,
+   "seoAfter": 100,
+   "pass": false,
+   "stillMissing": [
+    "no list of what is included",
+    "no list of what is not included",
+    "no itinerary"
+   ]
+  },
+  {
+   "slug": "european-river-cruise-w-hh-social",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 70,
+   "seoBefore": 61,
+   "seoAfter": 100,
+   "pass": false,
+   "stillMissing": [
+    "no list of what is included",
+    "no list of what is not included",
+    "no itinerary"
+   ]
+  },
+  {
+   "slug": "rhine-river-swiss-alps-w-amy-liz",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 80,
+   "seoBefore": 61,
+   "seoAfter": 100,
+   "pass": true,
+   "stillMissing": [
+    "no list of what is not included",
+    "no itinerary"
+   ]
+  },
+  {
+   "slug": "women-s-trip-2027-w-amy-liz",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 80,
+   "seoBefore": 57,
+   "seoAfter": 100,
+   "pass": true,
+   "stillMissing": [
+    "no list of what is not included",
+    "no itinerary"
+   ]
+  },
+  {
+   "slug": "croatia-coastline-yacht-cruise",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 85,
+   "seoBefore": 61,
+   "seoAfter": 100,
+   "pass": true,
+   "stillMissing": [
+    "no list of what is included",
+    "no list of what is not included"
+   ]
+  },
+  {
+   "slug": "australia-new-zealand",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 70,
+   "seoBefore": 66,
+   "seoAfter": 100,
+   "pass": false,
+   "stillMissing": [
+    "no list of what is included",
+    "no list of what is not included",
+    "no itinerary"
+   ]
+  },
+  {
+   "slug": "new-years-for-the-fun-people",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 85,
+   "seoBefore": 61,
+   "seoAfter": 100,
+   "pass": true,
+   "stillMissing": [
+    "no list of what is included",
+    "no list of what is not included"
+   ]
+  },
+  {
+   "slug": "sandy-toes-salty-souls-girls-trip",
+   "status": "published",
+   "completenessBefore": 5,
+   "completenessAfter": 80,
+   "seoBefore": 61,
+   "seoAfter": 100,
+   "pass": true,
+   "stillMissing": [
+    "no list of what is not included",
+    "no itinerary"
+   ]
+  }
+ ]
+}

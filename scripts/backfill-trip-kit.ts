@@ -21,7 +21,7 @@ loadEnv()
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
 const REFRESH = args.includes('--refresh')
-const ONLY = args.find((a) => a.startsWith('--only='))?.slice(7) ?? null
+const ONLY = args.find((a) => a.startsWith('--only='))?.slice(7).split(',') ?? null
 const CACHE_FILE = process.env.TRIP_KIT_CACHE || path.join(process.cwd(), 'tmp_q', 'trip-kit-cache.json')
 
 async function main() {
@@ -52,10 +52,24 @@ async function main() {
 
   const site = await buildSiteIndex(admin)
   const deps = fill.liveDeps()
-  const all = (await getAllPackagesAdmin()).filter((p) => !ONLY || p.slug === ONLY)
+  const all = (await getAllPackagesAdmin()).filter((p) => !ONLY || ONLY.includes(p.slug))
+  // --from-snapshot: plan from the rows as they were BEFORE the first apply (so the fact sheet and the places come from the
+  // trip's own data, never from page text this kit wrote), and apply only what the live row still lacks.
+  if (args.includes('--from-snapshot')) {
+    const snap = JSON.parse(fs.readFileSync('docs/factory/trip-kit-backfill-before.json', 'utf8')) as { trips: { id: string; slug: string; row: Record<string, unknown> }[] }
+    const byId = new Map(snap.trips.map((t) => [t.id, t.row]))
+    for (let i = 0; i < all.length; i++) {
+      const row = byId.get(all[i].id)
+      if (row) all[i] = { ...(row as object), id: all[i].id } as typeof all[number]
+    }
+    console.log('planning from the saved before-snapshot')
+  }
   console.log(`${APPLY ? 'APPLY' : 'DRY RUN'}: ${all.length} trips`)
 
-  if (APPLY) {
+  if (APPLY && fs.existsSync('docs/factory/trip-kit-backfill-before.json')) {
+    // The first apply's snapshot is the real "before". A later apply (for example to add photos) never replaces it.
+    console.log('kept the existing docs/factory/trip-kit-backfill-before.json')
+  } else if (APPLY) {
     const snapshot = []
     for (const p of all) {
       const kit = await dbCache.get(`trip_kit:${p.id}`)
@@ -79,6 +93,9 @@ async function main() {
     let appliedInfo: unknown = null
     let afterReal = null
     if (APPLY) {
+      // The cached fact sheet and writer answers go to the database too, so later fills cost nothing.
+      const factsKey = `trip_kit_facts:${p.id}`
+      if (file[factsKey]) await dbCache.set(factsKey, file[factsKey])
       const out = await fill.applyTripKitPlan(admin, plan, deps)
       appliedInfo = { applied: out.applied, skipped: out.skipped, photosAdded: out.photosAdded, kitSaved: out.kitSaved }
       const fresh = await getPackageById(p.id)

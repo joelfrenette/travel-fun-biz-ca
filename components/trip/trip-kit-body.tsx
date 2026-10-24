@@ -29,11 +29,11 @@ function StopCard({ stop, index, known }: { stop: KitStop; index: number; known:
     <li className="relative pl-12 sm:pl-16" data-testid="trip-kit-stop">
       {known && <span aria-hidden="true" className="absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground sm:h-11 sm:w-11">{index + 1}</span>}
       {!known && <span aria-hidden="true" className="absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-primary sm:h-11 sm:w-11"><MapPin className="h-5 w-5" /></span>}
-      <article className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+      <article className={`overflow-hidden rounded-2xl border bg-card shadow-sm ${stop.photo ? "md:grid md:grid-cols-[2fr_3fr]" : ""}`}>
         {stop.photo && (
-          <figure className="relative">
+          <figure className="relative md:h-full">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={stop.photo.url} alt={stop.photo.alt} loading="lazy" decoding="async" className="aspect-[16/7] w-full object-cover" />
+            <img src={stop.photo.url.replace("dpr=2", "dpr=1")} alt={stop.photo.alt} loading="lazy" decoding="async" className="aspect-[16/9] w-full object-cover md:absolute md:inset-0 md:aspect-auto md:h-full" />
           </figure>
         )}
         <div className="p-4 sm:p-5">

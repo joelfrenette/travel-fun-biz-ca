@@ -1,0 +1,107 @@
+{
+ "at": "2026-10-24T18:51:03.573Z",
+ "mode": "apply",
+ "trips": [
+  {
+   "slug": "rhine-river-swiss-alps-w-amy-liz",
+   "status": "published",
+   "past": false,
+   "completeness": "5 -> 80",
+   "seo": "61 -> 100",
+   "stillMissing": [
+    "no list of what is not included",
+    "no itinerary"
+   ],
+   "seoReasons": [],
+   "fieldsToChange": [
+    "full_description",
+    "highlights",
+    "short_description",
+    "price_includes",
+    "ai_faqs"
+   ],
+   "photos": 4,
+   "stops": [
+    "Rhine River (1)",
+    "Swiss Alps (1)"
+   ],
+   "otherStops": [],
+   "routeKnown": false,
+   "sources": [
+    "Wikipedia: https://en.wikipedia.org/wiki/Rhine",
+    "Wikivoyage: https://en.wikivoyage.org/wiki/Swiss_Alps"
+   ],
+   "toConfirm": [
+    "Are flights included? No stored source says. The page says nothing about flights until this is known.",
+    "Deposit amount and the date it is due: not in any stored source.",
+    "Final payment date: not in any stored source.",
+    "Cancellation terms: not in any stored source (the page says to ask your agent).",
+    "Passport and visa notes: not in any stored source (the page says to ask your agent).",
+    "The day by day route is not stored. Add the itinerary (Add details) to replace \"Where you are headed\" with a full route.",
+    "Hours in port (arrival and departure times) for each stop: not stored, so the page shows none."
+   ],
+   "held": [],
+   "notes": [],
+   "calls": 3,
+   "applied": {
+    "applied": [],
+    "skipped": [],
+    "photosAdded": 0,
+    "kitSaved": true
+   }
+  },
+  {
+   "slug": "australia-new-zealand",
+   "status": "published",
+   "past": false,
+   "completeness": "5 -> 70",
+   "seo": "66 -> 100",
+   "stillMissing": [
+    "no list of what is included",
+    "no list of what is not included",
+    "no itinerary"
+   ],
+   "seoReasons": [],
+   "fieldsToChange": [
+    "highlights"
+   ],
+   "photos": 4,
+   "stops": [
+    "Australia (1)",
+    "New Zealand (1)"
+   ],
+   "otherStops": [],
+   "routeKnown": false,
+   "sources": [
+    "Wikivoyage: https://en.wikivoyage.org/wiki/Australia",
+    "Wikivoyage: https://en.wikivoyage.org/wiki/New_Zealand"
+   ],
+   "toConfirm": [
+    "Are flights included? No stored source says. The page says nothing about flights until this is known.",
+    "Deposit amount and the date it is due: not in any stored source.",
+    "Final payment date: not in any stored source.",
+    "Cancellation terms: not in any stored source (the page says to ask your agent).",
+    "Passport and visa notes: not in any stored source (the page says to ask your agent).",
+    "The day by day route is not stored. Add the itinerary (Add details) to replace \"Where you are headed\" with a full route.",
+    "Hours in port (arrival and departure times) for each stop: not stored, so the page shows none."
+   ],
+   "held": [
+    {
+     "field": "full_description",
+     "reasons": [
+      "schedule stated as fact"
+     ],
+     "sample": "AUSTRALIA & NEW ZEALAND is a 22 days adventure across two countries in the South Pacific. This trip blends dramatic natural landscapes with sophisticated, multicultural cities. You can expect a lineup of memorable scenery alongside an irresistible, carpe diem spirit.\n\nIn Australia, the route includes the Great Barrier Reef and the rugged Outback. Australia is nicknamed the Land Down Under, the only country that has a whole continent to itself. It is also highly urbanised, with an array of cosmopolitan cities. Sydney sits on one of the most famous harbours in the world. Between outdoor adventures, you can discover these cities and the easygoing character of the place.\n\nIn New Zealand, the route includes sheep dotted plains and cliff lined fjords. New Zealand, known in Māori as Aotearoa, is one of the most beautiful countries in the world. It is a country of stunning and diverse natural beauty. Here you find jagged mountains, rolling pasture land, steep fiords, pristine trout filled lakes, raging rivers, scenic beaches, and active volcanic zones. These islands form a unique bioregion inhabited by flightless birds seen nowhere else, such as kākāpō and kiwi. New Zealanders have adopted the kiwi as a national symbol, and have even taken the word Kiwi as a name for themselves.\n\nThis journey is built for travellers who want contrast. One moment you can be out on the water near the Great Barrier Reef. Another moment you can be in the quiet, open spaces of the Outback. Then you might "
+    }
+   ],
+   "notes": [],
+   "calls": 3,
+   "applied": {
+    "applied": [],
+    "skipped": [],
+    "photosAdded": 0,
+    "kitSaved": true
+   }
+  }
+ ]
+}

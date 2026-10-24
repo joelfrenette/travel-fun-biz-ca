@@ -62,13 +62,24 @@ export interface PlacePhoto extends PhotoCandidate {
 
 export type PhotoSearch = (query: string) => Promise<PlacePhoto[]>
 
+let lastPexelsCall = 0
+
 /** Pexels search with the photographer kept for the credit. [] when no key or on any failure. */
 export const livePhotoSearch: PhotoSearch = async (query) => {
   const key = process.env.PEXELS_API_KEY
   if (!key || !query.trim()) return []
   try {
-    const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=15&orientation=landscape`, { headers: { Authorization: key }, cache: 'no-store', signal: AbortSignal.timeout(8000) })
-    if (!res.ok) return []
+    // Pexels answers a burst of searches with 429. Searches are spaced out, and a 429 is retried after a wait.
+    const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=15&orientation=landscape`
+    let res: Response | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const wait = Math.max(0, lastPexelsCall + 1500 - Date.now()) + (attempt > 0 ? 5000 * attempt : 0)
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+      lastPexelsCall = Date.now()
+      res = await fetch(url, { headers: { Authorization: key }, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+      if (res.status !== 429) break
+    }
+    if (!res || !res.ok) return []
     const body = (await res.json().catch(() => ({}))) as { photos?: { id: number; width?: number; height?: number; alt?: string; url?: string; photographer?: string; photographer_url?: string; src?: { large?: string; large2x?: string } }[] }
     return (body.photos ?? [])
       .filter((p) => p && typeof p.id === 'number')

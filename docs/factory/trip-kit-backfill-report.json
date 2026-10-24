@@ -1,0 +1,92 @@
+{
+ "at": "2026-10-24T18:49:26.778Z",
+ "mode": "dry-run",
+ "trips": [
+  {
+   "slug": "rhine-river-swiss-alps-w-amy-liz",
+   "status": "published",
+   "past": false,
+   "completeness": "5 -> 80",
+   "seo": "61 -> 100",
+   "stillMissing": [
+    "no list of what is not included",
+    "no itinerary"
+   ],
+   "seoReasons": [],
+   "fieldsToChange": [
+    "full_description",
+    "highlights",
+    "short_description",
+    "price_includes",
+    "ai_faqs"
+   ],
+   "photos": 4,
+   "stops": [
+    "Rhine River (4)",
+    "Swiss Alps (1)"
+   ],
+   "otherStops": [],
+   "routeKnown": false,
+   "sources": [
+    "Wikivoyage: https://en.wikivoyage.org/wiki/Middle_Rhine_Valley",
+    "Wikivoyage: https://en.wikivoyage.org/wiki/Swiss_Alps"
+   ],
+   "toConfirm": [
+    "Are flights included? No stored source says. The page says nothing about flights until this is known.",
+    "Deposit amount and the date it is due: not in any stored source.",
+    "Final payment date: not in any stored source.",
+    "Cancellation terms: not in any stored source (the page says to ask your agent).",
+    "Passport and visa notes: not in any stored source (the page says to ask your agent).",
+    "The day by day route is not stored. Add the itinerary (Add details) to replace \"Where you are headed\" with a full route.",
+    "Hours in port (arrival and departure times) for each stop: not stored, so the page shows none."
+   ],
+   "held": [],
+   "notes": [],
+   "calls": 3,
+   "applied": null
+  },
+  {
+   "slug": "australia-new-zealand",
+   "status": "published",
+   "past": false,
+   "completeness": "5 -> 70",
+   "seo": "66 -> 100",
+   "stillMissing": [
+    "no list of what is included",
+    "no list of what is not included",
+    "no itinerary"
+   ],
+   "seoReasons": [],
+   "fieldsToChange": [
+    "full_description",
+    "highlights",
+    "ai_faqs"
+   ],
+   "photos": 4,
+   "stops": [
+    "AUSTRALIA & NEW ZEALAND (1)",
+    "Australia (1)",
+    "New Zealand (1)"
+   ],
+   "otherStops": [],
+   "routeKnown": false,
+   "sources": [
+    "Wikivoyage: https://en.wikivoyage.org/wiki/New_Zealand",
+    "Wikivoyage: https://en.wikivoyage.org/wiki/Australia"
+   ],
+   "toConfirm": [
+    "Are flights included? No stored source says. The page says nothing about flights until this is known.",
+    "Deposit amount and the date it is due: not in any stored source.",
+    "Final payment date: not in any stored source.",
+    "Cancellation terms: not in any stored source (the page says to ask your agent).",
+    "Passport and visa notes: not in any stored source (the page says to ask your agent).",
+    "The day by day route is not stored. Add the itinerary (Add details) to replace \"Where you are headed\" with a full route.",
+    "Hours in port (arrival and departure times) for each stop: not stored, so the page shows none."
+   ],
+   "held": [],
+   "notes": [],
+   "calls": 3,
+   "applied": null
+  }
+ ]
+}

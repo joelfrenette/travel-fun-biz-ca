@@ -10,6 +10,8 @@ export interface TripKitHeroProps {
   destination: string
   destinationHref: string
   image: string
+  /** Honest alt text: the place name when the picture is a stock photo of a place, else the trip name. */
+  imageAlt: string
   duration: string
   availableFrom: string | null
   availableTo: string | null
@@ -28,9 +30,9 @@ export function TripKitHero(p: TripKitHeroProps) {
   return (
     <section className="relative isolate overflow-hidden bg-slate-900 text-white" data-testid="trip-kit-hero">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={p.image} alt={p.heading} fetchPriority="high" decoding="async" className="absolute inset-0 -z-10 h-full w-full object-cover opacity-70" />
+      <img src={p.image} alt={p.imageAlt} fetchPriority="high" decoding="async" className="absolute inset-0 -z-10 h-full w-full object-cover opacity-70" />
       <div className="absolute inset-0 -z-10 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-slate-950/10" />
-      <div className="container mx-auto px-4 pb-10 pt-28 sm:pb-14 sm:pt-36 lg:pt-44">
+      <div className="container mx-auto px-4 pb-10 pt-14 sm:pb-14 sm:pt-20 lg:pt-28">
         <div className="max-w-3xl">
           <Badge className="mb-4 bg-primary font-bold uppercase text-primary-foreground">{p.category}</Badge>
           <h1 className="text-balance text-3xl font-extrabold leading-tight sm:text-5xl">{p.heading}</h1>
