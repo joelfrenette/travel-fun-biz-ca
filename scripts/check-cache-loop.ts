@@ -54,7 +54,7 @@ const samplePaths: Record<string, string> = {
   '/best-time-to-visit/tahiti': '/x-cache/best-time-to-visit/tahiti',
   '/from/toronto': '/x-cache/from/toronto',
   '/packages': '/x-cache/packages',
-  '/blog/another-post': '/x-cache/blog/another-post',
+  '/packages/australia-new-zealand': '/x-cache/packages/australia-new-zealand',
   '/who-we-are': '/x-cache/who-we-are',
   '/destinations': '/x-cache/destinations',
   '/destinations/tahiti': '/x-cache/destinations/tahiti',
@@ -101,7 +101,7 @@ for (const [path, mirror] of Object.entries(samplePaths)) {
 check(at({ pathname: '/', defaultCurrency: 'usd', currencyCookie: 'usd' }).action === 'rewrite', 'usd site: a usd cookie is the default')
 check(at({ pathname: '/', defaultCurrency: 'usd', currencyCookie: 'cad' }).action === 'pass', 'usd site: a cad cookie is a choice')
 // Paths that must never be rewritten.
-for (const p of ['/admin', '/admin/blog', '/api/preferences', '/api/submit-lead', '/links', '/thank-you', '/submit-trip/abc', '/recap/abc', '/sitemap.xml', '/robots.txt', '/llms.txt', '/blog/rss.xml', '/og/news/x.png', '/go/abc', '/carousel/a/1', '/social-cover/a/b', '/_next/static/x.js', '/blog/a/b', '/from', '/compare', '/best-time-to-visit', '/packages/a/b', '/packages/australia-new-zealand', '/random-page']) {
+for (const p of ['/admin', '/admin/blog', '/api/preferences', '/api/submit-lead', '/links', '/thank-you', '/submit-trip/abc', '/recap/abc', '/sitemap.xml', '/robots.txt', '/llms.txt', '/blog/rss.xml', '/og/news/x.png', '/go/abc', '/carousel/a/1', '/social-cover/a/b', '/_next/static/x.js', '/blog/a/b', '/from', '/compare', '/best-time-to-visit', '/packages/a/b', '/random-page']) {
   check(at({ pathname: p }).action === 'pass', `${p} must never be rewritten`)
 }
 // Kill switch parsing.
@@ -139,7 +139,8 @@ for (const r of MIRRORED_ROUTES) {
   // metadata: same name as the original exports, re-exported from the original.
   const origMeta = /export const metadata\b/.test(orig) ? 'metadata' : /export (async )?function generateMetadata\b/.test(orig) ? 'generateMetadata' : null
   check(origMeta !== null, `${origRel}: no metadata export found (every public page needs one)`)
-  if (origMeta) check(stub.includes(`export { ${origMeta} } from '${importPath}'`), `${stubRel}: must re-export ${origMeta} from the real page`)
+  // A page whose generateMetadata reads data wraps it in runStatic() instead (see the packages/[slug] check below).
+  if (origMeta) check(stub.includes(`export { ${origMeta} } from '${importPath}'`) || (origMeta === 'generateMetadata' && /generateMetadata as realGenerateMetadata\b/.test(stub) && stub.includes(`from '${importPath}'`)), `${stubRel}: must re-export ${origMeta} from the real page`)
   // revalidate literal; equal to the original when the original has one.
   const sr = /^export const revalidate = (\d+)$/m.exec(stub)
   check(!!sr, `${stubRel}: needs a literal "export const revalidate = N" (Next reads it statically)`)
@@ -177,6 +178,10 @@ for (const f of walk(join(ROOT, 'app')).concat(walk(join(ROOT, 'components')))) 
 }
 const sb = read('lib/supabase-admin.ts')
 check(/isStaticRender\(\)\s*\?\s*fetch\(input, \{ \.\.\.init, next: \{ revalidate: 300 \} \}\)\s*:\s*fetch\(input, \{ \.\.\.init, cache: 'no-store' \}\)/.test(sb), "lib/supabase-admin.ts: reads are live ('no-store') everywhere except inside runStatic(), where they cache for 300 s")
+
+// generateMetadata runs outside the page render's async context. A mirror that re-exports it as-is reads the database 'no-store' and Next
+// answers 500 ("Page changed from static to dynamic at runtime"), seen 2026-10-24 on past trips with a recap bundle. It must be wrapped.
+check(/export function generateMetadata[\s\S]*runStatic\(\(\) => realGenerateMetadata\(props\)\)/.test(read('app/x-cache/packages/[slug]/page.tsx')), 'app/x-cache/packages/[slug]: generateMetadata must run inside runStatic()')
 
 // ---------- 5. The mirror folder never leaks ----------
 const leakFiles = ['app/sitemap.ts', 'app/robots.ts', 'app/llms.txt/route.ts', 'app/llms-full.txt/route.ts', 'app/blog/rss.xml/route.ts', 'lib/site.ts', 'lib/jsonld.ts', 'content/navigation.ts', 'content/footer.ts', 'components/header.tsx', 'components/footer.tsx', 'lib/org-jsonld.ts']
