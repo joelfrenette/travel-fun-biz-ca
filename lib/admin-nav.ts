@@ -186,10 +186,10 @@ const unsortedTools: AdminNavItem[] = [
   },
   {
     title: "SEO & GEO Manager",
-    description: "Mass update alt tags, meta descriptions, OG images, robots.txt, AI.txt, and submit to search engines.",
+    description: "The SEO, AEO, GEO and local checklist in order of impact: what the site passes or fails automatically, what only you can do, and a place to paste tips from influencers.",
     icon: Globe,
-    status: "Coming Soon",
-    href: null,
+    status: "Active",
+    href: "/admin/seo-manager",
   },
   {
     title: "Site Settings",
