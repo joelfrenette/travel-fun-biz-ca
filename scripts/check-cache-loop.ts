@@ -140,7 +140,14 @@ for (const r of MIRRORED_ROUTES) {
   const origMeta = /export const metadata\b/.test(orig) ? 'metadata' : /export (async )?function generateMetadata\b/.test(orig) ? 'generateMetadata' : null
   check(origMeta !== null, `${origRel}: no metadata export found (every public page needs one)`)
   // A page whose generateMetadata reads data wraps it in runStatic() instead (see the packages/[slug] check below).
-  if (origMeta) check(stub.includes(`export { ${origMeta} } from '${importPath}'`) || (origMeta === 'generateMetadata' && /generateMetadata as realGenerateMetadata\b/.test(stub) && stub.includes(`from '${importPath}'`)), `${stubRel}: must re-export ${origMeta} from the real page`)
+  if (origMeta === 'metadata') check(stub.includes(`export { metadata } from '${importPath}'`), `${stubRel}: must re-export metadata from the real page`)
+  // generateMetadata runs outside the page render's async context: EVERY mirror must wrap it in runStatic() (a bare re-export reads the
+  // database no-store and Next answers 500 "Page changed from static to dynamic at runtime").
+  if (origMeta === 'generateMetadata') {
+    check(!stub.includes(`export { generateMetadata }`), `${stubRel}: must not re-export generateMetadata as-is; wrap it in runStatic()`)
+    check(stub.includes(`import { generateMetadata as realGenerateMetadata } from '${importPath}'`), `${stubRel}: must import the real generateMetadata as realGenerateMetadata from ${importPath}`)
+    check(/export function generateMetadata\(\.\.\.args: Parameters<typeof realGenerateMetadata>\) \{\s*return runStatic\(\(\) => realGenerateMetadata\(\.\.\.args\)\)\s*\}/.test(stub), `${stubRel}: generateMetadata must run inside runStatic()`)
+  }
   // revalidate literal; equal to the original when the original has one.
   const sr = /^export const revalidate = (\d+)$/m.exec(stub)
   check(!!sr, `${stubRel}: needs a literal "export const revalidate = N" (Next reads it statically)`)
@@ -181,7 +188,8 @@ check(/isStaticRender\(\)\s*\?\s*fetch\(input, \{ \.\.\.init, next: \{ revalidat
 
 // generateMetadata runs outside the page render's async context. A mirror that re-exports it as-is reads the database 'no-store' and Next
 // answers 500 ("Page changed from static to dynamic at runtime"), seen 2026-10-24 on past trips with a recap bundle. It must be wrapped.
-check(/export function generateMetadata[\s\S]*runStatic\(\(\) => realGenerateMetadata\(props\)\)/.test(read('app/x-cache/packages/[slug]/page.tsx')), 'app/x-cache/packages/[slug]: generateMetadata must run inside runStatic()')
+// (Enforced for every mirror in section 3; the packages/[slug] case is kept explicit because it was the one that failed live.)
+check(/export function generateMetadata[\s\S]*runStatic\(\(\) => realGenerateMetadata\(\.\.\.args\)\)/.test(read('app/x-cache/packages/[slug]/page.tsx')), 'app/x-cache/packages/[slug]: generateMetadata must run inside runStatic()')
 
 // ---------- 5. The mirror folder never leaks ----------
 const leakFiles = ['app/sitemap.ts', 'app/robots.ts', 'app/llms.txt/route.ts', 'app/llms-full.txt/route.ts', 'app/blog/rss.xml/route.ts', 'lib/site.ts', 'lib/jsonld.ts', 'content/navigation.ts', 'content/footer.ts', 'components/header.tsx', 'components/footer.tsx', 'lib/org-jsonld.ts']

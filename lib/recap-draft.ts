@@ -68,7 +68,7 @@ ${recapGrounding(input.trip, notes)}
 
 Rules for every field:
 - Past tense, warm and plain, Canadian spelling. "We" and "our" are fine. Reuse the notes' own words and facts. A check rejects any sentence whose words are mostly not in the notes or the page, any capitalised name that is not in them, any number or number word they do not use, any price, and any weather, crowd or "how everyone felt" claim they do not make.
-- Never invent a venue, restaurant, person, guest name, quote, review, date or what anyone said or felt. No quotation marks at all. No phone numbers, emails or web addresses. No best, number one, award-winning, top-rated, world-class, finest, luxury or famous. No em dashes or en dashes.
+- Never invent a venue, restaurant, person, guest name, quote, review, date or what anyone said or felt. No quotation marks at all. No phone numbers, emails or web addresses. No number one, award-winning, top-rated, world-class, luxury or famous. No em dashes or en dashes.
 
 Return ONLY minified JSON:
 {"summary":"...","highlights":["..."],"faqs":[{"q":"${MODEL_FAQ_QUESTIONS[0]}","a":"..."},{"q":"${MODEL_FAQ_QUESTIONS[1]}","a":"..."},{"q":"${MODEL_FAQ_QUESTIONS[2]}","a":"..."}],"takeaways":["..."],"meta_title":"...","meta_description":"..."}

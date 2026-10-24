@@ -14,7 +14,9 @@ import { healLoopCard } from '@/lib/heal-loop'
 import { orderWebhookFailureCount } from '@/lib/webhook-order-result'
 import { readCrawlState, dismissCrawlErrors } from '@/lib/site-crawl-run'
 import { undismissedErrors, pathOf as crawlPathOf } from '@/lib/site-crawl'
-import { AI_SPEND_ISSUE_ID, AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, SITE_CRAWL_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, ORDER_WEBHOOK_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
+import { readVerifyState, failingSummary } from '@/lib/publish-verify'
+import { readInspectionState, stuckNotIndexed } from '@/lib/gsc-inspect'
+import { PUBLISH_VERIFY_ISSUE_ID, NOT_INDEXED_ISSUE_ID, INSPECT_PERMISSION_ISSUE_ID, AI_SPEND_ISSUE_ID, AFFILIATE_PARTNER_ISSUE_ID, CANNIBALISATION_ISSUE_ID, GUIDE_ORPHANS_ISSUE_ID, SITE_CRAWL_ISSUE_ID, HEAL_LOOP_ISSUE_ID, NEWS_SETUP_ISSUE_ID, NEWS_SOURCE_ISSUE_PREFIX, ORDER_WEBHOOK_ISSUE_ID, PROMOTION_ISSUE_ID } from '@/lib/plain-steps'
 import { failingSources, newsTableReady } from '@/lib/news-ingest'
 import { getNewsMode } from '@/lib/news-settings'
 import { sourceByKey } from '@/lib/news-sources'
@@ -230,6 +232,54 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
     }
   } catch {
     // an unreadable crawl result is not worth failing the list
+  }
+
+  // Pages that failed the post-publish check (lib/publish-verify.ts: fetched with no cookie, then status, canonical, one H1, JSON-LD, sitemap).
+  // ONE item lists them; it disappears by itself when a later look passes. Silent when the state cannot be read ("could not read" is not a failure).
+  try {
+    const verify = await readVerifyState(admin)
+    const failing = verify ? failingSummary(verify) : []
+    if (failing.length > 0) {
+      issues.push({
+        id: PUBLISH_VERIFY_ISSUE_ID,
+        area: 'system',
+        title: `${failing.length} page${failing.length === 1 ? '' : 's'} failed the check right after going live`,
+        detail: failing.slice(0, 5).map((f) => `${f.path}: ${f.reasons.join(', ')}`).join(' | ') + (failing.length > 5 ? ` and ${failing.length - 5} more` : '') + '.',
+        fix: 'Open the page in a private browser window. If it shows an error, tell Claude the address. If it looks fine, wait an hour: the site looks again by itself.',
+        link: { label: 'Open System Health', href: '/admin/system-health' },
+      })
+    }
+  } catch {
+    // an unreadable check result is not worth failing the list
+  }
+
+  // Pages Google says are not indexed a week after publishing (lib/gsc-inspect.ts). Informational (never emailed); silent when nothing is
+  // stuck, when the permission is missing (the card on the SEO page says so) or when the state cannot be read.
+  try {
+    const inspect = await readInspectionState(admin)
+    if (inspect?.read?.status === 'no_permission') {
+      issues.push({
+        id: INSPECT_PERMISSION_ISSUE_ID,
+        area: 'setup',
+        title: 'Google will not say which pages it has indexed yet',
+        detail: inspect.read.note,
+        fix: 'Add the Google service account as a user on the Search Console property (Settings, then Users and permissions), and check SEARCH_CONSOLE_SITE_URL matches that property.',
+        link: { label: 'Open Google Search Console', href: 'https://search.google.com/search-console' },
+      })
+    }
+    const stuck = inspect ? stuckNotIndexed(inspect, Date.now()) : []
+    if (stuck.length > 0) {
+      issues.push({
+        id: NOT_INDEXED_ISSUE_ID,
+        area: 'system',
+        title: `For your information: ${stuck.length} page${stuck.length === 1 ? ' is' : 's are'} still not in Google a week after publishing`,
+        detail: stuck.slice(0, 5).map((s) => `${s.path}: ${s.reason}`).join(' | ') + (stuck.length > 5 ? ` and ${stuck.length - 5} more` : '') + '.',
+        fix: 'Nothing is broken by itself. Google decides slowly on a young site. If a reason mentions "blocked", "noindex" or a redirect, tell Claude the address. Otherwise add a link to the page from a popular page and check again in a week.',
+        link: { label: 'Open Google Search Console', href: 'https://search.google.com/search-console' },
+      })
+    }
+  } catch {
+    // an unreadable inspection result is not worth failing the list
   }
 
   // Paid orders from GoHighLevel that could not be saved (the webhook answered 500 so GoHighLevel retries). Silent when none,

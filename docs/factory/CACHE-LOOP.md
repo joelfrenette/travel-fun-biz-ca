@@ -103,6 +103,14 @@ Two details that matter:
 - **Cache key correctness**: the cached copy lives at `/x-cache/...`, a different path from the cookie copy, so a French or USD visitor can
   never be handed the English copy.
 
+**generateMetadata rule (2026-10-24).** `generateMetadata` runs outside the page render's async context, so a bare re-export reads the database
+`no-store` and Next answers HTTP 500 ("Page changed from static to dynamic at runtime"). Every mirror stub whose real page has
+`generateMetadata` must wrap it: `export function generateMetadata(...args: Parameters<typeof realGenerateMetadata>) { return runStatic(() => realGenerateMetadata(...args)) }`.
+`scripts/check-cache-loop.ts` enforces this for every mirror. Pages with a static `metadata` const are re-exported as is.
+
 ## 6. Live checks after deploy
+
+After a deploy run `pnpm dlx tsx scripts/sweep-cookieless.ts` (every sitemap URL, no cookies, prints non-200s). New pages are also checked
+automatically by `lib/publish-verify.ts`.
 
 See the report that accompanies this change (curl commands for en, fr and es, and the cache headers).

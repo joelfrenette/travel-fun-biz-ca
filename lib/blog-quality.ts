@@ -1,4 +1,5 @@
 import type { ComposedPost } from '@/lib/blog-composer'
+import { isGenericAlt } from '@/lib/image-quality'
 
 // Blog quality bar (loop-blog-quality). PURE: no database, no AI, no network. One editor audit of the ten live posts scored
 // them about 5 out of 10: the same template everywhere, no real trip facts, few links, no contact link, titles that promise
@@ -29,6 +30,10 @@ export const QUALITY_PREFIXES = [
   'no content style recorded',
   'no primary keyword recorded',
   'no Quick answer line',
+  'Quick answer length',
+  'meta title duplicates another page',
+  'meta description duplicates another page',
+  'cover image alt text',
 ] as const
 
 const QUALITY_RE = new RegExp(`^(${QUALITY_PREFIXES.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`)
@@ -43,15 +48,26 @@ export function isQualityBlocker(blocker: string): boolean {
 // ---------------------------------------------------------------------------------------------------
 
 export type QualityPost = Pick<ComposedPost, 'title' | 'body' | 'faq' | 'primary_keyword' | 'content_style'> &
-  Partial<Pick<ComposedPost, 'seo_title' | 'seo_description' | 'og_title' | 'og_description' | 'key_takeaways'>>
+  Partial<Pick<ComposedPost, 'seo_title' | 'seo_description' | 'og_title' | 'og_description' | 'key_takeaways' | 'slug'>>
 
 export interface TripDates {
   from?: string | null
   to?: string | null
 }
 
+/** The search-result text of another live page, for the "meta text must be unique" check. */
+export interface OtherMeta {
+  slug?: string | null
+  title?: string | null
+  description?: string | null
+}
+
 export interface QualityCtx {
   now: Date
+  /** Search title and description of the OTHER live pages. Unset means "not known", and the uniqueness check is skipped (never a blocker). */
+  otherMeta?: OtherMeta[]
+  /** The cover picture and its alt text, when known. Unset means "not known" (the post is checked before its photo is attached) and the check is skipped. */
+  cover?: { url?: string | null; alt?: string | null } | null
   /** The facts the writer had (angle, package text). A claim or brand in the post must be here to pass. */
   groundingText?: string
   /** The linked trip's travel dates, for the "year in the title matches the trip" check. */
@@ -127,10 +143,10 @@ export function faqMetaHits(faq: { q: string; a: string }[]): string[] {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Unverifiable superlatives (only, first, best, most + a place)
+// Unverifiable superlatives (only, first, most + a place). "The best ..." is an opinion and is allowed.
 // ---------------------------------------------------------------------------------------------------
 
-const SUPER_MARKER = /\b(?:the only|only one|the first|the best|the most [a-z]+|the (?:largest|longest|tallest|highest|oldest|biggest|smallest|fastest|steepest|deepest|newest))\b/gi
+const SUPER_MARKER = /\b(?:the only|only one|the first|the most [a-z]+|the (?:largest|longest|tallest|highest|oldest|biggest|smallest|fastest|steepest|deepest|newest))\b/gi
 /** Words after the marker that make it ordinary advice, not a claim ("the best time", "the first step"). */
 const SUPER_ORDINARY_NEXT = /^\s*(?:time|times|way|ways|thing|things|step|steps|tip|tips|day|days|night|nights|idea|ideas|question|questions|approach|bet|move|rule|sign|signs|mistake|mistakes|part|stage|choice|option|reason|point|place to start|season|month|months|week|weeks|common|important|useful|practical|helpful|obvious|likely|simple|easy|sensible|realistic|honest|real|big|key|main)\b/i
 const SUPER_PLACE = /\b(?:in|of|on|across|throughout|within|around|along)\s+(?:the\s+)?(?:[A-Z][\p{L}'’-]+|world|region|country|island|city|continent|area|caribbean|mediterranean)/u
@@ -286,6 +302,120 @@ export function hasContactOrTripLink(body: string): boolean {
 export const QUICK_ANSWER_RE = /^\s*\*\*quick answer:?\*\*/im
 export const hasQuickAnswer = (body: string): boolean => QUICK_ANSWER_RE.test(body)
 
+// Quick answer length. The writer's prompt asks for "a one or two sentence summary" after the label, and the opening-sentence gate caps one
+// sentence at 25 words, so a well-formed answer is roughly 15 words (one short sentence) to 50 words (two full ones). 60 leaves headroom
+// for a long second sentence. Below 15 words it is a fragment an answer box will not quote; above 60 it is a paragraph, not an answer.
+// (Written from the prompt and the gate rules; run scripts/quick-answer-lengths.ts against the live posts to confirm the spread.)
+export const QUICK_ANSWER_MIN_WORDS = 15
+export const QUICK_ANSWER_MAX_WORDS = 60
+
+const wordCountOf = (s: string): number => s.split(/\s+/).filter(Boolean).length
+
+/** The Quick answer paragraph split into its label and its text, or null when the body has none. A paragraph runs to the next blank line. Pure. */
+export function quickAnswerParts(body: string): { label: string; text: string; paragraph: string } | null {
+  const m = QUICK_ANSWER_RE.exec(body)
+  if (!m) return null
+  const start = m.index + m[0].length - m[0].trimStart().length
+  const rest = body.slice(start)
+  const end = rest.search(/\n\s*\n/)
+  const paragraph = end === -1 ? rest : rest.slice(0, end)
+  const label = /^\*\*quick answer:?\*\*/i.exec(paragraph)?.[0] ?? '**Quick answer:**'
+  return { label, text: paragraph.slice(label.length).trim(), paragraph }
+}
+
+/** Words in the Quick answer text (a link counts as its words). Null when there is no Quick answer. Pure. */
+export function quickAnswerWords(body: string): number | null {
+  const q = quickAnswerParts(body)
+  return q ? wordCountOf(unlink(q.text)) : null
+}
+
+/** Why the Quick answer is the wrong length, or null when it is fine or absent (the absence has its own blocker). Pure. */
+export function quickAnswerLengthIssue(body: string): string | null {
+  const n = quickAnswerWords(body)
+  if (n === null) return null
+  if (n < QUICK_ANSWER_MIN_WORDS) return `Quick answer length: ${n} words is too short to quote, it needs ${QUICK_ANSWER_MIN_WORDS} to ${QUICK_ANSWER_MAX_WORDS}`
+  if (n > QUICK_ANSWER_MAX_WORDS) return `Quick answer length: ${n} words is too long to quote, it needs ${QUICK_ANSWER_MIN_WORDS} to ${QUICK_ANSWER_MAX_WORDS}`
+  return null
+}
+
+/** Brings a Quick answer inside the word range using only text the post already holds: a long one is cut back to whole sentences, a short one is
+ * extended with the post's own takeaways. Unchanged when it is already fine, when no whole-sentence cut fits, or when the takeaways do not reach the
+ * range (a model rewrite handles those, see qualityOffenders). Pure. */
+export function fitQuickAnswer(body: string, takeaways: string[]): string {
+  const q = quickAnswerParts(body)
+  if (!q || !quickAnswerLengthIssue(body)) return body
+  const sentences = q.text.split(/(?<=[.!?])\s+/).filter((s) => s.trim())
+  const n = wordCountOf(unlink(q.text))
+  let next: string | null = null
+  if (n > QUICK_ANSWER_MAX_WORDS) {
+    const kept: string[] = []
+    for (const s of sentences) {
+      if (wordCountOf(unlink([...kept, s].join(' '))) > QUICK_ANSWER_MAX_WORDS) break
+      kept.push(s)
+    }
+    if (kept.length && wordCountOf(unlink(kept.join(' '))) >= QUICK_ANSWER_MIN_WORDS) next = kept.join(' ')
+  } else {
+    const lower = unlink(q.text).toLowerCase()
+    const extra: string[] = []
+    for (const t of takeaways) {
+      const line = t.trim().replace(/[\s.]+$/, '')
+      if (!line || lower.includes(line.toLowerCase()) || extra.some((e) => e.toLowerCase().includes(line.toLowerCase()))) continue
+      const candidate = `${q.text.replace(/\s+$/, '')} ${[...extra, `${line[0].toUpperCase()}${line.slice(1)}.`].join(' ')}`
+      if (wordCountOf(unlink(candidate)) > QUICK_ANSWER_MAX_WORDS) continue
+      extra.push(`${line[0].toUpperCase()}${line.slice(1)}.`)
+      if (wordCountOf(unlink(`${q.text} ${extra.join(' ')}`)) >= QUICK_ANSWER_MIN_WORDS) break
+    }
+    const joined = `${q.text.replace(/\s+$/, '')} ${extra.join(' ')}`.trim()
+    if (extra.length && wordCountOf(unlink(joined)) >= QUICK_ANSWER_MIN_WORDS && wordCountOf(unlink(joined)) <= QUICK_ANSWER_MAX_WORDS) next = joined
+  }
+  if (!next) return body
+  return body.replace(q.paragraph, `${q.label} ${next}`)
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Unique meta text, useful cover alt text
+// ---------------------------------------------------------------------------------------------------
+
+const normMeta = (s: string | null | undefined): string => (s ?? '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+const tokensOf = (s: string): Set<string> => new Set(s.split(' ').filter((w) => w.length > 2))
+
+/** A title or description counts as "the same as" another when it is equal after punctuation and case are ignored, or when it shares at least this
+ * share of its words with it (words over two letters, both ways). */
+export const META_SIMILARITY = 0.85
+/** Texts shorter than this many words are only compared for equality (two short titles can share most of their few words by chance). */
+const META_MIN_WORDS_FOR_SIMILARITY = 5
+
+/** True when two search texts are equal or nearly equal. Pure. */
+export function metaTextsClash(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = normMeta(a)
+  const y = normMeta(b)
+  if (!x || !y) return false
+  if (x === y) return true
+  const tx = tokensOf(x)
+  const ty = tokensOf(y)
+  if (tx.size < META_MIN_WORDS_FOR_SIMILARITY || ty.size < META_MIN_WORDS_FOR_SIMILARITY) return false
+  let shared = 0
+  for (const w of tx) if (ty.has(w)) shared++
+  return shared / Math.max(tx.size, ty.size) >= META_SIMILARITY
+}
+
+/** Which of the post's search title and description repeat another live page's. Pure. */
+export function metaDuplicates(post: Pick<QualityPost, 'seo_title' | 'seo_description' | 'slug'>, others: OtherMeta[] | undefined): { title: string | null; description: string | null } {
+  const out = { title: null as string | null, description: null as string | null }
+  for (const o of others ?? []) {
+    if (post.slug && o.slug && o.slug === post.slug) continue
+    if (!out.title && post.seo_title && metaTextsClash(post.seo_title, o.title)) out.title = o.title ?? null
+    if (!out.description && post.seo_description && metaTextsClash(post.seo_description, o.description)) out.description = o.description ?? null
+  }
+  return out
+}
+
+/** Why a cover picture has no useful alt text, or null when it is fine or there is no cover (or it is not known yet). Pure. */
+export function coverAltIssue(cover: { url?: string | null; alt?: string | null } | null | undefined): string | null {
+  if (!cover || !(cover.url ?? '').trim()) return null
+  return isGenericAlt(cover.alt) ? 'cover image alt text is missing or generic (a short description of the picture and the place is needed)' : null
+}
+
 // ---------------------------------------------------------------------------------------------------
 // The gate
 // ---------------------------------------------------------------------------------------------------
@@ -306,6 +436,16 @@ export function qualityBlockers(post: QualityPost, ctx: QualityCtx): string[] {
   if (links.length < MIN_INTERNAL_LINKS) blockers.push(`too few internal links (${links.length}, needs at least ${MIN_INTERNAL_LINKS})`)
   if (!hasContactOrTripLink(stored)) blockers.push('no contact or trip link')
   if (!hasQuickAnswer(post.body)) blockers.push('no Quick answer line')
+  else {
+    const lengthIssue = quickAnswerLengthIssue(post.body)
+    if (lengthIssue) blockers.push(lengthIssue)
+  }
+
+  const dup = metaDuplicates(post, ctx.otherMeta)
+  if (dup.title) blockers.push(`meta title duplicates another page ("${dup.title.slice(0, 70)}")`)
+  if (dup.description) blockers.push(`meta description duplicates another page ("${dup.description.slice(0, 70)}")`)
+  const altIssue = coverAltIssue(ctx.cover)
+  if (altIssue) blockers.push(`cover image alt text: ${altIssue}`)
 
   const opening = firstSentenceIssue(post.body, post.primary_keyword)
   if (opening) blockers.push(opening)

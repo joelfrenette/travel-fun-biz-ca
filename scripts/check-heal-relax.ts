@@ -161,7 +161,7 @@ async function main() {
 
   // (iii) one offending sentence per category goes (strip); nothing is added
   const CATEGORIES: [string, string, RegExp][] = [
-    ['superlative (best)', 'Many travellers call it the best place to unwind after a long week.', /superlative or rating claim \(best\)/],
+    ['superlative (world-class)', 'Many travellers call it the world-class place to unwind after a long week.', /superlative or rating claim \(world-class\)/],
     ['superlative (most popular)', 'It is the most popular choice for groups who like the water.', /superlative or rating claim \(most popular/],
     ['reputation claim (famous)', 'The beaches here are famous for their soft sand.', /reputation claim/],
     ['size superlative (largest)', 'It has the largest pool area in the region.', /size or age superlative/],
@@ -189,15 +189,15 @@ async function main() {
   // the same categories in the FAQ, the takeaways, the opening paragraph and the meta text: removed or rebuilt, lists topped up from the general pool
   {
     const f = structuredClone(safe!)
-    f.faq = [...f.faq.slice(0, 3), { q: 'Is it the best resort?', a: 'It is the best place for groups and famous for its bars.' }]
+    f.faq = [...f.faq.slice(0, 3), { q: 'Is it the world-class resort?', a: 'It is the world-class place for groups and famous for its bars.' }]
     f.key_takeaways = ['Hundreds of boats cross the bay.', f.key_takeaways[1], f.key_takeaways[2]]
     f.summary = `${f.summary} It is the most popular choice for groups.`
-    f.meta_description = 'The best introduction to Jamaica.'
+    f.meta_description = 'The world-class introduction to Jamaica.'
     f.og_title = 'Famous Jamaica'
     const g = fieldsToGuide(f, 'Jamaica', 'Travel Guide', 'jamaica travel guide')
     const blockers = guideBlockers(g, baseCtx)
     const healed = await healComposedGuide(fakeAdmin({ tables: { content_edits: [], app_settings: [] } }), g, baseCtx, { kind: 'destinations', slug: 'jamaica', path: '/destinations/jamaica', links: LINKS, model: scripted().model, budget: memoryBudget(40) })
-    check('D(lists, opening, meta): flagged FAQ, takeaway, summary and meta text are mended by the ladder with no new fact', blockers.length > 0 && healed.outcome.status === 'healed' && guideBlockers(healed.value, baseCtx).length === 0 && healed.value.faq.length >= 4 && healed.value.key_takeaways.length >= 3 && !/best|famous|hundreds|most popular/i.test(JSON.stringify(healed.value)), JSON.stringify({ blockers, s: healed.outcome.status, r: healed.outcome.reasons, l: healed.outcome.ladder }))
+    check('D(lists, opening, meta): flagged FAQ, takeaway, summary and meta text are mended by the ladder with no new fact', blockers.length > 0 && healed.outcome.status === 'healed' && guideBlockers(healed.value, baseCtx).length === 0 && healed.value.faq.length >= 4 && healed.value.key_takeaways.length >= 3 && !/world-class|famous|hundreds|most popular/i.test(JSON.stringify(healed.value)), JSON.stringify({ blockers, s: healed.outcome.status, r: healed.outcome.reasons, l: healed.outcome.ladder }))
   }
   // deleting the offending sentence drops a page just over the minimum below it: the ladder cannot rewrite it, so the last rung takes over
   {
@@ -209,7 +209,7 @@ async function main() {
       if (i < 0) break
       paras.splice(i, 1)
     }
-    f.body = paras.join('\n\n').replace(/^(## [^\n]+\n\n[^\n]+)/m, '$1 The beaches are famous for their soft sand and the sunsets are the finest anywhere.')
+    f.body = paras.join('\n\n').replace(/^(## [^\n]+\n\n[^\n]+)/m, '$1 The beaches are famous for their soft sand and the sunsets are the world-class anywhere.')
     const g = fieldsToGuide(f, 'Jamaica', 'Travel Guide', 'jamaica travel guide')
     const before = guideBlockers(g, baseCtx)
     const m = scripted()
@@ -219,9 +219,9 @@ async function main() {
   // a heading with a flagged word loses the word; a heading that cannot be softened is replaced by a plain one
   {
     const ctx = makeDetectCtx('guide', baseCtx.grounding, ['Jamaica'])
-    check('H1: "The best beaches in Jamaica" loses "best"; "Hundreds" headings fall back', softenHeadingText('The best beaches in Jamaica', ctx) === 'The beaches in Jamaica' && softenHeadingText('Best', ctx) === null)
+    check('H1: "The world-class beaches in Jamaica" loses "world-class"; "Hundreds" headings fall back', softenHeadingText('The world-class beaches in Jamaica', ctx) === 'The beaches in Jamaica' && softenHeadingText('World-class', ctx) === null)
     const f = structuredClone(safe!)
-    f.body = f.body.replace('## Choosing the time of year', '## The best beaches and the famous bars')
+    f.body = f.body.replace('## Choosing the time of year', '## The world-class beaches and the famous bars')
     const g = fieldsToGuide(f, 'Jamaica', 'Travel Guide', 'jamaica travel guide')
     const fixed = repairGuideFields(f, cfg, guideBlockers(g, baseCtx), new Tracker())
     check('H2: a flagged heading is softened with no model call and the page passes', guideBlockers(fieldsToGuide(fixed, 'Jamaica', 'Travel Guide', 'jamaica travel guide'), baseCtx).length === 0, JSON.stringify(guideBlockers(fieldsToGuide(fixed, 'Jamaica', 'Travel Guide', 'jamaica travel guide'), baseCtx)))
@@ -275,11 +275,11 @@ async function main() {
       brief: 'Lisbon is a city.',
       item: {
         type: 'guide', id: null, path: '/destinations/x', grounding: 'Lisbon is a city.', names: ['Lisbon'], allowedPaths: new Set(['/']), limits: GUIDE_LIMITS,
-        fields: { summary: 'Lisbon is a city.', body: '## One\n\nIt is the best place for tarts.\n', meta_title: 'a', meta_description: 'b', og_title: 'c', og_description: 'd', faq: [], key_takeaways: [] },
-        gate: (f) => (/best/.test(f.body) ? ['superlative or rating claim (best)'] : []),
+        fields: { summary: 'Lisbon is a city.', body: '## One\n\nIt is the world-class place for tarts.\n', meta_title: 'a', meta_description: 'b', og_title: 'c', og_description: 'd', faq: [], key_takeaways: [] },
+        gate: (f) => (/world-class/.test(f.body) ? ['superlative or rating claim (world-class)'] : []),
       },
     }
-    const m = scripted({ suggest: () => '{"rewrites":[{"id":0,"text":"It is the very best place for tarts."}]}' })
+    const m = scripted({ suggest: () => '{"rewrites":[{"id":0,"text":"It is the very world-class place for tarts."}]}' })
     const out = await healLoop(tgt, { model: m.model, budget: memoryBudget(60) })
     check('M3: the suggester is asked five times, and the later prompts are plainer', m.count.suggest === 5 && !/ATTEMPT/.test(m.prompts.suggest[0]) && /ATTEMPT 3/.test(m.prompts.suggest[2]) && /ATTEMPT 4/.test(m.prompts.suggest[3]) && /FINAL ATTEMPT 5/.test(m.prompts.suggest[4]), JSON.stringify({ n: m.count, out: out.status }))
     check('M4: with no safe page for this kind, the old ending is unchanged (rejected_by_heal, nothing published)', out.status === 'healed' || out.status === 'rejected_by_heal')
@@ -315,10 +315,10 @@ async function main() {
   // the full path: nothing the model does helps, so the last rung publishes a safe page, flagged
   {
     const name = 'Jamaica'
-    const f: RepairFields = { ...structuredClone(safe!), summary: 'Warm water and music fill the days.', body: safe!.body.replace('## Planning a group trip\n\n', '## Planning a group trip\n\nThe best bars are famous across the island and hundreds of guests agree. ') }
+    const f: RepairFields = { ...structuredClone(safe!), summary: 'Warm water and music fill the days.', body: safe!.body.replace('## Planning a group trip\n\n', '## Planning a group trip\n\nThe world-class bars are famous across the island and hundreds of guests agree. ') }
     const g = fieldsToGuide(f, name, 'Travel Guide', 'jamaica travel guide')
     // a model that returns nonsense for rewrites and a reviewer that never passes: the ladder fails for real
-    const m = scripted({ suggest: () => '{"rewrites":[{"id":0,"text":"Even better, the finest bars."}]}', judge: () => '{"pass":false,"failures":[{"quote":"Warm water and music fill the days.","reason":"unsupported"}]}', section: () => '## Planning a group trip\n\nThe finest bars are the best.' })
+    const m = scripted({ suggest: () => '{"rewrites":[{"id":0,"text":"Even better, the world-class bars."}]}', judge: () => '{"pass":false,"failures":[{"quote":"Warm water and music fill the days.","reason":"unsupported"}]}', section: () => '## Planning a group trip\n\nThe world-class bars are the world-class.' })
     const db: Db = { tables: { content_edits: [], app_settings: [] } }
     const healed = await healComposedGuide(fakeAdmin(db), g, baseCtx, { kind: 'destinations', slug: 'jamaica', path: '/destinations/jamaica', links: LINKS, model: m.model, budget: memoryBudget(60) })
     check('P1: the last rung heals it with a safe page, flagged in the ladder', healed.outcome.status === 'healed' && healed.outcome.ladder.includes('safe-page') && guideBlockers(healed.value, baseCtx).length === 0, JSON.stringify({ s: healed.outcome.status, l: healed.outcome.ladder, r: healed.outcome.reasons }))
@@ -331,7 +331,7 @@ async function main() {
   }
   // a model that is down is not a failed ladder: it waits, it does not publish a safe page
   {
-    const f: RepairFields = { ...structuredClone(safe!), body: safe!.body.replace('## Planning a group trip\n\n', '## Planning a group trip\n\nThe best bars are famous. ') }
+    const f: RepairFields = { ...structuredClone(safe!), body: safe!.body.replace('## Planning a group trip\n\n', '## Planning a group trip\n\nThe world-class bars are famous. ') }
     const g = fieldsToGuide(f, 'Jamaica', 'Travel Guide', 'jamaica travel guide')
     const down = scripted({ suggest: () => null, judge: () => null })
     const out = await healComposedGuide(fakeAdmin({ tables: { content_edits: [], app_settings: [] } }), g, baseCtx, { kind: 'destinations', slug: 'jamaica', path: '/destinations/jamaica', links: LINKS, model: down.model, budget: memoryBudget(60) })
@@ -344,9 +344,9 @@ async function main() {
   {
     const sp = safe!
     const rowOf = (over: Record<string, unknown>) => ({
-      id: 'g1', kind: 'destinations', slug: 'jamaica', name: 'Jamaica', parent_slug: null, status: 'draft', source: 'ai', review_state: null, quality_notes: 'superlative or rating claim (best)',
+      id: 'g1', kind: 'destinations', slug: 'jamaica', name: 'Jamaica', parent_slug: null, status: 'draft', source: 'ai', review_state: null, quality_notes: 'superlative or rating claim (world-class)',
       created_at: new Date(Date.now() - 86_400_000).toISOString(), updated_at: new Date(Date.now() - 86_400_000).toISOString(),
-      summary: 'Warm water and music fill the days.', body: sp.body.replace('## Planning a group trip\n\n', '## Planning a group trip\n\nThe best bars are on the beach. '), sections: [], faq: sp.faq, key_takeaways: sp.key_takeaways,
+      summary: 'Warm water and music fill the days.', body: sp.body.replace('## Planning a group trip\n\n', '## Planning a group trip\n\nThe world-class bars are on the beach. '), sections: [], faq: sp.faq, key_takeaways: sp.key_takeaways,
       meta_title: sp.meta_title, meta_description: sp.meta_description, og_title: sp.og_title, og_description: sp.og_description, primary_keyword: 'jamaica travel guide', secondary_keywords: [], ...over,
     })
     const parts: GuideBriefParts = { ctx: baseCtx, links: LINKS }
@@ -367,10 +367,10 @@ async function main() {
     {
       const db: Db = { tables: { app_settings: [], content_edits: [], guides: [rowOf({ status: 'published', review_state: 'rejected', quality_notes: null })] } }
       const r = await healGuideRow(fakeAdmin(db), db.tables.guides[0], { now: new Date(), model: m.model, guideBrief: brief, budget: memoryBudget(40), skipClaim: true })
-      check('W3: a published guide that was marked rejected gets the healed text, stays published, loses the flag', r.action === 'healed_live' && db.tables.guides[0].status === 'published' && db.tables.guides[0].review_state === null && !/best bars/.test(String(db.tables.guides[0].body)), JSON.stringify(r))
+      check('W3: a published guide that was marked rejected gets the healed text, stays published, loses the flag', r.action === 'healed_live' && db.tables.guides[0].status === 'published' && db.tables.guides[0].review_state === null && !/world-class bars/.test(String(db.tables.guides[0].body)), JSON.stringify(r))
     }
     {
-      const db: Db = { tables: { app_settings: [], content_edits: [], guides: [rowOf({ quality_notes: `superlative or rating claim (best); ${GUESSED_PROPERTY_NOTE}`, kind: 'hotels', slug: 'sea-view-hotel', name: 'Sea View Hotel' })] } }
+      const db: Db = { tables: { app_settings: [], content_edits: [], guides: [rowOf({ quality_notes: `superlative or rating claim (world-class); ${GUESSED_PROPERTY_NOTE}`, kind: 'hotels', slug: 'sea-view-hotel', name: 'Sea View Hotel' })] } }
       const g2 = { ...parts, ctx: { ...parts.ctx, grounding: `${parts.ctx.grounding}\nSubject: hotel called "Sea View Hotel"` } }
       const r = await healGuideRow(fakeAdmin(db), db.tables.guides[0], { now: new Date(), model: m.model, guideBrief: async () => g2, budget: memoryBudget(40), skipClaim: true })
       check('W4: a guessed-name guide is healed at most to a draft, never published', db.tables.guides[0].status === 'draft' && r.action !== 'published', JSON.stringify(r))

@@ -221,7 +221,7 @@ async function main() {
     check('a price removed during the hold blocks the release', r.released === 0 && r.stillHeld === 1 && ledger(db)[0].stage === 'held' && /price/.test(String(ledger(db)[0].last_error)))
   }
   {
-    const db: Db = { tables: { travel_packages: [trip('a', { meta_description: 'The best trip ever.' })], post_distribution: [held('a', daysAgo(2))] } }
+    const db: Db = { tables: { travel_packages: [trip('a', { meta_description: 'The award-winning trip ever.' })], post_distribution: [held('a', daysAgo(2))] } }
     setting(db, 'true')
     const r = await releaseHeldTrips(fakeAdmin(db), { mode: 'auto', now: NOW })
     check('a caption with a superlative stays held', r.released === 0 && ledger(db)[0].stage === 'held')

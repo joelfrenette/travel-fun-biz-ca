@@ -64,7 +64,7 @@ export const GUIDE_WORDS_MAX = 2300
 
 const NO_FABRICATION = `Never claim personal experience, a specific past trip, a named traveler, a specific date, or a price. You are a marketing writer for a travel agency, not someone who has been there, and the agency has not sent travellers there unless the GROUNDING says so. Write only general, guidebook-level knowledge. If you are not sure a specific thing (a dish, landmark, neighbourhood, restaurant, deck, route or feature) is real or still true, leave it out and describe the general character instead. If you do not recognise the subject, say less and stay general about what that kind of place or ship is like; never guess its features.`
 
-const BANNED_WORDS_RULE = `Never use these words or ideas about the subject: best, number one, #1, award-winning, awards, 5-star, five-star, any star rating, top-rated, highly rated, world-class, finest, newly or recently renovated or built, brand new. ("The best time to visit" is the only allowed use of "best".) Write no digits (0-9) at all unless the exact same number appears in the GROUNDING; keep amounts vague and in words ("a couple of days", "most travellers"). State no prices, dates, availability, room, cabin, restaurant, deck or passenger counts, distances, years built, tonnage or other exact statistics. Do not use em dashes or en dashes anywhere; use commas or full stops.`
+const BANNED_WORDS_RULE = `Never use these words or ideas about the subject: number one, #1, award-winning, awards, 5-star, five-star, any star rating, top-rated, highly rated, world-class, newly or recently renovated or built, brand new. Opinion words are fine when they read as a warm recommendation and not as a checkable fact: "best", "finest", "favourite", "top", "stunning" ("the best beach to start with", "a stunning stretch of coast", "best river cruises for first-timers"). Never turn an opinion into a ranking, a rating, an award or a statistic. Write no digits (0-9) at all unless the exact same number appears in the GROUNDING; keep amounts vague and in words ("a couple of days", "most travellers"). State no prices, dates, availability, room, cabin, restaurant, deck or passenger counts, distances, years built, tonnage or other exact statistics. Do not use em dashes or en dashes anywhere; use commas or full stops.`
 
 const SECTION_PLANS: Record<GuideKind, string[]> = {
   destinations: ['why go', 'neighbourhoods or regions', 'what to do', 'food and drink', 'when to go, in general terms (seasons only, no months or weather numbers)', 'getting around', 'who it suits', 'how a hosted group trip here typically works (general, no claim about our past trips; mention a package only if the GROUNDING lists one)'],
@@ -285,15 +285,15 @@ const EXPERIENCE_CLAIM_PATTERNS = [
   /\bour (guests|clients|travell?ers|groups|customers) (loved|love|rave|told|tell|say|said|enjoyed)\b/i,
   /\bwe (recently|often|regularly) (send|sent|take|took|brought)\b/i,
 ]
-// Words that make a claim about a named property that cannot be checked. "The best time to visit" is the only
-// allowed use of "best".
+// Words that make a claim about a named property that cannot be checked: rankings, ratings, awards, reputation and size or age
+// facts. Opinion words (best, finest, favourite, top, stunning) are NOT here: Joel, a travel agency owner, says "this place is the
+// best" is fine. A ranking, a rating or an award still is blocked below.
 const SUPERLATIVE_PATTERNS: [RegExp, string][] = [
-  [/\bbest\b(?!\s+(?:time|times|season|months?)\b)/i, 'best'],
   [/\bnumber (?:one|1)\b|#\s?1\b|\bno\.?\s?1\b/i, 'number one'],
   [/\baward[- ]winning\b|\bawards?\b|\bmichelin\b/i, 'award claim'],
   [/\b(?:[1-5]|one|two|three|four|five)[- ]stars?\b|\bstar[- ]rated\b|\b\d(?:\.\d)? stars\b/i, 'star rating'],
   [/\b(?:top|highly|best|five-star)[- ]rated\b/i, 'top-rated'],
-  [/\bworld[- ]class\b|\bfinest\b|\bunrivall?ed\b|\bunparalleled\b|\bunmatched\b/i, 'world-class'],
+  [/\bworld[- ]class\b|\bunrivall?ed\b|\bunparalleled\b|\bunmatched\b/i, 'world-class'],
   [/\b(?:largest|biggest|smallest|oldest|newest|latest|tallest)\b/i, 'size or age superlative'],
   [/\bmost (?:popular|loved|famous|luxurious|beautiful|visited)\b/i, 'most popular or similar'],
   [/\b(?:leading|premier|acclaimed|renowned|legendary|iconic|famous|must-see)\b|\bluxur(?:y|ious)\b/i, 'reputation claim'],

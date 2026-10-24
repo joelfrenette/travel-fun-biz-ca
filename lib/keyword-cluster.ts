@@ -249,7 +249,7 @@ export function validatePlanItem(raw: unknown, cluster: KeywordCluster, validSlu
   if (/[$]/.test(`${title} ${angle} ${who}`)) problems.push('mentions a price')
   // A superlative in the idea only gets repaired away later by the writer's gate; better not to plan one.
   // "best time to visit" is ordinary search wording, so that phrase alone is allowed.
-  const superlative = `${title} ${angle} ${who}`.replace(/\bbest (?:time|times|season|months?)\b/gi, '').match(/\b(?:best|top|ultimate|number one|must-see|world-class|perfect|greatest|finest|unbeatable)\b/i)
+  const superlative = `${title} ${angle} ${who}`.replace(/\bbest (?:time|times|season|months?)\b/gi, '').match(/\b(?:ultimate|number one|must-see|world-class|perfect|greatest|unbeatable)\b/i)
   if (superlative) problems.push(`uses a superlative ("${superlative[0]}")`)
 
   const allowedNumbers = new Set(numbersIn(`${cluster.members.join(' ')} ${packageText}`))

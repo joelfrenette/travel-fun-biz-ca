@@ -74,7 +74,7 @@ check('ignores null and unknown history entries', pickStyle([null, 'nonsense', u
 const goodBody = [
   'A river cruise is a relaxed way to see several towns without repacking.',
   '',
-  '**Quick answer:** A river cruise suits first timers who want an easy pace.',
+  '**Quick answer:** A river cruise suits first timers who want an easy pace, one bed all week and several towns without repacking.',
   '',
   '## Why a river cruise works for first timers',
   '',

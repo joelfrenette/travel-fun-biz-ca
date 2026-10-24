@@ -120,7 +120,7 @@ export function captionFormatRules(): string {
 2. Then 2 to 4 short lines (one idea each, plain words at a grade 6 reading level), with a blank line between blocks and never more than ${CAPTION_MAX_PARAGRAPH_LINES} lines in a row.
 3. Then one plain call to action line, then the link (or "link in bio" for Instagram and TikTok, where a link cannot be tapped).
 4. Hashtags last, only for networks whose rule below says so. Never more than ${CAPTION_MAX_HASHTAGS}.
-5. At most ${CAPTION_MAX_EMOJIS} emojis in the whole caption, none in line 1. No lines in all capitals. No superlatives you cannot back up from the facts (no "best", "perfect", "amazing", "unmissable"). No number that is not in the title, summary or facts.`
+5. At most ${CAPTION_MAX_EMOJIS} emojis in the whole caption, none in line 1. No lines in all capitals. No superlatives you cannot back up from the facts (no "perfect", "amazing", "unmissable"; "best" and "favourite" are fine as an opinion, never as a ranking or award). No number that is not in the title, summary or facts.`
 }
 
 /** The instruction the blog title step adds so the post title and the cover headline use the winning hook shapes. */

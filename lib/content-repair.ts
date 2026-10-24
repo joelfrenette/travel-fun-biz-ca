@@ -139,6 +139,11 @@ export const BLOCKER_RULES: BlockerRule[] = [
   { id: 'faq-link', pattern: /^(link inside FAQ, takeaways or meta text|link inside a FAQ)/, klass: 'repairable', how: 'fixer', note: 'a link inside FAQ, takeaways or meta text' },
   { id: 'no-link', pattern: /^no internal link/, klass: 'repairable', how: 'fixer', note: 'no internal link (a real page is added)' },
   { id: 'too-many-links', pattern: /links in the intro, at most/, klass: 'repairable', how: 'fixer', note: 'too many links in the intro' },
+  // WP4 quality bundle (lib/blog-quality.ts). Mended by lib/blog-quality-fix.ts: fitQuickAnswer (plain code, the post's own sentences),
+  // a one-paragraph rewrite when that is not enough, a one-field rewrite of duplicated search text, and a code-built cover alt.
+  { id: 'quick-answer-length', pattern: /^Quick answer length/, klass: 'repairable', how: 'fixer', note: 'the Quick answer is under 15 or over 60 words (cut to whole sentences, or extended with the post\'s own takeaways)' },
+  { id: 'meta-duplicate', pattern: /^meta (title|description) duplicates another page/, klass: 'repairable', how: 'rewrite', note: 'the search title or description repeats another page\'s (only that text is reworded)' },
+  { id: 'cover-alt', pattern: /^cover image alt text/, klass: 'repairable', how: 'fixer', note: 'the cover picture has no useful alt text (rebuilt by code from the title and place)' },
 ]
 
 export function ruleFor(blocker: string): BlockerRule | null {
@@ -580,7 +585,7 @@ function generationPrompt(f: RepairFields, keys: GenKey[], limits: RepairLimits,
     og_description: `- og_description: ${limits.ogDescMax} characters or fewer, a social share description.`,
   }
   const shape = `{${keys.map((k) => (k === 'faq' ? '"faq":[{"q":"...","a":"..."}]' : k === 'key_takeaways' ? '"key_takeaways":["..."]' : `"${k}":"..."`)).join(',')}}`
-  return `Below is the finished text of a page on a Canadian travel agency website. Write ONLY the fields listed after it, using ONLY what the text says. Never add a fact, name, number, date, price, count or claim that is not in the text. Use no digits unless the same number appears in the text. No links. No superlatives or reputation words (best, famous, award-winning, top-rated, luxury, finest, world-class, iconic). Say nothing about what the agency has done or does. Never use the long dash character. Plain English, Canadian spelling.\n\nTEXT:\n${plainForPrompt(f)}\n\nFields to write:\n${keys.map((k) => spec[k]).join('\n')}\n\nReturn ONLY minified JSON: ${shape}`
+  return `Below is the finished text of a page on a Canadian travel agency website. Write ONLY the fields listed after it, using ONLY what the text says. Never add a fact, name, number, date, price, count or claim that is not in the text. Use no digits unless the same number appears in the text. No links. No superlatives or reputation words (famous, award-winning, top-rated, luxury, world-class, iconic; opinion words like best are fine). Say nothing about what the agency has done or does. Never use the long dash character. Plain English, Canadian spelling.\n\nTEXT:\n${plainForPrompt(f)}\n\nFields to write:\n${keys.map((k) => spec[k]).join('\n')}\n\nReturn ONLY minified JSON: ${shape}`
 }
 
 const asText = (v: unknown, max: number): string => (typeof v === 'string' ? cutAtWord(removeDashes(stripAllLinks(v)).replace(/\s+/g, ' ').trim(), max) : '')

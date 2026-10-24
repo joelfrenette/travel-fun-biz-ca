@@ -257,7 +257,7 @@ export type CopyWriter = (input: { pkg: Partial<DbPackage>; transcript: string; 
 const WRITER_RULES = `HARD RULES:
 1. Use ONLY facts stated in the SOURCE or in the PAGE FACTS below. If a fact is not there, leave it out. Never guess, round, or add typical details.
 2. Write NO digits (0-9) unless the exact same number appears in the SOURCE or PAGE FACTS. Keep other amounts vague, in words ("a few days"). State no prices or dates that are not in the SOURCE or PAGE FACTS.
-3. Never use: best, number one, award-winning, awards, 5-star, five-star, top-rated, world-class, finest, luxury or luxurious, iconic, famous, renowned, legendary, must-see, newly or recently built or renovated, brand new, largest, biggest, most popular, unforgettable, once in a lifetime.
+3. Never use: number one, award-winning, awards, 5-star, five-star, top-rated, world-class, luxury or luxurious, iconic, famous, renowned, legendary, must-see, newly or recently built or renovated, brand new, largest, biggest, most popular, unforgettable, once in a lifetime.
 4. Never claim personal experience or a past trip, never say what the agency or its hosts "have done", "often do" or "always do". You may say "we can help you plan" and speak to the reader as "you".
 5. Name no hotel, ship, restaurant, person or place that is not in the SOURCE or PAGE FACTS.
 6. No dashes of any kind (use commas or full stops), no web addresses, no placeholders, no markdown symbols in the description (plain paragraphs separated by a blank line).

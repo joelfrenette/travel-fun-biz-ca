@@ -196,19 +196,19 @@ async function main() {
   }
   {
     // (b): the only paragraph of a section is flagged, so a deletion would empty the section: the section is rewritten from the brief.
-    const body = bodyOf(OLD_TOWN_FAMOUS, 'The best grilled fish is served at lunch.')
+    const body = bodyOf(OLD_TOWN_FAMOUS, 'The famous grilled fish is served at lunch.')
     const section = '## Food\n\nGrilled fish and custard tarts are common at lunch. Most places serve meals at a relaxed pace.'
     const m = scripted({ section: () => section })
     const out = await healLoop(synthTarget(body), { model: m.model, budget: memBudget(20) })
     check('B(b): the offending section is rewritten from the brief after the strip', out.ladder.join() === 'suggest,strip,section' && out.status === 'healed', JSON.stringify({ s: out.status, l: out.ladder, r: out.reasons }))
     check('B(b): the rewritten section is in the text and the superlative is gone', /custard tarts are common at lunch/.test(out.fields.body) && !/\bbest\b/i.test(out.fields.body))
-    check('B(b): a paragraph that is the only text of its section is never deleted by the strip', deleteParagraph({ ...synthTarget(body).item.fields }, { field: 'body', text: 'The best grilled fish is served at lunch.', why: 'x', prefix: '' }) === null)
+    check('B(b): a paragraph that is the only text of its section is never deleted by the strip', deleteParagraph({ ...synthTarget(body).item.fields }, { field: 'body', text: 'The famous grilled fish is served at lunch.', why: 'x', prefix: '' }) === null)
   }
   {
     // (c): the section rewrite is refused too (it still says best), so the whole post is written again.
-    const body = bodyOf(OLD_TOWN_FAMOUS, 'The best grilled fish is served at lunch.')
+    const body = bodyOf(OLD_TOWN_FAMOUS, 'The famous grilled fish is served at lunch.')
     const whole: RepairFields = { ...synthTarget(body).item.fields, body: bodyOf('The old town is a pleasant place to wander. Narrow lanes open onto small squares.') }
-    const m = scripted({ section: () => '## Food\n\nThe best grilled fish is served at lunch every day.' })
+    const m = scripted({ section: () => '## Food\n\nThe famous grilled fish is served at lunch every day.' })
     const budget = memBudget(20)
     const out = await healLoop(synthTarget(body, { regenerateWhole: async () => whole }), { model: m.model, budget })
     const order = out.ladder
@@ -219,10 +219,10 @@ async function main() {
 
   // ---- D: never publishes on a gate failure; the judge cannot override the gate ----
   {
-    const m = scripted({ judge: () => '{"pass":true,"failures":[]}', section: () => '## Food\n\nThe best grilled fish is served at lunch every day.' })
-    const out = await healLoop(synthTarget(bodyOf(OLD_TOWN_FAMOUS, 'The best grilled fish is served at lunch.')), { model: m.model, budget: memBudget(20) })
+    const m = scripted({ judge: () => '{"pass":true,"failures":[]}', section: () => '## Food\n\nThe famous grilled fish is served at lunch every day.' })
+    const out = await healLoop(synthTarget(bodyOf(OLD_TOWN_FAMOUS, 'The famous grilled fish is served at lunch.')), { model: m.model, budget: memBudget(20) })
     check('D: when the ladder cannot clear the gate the item is rejected_by_heal, not published', out.status === 'rejected_by_heal' && out.edits.length === 0, JSON.stringify({ s: out.status, r: out.reasons }))
-    check('D: a rejected item comes back with exactly the fields that went in', out.fields.body === synthTarget(bodyOf(OLD_TOWN_FAMOUS, 'The best grilled fish is served at lunch.')).item.fields.body)
+    check('D: a rejected item comes back with exactly the fields that went in', out.fields.body === synthTarget(bodyOf(OLD_TOWN_FAMOUS, 'The famous grilled fish is served at lunch.')).item.fields.body)
     check('D: the judge is never asked about text that fails the gate', m.count.judge === 0, `judge calls ${m.count.judge}`)
   }
   {
@@ -350,8 +350,8 @@ async function main() {
   {
     const db: Db = { tables: { app_settings: [], content_edits: [] } }
     const admin = fakeAdmin(db)
-    const m = scripted({ section: () => '## Food\n\nThe best grilled fish is served at lunch every day.' })
-    const run = await healItem(admin, synthTarget(bodyOf(OLD_TOWN_FAMOUS, 'The best grilled fish is served at lunch.')), { model: m.model, now: today })
+    const m = scripted({ section: () => '## Food\n\nThe famous grilled fish is served at lunch every day.' })
+    const run = await healItem(admin, synthTarget(bodyOf(OLD_TOWN_FAMOUS, 'The famous grilled fish is served at lunch.')), { model: m.model, now: today })
     check('H: a rejected item is recorded in the rejected list with its reasons', run.outcome.status === 'rejected_by_heal' && !!(await readRejected(admin))?.['guide:destinations:lisbon']?.reasons.length)
     const log = await readHealLog(admin)
     check('H: the compact log has one line with status, rounds, calls and a reason', log.length === 1 && log[0].status === 'rejected_by_heal' && log[0].rounds >= 1 && log[0].calls >= 1 && log[0].reason.length > 0, JSON.stringify(log))
@@ -392,7 +392,7 @@ async function main() {
   }
 
   // ---- I: blog drafts ----
-  const goodBody = ['A river cruise is a relaxed way to see several towns without repacking.', '', '**Quick answer:** A river cruise suits first timers who want an easy pace.', '', '## Why a river cruise works for first timers', '', 'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details, ask us in [the contact section](/#contact) or browse [our trips](/). ' + 'word '.repeat(460), '', '### Pace', '', 'Most people find the pace gentle. It is easy to settle in. You unpack once.', '', 'Have a think about who you would travel with, and our team can help you work that out.'].join('\n')
+  const goodBody = ['A river cruise is a relaxed way to see several towns without repacking.', '', '**Quick answer:** A river cruise suits first timers who want an easy pace, one bed all week and several towns without repacking.', '', '## Why a river cruise works for first timers', '', 'It is a floating hotel. See [the Rhine trip](/packages/rhine-cruise) for the real details, ask us in [the contact section](/#contact) or browse [our trips](/). ' + 'word '.repeat(460), '', '### Pace', '', 'Most people find the pace gentle. It is easy to settle in. You unpack once.', '', 'Have a think about who you would travel with, and our team can help you work that out.'].join('\n')
   const mkPost = (extra: string): ComposedPost => ({
     title: 'River cruise for first timers', slug: 'river-cruise-heal', body: goodBody.replace('You unpack once.', `You unpack once.${extra}`),
     seo_title: 'River cruise for first timers', seo_description: 'A plain guide for first-time river cruisers.', tags: ['river cruise first timers'],
