@@ -12,6 +12,7 @@ import { runFunnelWatchdog } from '@/lib/funnel-watchdog'
 import { runSiteCrawl, CRAWL_BUDGET_MS } from '@/lib/site-crawl-run'
 import { runSeoEngines, SEO_BUDGET_MS } from '@/lib/seo-engines-run'
 import { AUDIT_BUDGET_MS, runSeoPlaybookAudit } from '@/lib/seo-playbook-audit'
+import { runUrlInspection, INSPECT_BUDGET_MS } from '@/lib/gsc-inspect'
 import { getSystemCheck } from '@/lib/system-check-run'
 import { revalidatePath } from 'next/cache'
 
@@ -147,6 +148,22 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] seo playbook audit failed:', e)
     }
+    // Google URL Inspection feedback (lib/gsc-inspect.ts): asks Google whether a small oldest-first batch of sitemap pages (at most 20 a day) is
+    // really indexed and why not, and keeps the answers and the index ratio in app_settings seo_inspection_state. MEASURE ONLY: it never blocks
+    // publishing. One sitemap read plus a few short calls under its own 14 second budget, started only when 8 seconds are left after the
+    // 5 the system check below needs. runUrlInspection never throws; "could not read" (no permission, quota) is stored and shown, not an error.
+    let inspect = ''
+    try {
+      const left = 57_000 - (Date.now() - startedAt) - 5_000
+      if (left < 8_000) {
+        inspect = '; URL inspection skipped (time budget already used)'
+      } else {
+        const r = await runUrlInspection(getSupabaseAdmin(), { deadlineMs: Date.now() + Math.min(INSPECT_BUDGET_MS, left - 2_000) })
+        inspect = `; ${r.note}`
+      }
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] url inspection failed:', e)
+    }
     // System check: reads the answers the steps above just stored (watchdog, site crawl, SEO audit, AI spend, heartbeats) and keeps its own
     // answer in app_settings system_check_state, so the Today strip and the 7 am brief read it without recomputing. Settings reads only
     // (no network, no AI call); started only when a few seconds of the 60 are left. getSystemCheck never throws.
@@ -162,7 +179,7 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] system check failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${seo}${crawl}${playbook}${sysCheck}` })
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${seo}${crawl}${playbook}${inspect}${sysCheck}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found

@@ -38,6 +38,18 @@ export const GUIDE_ORPHANS_ISSUE_ID = 'system:guide-orphans'
 /** The Needs attention item for error-severity findings of the site health crawl. Same reason as the ids above for living here. */
 export const SITE_CRAWL_ISSUE_ID = 'system:site-crawl'
 
+/** The Needs attention item for a page that failed the post-publish check (fetched with no cookie: status, canonical, one H1, JSON-LD, sitemap).
+ * Same reason as the ids above for living here. */
+export const PUBLISH_VERIFY_ISSUE_ID = 'system:publish-verify'
+
+/** The Needs attention item for pages Google could not index (URL Inspection feedback). Informational: it never sends the alert email.
+ * Same reason as the ids above for living here. */
+export const NOT_INDEXED_ISSUE_ID = 'system:not-indexed'
+
+/** The setup item shown while Google refuses the URL Inspection question (the service account is not a user on the Search Console property).
+ * Amber, never an alert email. Same reason as the ids above for living here. */
+export const INSPECT_PERMISSION_ISSUE_ID = 'setup:gsc-inspect-permission'
+
 /** The Needs attention item that lists search phrases where two of our pages compete (hub row 2). INFORMATIONAL: nothing
  * is broken, so it is left out of the alert email like the item above. Same reason as the ids above for living here. */
 export const CANNIBALISATION_ISSUE_ID = 'system:keyword-cannibalisation'
@@ -227,6 +239,55 @@ export function plainAction(i: Issue): PlainAction {
       ],
       url: adminLink('/admin/system-health'),
       urlLabel: 'Open System Health',
+      paste,
+    }
+  }
+  if (i.id === PUBLISH_VERIFY_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'A few minutes after a page went live, the site opened it the way Google does (with no cookies) and one of the basics was wrong: it did not answer 200, it had no canonical link to itself, it did not have exactly one main heading, its structured data would not parse, or it was missing from the sitemap. Nothing was changed or removed. A page like this can be skipped by Google.',
+      steps: [
+        'Open the page address named below in a private (incognito) browser window. A private window sends no cookies, like Google.',
+        'If the page shows an error, copy the message below and paste it to Claude with the address. This is the most important case.',
+        'If the page looks fine, wait about an hour. A page can be missing from the sitemap until it is rebuilt, and a deploy in progress can give one bad answer. The site looks again by itself and this item goes away when the page passes.',
+        'Do not delete or unpublish the page unless Claude says so. Nothing here does that automatically.',
+      ],
+      url: adminLink('/admin/system-health'),
+      urlLabel: 'Open System Health',
+      paste,
+    }
+  }
+  if (i.id === INSPECT_PERMISSION_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'Once a day the site asks Google, for a few pages, "is this page in your search index, and if not, why?". Google refused to answer. Nothing is broken and nothing is blocked: the site just cannot tell you how many of its pages Google has taken in yet.',
+      steps: [
+        'Open Google Search Console and pick the travelfunbiz.ca property.',
+        'Click Settings (the gear), then "Users and permissions".',
+        'Click "Add user". Paste the service account email (it is the client_email inside GOOGLE_SERVICE_ACCOUNT_KEY in Vercel, it ends with iam.gserviceaccount.com). Choose "Full" or "Restricted" and click Add.',
+        'Check that SEARCH_CONSOLE_SITE_URL in Vercel is the same property you just picked (it looks like sc-domain:travelfunbiz.ca for a domain property, or https://www.travelfunbiz.ca/ for a URL-prefix property).',
+        'Nothing else to do: the next daily run asks again and this item goes away when Google answers.',
+      ],
+      url: 'https://search.google.com/search-console',
+      urlLabel: 'Open Google Search Console',
+      paste,
+    }
+  }
+  if (i.id === NOT_INDEXED_ISSUE_ID) {
+    return {
+      id: i.id,
+      title: i.title,
+      why: 'Google was asked, one page at a time, whether each page is in its search index. These pages were published more than a week ago and Google says they are not indexed. The reason Google gave is shown for each one. Nothing is broken on your side by itself, but a page that is not indexed cannot bring in visitors.',
+      steps: [
+        'Read the reason Google gave for the first page in the box. "Discovered, currently not indexed" and "Crawled, currently not indexed" usually mean Google has not decided the page is worth keeping yet, which is common on a young site.',
+        'If the reason says "blocked", "noindex" or "redirect", copy the message below and paste it to Claude with the page address. That one is a fault on our side.',
+        'Otherwise do nothing for now. Add one link to the page from a popular page (a related blog post or its trip page) if you want to help it along, and check again in a week.',
+        'You can look at any one page yourself: open Google Search Console, then URL inspection, and paste the address.',
+      ],
+      url: 'https://search.google.com/search-console',
+      urlLabel: 'Open Google Search Console',
       paste,
     }
   }

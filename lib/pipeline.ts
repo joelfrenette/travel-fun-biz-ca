@@ -12,7 +12,7 @@ import { sendThrottledAlert } from '@/lib/alerts'
 import { selfHeal } from '@/lib/heal'
 import { runDebriefIfDue } from '@/lib/debrief'
 import { snapshotContentPerformance } from '@/lib/content-performance'
-import { plainAction, HARD_WAITING_ISSUE_ID, CANNIBALISATION_ISSUE_ID } from '@/lib/plain-steps'
+import { plainAction, HARD_WAITING_ISSUE_ID, CANNIBALISATION_ISSUE_ID, NOT_INDEXED_ISSUE_ID } from '@/lib/plain-steps'
 import { alertHtml } from '@/lib/brief-html'
 import { runGuidesStep } from '@/lib/guide-run'
 import { runPageCopyStep } from '@/lib/page-copy-run'
@@ -24,6 +24,7 @@ import { runVisitPurgeIfDue } from '@/lib/visit-tracking'
 import { runNewsStep } from '@/lib/news-run'
 import { runAutoPolicies } from '@/lib/auto-policies'
 import { autoblogNudgePending, clearAutoblogNudge } from '@/lib/funnel-watchdog'
+import { runPublishVerifyIfDue } from '@/lib/publish-verify'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -62,6 +63,9 @@ const HEAL_START_BY_MS = 120_000
 // The weekly supplier page check can take about a minute, so housekeeping only starts it before this.
 // (its own budget is 150 seconds, so a late pass leaves it for the next one to keep inside the 300 second limit)
 const SOURCE_WATCH_START_BY_MS = 60_000
+// The publish check reads one sitemap and at most 6 pages (6 seconds each, 3 at a time), so about 20 seconds; it only starts early enough
+// to finish well inside the 300 second route limit.
+const VERIFY_START_BY_MS = 200_000
 
 export { readLastPipelineRun, PIPELINE_LAST_RUN_KEY, type PipelineStep, type PipelineRun } from '@/lib/pipeline-log'
 
@@ -95,6 +99,17 @@ async function housekeeping(admin: SupabaseClient, run: PipelineRun, startedAt =
     if (catchup) run.steps.push({ step: 'indexnow', ok: catchup.ok, note: catchup.note })
   } catch {
     // a ping problem is never the pipeline's problem
+  }
+  try {
+    // Post-publish verify (lib/publish-verify.ts): a page that went live at least 6 minutes ago is fetched with NO cookie, like Google, and
+    // checked (200, canonical to itself, one H1, JSON-LD parses, in the sitemap). At most 6 pages per pass, 6 seconds each, read only.
+    // A failure is a Needs attention item (it never edits or unpublishes anything); a pass that has used most of its time leaves it for the next.
+    if (Date.now() - startedAt < VERIFY_START_BY_MS) {
+      const verify = await runPublishVerifyIfDue(admin)
+      if (verify) run.steps.push({ step: 'verify', ok: verify.ok, note: verify.note })
+    }
+  } catch {
+    // a check problem is never the pipeline's problem
   }
   try {
     // Once a day (the claim inside): delete first-party visit rows older than 13 months, a capped batch at a time.
@@ -288,7 +303,7 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
   try {
     // Pages held for a person are shown on the page and in the daily brief; they are not an emergency, so they do not
     // re-send this email every six hours for as long as they wait.
-    const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup' && i.id !== HARD_WAITING_ISSUE_ID && i.id !== CANNIBALISATION_ISSUE_ID)
+    const open = (await collectIssues(admin)).filter((i) => i.area !== 'setup' && i.id !== HARD_WAITING_ISSUE_ID && i.id !== CANNIBALISATION_ISSUE_ID && i.id !== NOT_INDEXED_ISSUE_ID)
     if (open.length) {
       const actions = open.map(plainAction)
       const dateLabel = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto', weekday: 'long', month: 'long', day: 'numeric' })
