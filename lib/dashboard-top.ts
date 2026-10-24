@@ -187,9 +187,9 @@ export function aggregateTopPages(input: TopPagesInput): TopPagesResult {
 
 // ---------- Top posts by clicks ----------
 
-export const SOCIAL_FORMATS = ['post', 'guide', 'trip', 'news', 'carousel', 'video', 'recap'] as const
+export const SOCIAL_FORMATS = ['post', 'guide', 'trip', 'news', 'carousel', 'video', 'recap', 'evergreen'] as const
 /** Formats whose sends are logged in post_distribution (photo posts). Carousel and video sends live elsewhere, so they are not used in the per-send summaries. */
-export const LOGGED_SEND_FORMATS: readonly string[] = ['post', 'guide', 'trip', 'news', 'recap']
+export const LOGGED_SEND_FORMATS: readonly string[] = ['post', 'guide', 'trip', 'news', 'recap', 'evergreen']
 
 /** utm_content is "<hook_style>-<format>" (for example "question-video", "how-to-post") or just "<format>". "fallback" means no style was chosen. */
 export function parseSocialContent(raw: string | null | undefined): { hookStyle: string | null; format: string | null; bio: boolean } {

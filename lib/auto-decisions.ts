@@ -25,7 +25,10 @@ export type SeoPolicyName = 'seo_topics' | 'seo_links'
 /** The System check "Auto-heal" AI step (lib/system-check-ai.ts). It only labels log lines (each with an Undo); it has no switch of its own
  * because it only runs when a person clicks Auto-heal, and it is bounded by the kill switch and the heal loop's own daily call cap. */
 export type SystemCheckPolicyName = 'system_check_ai'
-export type PolicyName = AutopilotPolicyName | SeoPolicyName | SystemCheckPolicyName
+/** The evergreen re-share (lib/evergreen-reshare-run.ts): one older page a day goes back through social. It has its own switch, DEFAULT OFF
+ * (app_settings.evergreen_reshare_enabled), so it is not part of the Autopilot card's list (those default on) and not in ALL_POLICIES. */
+export type EvergreenPolicyName = 'evergreen_reshare'
+export type PolicyName = AutopilotPolicyName | SeoPolicyName | SystemCheckPolicyName | EvergreenPolicyName
 
 /** The four decisions the owner approved. They default to ON. */
 export const APPROVED_POLICIES: readonly PolicyName[] = ['retry_failed_posts', 'approve_safe_topics', 'publish_passing_news', 'release_held_posts']
@@ -33,6 +36,7 @@ export const ALL_POLICIES: readonly PolicyName[] = [...APPROVED_POLICIES, 'funne
 export const SEO_POLICIES: readonly SeoPolicyName[] = ['seo_topics', 'seo_links']
 
 export const POLICY_LABELS: Record<PolicyName, string> = {
+  evergreen_reshare: 'Re-share one older evergreen page on social (off until you switch it on)',
   system_check_ai: 'AI fix started from the System check (Auto-heal)',
   seo_topics: 'Suggest blog topics from Google searches (SEO engines)',
   seo_links: 'Add internal links between competing and related pages (SEO engines)',
@@ -45,6 +49,7 @@ export const POLICY_LABELS: Record<PolicyName, string> = {
 
 /** Most automatic actions per policy per UTC day. Counts every logged action of that policy that changed something. */
 export const POLICY_CAPS: Record<PolicyName, number> = {
+  evergreen_reshare: 1,
   system_check_ai: 12,
   seo_topics: 3,
   seo_links: 3,
@@ -90,7 +95,7 @@ const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpub
 export const policyEnabled = (raw: string | null | undefined): boolean => raw !== 'off'
 
 export function isPolicyName(v: unknown): v is PolicyName {
-  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v) || v === 'system_check_ai')
+  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v) || v === 'system_check_ai' || v === 'evergreen_reshare')
 }
 
 /** Reads the stored log. Corrupt or the wrong shape reads as empty; single bad entries are dropped. Pure. */

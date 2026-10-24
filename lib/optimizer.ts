@@ -48,7 +48,7 @@ export const MAX_ARMS = 120
 export const MAX_DECISIONS = 30
 export const MAX_STATE_CHARS = 24000
 
-export type Format = 'post' | 'carousel' | 'reel' | 'recap'
+export type Format = 'post' | 'carousel' | 'reel' | 'recap' | 'evergreen'
 export type Dim = 'hook' | 'cover'
 
 const DAY = 86_400_000
@@ -113,18 +113,18 @@ export const canonNetwork = (name: string | null | undefined): string => {
   return n === 'twitter' ? 'x' : n
 }
 
-const SURFACE_FORMAT: Record<string, Format> = { carousel: 'carousel', video: 'reel', recap: 'recap', post: 'post', guide: 'post', trip: 'post', news: 'post' }
+const SURFACE_FORMAT: Record<string, Format> = { carousel: 'carousel', video: 'reel', recap: 'recap', evergreen: 'evergreen', post: 'post', guide: 'post', trip: 'post', news: 'post' }
 
 /** "question-video" -> { style: "question", surface: "video" }. The hook style "how-to" has a dash, so only the LAST part is the surface. */
 export function parseContent(content: string | null | undefined): { style: string | null; format: Format } {
   const c = String(content ?? '').trim().toLowerCase()
-  const m = /^(.*)-(post|guide|trip|news|carousel|video|recap)$/.exec(c)
+  const m = /^(.*)-(post|guide|trip|news|carousel|video|recap|evergreen)$/.exec(c)
   if (m) return { style: m[1] && m[1] !== 'fallback' ? m[1] : null, format: SURFACE_FORMAT[m[2]] }
   if (SURFACE_FORMAT[c]) return { style: null, format: SURFACE_FORMAT[c] }
   return { style: null, format: 'post' }
 }
 
-const formatOf = (f: string): Format => (f === 'carousel' ? 'carousel' : f === 'video' || f === 'reel' ? 'reel' : f === 'recap' ? 'recap' : 'post')
+const formatOf = (f: string): Format => (f === 'carousel' ? 'carousel' : f === 'video' || f === 'reel' ? 'reel' : f === 'recap' ? 'recap' : f === 'evergreen' ? 'evergreen' : 'post')
 const ms = (iso: string): number => Date.parse(iso)
 
 /** Where a visit or lead belongs: carousel and reel links carry the FORMAT as utm_source (one caption goes to all networks), the
@@ -381,7 +381,8 @@ export function ingest(state: OptimizerState, rows: readonly FunnelRow[], now: D
       continue
     }
     counted++
-    if (r.format === 'recap') continue
+    // A recap and an evergreen re-share are different surfaces: they are counted and shown apart, but they never teach the hook or cover choice for new posts.
+    if (r.format === 'recap' || r.format === 'evergreen') continue
     if (r.hookStyle) bump(r.network, r.format, 'hook', r.hookStyle, r)
     if (r.coverTemplate) bump(r.network, r.format, 'cover', r.coverTemplate, r)
     // Posting time: only per real network and only for photo posts. Visits are shared evenly between the row's sends.
