@@ -7,6 +7,7 @@ import {
   type UploadPostSendResult,
 } from '@/lib/upload-post'
 import { ghlSocialConfigured, ghlSocialMissing, ghlCreatePost, ghlHostMedia } from '@/lib/ghl-social'
+import { pausedNetworks } from '@/lib/network-pause'
 
 // One place that answers "where does a post go, and how do I send it": Upload-Post or GoHighLevel,
 // one active at a time (so the same post can never go out twice). distribution.ts and autopilot.ts
@@ -119,6 +120,8 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
     if (missing.length) return { reason: `GoHighLevel posting needs ${missing.join(', ')} in Vercel` }
     const accounts = await getGhlAccounts(admin)
     if (!accounts.length) return { reason: 'no GoHighLevel accounts selected' }
+    // A network the funnel watchdog paused for 24 hours is left out until the pause ends (lib/network-pause.ts).
+    const paused = await pausedNetworks(admin)
     const idsFor = (platforms: string[]) => accounts.filter((a) => platforms.includes(a.platform)).map((a) => a.id)
     // One call per network, so one network refusing a post never stops the others, and the result
     // says exactly which networks were reached.
@@ -138,7 +141,7 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
     return {
       target: {
         provider,
-        platforms: mediaCapable([...new Set(accounts.map((a) => a.platform))]),
+        platforms: mediaCapable([...new Set(accounts.map((a) => a.platform))]).filter((p) => !paused.includes(p)),
         sendPhotos: (p, text, imageUrls) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text, mediaUrls: imageUrls, mediaType: 'image' })),
         // TikTok only pulls videos from a domain it has verified, so its copy is hosted on GoHighLevel's
         // own storage first; the other networks take the original address.
@@ -159,8 +162,9 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
   if (!uploadPostConfigured()) return { reason: 'UPLOAD_POST_API_KEY is not set' }
   const user = csv(await getSetting(admin, 'distribution_accounts'))[0]
   if (!user) return { reason: 'no Upload-Post profile chosen' }
-  const platforms = mediaCapable(csv(await getSetting(admin, 'distribution_platforms')).map((p) => p.toLowerCase()))
-  if (!platforms.length) return { reason: 'no platforms chosen that can carry an image (text-only networks are skipped)' }
+  const pausedUp = await pausedNetworks(admin)
+  const platforms = mediaCapable(csv(await getSetting(admin, 'distribution_platforms')).map((p) => p.toLowerCase())).filter((p) => !pausedUp.includes(p))
+  if (!platforms.length) return { reason: 'no platforms chosen that can carry an image (text-only networks are skipped), or every chosen network is paused for a day after repeated failures' }
   return {
     target: {
       provider,

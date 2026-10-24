@@ -22,6 +22,8 @@ import { runValueSnapshotIfDue } from '@/lib/value-snapshot'
 import { runIndexNowCatchupIfDue } from '@/lib/indexnow-catchup'
 import { runVisitPurgeIfDue } from '@/lib/visit-tracking'
 import { runNewsStep } from '@/lib/news-run'
+import { runAutoPolicies } from '@/lib/auto-policies'
+import { autoblogNudgePending, clearAutoblogNudge } from '@/lib/funnel-watchdog'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -149,6 +151,10 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
     run.steps.push({ step: 'keywords', ok: false, note: e instanceof Error ? e.message : 'keyword research failed' })
   }
 
+  // The funnel watchdog (lib/funnel-watchdog.ts, daily) may ask for ONE extra writer run when no blog post went out for 72 hours. It skips
+  // the posts-per-week day rule for that run only; the publish hour, the pause switch and every quality gate still apply.
+  const nudged = !opts.force && (await autoblogNudgePending(admin))
+
   // 1. WRITE
   if (!opts.force && new Date().getUTCHours() < PUBLISH_HOUR_UTC) {
     run.steps.push({ step: 'write', ok: true, note: `waiting for ${PUBLISH_HOUR_UTC}:00 UTC` })
@@ -159,7 +165,8 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
   } else {
     try {
       // The pipeline's own hard stop (the route is killed at 300s) is passed down so the heal loop ends before it.
-      const result = await runAutoblog({ scheduled: !opts.force, deadlineMs: startedAt + 280_000 })
+      if (nudged) await clearAutoblogNudge(admin)
+      const result = nudged ? await runAutoblog({ scheduled: false, deadlineMs: startedAt + 280_000 }) : await runAutoblog({ scheduled: !opts.force, deadlineMs: startedAt + 280_000 })
       run.steps.push({ step: 'write', ok: !result.failed, note: result.ran ? `wrote "${result.postSlug}"${result.published ? ' and published it' : ' as a draft'}` : result.note })
       await recordCronRun('autoblog', { ok: true, note: result.note })
     } catch (e) {
@@ -212,6 +219,20 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
       if (news) run.steps.push({ step: 'news', ok: news.ok, note: news.note })
     } catch (e) {
       run.steps.push({ step: 'news', ok: false, note: e instanceof Error ? e.message : 'news step failed' })
+    }
+  }
+
+  // 1e. AUTOMATIC DECISIONS (lib/auto-policies.ts): publish a news brief that passed every check after its 2 hour cooling, approve up to 2
+  // safe blog topics a day, release held guide and trip posts after the hold, retry failed posts with growing waits and resume a stuck step
+  // once. Each one respects Pause all automation, has its own switch and a per-day limit, writes a line to the "Autopilot decisions" log
+  // with an Undo, and never touches anything a person turned down. Placed before the posting step so a released or retried row is sent in
+  // the same pass. Silent when nothing was decided; a problem is a step note.
+  if (!overBudget()) {
+    try {
+      const note = await runAutoPolicies(admin)
+      if (note) run.steps.push({ step: 'auto', ok: !/ failed: /.test(note), note })
+    } catch (e) {
+      run.steps.push({ step: 'auto', ok: false, note: e instanceof Error ? e.message : 'the automatic decisions failed' })
     }
   }
 

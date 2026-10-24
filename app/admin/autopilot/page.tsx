@@ -12,6 +12,7 @@ import { OptimizerCard } from "@/components/admin/optimizer-card"
 import { GuidesPanel } from "@/components/admin/guides-panel"
 import { PageCopyPanel } from "@/components/admin/page-copy-panel"
 import { SelfHealingCard } from "@/components/admin/self-healing-card"
+import { AutoDecisionsCard } from "@/components/admin/auto-decisions-card"
 import { TravelNewsCard } from "@/components/admin/travel-news-card"
 import { Loader2, Rocket, AlertTriangle, CheckCircle2 } from "lucide-react"
 
@@ -221,6 +222,8 @@ export default function AutopilotPage() {
         <GuidesPanel variant="card" />
 
         <PageCopyPanel />
+
+        <AutoDecisionsCard />
 
         <SelfHealingCard />
 
