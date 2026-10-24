@@ -107,7 +107,7 @@ async function main() {
     check('wiring: no new cron (vercel.json still has exactly the two existing jobs)', (vercel.crons ?? []).map((c) => c.path).sort().join() === '/api/cron/autopilot,/api/cron/gsc-snapshot')
     check('wiring: the budget is 20 seconds', /SEO_BUDGET_MS = 20_000/.test(read('lib/seo-engines-run.ts')))
     check('wiring: the Blog page header has a small link to /admin/seo-engines', /href="\/admin\/seo-engines"/.test(read('app/admin/blog/page.tsx')))
-    check('wiring: the admin nav file was not edited (the orchestrator adds the entry)', !/seo-engines/.test(read('lib/admin-nav.ts')))
+    check('wiring: the admin nav lists the SEO engines page', /seo-engines/.test(read('lib/admin-nav.ts')))
     const engineSrc = ['lib/gsc-mining.ts', 'lib/cannibalization.ts', 'lib/hub-spoke.ts', 'lib/seo-links.ts', 'lib/seo-engines-run.ts'].map(read).join('\n')
     check('nothing published or approved from the engines: no setTopicStatus, no status approved/published, no AI call', !/setTopicStatus|status:\s*'(approved|published)'|callAnthropic|anthropicText/.test(engineSrc))
     check('the engines use the hard-coded UA and say they cannot read GBP or backlinks', USER_AGENT.includes('TravelFunBizResearchBot') && BOT_NAME === 'TravelFunBizResearchBot' && /Google Business Profile/.test(CANNOT_READ) && /backlinks/.test(CANNOT_READ))
