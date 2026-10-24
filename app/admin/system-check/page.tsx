@@ -137,7 +137,7 @@ export default function SystemCheckPage() {
       {busy && (
         <p role="status" aria-live="polite" data-testid="check-progress" className="mb-4 flex items-center gap-2 rounded-lg border bg-muted/40 p-3 text-sm">
           <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
-          {phase === "heal" ? "Auto-heal is making the safe repairs, then checking again. This can take up to a minute." : "Running a fresh check of every stage..."}
+          {phase === "heal" ? "Auto-heal is making the safe repairs, then may use a little AI on up to 3 pages, then checks again. This can take a few minutes." : "Running a fresh check of every stage..."}
         </p>
       )}
       {copied === "fail" && heal && (
@@ -162,6 +162,20 @@ export default function SystemCheckPage() {
               </li>
             ))}
           </ul>
+          {heal.report.ai && (
+            <div data-testid="heal-ai" className="mt-2 rounded-md border bg-muted/30 p-2 text-xs">
+              <p className="font-semibold">AI fix step: about {heal.report.ai.calls} AI call{heal.report.ai.calls === 1 ? "" : "s"} used (at most 3 pages per click)</p>
+              {heal.report.ai.skipped && <p className="mt-1 text-muted-foreground">Did not run: {heal.report.ai.skipped}</p>}
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+                {heal.report.ai.items.map((it) => (
+                  <li key={it.kind}>
+                    {it.label}: {it.status === "fixed" ? `AI fixed ${it.changed} (about ${it.calls} calls, with Undo)` : it.status === "tried" ? `AI tried, changed nothing (about ${it.calls} calls)` : "skipped"}
+                    {it.note ? `. ${it.note}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <p className="mt-2 text-xs text-muted-foreground">Every repair is in the Autopilot decisions log with an Undo. Press Copy for Claude to hand what is left to Claude Code.</p>
         </section>
       )}

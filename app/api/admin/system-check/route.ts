@@ -9,7 +9,8 @@ import { summarizeCheck } from '@/lib/system-check'
 import { summarizeFixes } from '@/lib/system-check-fixes'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+// 300 seconds: Auto-heal's bounded AI step (lib/system-check-ai.ts) can make model calls, and a call only starts with 50 seconds left.
+export const maxDuration = 300
 
 async function answer(force: boolean) {
   const admin = getSupabaseAdmin()
@@ -29,10 +30,12 @@ async function answer(force: boolean) {
 //       fixed by itself and what needs a person, plus `fixes`: the "Fix these today" list built from the amber and red stages, most
 //       impactful first, each with today's tick. An answer younger than 5 minutes is reused; ?force=1 reads everything again.
 // POST  {op: 'run'}                          "Run check now": reads everything again and saves the answer, then returns it like GET.
-//       {op: 'heal'}                          "Auto-heal": runs the existing safe, capped repairs once (lib/system-check-heal.ts; no AI call,
-//                                             kill switch and caps respected, each repair logged with Undo), then returns a fresh check plus `heal`.
+//       {op: 'heal'}                          "Auto-heal": runs the existing safe, capped repairs once (lib/system-check-heal.ts; kill switch and
+//                                             caps respected, each repair logged with Undo), then ONE bounded AI step (lib/system-check-ai.ts: at most
+//                                             3 listed pages, heal-loop daily call cap, spend limit, once per item per day), then returns a fresh
+//                                             check plus `heal`.
 //       {op: 'done'|'later'|'reopen', stage}  tick one fix for today (kept in the daily follow-ups store).
-// Read only (apart from saving its own answer and the ticks in app_settings). No AI call, nothing posted.
+// Everything but op 'heal' is read only (apart from saving its own answer and the ticks in app_settings): no AI call, nothing posted.
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
@@ -51,7 +54,10 @@ export async function POST(request: Request) {
       // Auto-heal: one safe, capped pass through the repairs the site already makes daily, then a fresh check and what changed.
       const admin = getSupabaseAdmin()
       const before = await readStoredCheck(admin)
-      const run = await runAutoHeal(admin)
+      // The AI step reads a fresh check AFTER the plain repairs, so it only considers what is still amber or red.
+      const run = await runAutoHeal(admin, {
+        listed: async () => (await getSystemCheck(admin, { force: true })).result.stages.map((s) => ({ id: s.id, light: s.light })),
+      })
       for (const p of run.changedPaths) {
         try {
           revalidatePath(p)

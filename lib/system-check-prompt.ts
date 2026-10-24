@@ -15,11 +15,34 @@ export interface HealStep {
   note: string
 }
 
+/** One thing the bounded AI step looked at: 'fixed' = the repair changed something, 'tried' = it ran but changed nothing,
+ * 'skipped' = it did not run (the reason is in `note`: cap, paused, no safe fix, already tried today). */
+export interface AiFixItem {
+  kind: string
+  label: string
+  status: 'fixed' | 'tried' | 'skipped'
+  /** How many pages the repair changed. */
+  changed: number
+  /** Approximate AI calls this item used. */
+  calls: number
+  note: string
+}
+
+export interface AiFixReport {
+  items: AiFixItem[]
+  /** Approximate AI calls used by the whole step. */
+  calls: number
+  /** Why the whole step did not run (paused, no key, spend limit, nothing listed), or '' when it ran. */
+  skipped: string
+}
+
 export interface HealReport {
   at: string
   steps: HealStep[]
   /** True when automation is paused (kill switch): nothing was repaired. */
   paused: boolean
+  /** The one bounded AI step that runs after the plain repairs (absent on older reports). */
+  ai?: AiFixReport
 }
 
 export interface CheckDiff {
@@ -118,6 +141,12 @@ export function buildClaudePrompt(i: PromptInput): string {
     lines.push('What Auto-heal already tried (one safe, capped pass, now finished):')
     if (i.heal.paused) lines.push('- Automation is paused (kill switch), so nothing was repaired.')
     for (const st of i.heal.steps) lines.push(`- ${st.label}: ${st.ran ? (st.acted ? `changed ${st.acted}` : 'changed nothing') : 'skipped'}${st.note ? `. ${st.note}` : ''}`)
+    if (i.heal.ai) {
+      const ai = i.heal.ai
+      if (ai.skipped) lines.push(`- AI fix step: did not run. ${ai.skipped}`)
+      for (const it of ai.items) lines.push(`- AI fix, ${it.label}: ${it.status === 'fixed' ? `changed ${it.changed} (about ${it.calls} AI calls, logged with Undo)` : it.status === 'tried' ? `tried, changed nothing (about ${it.calls} AI calls)` : 'skipped'}${it.note ? `. ${it.note}` : ''}`)
+      if (ai.items.length || ai.skipped) lines.push(`- AI fix step total: about ${ai.calls} AI calls. Do not ask the AI to redo those items today.`)
+    }
     if (i.diff) {
       lines.push(`- After the re-check: ${i.diff.fixed.length} fixed${i.diff.fixed.length ? ` (${i.diff.fixed.map((f) => f.label).join(', ')})` : ''}, ${i.diff.stillOpen.length} still open${i.diff.newlyWorse.length ? `, ${i.diff.newlyWorse.length} newly worse (${i.diff.newlyWorse.map((f) => f.label).join(', ')})` : ''}.`)
     }

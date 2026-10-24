@@ -103,7 +103,7 @@ async function main() {
   const route = read('app/api/admin/system-check/route.ts')
   expect('the heal op is behind isAuthorized, is a POST op, and re-runs the check and returns the diff', /export async function POST[\s\S]*isAuthorized[\s\S]*op === 'heal'/.test(route) && /runAutoHeal/.test(route) && /diffChecks/.test(route) && /answer\(true\)/.test(route))
   const heallib = read('lib/system-check-heal.ts')
-  expect('Auto-heal uses only existing capped functions and makes no AI call of its own', /runFunnelWatchdog/.test(heallib) && /runRetryFailedPosts/.test(heallib) && /runApproveSafeTopics/.test(heallib) && /runSiteCrawl/.test(heallib) && !/callAnthropic|ai-verify/.test(heallib) && /isAutomationPaused/.test(heallib))
+  expect('Auto-heal uses only existing capped functions; its file makes no AI call of its own (the bounded AI step lives in lib/system-check-ai.ts)', /runFunnelWatchdog/.test(heallib) && /runRetryFailedPosts/.test(heallib) && /runApproveSafeTopics/.test(heallib) && /runSiteCrawl/.test(heallib) && !/callAnthropic|ai-verify/.test(heallib) && /isAutomationPaused/.test(heallib))
   const page = read('app/admin/system-check/page.tsx')
   expect('the page: Auto-heal button top right, Copy for Claude only after a heal run, Skip and Continue to admin both go to /admin', /data-testid="auto-heal"/.test(page) && /\{heal && \(\s*<button[\s\S]{0,200}?copy-for-claude/.test(page) && /data-testid="skip"/.test(page) && /data-testid="continue"/.test(page) && (page.match(/<Link href="\/admin"/g) ?? []).length >= 2 && />\s*Skip\s*</.test(page) && /Continue to admin/.test(page))
   expect('Continue only shows after the run finished', /data && !busy && \(\s*<Link href="\/admin" data-testid="continue"/.test(page))
