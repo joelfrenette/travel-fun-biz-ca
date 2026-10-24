@@ -29,6 +29,10 @@ export async function POST(request: Request) {
     }
 
     const data = { ...parsed.data, package: submitPackage(parsed.data.package), submittedAt: parsed.data.submittedAt || new Date().toISOString() }
+    // agent_interest is a HINT from an /agents/<slug> page: the office assigns leads. It only becomes a line in the note.
+    if (parsed.data.agent_interest) {
+      data.message = `${data.message ? `${data.message}\n` : ""}[Asked about travel specialist: ${parsed.data.agent_interest} (hint only, the office assigns the lead)]`
+    }
     console.log("[lead] Submission received", { package: data.package, source: data.attribution?.utm_source, page: data.attribution?.page_path })
 
     // Saved here BEFORE GoHighLevel is called, so a slow or hanging GHL cannot lose the lead.

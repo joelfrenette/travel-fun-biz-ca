@@ -7,6 +7,8 @@ import { ContactForm } from "@/components/contact-form"
 import { Footer } from "@/components/footer"
 import { TestimonialsSection } from "@/components/testimonials-section"
 import { TopDestinations } from "@/components/top-destinations"
+import { AgentsStrip } from "@/components/agents-strip"
+import { getAgentsStrip } from "@/lib/agents-store"
 import { listTopDestinationGuides } from "@/lib/guides"
 import { getPackages } from "@/lib/packages"
 import { getPublishedTestimonials } from "@/lib/testimonials"
@@ -32,7 +34,7 @@ const webSiteJsonLd = buildWebSiteJsonLd()
 export default async function HomePage() {
   const preferences = getVisitorPreferences()
   const { language, currency } = preferences
-  const [packages, usdToTargetRate, testimonials, topDestinations, affiliateRules] = await Promise.all([getPackages(), getUsdToRate(currency), getPublishedTestimonials(), listTopDestinationGuides(6), loadAffiliateRules()])
+  const [packages, usdToTargetRate, testimonials, topDestinations, affiliateRules, agentsStrip] = await Promise.all([getPackages(), getUsdToRate(currency), getPublishedTestimonials(), listTopDestinationGuides(6), loadAffiliateRules(), getAgentsStrip(4)])
   const packageNames = packages.map((pkg) => pkg.name)
   // Word links (WP23): the home page's own sentences (hero, why choose us, the four benefits, the line above the contact
   // form), in reading order, one shared limit. Fails open (no rules, no links).
@@ -54,6 +56,8 @@ export default async function HomePage() {
         />
         <TopDestinations items={topDestinations} />
         <FeaturesSection language={language} introParts={linked.parts(copy.featuresIntro)} featureParts={copy.features.map((f) => linked.parts(f))} />
+
+        <AgentsStrip aotm={agentsStrip.aotm} featured={agentsStrip.featured} />
 
         <TestimonialsSection language={language} testimonials={testimonials} />
 
