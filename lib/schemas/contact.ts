@@ -18,6 +18,8 @@ export type ContactFormValues = z.infer<typeof contactFormSchema>
 
 export const contactSubmissionSchema = contactFormSchema.extend({
   submittedAt: z.string().optional(),
+  // Hidden hint from an /agents/<slug> page. Not trusted: it is only written into the lead's note for the office to read.
+  agent_interest: z.string().regex(/^[a-z0-9-]{1,60}$/).optional(),
   attribution: attributionSchema.optional(),
 })
 

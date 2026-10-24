@@ -28,6 +28,8 @@ interface ContactFormProps {
   language: Language
   /** The site phone (site.phone), shown in the rate-limit and network error messages. */
   phone?: string | null
+  /** Agent page hint (slug). Sent as a hidden value only; the office assigns leads, never the visitor or the page. */
+  agentInterest?: string
 }
 
 const travelerOptions = [
@@ -38,7 +40,7 @@ const travelerOptions = [
   { value: "9+", label: "9+ People" },
 ]
 
-export function ContactForm({ preselectedPackage, packageOptions, language, phone }: ContactFormProps) {
+export function ContactForm({ preselectedPackage, packageOptions, language, phone, agentInterest }: ContactFormProps) {
   const { toast } = useToast()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -98,7 +100,7 @@ export function ContactForm({ preselectedPackage, packageOptions, language, phon
       const response = await fetch("/api/submit-lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, package: packageName, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
+        body: JSON.stringify({ ...values, ...(agentInterest ? { agent_interest: agentInterest } : {}), package: packageName, submittedAt: new Date().toISOString(), attribution: getAttribution() }),
       })
 
       if (!response.ok) {
