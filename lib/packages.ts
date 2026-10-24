@@ -118,7 +118,9 @@ export async function getPackages(): Promise<TravelPackage[]> {
       return samplePackages
     }
 
-    return data.map(dbPackageToTravelPackage)
+    // An "upcoming" list: a trip that already happened keeps its page and its place in the sitemap, but is not promoted here.
+    const upcoming = data.filter((row) => !isPastTrip(row))
+    return upcoming.map(dbPackageToTravelPackage)
   } catch (error) {
     console.error('Failed to fetch packages:', error)
     return samplePackages
@@ -154,7 +156,8 @@ export async function getPackagesForBrowse(): Promise<BrowsePackage[]> {
     console.error('Failed to fetch packages for browse:', error)
     return []
   }
-  return (data || []).map(dbPackageToBrowsePackage)
+  // The trips index lists what can still be planned; a past trip keeps its own page and its place in the sitemap.
+  return (data || []).filter((row) => !isPastTrip(row)).map(dbPackageToBrowsePackage)
 }
 
 /** A published package by slug, through the anon client so RLS keeps drafts private. */
@@ -171,13 +174,13 @@ export async function getNextUpcomingPackageInCategory(category: string, exclude
     .neq('id', excludeId)
     .gte('available_from', today)
     .order('available_from', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+    .limit(5)
   if (error) {
     console.error('Failed to fetch next upcoming package:', error)
     return null
   }
-  return data
+  // A trip forced to "recap" in the admin is past whatever its dates say.
+  return (data ?? []).find((row) => !isPastTrip(row)) ?? null
 }
 
 /** The trip a recap page's "Join the next trip" points to: the admin's pick (next_trip_slug) when it is a
@@ -209,11 +212,12 @@ export async function getRelatedPackages(relatedPackageId: string | null, limit 
     // posts) silently showed no trip cards at all. Only exclude an id when there is one.
     let query = supabase.from('travel_packages').select('*').eq('status', 'published')
     if (relatedPackageId) query = query.neq('id', relatedPackageId)
-    const { data, error } = await query.order('available_from', { ascending: true, nullsFirst: false }).limit(limit)
+    const { data, error } = await query.order('available_from', { ascending: true, nullsFirst: false }).limit(limit + 20)
     if (error) {
       console.error('Failed to fetch related packages:', error)
     } else {
-      for (const p of data ?? []) {
+      // Blog cards promote trips people can still plan: past trips are skipped (the soonest-first order alone put them first).
+      for (const p of (data ?? []).filter((row) => !isPastTrip(row))) {
         if (results.length >= limit) break
         results.push(p)
       }

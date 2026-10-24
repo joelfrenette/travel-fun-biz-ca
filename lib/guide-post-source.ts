@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { GUIDE_KINDS, guideKinds, guidePath, type GuideKind } from '@/lib/guides'
 import { isPastTrip } from '@/lib/past-trip'
+import { lookbackSource } from '@/lib/trip-lookback'
 
 // What the social-posting pass needs to know about a guide row in post_distribution (migration 0030: a row
 // whose `path` is set refers to a guide page, not a blog post). Kept in its own file with no import of
@@ -51,13 +52,16 @@ export function packageSlugFromPath(path: string): string | null {
  * trip is gone, unpublished or already happened (nothing is sent: a past trip's recap page does the promoting). Throws
  * on a database error so it is retried like any other failure. */
 async function loadPackagePostSource(admin: SupabaseClient, slug: string): Promise<GuidePostSource | null> {
-  const cols = 'name, short_description, meta_description, image_url, highlights, status, available_to'
-  let res = await admin.from('travel_packages').select(`${cols}, recap_mode`).eq('slug', slug).maybeSingle()
+  const cols = 'name, slug, short_description, meta_description, image_url, highlights, status, available_to, gallery_urls'
+  let res = await admin.from('travel_packages').select(`${cols}, recap_mode, recap_summary, recap_highlights`).eq('slug', slug).maybeSingle()
   // Before migration 0037 there is no recap_mode column; the date alone then decides.
-  if (res.error && /recap_mode|column|schema cache/i.test(res.error.message)) res = (await admin.from('travel_packages').select(cols).eq('slug', slug).maybeSingle()) as typeof res
+  if (res.error && /recap_mode|recap_summary|recap_highlights|column|schema cache/i.test(res.error.message)) res = (await admin.from('travel_packages').select(cols).eq('slug', slug).maybeSingle()) as typeof res
   if (res.error) throw new Error(`travel_packages: ${res.error.message}`)
-  const data = res.data as { name: string; short_description: string | null; meta_description: string | null; image_url: string | null; highlights: string[] | null; status: string; available_to: string | null; recap_mode?: string | null } | null
-  if (!data || data.status !== 'published' || isPastTrip(data)) return null
+  const data = res.data as { name: string; slug: string; short_description: string | null; meta_description: string | null; image_url: string | null; highlights: string[] | null; status: string; available_to: string | null; gallery_urls?: string[] | null; recap_mode?: string | null; recap_summary?: string | null; recap_highlights?: string[] | null } | null
+  if (!data || data.status !== 'published') return null
+  // A trip that already happened is posted only as a "Look back" (a draft a person approved), and only with a real trip photo that
+  // the Recap Studio put in the gallery. Anything else sends nothing, as before.
+  if (isPastTrip(data)) return lookbackSource(data)
   const points = (data.highlights ?? []).filter((h): h is string => typeof h === 'string' && h.trim().length > 0).map((h) => `- ${h}`)
   const grounding = [data.short_description ? `- ${data.short_description}` : '', ...points].filter(Boolean).join('\n').slice(0, 1500)
   return {

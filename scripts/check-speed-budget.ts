@@ -54,8 +54,8 @@ for (const f of ['app/blog/[slug]/page.tsx', 'components/guide-page.tsx']) {
   if (heroImg) check(/width=\{\d+\}/.test(heroImg[0]) && /height=\{\d+\}/.test(heroImg[0]), f, 'the main photo needs explicit width and height')
 }
 {
-  const f = 'app/packages/[slug]/page.tsx'
-  check(/<img[^>]*fetchPriority="high"/.test(read(f)), f, 'the trip page hero photo needs fetchPriority="high"')
+  // The trip page draws its hero in components/trip (upcoming: trip-kit-hero, past trip: past-trip-hero).
+  for (const f of ['components/trip/trip-kit-hero.tsx', 'components/trip/past-trip-hero.tsx']) check(/<img[^>]*fetchPriority="high"/.test(read(f)), f, 'the trip page hero photo needs fetchPriority="high"')
 }
 {
   const f = 'app/destinations/[slug]/page.tsx'

@@ -1,7 +1,7 @@
 import { generateSlug } from "@/lib/utils"
 import { TripGallery } from "@/components/trip-gallery"
 import { TripAlertForm } from "@/components/trip-alert-form"
-import { AffiliateParts, AffiliateLinkified, AffiliateAutoDisclosure } from "@/components/affiliate-text"
+import { AffiliateParts, AffiliateLinkified } from "@/components/affiliate-text"
 import { TripKitHero } from "@/components/trip/trip-kit-hero"
 import { KeyFactsStrip, RouteTimeline, InclusionBlock, GoodToKnow, AgentCta, KitAttribution } from "@/components/trip/trip-kit-body"
 import type { TripKit, PriceConfirmed } from "@/lib/trip-kit-facts"
@@ -129,7 +129,6 @@ export function TripKitPage({ pkg, heading, image, kit, price, fieldSet, linked,
         </div>
       </section>
       <KitAttribution kit={kit} />
-      <div className="container mx-auto px-4"><AffiliateAutoDisclosure count={linked.count} language={language} /></div>
     </>
   )
 }

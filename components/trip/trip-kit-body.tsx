@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { Calendar, Check, X, Info, MapPin, Sparkles, Phone, CalendarClock } from "lucide-react"
 import { PhoneLink } from "@/components/phone-link"
-import { buildKeyFacts, inclusionBlocks, type TripKit, type KitStop, type KitRowInput, type KitFact } from "@/lib/trip-kit-facts"
+import { buildKeyFacts, inclusionBlocks, attributionLabels, type TripKit, type KitStop, type KitRowInput, type KitFact } from "@/lib/trip-kit-facts"
 
 // The reusable body of the Trip Page Kit. Every block draws ONLY stored or sourced data and is left out when it has none.
 // No price appears anywhere in this file: the only price on the page is the hero's agent-confirmed block.
@@ -172,7 +172,7 @@ export function AgentCta({ id, phone, telHref, tripName, heading, method }: { id
 
 /** Small attribution line for the reference text and photos used. Required by the CC BY-SA licence. */
 export function KitAttribution({ kit }: { kit: TripKit | null }) {
-  const refs = kit?.attributions ?? []
+  const refs = attributionLabels(kit?.attributions ?? [])
   const photos = kit?.stops.some((s) => s.photo) ?? false
   if (refs.length === 0 && !photos) return null
   return (

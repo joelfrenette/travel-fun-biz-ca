@@ -22,6 +22,7 @@ interface Status {
   toConfirm: string[]
   price: { by: string; at: string; text: string } | null
   past: boolean
+  recap?: { past: boolean; photos: number; quotes: number; hasRecapText: boolean; todo: string[] }
 }
 
 interface FillResult {
@@ -112,6 +113,7 @@ export function PackageKitPanel({ packageId, onChanged }: { packageId: string; o
           <Wand2 className="h-4 w-4" /> Trip page kit
           {status && <ScoreBadges completeness={status.completeness.score} seo={status.seo.score} />}
           {status?.completeness.thin && <Badge variant="destructive" className="text-[10px]">Thin</Badge>}
+          {status?.past && <Badge variant="secondary" className="text-[10px]" data-testid="past-trip-badge">Past trip</Badge>}
         </CardTitle>
         <CardDescription>
           Fills the page from the trip details and cited reference pages (Wikivoyage, Wikipedia). It never sets a price, and it never guesses hours, ships or hotels.
@@ -124,6 +126,12 @@ export function PackageKitPanel({ packageId, onChanged }: { packageId: string; o
           {status?.hasKit && <Button onClick={undo} disabled={busy} size="sm" variant="outline"><Undo2 className="mr-2 h-4 w-4" />Undo route record</Button>}
           {status?.past && <span className="text-xs text-muted-foreground">Past trip: only empty fields are filled.</span>}
         </div>
+        {status?.past && status.recap && (
+          <p className="text-sm text-muted-foreground" data-testid="recap-status">
+            <strong className="text-foreground">Recap status:</strong> {status.recap.photos} real trip photo{status.recap.photos === 1 ? "" : "s"}, {status.recap.quotes} approved quote{status.recap.quotes === 1 ? "" : "s"}, recap text {status.recap.hasRecapText ? "published" : "not written"}.
+            {status.recap.todo.length > 0 ? ` To do: ${status.recap.todo.join("; ")}.` : " Nothing left to do."}
+          </p>
+        )}
         {msg && <p className="text-sm text-muted-foreground" role="status">{msg}</p>}
         {status && status.completeness.reasons.length > 0 && <p className="text-xs text-muted-foreground">Still missing: {status.completeness.reasons.join("; ")}.</p>}
 

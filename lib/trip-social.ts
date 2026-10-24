@@ -4,6 +4,7 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { AUTO_HOLD_PREFIX, CAPTION_FAILED_PREFIX, guideCaptionProblems } from '@/lib/guide-release'
 import { loadGuidePostSource, packageDistributionSlug, packageSlugFromPath } from '@/lib/guide-post-source'
 import { isPastTrip } from '@/lib/past-trip'
+import { runLookBackDraft } from '@/lib/trip-lookback'
 import { enrolPackagePost, PACKAGE_ENROLMENTS_PER_DAY, PROMOTION_GAP_DAYS } from '@/lib/promotion'
 
 // Automatic social posts for published trips. Off unless app_settings.trip_social_posts is exactly 'true'.
@@ -121,6 +122,13 @@ export function isReleasableTripRow(row: { last_error: string | null; created_at
 /** One enrolment try, called from the posting pass. Does nothing (returns '') when the setting is not 'true', posting is off or
  * paused, a cap is used or unreadable, or no trip qualifies. Never throws. Returns a short note for the run log. */
 export async function runTripSocialEnrol(admin: SupabaseClient, mode: string, now: Date = new Date()): Promise<string> {
+  const promo = await enrolPromotion(admin, mode, now)
+  // A trip that just became a recap gets ONE "Look back" draft for review (lib/trip-lookback.ts): never posted by itself.
+  const look = await runLookBackDraft(admin, mode, now)
+  return [promo, look].filter(Boolean).join('; ')
+}
+
+async function enrolPromotion(admin: SupabaseClient, mode: string, now: Date): Promise<string> {
   try {
     if (!(await getTripSocialEnabled(admin))) return ''
     if (mode !== 'prepare' && mode !== 'auto') return ''

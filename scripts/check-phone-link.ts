@@ -69,7 +69,7 @@ expect('StickyCta request button follows requestHref', custom.includes('href="/c
 const guidePage = read('components/guide-page.tsx')
 expect('guide-page mounts StickyCta with the site phone', /<StickyCta[\s\S]*?phone=\{site\.phone\}/.test(guidePage))
 expect('guide-page imports StickyCta', /import \{ StickyCta \}/.test(guidePage))
-for (const f of ['app/packages/[slug]/page.tsx', 'components/package-card.tsx', 'components/guide-cta.tsx', 'app/thank-you/page.tsx']) {
+for (const f of ['components/trip/trip-kit-hero.tsx', 'components/trip/past-trip-hero.tsx', 'components/package-card.tsx', 'components/guide-cta.tsx', 'app/thank-you/page.tsx']) {
   const src = read(f)
   expect(`${f} imports PhoneLink`, /import \{ PhoneLink \} from "@\/components\/phone-link"/.test(src))
   expect(`${f} has no bare tel anchor`, !/<a\b[^>]*href=\{[^}]*tel/.test(src) && !/<a\b[^>]*href=["']tel:/.test(src))

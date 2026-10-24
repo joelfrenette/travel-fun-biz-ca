@@ -6,7 +6,7 @@
 import { copyBlockers } from '@/lib/package-enrich'
 import { SUPERLATIVE_PATTERNS } from '@/lib/guide-composer'
 import { averageSentenceWords } from '@/lib/seo-score'
-import { isPriceText, fold } from '@/lib/trip-kit-facts'
+import { isPriceText, fold, isLocalLanguageName } from '@/lib/trip-kit-facts'
 
 /** Blocker labels from copyBlockers that the "best" policy lets through (opinion, not a checkable claim). */
 const OPINION_LABELS = new Set(['best', 'reputation claim'])
@@ -68,6 +68,8 @@ export function thingBlockers(line: string, referenceNames: string[], grounding:
   const t = line.trim()
   if (t.length < 20 || t.length > 170) out.push('wrong length')
   if (/\d/.test(t)) out.push('digit in a things-to-do line')
+  if (isLocalLanguageName(t)) out.push('a local-language name (only English titles from the reference page are used)')
+  if (/\b(?:St|Sts|Ste|Mt|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv)\.(?=[A-Za-z])/.test(t)) out.push('missing space after an abbreviation')
   const f = fold(t)
   if (!referenceNames.some((n) => f.includes(fold(n)))) out.push('names nothing from the reference page')
   out.push(...tripKitBlockers(t, { grounding, field: 'thing' }).filter((b) => !/^too short|^too long/.test(b)))
