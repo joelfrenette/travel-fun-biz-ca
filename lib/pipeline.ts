@@ -26,6 +26,9 @@ import { runAutoPolicies } from '@/lib/auto-policies'
 import { autoblogNudgePending, clearAutoblogNudge } from '@/lib/funnel-watchdog'
 import { runPublishVerifyIfDue } from '@/lib/publish-verify'
 import { runHotLeadReminders } from '@/lib/lead-desk-store'
+import { isDryRunSwitchOn, recordDryPass } from '@/lib/dry-run'
+import { runDryPass } from '@/lib/dry-run-plan'
+import { ceilingSentence } from '@/lib/dry-run-shape'
 
 // ONE pipeline, run by ONE scheduler (every 15 minutes) or by one button. In order:
 //   0. KEYWORDS  once a week, within a dollar cap you set, research fresh keywords for your trips.
@@ -153,6 +156,20 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
   const startedAt = Date.now()
   const run: PipelineRun = { at: new Date().toISOString(), trigger: opts.force ? 'button' : 'schedule', steps: [] }
   const overBudget = () => Date.now() - startedAt > TIME_BUDGET_MS
+
+  // DRY RUN (lib/dry-run.ts): when the switch is on, NO real step runs. The rehearsal reads the same facts, says what each step would do and
+  // keeps the last 5 passes. It writes no content, posts nothing, sends no email, takes no automatic decision and moves no counter, so
+  // pipeline_last_run is deliberately not written either. An unreadable switch counts as off.
+  if (await isDryRunSwitchOn(admin)) {
+    try {
+      const pass = await runDryPass(admin, run.trigger)
+      await recordDryPass(admin, pass)
+      run.steps.push({ step: 'dry-run', ok: true, note: `DRY RUN, nothing was done. ${pass.intents.length} thing${pass.intents.length === 1 ? '' : 's'} would happen, ${pass.aiCalls} AI call${pass.aiCalls === 1 ? '' : 's'} would be made. ${ceilingSentence(pass.ceiling)}` })
+    } catch (e) {
+      run.steps.push({ step: 'dry-run', ok: false, note: e instanceof Error ? e.message : 'the dry run failed' })
+    }
+    return run
+  }
 
   if (!(await isAutopilotOn(admin))) {
     run.steps.push({ step: 'write', ok: true, note: 'Autopilot is off' })

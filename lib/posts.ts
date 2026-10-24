@@ -2,6 +2,7 @@
 // NOT built yet: an admin editor and the public /blog pages - see roadmap #703 and #705.
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { supabase } from '@/integrations/supabase/client'
+import { blockIfDry } from '@/lib/dry-run'
 
 export interface Post {
   id: string
@@ -97,6 +98,11 @@ export type PostInput = Partial<Omit<Post, 'id' | 'created_at' | 'updated_at'>>
 export async function createPost(input: PostInput): Promise<Post & { seoColumnsMissing?: boolean }> {
   if (!input.title?.trim()) throw new Error('Title is required')
   if (!input.slug?.trim()) throw new Error('Slug is required')
+  // Dry run (lib/dry-run.ts): nothing is saved or published. A stand-in row comes back so a caller that reads it does not crash.
+  if (blockIfDry('publish-post', `${input.status === 'published' ? 'Publish' : 'Save as a draft'} "${input.title.trim()}" (${input.slug.trim()})`)) {
+    const stamp = new Date().toISOString()
+    return { id: 'dry-run', title: input.title.trim(), slug: input.slug.trim(), body: input.body ?? '', cover_image_url: null, alt_text: null, tags: [], related_package_id: null, status: 'draft', publish_date: null, meta_title: null, meta_description: null, created_at: stamp, updated_at: stamp }
+  }
   const baseRow = {
     title: input.title.trim(),
     slug: input.slug.trim(),

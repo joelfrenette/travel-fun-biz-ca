@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { listPostsAdmin, createPost, type Post } from '@/lib/posts'
+import { isDryRunSwitchOn } from '@/lib/dry-run'
 import { listPublishedGuideLinks, guidePath, isGuideKind, type GuideKind } from '@/lib/guides'
 import { dueApprovedTopics, packageWall, keywordSetOf, pickKeywordTopic, markKeywordSkipped, pickOneTopic, setTopicStatus, findGroundingPackage, groundAngleInPackage, checkTopicConflict, rankByGsc, readGscQueries, type TopicIdea } from '@/lib/blog-topics'
 import { composeFullPost, gateWithRepair, type AllowedLink } from '@/lib/blog-composer'
@@ -320,7 +321,7 @@ async function clearComposeFailure(admin: ReturnType<typeof getSupabaseAdmin>, r
 }
 
 /** How many posts were created since 00:00 UTC today, or null when the count could not be read. */
-async function postsWrittenToday(admin: ReturnType<typeof getSupabaseAdmin>): Promise<number | null> {
+export async function postsWrittenToday(admin: ReturnType<typeof getSupabaseAdmin>): Promise<number | null> {
   const start = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`
   const { data, error } = await admin.from('posts').select('slug').gte('created_at', start).limit(100)
   if (error) return null
@@ -340,6 +341,9 @@ export async function runAutoblog(opts: { scheduled: boolean; deadlineMs?: numbe
   // The master kill switch overrides autoblog_mode without touching it - flip the switch back
   // off and whatever mode was set (draft/publish) resumes exactly as it was.
   if (await isAutomationPaused(admin)) return { ran: false, mode, note: 'automation is paused (kill switch)' }
+  // Dry run (lib/dry-run.ts): the pipeline never gets here while it is on, but the manual entry points (the blog page's run button and the
+  // unscheduled autoblog cron route) do, so they are stopped here too.
+  if (await isDryRunSwitchOn(admin)) return { ran: false, mode, note: 'dry run is on, so nothing was written' }
 
   if (!(await acquireRunLock(admin))) {
     return { ran: false, mode, note: 'another autoblog run is already in progress' }

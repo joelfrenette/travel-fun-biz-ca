@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
+import { isDryRunSwitchOn } from '@/lib/dry-run'
 import { uploadPostGetStatus } from '@/lib/upload-post'
 import { resolvePostingTarget, platformsFor, PLATFORM_ACCEPTS, type PostingTarget } from '@/lib/social-provider'
 import { clearAutoHoldNote, releaseHeldGuides } from '@/lib/guide-release'
@@ -195,6 +196,8 @@ export async function setDistributionStage(admin: SupabaseClient, slug: string, 
  * post. */
 export async function runDistribution(admin: SupabaseClient): Promise<string> {
   if (await isAutomationPaused(admin)) return 'automation is paused'
+  // Dry run (lib/dry-run.ts): only the unscheduled distribute cron route reaches here while it is on; nothing is sent.
+  if (await isDryRunSwitchOn(admin)) return 'dry run is on, so nothing was sent'
   const mode = await getDistributionMode(admin)
   if (mode === 'off') return 'distribution mode is off'
   const { target, reason } = await resolvePostingTarget(admin)

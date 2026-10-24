@@ -14,6 +14,7 @@ import { PageCopyPanel } from "@/components/admin/page-copy-panel"
 import { SelfHealingCard } from "@/components/admin/self-healing-card"
 import { AutoDecisionsCard } from "@/components/admin/auto-decisions-card"
 import { TravelNewsCard } from "@/components/admin/travel-news-card"
+import { DryRunBanner, DryRunCard, type DryRunState } from "@/components/admin/dry-run-card"
 import { Loader2, Rocket, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 interface Row {
@@ -34,6 +35,7 @@ interface Row {
 
 interface State {
   on: boolean
+  dryRun: DryRunState
   readiness: { blockers: string[]; warnings: string[] }
   videosPerWeek: number
   shotstackEnv: "stage" | "v1"
@@ -96,6 +98,7 @@ export default function AutopilotPage() {
 
   return (
     <div>
+      <DryRunBanner dryRun={state.dryRun} />
       <div className="border-b bg-card/30">
         <div className="container mx-auto px-4 py-4">
           <h1 className="text-xl font-bold">Content Autopilot</h1>
@@ -121,6 +124,8 @@ export default function AutopilotPage() {
             </Button>
           </CardContent>
         </Card>
+
+        <DryRunCard dryRun={state.dryRun} busy={busy} onToggle={() => post({ dryRun: !state.dryRun.on }, state.dryRun.on ? "Dry run off" : "Dry run on")} />
 
         <Card className={state.issues.some((i) => i.area !== "setup") ? "border-destructive/50" : undefined}>
           <CardContent className="space-y-3 p-4">

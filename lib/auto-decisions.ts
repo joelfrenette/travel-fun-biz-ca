@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, getSettingStrict, setSetting } from '@/lib/app-settings'
 import { AUTOMATION_PAUSED_KEY } from '@/lib/automation-kill-switch'
+import { blockIfDry } from '@/lib/dry-run'
 import { revertEdit } from '@/lib/content-edits'
 import { readPauses, writePauses } from '@/lib/network-pause'
 
@@ -181,6 +182,8 @@ export async function readDecisions(admin: SupabaseClient): Promise<AutoDecision
 /** Adds entries to the end of the log, keeping the newest 100. Never throws; a log that cannot be written is only a missing line. */
 export async function appendDecisions(admin: SupabaseClient, entries: AutoDecision[]): Promise<void> {
   if (!entries.length) return
+  // Dry run (lib/dry-run.ts): a decision is never logged, because none was taken.
+  if (blockIfDry('apply-decision', entries.map((e) => `${e.policy}: ${e.subject}`).join('; '))) return
   try {
     const all = boundDecisions([...(await readDecisions(admin)), ...entries])
     await setSetting(admin, DECISIONS_KEY, JSON.stringify(all))

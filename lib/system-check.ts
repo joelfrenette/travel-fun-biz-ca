@@ -10,6 +10,7 @@
 // The thresholds (hours quiet, ceilings) are the ones the funnel watchdog already uses; this file only reads its stored answer.
 
 import { hotWaitLight, hotWaitSentence, waitText, type HotWait } from '@/lib/lead-desk'
+import { DRY_RUN_AMBER_HOURS, dryRunSentence } from '@/lib/dry-run-shape'
 
 export type Light = 'green' | 'amber' | 'red'
 
@@ -88,6 +89,8 @@ export interface CheckFacts {
   decisions: DecisionLike[] | null
   /** Hot leads (call-back requests, forms with a phone number) still waiting for an agent. undefined = not asked; null = could not be read. */
   hotLeads?: HotWait | null
+  /** Whole hours Autopilot has been in dry run (nothing is published). undefined/null = not in dry run, or not known. */
+  dryRunHours?: number | null
 }
 
 export interface CheckStage {
@@ -417,6 +420,11 @@ export function evaluateCheck(f: CheckFacts): CheckResult {
     if (needs && s.id === 'conversion' && ['amber', 'red'].includes(hotWaitLight(f.hotLeads) ?? '')) {
       needs.text = 'Assign an agent'
       needs.href = '/admin'
+    }
+    // Dry run for more than 24 hours: the Production row turns amber (never green, red stays red) and says so with the real hours.
+    if (s.id === 'production' && typeof f.dryRunHours === 'number' && f.dryRunHours > DRY_RUN_AMBER_HOURS) {
+      const light: Light = s.light === 'red' ? 'red' : 'amber'
+      return { ...s, light, read: true, sentence: dryRunSentence(f.dryRunHours), number: `dry run for ${f.dryRunHours} hours`, fixed: fixed[s.id] ?? [], needs: { text: 'Turn dry run off', href: '/admin/autopilot' } }
     }
     return { ...s, fixed: fixed[s.id] ?? [], needs }
   })

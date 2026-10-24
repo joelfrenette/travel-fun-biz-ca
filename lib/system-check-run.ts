@@ -11,6 +11,7 @@ import { readStoredAiSpend } from '@/lib/ai-tripwire'
 import { DECISIONS_KEY, parseDecisions } from '@/lib/auto-decisions'
 import { VISUAL_GATE_STATS_KEY, parseStats, sumRecent } from '@/lib/visual-gate-stats'
 import { readHotWait } from '@/lib/lead-desk-store'
+import { DRY_RUN_KEY, DRY_RUN_SINCE_KEY, dryRunHours as dryRunHours_, isDryRunOn } from '@/lib/dry-run-shape'
 import { readDone } from '@/lib/followups-run'
 import { FOLLOWUPS_DONE_KEY, applyMark, serializeDone, siteDay } from '@/lib/followups'
 import { buildFixList, fixIdOf, stageOfFixId, withMarks, type FixView } from '@/lib/system-check-fixes'
@@ -110,7 +111,14 @@ export async function readCheckFacts(admin: SupabaseClient, deps: CheckDeps = {}
   // The lead desk: hot leads still waiting for an agent. Null before migration 0055 (the columns are not there), which just leaves the stage as it was.
   const hotLeads = await safe(() => readHotWait(admin, now))
 
-  return { now, watchdog, crawl, seo, jobs, ai, orders, gateSkips7d, decisions, hotLeads }
+  // Dry run: the switch and when it was turned on. null = not in dry run, or could not be read (then the line simply does not show).
+  const dryRunHours = await safe(async () => {
+    const on = await strict(admin, DRY_RUN_KEY)
+    if (!isDryRunOn(on)) return null
+    return dryRunHours_(await strict(admin, DRY_RUN_SINCE_KEY), now)
+  })
+
+  return { now, watchdog, crawl, seo, jobs, ai, orders, gateSkips7d, decisions, hotLeads, dryRunHours }
 }
 
 /** Reads the facts and judges them. Never throws. */
