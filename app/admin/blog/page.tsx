@@ -104,9 +104,12 @@ function BlogAdminPageContent() {
         cells={cells}
         loading={loading}
         actions={
-          <Button asChild>
-            <Link href="/admin/blog/new"><Plus className="mr-1.5 h-4 w-4" />New Post</Link>
-          </Button>
+          <>
+            <Link href="/admin/seo-engines" className="text-sm text-muted-foreground underline underline-offset-2">SEO engines</Link>
+            <Button asChild>
+              <Link href="/admin/blog/new"><Plus className="mr-1.5 h-4 w-4" />New Post</Link>
+            </Button>
+          </>
         }
       />
 

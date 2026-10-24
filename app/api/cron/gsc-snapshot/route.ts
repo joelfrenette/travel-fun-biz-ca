@@ -10,6 +10,7 @@ import { runBingCoverage } from '@/lib/bing-coverage'
 import { runOptimizer } from '@/lib/optimizer-run'
 import { runFunnelWatchdog } from '@/lib/funnel-watchdog'
 import { runSiteCrawl, CRAWL_BUDGET_MS } from '@/lib/site-crawl-run'
+import { runSeoEngines, SEO_BUDGET_MS } from '@/lib/seo-engines-run'
 import { revalidatePath } from 'next/cache'
 
 // Factory Phase 5: SEO/indexing. Dormant by the same two switches as every other cron here:
@@ -85,6 +86,28 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] funnel watchdog failed:', e)
     }
+    // SEO engines (search mining, competing pages, hub and spoke, one competitor a day): own 20 second budget, started only when enough of
+    // this function's 60 seconds is left to also leave the site crawl at least 20 seconds. Never publishes; at most 3 pages get one logged
+    // link a day and at most 3 topics are suggested. runSeoEngines never throws; the extra try/catch keeps it from ever breaking the snapshot.
+    let seo = ''
+    try {
+      const spare = 56_000 - (Date.now() - startedAt) - 24_000
+      if (spare < 6_000) {
+        seo = '; SEO engines skipped (time budget already used)'
+      } else {
+        const s = await runSeoEngines(getSupabaseAdmin(), { deadlineMs: Date.now() + Math.min(SEO_BUDGET_MS, spare) })
+        seo = `; ${s.note}`
+        for (const p of s.changedPaths) {
+          try {
+            revalidatePath(p)
+          } catch {
+            // a cache miss must not fail the step
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[cron:gsc-snapshot] seo engines failed:', e)
+    }
     // Site health crawl: one rotating window of the live sitemap (at most 40 pages, 6 s each, 4 at a time), their links, and at most 5
     // safe repairs (logged with Undo, none while automation is paused). Own 40 second budget; started only when enough of this
     // function's 60 seconds is left. runSiteCrawl never throws; the extra try/catch keeps it from ever breaking the snapshot.
@@ -107,7 +130,7 @@ async function handle(request: Request) {
     } catch (e) {
       console.error('[cron:gsc-snapshot] site crawl failed:', e)
     }
-    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${crawl}` })
+    return NextResponse.json({ ok: true, result: `${note}${connected}${watchdog}${tripwire}${bing}${learning}${funnel}${seo}${crawl}` })
   } catch (error) {
     // Without this, a cron failure's real cause only ever existed in the JSON body sent back to
     // Vercel's own caller - the Logs tab showed the request but no error text at all (found

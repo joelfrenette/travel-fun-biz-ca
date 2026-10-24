@@ -133,6 +133,49 @@ export async function getQueryPagePairs(days = 28): Promise<QueryPagePair[]> {
   }
 }
 
+export interface QueryPageRowFull {
+  query: string
+  path: string
+  clicks: number
+  impressions: number
+  position: number
+}
+
+/** The query + page report with the average position kept (getQueryPagePairs above drops it), for the SEO engines. One live call with its own
+ * short time limit, never cached, [] (never throws) when Search Console is not configured or the call fails. */
+export async function getQueryPageRowsFull(days = 28, timeoutMs = 8_000): Promise<QueryPageRowFull[]> {
+  if (!isSearchConsoleConfigured()) return []
+  try {
+    const token = await getGoogleAccessToken(SCOPE)
+    const end = new Date(Date.now() - 2 * 864e5)
+    const start = new Date(end.getTime() - (days - 1) * 864e5)
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const res = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(searchConsoleSiteUrl())}/searchAnalytics/query`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startDate: iso(start), endDate: iso(end), dimensions: ['query', 'page'], rowLimit: 5000 }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) return []
+    const out: QueryPageRowFull[] = []
+    for (const r of (body.rows || []) as { keys?: string[]; clicks?: number; impressions?: number; position?: number }[]) {
+      let path = ''
+      try {
+        path = new URL(String(r.keys?.[1] ?? '')).pathname.replace(/\/+$/, '') || '/'
+      } catch {
+        path = ''
+      }
+      const query = String(r.keys?.[0] ?? '').toLowerCase()
+      if (query && path) out.push({ query, path, clicks: Number(r.clicks) || 0, impressions: Number(r.impressions) || 0, position: Number(r.position) || 0 })
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
 export interface PageMetrics {
   path: string
   /** Impression-weighted average position over the last 28 days (lower is better). */

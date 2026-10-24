@@ -18,13 +18,20 @@ import { readPauses, writePauses } from '@/lib/network-pause'
 //  - writing the log fails OPEN: a log that cannot be written never blocks or reverts the action's own work, and a log that is
 //    corrupt reads as empty.
 
-export type PolicyName = 'retry_failed_posts' | 'approve_safe_topics' | 'publish_passing_news' | 'release_held_posts' | 'funnel_watchdog'
+export type AutopilotPolicyName = 'retry_failed_posts' | 'approve_safe_topics' | 'publish_passing_news' | 'release_held_posts' | 'funnel_watchdog'
+/** The SEO engines' two automatic actions (lib/seo-engines-run.ts): suggest topics from Search Console searches, and add internal links
+ * between pages that compete or belong together. They have their own switch and cap but are not part of the Autopilot card's list. */
+export type SeoPolicyName = 'seo_topics' | 'seo_links'
+export type PolicyName = AutopilotPolicyName | SeoPolicyName
 
 /** The four decisions the owner approved. They default to ON. */
 export const APPROVED_POLICIES: readonly PolicyName[] = ['retry_failed_posts', 'approve_safe_topics', 'publish_passing_news', 'release_held_posts']
 export const ALL_POLICIES: readonly PolicyName[] = [...APPROVED_POLICIES, 'funnel_watchdog']
+export const SEO_POLICIES: readonly SeoPolicyName[] = ['seo_topics', 'seo_links']
 
 export const POLICY_LABELS: Record<PolicyName, string> = {
+  seo_topics: 'Suggest blog topics from Google searches (SEO engines)',
+  seo_links: 'Add internal links between competing and related pages (SEO engines)',
   retry_failed_posts: 'Retry failed posts and resume stuck steps',
   approve_safe_topics: 'Approve safe blog topics from Google data',
   publish_passing_news: 'Publish news briefs that passed every check',
@@ -34,6 +41,8 @@ export const POLICY_LABELS: Record<PolicyName, string> = {
 
 /** Most automatic actions per policy per UTC day. Counts every logged action of that policy that changed something. */
 export const POLICY_CAPS: Record<PolicyName, number> = {
+  seo_topics: 3,
+  seo_links: 3,
   retry_failed_posts: 6,
   approve_safe_topics: 2,
   publish_passing_news: 3,
@@ -48,7 +57,7 @@ const MAX_VETOES = 300
 
 export const policyKey = (p: PolicyName): string => `auto_policy_${p}`
 
-export type UndoKind = 'requeue-post' | 'topic-pending' | 'unpublish-news' | 'rehold-post' | 'unpause-network'
+export type UndoKind = 'requeue-post' | 'topic-pending' | 'unpublish-news' | 'rehold-post' | 'unpause-network' | 'topic-withdraw' | 'revert-edit'
 
 export interface AutoDecision {
   /** ISO time the decision was made. */
@@ -66,7 +75,7 @@ export interface AutoDecision {
   undone_at?: string
 }
 
-const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpublish-news', 'rehold-post', 'unpause-network']
+const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpublish-news', 'rehold-post', 'unpause-network', 'topic-withdraw', 'revert-edit']
 
 // ---------------------------------------------------------------------------------------------------
 // Pure helpers
@@ -76,7 +85,7 @@ const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpub
 export const policyEnabled = (raw: string | null | undefined): boolean => raw !== 'off'
 
 export function isPolicyName(v: unknown): v is PolicyName {
-  return typeof v === 'string' && (ALL_POLICIES as readonly string[]).includes(v)
+  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v))
 }
 
 /** Reads the stored log. Corrupt or the wrong shape reads as empty; single bad entries are dropped. Pure. */
@@ -284,6 +293,22 @@ async function applyUndo(admin: SupabaseClient, undo: { kind: UndoKind; ref: str
     if (row.status !== 'approved' || row.used_slug) return { ok: false, message: row.used_slug ? 'A post was already written from this topic.' : `It is already ${row.status}.` }
     const { error: e2 } = await admin.from('blog_topic_queue').update({ status: 'suggested', scheduled_for: null }).eq('id', undo.ref).eq('status', 'approved')
     return e2 ? { ok: false, message: e2.message } : { ok: true, message: 'The topic is back in the list for you to decide.' }
+  }
+  if (undo.kind === 'topic-withdraw') {
+    // A topic the SEO engines suggested: withdrawing it turns it down for good (a rejected keyword is never queued again).
+    const { data, error } = await admin.from('blog_topic_queue').select('status, used_slug').eq('id', undo.ref).maybeSingle()
+    if (error) return { ok: false, message: `Could not read the topic (${error.message}).` }
+    const row = data as { status: string; used_slug: string | null } | null
+    if (!row) return { ok: false, message: 'That topic no longer exists.' }
+    if (row.used_slug || row.status === 'used') return { ok: false, message: 'A post was already written from this topic.' }
+    if (row.status === 'rejected') return { ok: true, message: 'The topic was already turned down.' }
+    const { error: e2 } = await admin.from('blog_topic_queue').update({ status: 'rejected', scheduled_for: null }).eq('id', undo.ref).in('status', ['suggested', 'approved'])
+    return e2 ? { ok: false, message: e2.message } : { ok: true, message: 'The topic is turned down and will not be suggested again.' }
+  }
+  if (undo.kind === 'revert-edit') {
+    // An internal link the SEO engines added: the audit log (content_edits) puts the page text back as it was.
+    const r = await revertEdit(admin, undo.ref)
+    return r.ok ? { ok: true, message: 'The link is taken out and the page text is back as it was.' } : { ok: false, message: r.error ?? 'The page text could not be put back.' }
   }
   if (undo.kind === 'unpublish-news') {
     const { data, error } = await admin.from('content_edits').select('id').eq('path', `/blog/${undo.ref}`).eq('field', 'status').eq('after', 'published').is('reverted_at', null).order('created_at', { ascending: false }).limit(1)
