@@ -13,6 +13,7 @@ import { seoScore, type SeoResult } from '@/lib/seo-score'
 import { buildPackageItem, relatedLinksLine, appendRelatedLine, type LinkTarget } from '@/lib/content-repair-adapters'
 import { removeDashes } from '@/lib/guide-composer'
 import { firstCutOff } from '@/lib/sentence-safe'
+import { stripSupplierSentences } from '@/lib/past-trip-kit'
 import { resolveReference, pickPlacePhoto, liveJson, livePhotoSearch, type JsonFetcher, type PhotoSearch, type PlacePhoto } from '@/lib/trip-kit-refs'
 import { tripKitBlockers, tripKitThingsOk } from '@/lib/trip-kit-gate'
 import {
@@ -30,6 +31,10 @@ import {
   containsPhrase,
   fold,
   attributionList,
+  isLocalLanguageName,
+  fixAbbrevSpacing,
+  activityBelongsElsewhere,
+  activityNamesOtherTown,
   buildToConfirm,
   dateRangeText,
   type PlaceMention,
@@ -173,9 +178,11 @@ export interface TextBundle {
   sourceTexts: string[]
 }
 
-export function bundleText(pkg: DbPackage, sources: string[], supplier: string | null): TextBundle {
-  const raw = [pkg.name, pkg.destination, pkg.country, pkg.region, pkg.short_description, pkg.full_description, (pkg.highlights ?? []).join('\n'), pkg.price_includes, pkg.not_included, itineraryText(pkg.itinerary), ...sources, supplier ? cleanSupplierText(supplier) : '']
+export function bundleText(pkg: DbPackage, sources: string[], supplier: string | null, past = false): TextBundle {
+  const rawAll = [pkg.name, pkg.destination, pkg.country, pkg.region, pkg.short_description, pkg.full_description, (pkg.highlights ?? []).join('\n'), pkg.price_includes, pkg.not_included, itineraryText(pkg.itinerary), ...sources, supplier ? cleanSupplierText(supplier) : '']
     .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+  // A past trip: words that only describe a supplier page or a booking state ("Tour Cancelled", "sold out") are not facts about the trip.
+  const raw = past ? rawAll.map((b) => stripSupplierSentences(b)).filter(Boolean) : rawAll
   const priceMentions: string[] = []
   for (const block of raw) for (const s of splitSentences(block)) if (isPriceText(s)) priceMentions.push(s)
   const clean = raw.map((b) => withoutPriceSentences(b)).filter(Boolean)
@@ -208,6 +215,11 @@ export interface FactSheet {
   routeKnown: boolean
   places: ResolvedPlace[]
   supplier: { url: string; text: string } | null
+}
+
+/** True when a cached fact sheet holds a local-language place name (Croatian "Katedrala sv. Duje") or a missing space after an abbreviation. Pure. */
+export function sheetHasLocalNames(sheet: FactSheet): boolean {
+  return sheet.places.some((p) => !!p.ref && [...p.ref.see, ...p.ref.doItems].some((i) => isLocalLanguageName(i.name) || fixAbbrevSpacing(i.name) !== i.name || fixAbbrevSpacing(i.blurb) !== i.blurb))
 }
 
 /** True when any reference name, blurb or intro in a cached fact sheet is cut off at an abbreviation. Pure. */
@@ -248,7 +260,7 @@ export async function buildFactSheet(pkg: DbPackage, b: TextBundle, deps: FillDe
     state = {}
   }
   // A sheet cached before the abbreviation fix holds names like "Basilica of St" and blurbs ending "on St.": never reuse it.
-  const cached = state.sheet && !sheetHasCutOff(state.sheet) ? state.sheet : undefined
+  const cached = state.sheet && !sheetHasCutOff(state.sheet) && !sheetHasLocalNames(state.sheet) ? state.sheet : undefined
   if (!opts.refresh && cached && cached.rowHash === rowHash && deps.now().getTime() - Date.parse(cached.fetchedAt) < FACTS_MAX_AGE_MS) return { sheet: cached, state, notes: ['fact sheet reused from cache'] }
 
   // 1. Which places? An itinerary or a list in the row first (free); otherwise the model reads the text; last resort the trip name.
@@ -374,7 +386,7 @@ export function writerPrompt(pkg: DbPackage, b: TextBundle, sheet: FactSheet, wa
   return `You are writing page copy for ONE trip page on TravelFunBiz.ca, a Canadian travel agency (hosted group trips, cruises, singles getaways). The page's goal is to start a conversation with a travel specialist.
 
 ${WRITER_RULES}${extraRules.length ? `\n${extraRules.join('\n')}` : ''}
-${past ? '\nThis trip date has passed. Write so it is true whether or not the trip ran: describe the planned route and the places, use "the trip was planned around", and do not invite booking this departure (invite the reader to ask about a similar trip).' : ''}${feedback.length ? `\nYour last answer was rejected for: ${feedback.join('; ')}. Fix exactly those problems.\n` : ''}
+${past ? '\nThis trip has already happened and the page is now a recap. Describe the route and the places (say "the trip was built around" rather than claiming details the texts do not give), never mention cancellation, sold out, availability or any supplier page, and do not invite booking this departure (invite the reader to plan a similar trip with a travel specialist).' : ''}${feedback.length ? `\nYour last answer was rejected for: ${feedback.join('; ')}. Fix exactly those problems.\n` : ''}
 TRIP: ${pkg.name}
 DESTINATION: ${pkg.destination}${pkg.country ? `, ${pkg.country}` : ''}
 LENGTH: ${pkg.duration || 'not stored'}
@@ -507,11 +519,13 @@ export async function planTripKit(
   const held: FillPlan['held'] = []
   const usage = { input: 0, output: 0 }
 
-  let b = bundleText(pkg, storedSources, null)
+  let b = bundleText(pkg, storedSources, null, past)
   const fs = await buildFactSheet(pkg, b, deps, cache, budget, { refresh: opts.refresh })
   notes.push(...fs.notes)
   const sheet = fs.sheet
-  b = bundleText(pkg, storedSources, sheet.supplier?.text ?? null)
+  // A past trip never leans on the supplier page: it is a dead link now, and its words ("Tour Cancelled") are not facts about a trip that ran.
+  const supplierForText = past ? null : sheet.supplier
+  b = bundleText(pkg, storedSources, supplierForText?.text ?? null, past)
   const refText = sheet.places.map((p) => (p.ref ? `${p.ref.intro}\n${[...p.ref.see, ...p.ref.doItems].map((i) => `${i.name}. ${i.blurb}`).join('\n')}` : '')).join('\n')
   const grounding0 = `${b.grounding}\n${refText}\n${pkg.name}\n${pkg.destination}\nLength: ${pkg.duration}\nDates: ${pkg.available_from ?? ''} ${pkg.available_to ?? ''} ${dateRangeText(pkg.available_from, pkg.available_to) ?? ''} ${(pkg.departure_dates ?? []).join(' ')}`
   // "Onofrio's Fountain" and "Onofrio Fountain" are the same name: the gate sees both spellings.
@@ -531,7 +545,7 @@ export async function planTripKit(
   let raw: Record<string, unknown> | null = null
   let feedback: string[] = []
   for (let attempt = 0; attempt < 2; attempt++) {
-    const prompt = writerPrompt(pkg, b, sheet, wanted, past, feedback)
+    const prompt = writerPrompt(pkg, b, past ? { ...sheet, supplier: null } : sheet, wanted, past, feedback)
     const key = hashOf(prompt)
     let answer = fs.state.answers?.[key] ?? null
     if (!answer) {
@@ -603,7 +617,15 @@ export async function planTripKit(
     cards++
     const a = placeAnswers[m.name] ?? {}
     const names = [...p.ref.see, ...p.ref.doItems].map((i) => i.name)
-    const things = tripKitThingsOk(asStrings(a.things, 6, 170), names, `${grounding}`).slice(0, 4).map((text) => ({ text, source: { label: p.ref!.label, url: p.ref!.url } }))
+    const stopNames = sheet.places.map((x) => x.mention.name)
+    const refItems = [...p.ref.see, ...p.ref.doItems]
+    // An activity named after a different town than this stop belongs to that town's card ("Adventure park Hvar Jelsa" is Jelsa's, not Hvar's).
+    const mine = (line: string) =>
+      !activityBelongsElsewhere(line, m.name, stopNames) &&
+      !refItems.filter((i) => containsPhrase(line, i.name)).some((i) => activityBelongsElsewhere(i.name, m.name, stopNames)) &&
+      // ... and an activity (the "Do" list) named after another town that is not on the route at all: "Adventure park Hvar Jelsa" is Jelsa's.
+      !p.ref!.doItems.filter((i) => containsPhrase(line, i.name)).some((i) => activityNamesOtherTown(i.name, m.name))
+    const things = tripKitThingsOk(asStrings(a.things, 6, 170).map(fixAbbrevSpacing), names, `${grounding}`).filter(mine).slice(0, 4).map((text) => ({ text, source: { label: p.ref!.label, url: p.ref!.url } }))
     const found = await pickCached(m.kind === "stay" ? (m.near ?? m.name) : m.name, m.kind === "stay" ? null : (m.region ?? pkg.country))
     if (found) galleryPool.push(found.raw)
     stops.push({
@@ -638,11 +660,12 @@ export async function planTripKit(
     }
   }
 
-  const supplierSrc = sheet.supplier ? { label: 'Supplier page', url: sheet.supplier.url } : { label: 'Trip details', url: null }
+  const supplierSrc = supplierForText ? { label: 'Supplier page', url: supplierForText.url } : { label: 'Trip details', url: null }
   const rejectedMoney: string[] = []
-  const included = sourcedFacts(raw?.included, '', b.stored + (sheet.supplier ? `\n${sheet.supplier.text}` : ''), supplierSrc, 10, rejectedMoney)
-  const notIncluded = sourcedFacts(raw?.not_included, '', b.stored + (sheet.supplier ? `\n${sheet.supplier.text}` : ''), supplierSrc, 10, rejectedMoney)
-  const goodToKnow = sourcedFacts(raw?.good_to_know, 'Good to know', b.stored + (sheet.supplier ? `\n${sheet.supplier.text}` : ''), supplierSrc, 8, rejectedMoney)
+  const factHay = b.stored + (supplierForText ? `\n${supplierForText.text}` : '')
+  const included = sourcedFacts(raw?.included, '', factHay, supplierSrc, 10, rejectedMoney)
+  const notIncluded = sourcedFacts(raw?.not_included, '', factHay, supplierSrc, 10, rejectedMoney)
+  const goodToKnow = sourcedFacts(raw?.good_to_know, 'Good to know', factHay, supplierSrc, 8, rejectedMoney)
 
   const promiseRaw = typeof raw?.promise === 'string' ? removeDashes(raw.promise.trim()) : ''
   const promise = promiseRaw && promiseRaw.length <= 160 && !/\d/.test(promiseRaw) && tripKitBlockers(promiseRaw, { grounding, field: 'promise' }).filter((x) => !/^too short|^too long/.test(x)).length === 0 ? promiseRaw : null
@@ -659,6 +682,7 @@ export async function planTripKit(
     goodToKnow,
     attributions: [],
     toConfirm: [],
+    ...(past ? { past: true } : {}),
   }
   kit.attributions = attributionList(stops)
 
@@ -775,16 +799,17 @@ export async function planTripKit(
   kit.toConfirm = buildToConfirm({
     pkg: { name: pkg.name, destination: pkg.destination, duration: pkg.duration, available_from: pkg.available_from, available_to: pkg.available_to, departure_dates: pkg.departure_dates, price_includes: pkg.price_includes, not_included: pkg.not_included, itinerary: pkg.itinerary },
     kit,
-    sourceText: `${b.stored}\n${sheet.supplier?.text ?? ''}\n${storedSources.join('\n')}`,
+    sourceText: `${b.stored}\n${supplierForText?.text ?? ''}\n${past ? storedSources.map(stripSupplierSentences).join('\n') : storedSources.join('\n')}`,
+    past,
     priceMentions: [...b.priceMentions, ...rejectedMoney],
     extra: [
-      ...(sheet.supplier && /cancel+ed/i.test(sheet.supplier.text) ? ['The supplier page says this tour has been cancelled. Decide whether to keep the page as a recap or take other action (the page is not unpublished automatically).'] : []),
+      ...(!past && sheet.supplier && /cancel+ed/i.test(sheet.supplier.text) ? ['The supplier page says this tour has been cancelled. Decide whether to keep the page as a recap or take other action (the page is not unpublished automatically).'] : []),
       ...(past ? ['This is a past trip: only empty fields were filled and the page text was not rewritten.'] : []),
     ],
   })
 
   const after = scoreTrip(merged, site.existing, today)
-  return { packageId: pkg.id, slug: pkg.slug, name: pkg.name, status: pkg.status, past, updates, edits, overwrites, kit, galleryPhotos, before, after, calls: budget.used, usage, sources: [...new Set([...sheet.places.filter((p) => p.ref).map((p) => `${p.ref!.label}: ${p.ref!.url}`), ...(sheet.supplier ? [`Supplier page: ${sheet.supplier.url}`] : [])])], notes, skipped, held, merged }
+  return { packageId: pkg.id, slug: pkg.slug, name: pkg.name, status: pkg.status, past, updates, edits, overwrites, kit, galleryPhotos, before, after, calls: budget.used, usage, sources: [...new Set([...sheet.places.filter((p) => p.ref).map((p) => `${p.ref!.label}: ${p.ref!.url}`), ...(supplierForText ? [`Supplier page: ${supplierForText.url}`] : [])])], notes, skipped, held, merged }
 }
 
 // ─── Applying a plan ────────────────────────────────────────────────────────────────
@@ -846,6 +871,12 @@ export async function applyTripKitPlan(admin: SupabaseClient, plan: FillPlan, de
     const sourceId = await ensureKitSource(admin, plan.packageId, `Trip page kit digest\n${plan.sources.join('\n')}\n${plan.kit.toConfirm.join('\n')}`)
     if (!sourceId) return { applied: [], skipped: [{ field: '*', reason: 'the change log could not be written, so nothing was applied' }], photosAdded: 0, kitSaved: false, pkg: latest }
     result = await commitEdits(admin, plan.packageId, sourceId, updates, edits, [], latest)
+  }
+  // No column change: the kit's own digest source (admin text in Add details) is still refreshed when it exists, so an old note
+  // such as "the supplier page says this tour has been cancelled" does not outlive the record it described.
+  if (!edits.length) {
+    const { data: existingSource } = await admin.from('package_sources').select('id').eq('package_id', plan.packageId).eq('file_name', KIT_SOURCE_NAME).maybeSingle()
+    if (existingSource) await ensureKitSource(admin, plan.packageId, `Trip page kit digest\n${plan.sources.join('\n')}\n${plan.kit.toConfirm.join('\n')}`)
   }
   // The kit JSON: the previous one is kept for Undo.
   const prev = await getSettingStrict(admin, tripKitKey(plan.packageId))

@@ -5,6 +5,8 @@ import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { buildSiteIndex } from '@/lib/content-heal-run'
 import { getPackageById, getAllPackagesAdmin, type DbPackage } from '@/lib/packages'
 import { isPastTrip } from '@/lib/past-trip'
+import { recapStatusOf, type RecapStatus } from '@/lib/past-trip-kit'
+import { parseBundle, recapBundleKey } from '@/lib/recap-studio'
 import { completenessScore } from '@/lib/package-completeness'
 import { tripKitKey, parseTripKit, parsePriceConfirmed, tripPriceConfirmedKey, type TripKit, type PriceConfirmed } from '@/lib/trip-kit-facts'
 import {
@@ -86,30 +88,39 @@ export interface KitStatus {
   toConfirm: string[]
   price: PriceConfirmed | null
   past: boolean
+  /** Photos, quotes and to-do of a past trip's recap (all zero and empty for a trip that has not happened). */
+  recap: RecapStatus
 }
 
 /** What the admin panel shows for one trip. No AI, no writes. */
 export async function tripKitStatus(admin: SupabaseClient, pkg: DbPackage): Promise<KitStatus> {
-  const [kitRaw, priceRaw] = await Promise.all([getSettingStrict(admin, tripKitKey(pkg.id)), getSettingStrict(admin, tripPriceConfirmedKey(pkg.id))])
+  const [kitRaw, priceRaw, bundleRaw] = await Promise.all([getSettingStrict(admin, tripKitKey(pkg.id)), getSettingStrict(admin, tripPriceConfirmedKey(pkg.id)), getSettingStrict(admin, recapBundleKey(pkg.id))])
+  const quotes = parseBundle(bundleRaw.value)?.quotes.length ?? 0
+  const recap = recapStatusOf({ slug: pkg.slug, available_to: pkg.available_to, recap_mode: pkg.recap_mode, gallery_urls: pkg.gallery_urls, recap_summary: pkg.recap_summary, quotes })
   const kit: TripKit | null = parseTripKit(kitRaw.value)
   const site = await buildSiteIndex(admin)
   const scores = scoreTrip(pkg, site.existing)
-  return { completeness: scores.completeness, seo: scores.seo, hasKit: !!kit, generatedAt: kit?.generatedAt ?? null, toConfirm: kit?.toConfirm ?? [], price: parsePriceConfirmed(priceRaw.value), past: isPastTrip(pkg) }
+  return { completeness: scores.completeness, seo: scores.seo, hasKit: !!kit, generatedAt: kit?.generatedAt ?? null, toConfirm: kit?.toConfirm ?? [], price: parsePriceConfirmed(priceRaw.value), past: isPastTrip(pkg), recap }
 }
 
 /** Trips (published or draft) below the target or without a saved kit, thin ones first. For "Fill all thin pages". */
-export async function thinTrips(admin: SupabaseClient, cooldownDays = 0, now: Date = new Date()): Promise<{ id: string; name: string; slug: string; score: number; thin: boolean; status: string }[]> {
+export async function thinTrips(admin: SupabaseClient, cooldownDays = 0, now: Date = new Date()): Promise<{ id: string; name: string; slug: string; score: number; thin: boolean; status: string; pastKit: boolean }[]> {
   const all = await getAllPackagesAdmin()
   const { data } = await admin.from('app_settings').select('key, value').like('key', 'trip_kit:%')
   const made = new Map<string, number>()
-  for (const r of (data ?? []) as { key: string; value: string }[]) made.set(r.key.replace('trip_kit:', ''), Date.parse(parseTripKit(r.value)?.generatedAt ?? '') || 0)
+  const pastMade = new Set<string>()
+  for (const r of (data ?? []) as { key: string; value: string }[]) {
+    const kit = parseTripKit(r.value)
+    made.set(r.key.replace('trip_kit:', ''), Date.parse(kit?.generatedAt ?? '') || 0)
+    if (kit?.past) pastMade.add(r.key.replace('trip_kit:', ''))
+  }
   const have = new Set([...made.keys()])
   const recent = (id: string) => cooldownDays > 0 && now.getTime() - (made.get(id) ?? 0) < cooldownDays * 86_400_000
   return all
     .filter((p) => needsKit(p, have.has(p.id)) && !(have.has(p.id) && recent(p.id)))
     .map((p) => {
       const c = completenessScore(p)
-      return { id: p.id, name: p.name, slug: p.slug, score: c.score, thin: c.thin, status: p.status }
+      return { id: p.id, name: p.name, slug: p.slug, score: c.score, thin: c.thin, status: p.status, pastKit: pastMade.has(p.id) }
     })
     .sort((a, b) => a.score - b.score)
 }
@@ -121,8 +132,9 @@ export async function autopilotTripKitStep(admin: SupabaseClient, now: Date = ne
   const candidates = await thinTrips(admin, 7, now)
   const all = await getAllPackagesAdmin()
   const byId = new Map(all.map((p) => [p.id, p]))
+  // A trip that already happened is filled in "past mode" ONCE (empty fields only, nothing rewritten): once its record was made in past mode it is left alone.
   const ordered = candidates
-    .filter((c) => c.status === 'published')
+    .filter((c) => c.status === 'published' && !(c.pastKit && isPastTrip(byId.get(c.id) as DbPackage)))
     .sort((a, b) => Number(isPastTrip(byId.get(a.id) as DbPackage)) - Number(isPastTrip(byId.get(b.id) as DbPackage)) || a.score - b.score)
   for (const c of ordered) {
     if (!(await claimDailyOnce(admin, `trip-kit:${c.id}`, now))) continue

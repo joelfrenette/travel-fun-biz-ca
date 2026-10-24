@@ -14,7 +14,7 @@ import { track } from "@/lib/analytics-client"
 // wording as components/newsletter-form.tsx, email only because no phone number is asked for) and the hidden
 // honeypot field. Posts to /api/trip-alerts, which reads the trip's tag on the server.
 // On a trip page pass `slug`; on a guide, blog, compare or best-time page pass `source` (the page path) instead.
-export function TripAlertForm({ slug, source, language }: { slug?: string; source?: string; language: Language }) {
+export function TripAlertForm({ slug, source, language, submitLabel }: { slug?: string; source?: string; language: Language; /** Button text; the default is "Tell me about the next one". Consent wording and the sign-up route never change. */ submitLabel?: string }) {
   const { toast } = useToast()
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
@@ -84,7 +84,7 @@ export function TripAlertForm({ slug, source, language }: { slug?: string; sourc
       </label>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <Button type="submit" className="w-full bg-primary font-bold uppercase text-primary-foreground hover:bg-primary/90" disabled={submitting}>
-        {submitting ? translate(language, "Submitting...") : translate(language, "Tell me about the next one")}
+        {submitting ? translate(language, "Submitting...") : (submitLabel ?? translate(language, "Tell me about the next one"))}
       </Button>
     </form>
   )

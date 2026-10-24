@@ -81,6 +81,8 @@ export interface TripKit {
   attributions: KitSource[]
   /** Admin only. Never rendered on the public page. */
   toConfirm: string[]
+  /** True when this record was made in past mode (the trip had already happened). The autopilot fills a past trip in past mode once. */
+  past?: boolean
 }
 
 export interface PriceConfirmed {
@@ -177,6 +179,7 @@ export function parseTripKit(raw: string | null | undefined): TripKit | null {
     goodToKnow: factsOf(j.goodToKnow, 10),
     attributions,
     toConfirm: Array.isArray(j.toConfirm) ? j.toConfirm.map((x) => str(x, 300)).filter(Boolean).slice(0, 30) : [],
+    ...(j.past === true ? { past: true } : {}),
   }
 }
 
@@ -469,9 +472,16 @@ export function buildToConfirm(input: {
   sourceText: string
   priceMentions: string[]
   extra?: string[]
+  /** A past trip: the questions that only matter before a booking (flights, deposit, final payment, cancellation, passports, hours, price wording) are not asked. */
+  past?: boolean
 }): string[] {
   const out: string[] = [...(input.extra ?? [])]
   const text = input.sourceText
+  if (input.past) {
+    if (input.kit.routeKnown === false && input.kit.stops.length > 0) out.push('The day by day route is not stored. Add the itinerary (Add details) to replace "Where you are headed" with a full route.')
+    for (const o of input.kit.otherStops) out.push(`"${o}" is on the route but has no card (no reference page matched, or the card limit was reached). Check the spelling if it matters.`)
+    return [...new Set(out)].slice(0, 30)
+  }
   const hasFlightsFact = /\b(?:flights?|air ?fare)\b[^.]{0,40}\b(?:included|excluded)|\b(?:includes?|including)\b[^.]{0,30}\b(?:flights?|air ?fare)/i.test(text) ||[...input.kit.included, ...input.kit.notIncluded, ...input.kit.goodToKnow].some((f) => /flight|air ?fare/i.test(`${f.label} ${f.text}`)) || /flights?|air ?fare/i.test(`${input.pkg.price_includes ?? ''} ${input.pkg.not_included ?? ''}`)
   if (!hasFlightsFact) out.push('Are flights included? No stored source says. The page says nothing about flights until this is known.')
   if (!/deposit/i.test(text)) out.push('Deposit amount and the date it is due: not in any stored source.')
@@ -519,6 +529,80 @@ function sectionBody(extract: string, name: string): string {
   return extract.slice(start, end)
 }
 
+// Words that mark a Croatian-language place name (reference pages for Croatia list some places under the local name only).
+// Italian, Spanish or French names that English texts use as they are ("Duomo", "Teatro Greco") are NOT in this list.
+const LOCAL_NAME_WORDS = ['katedrala', 'crkva', 'tvrdava', 'tvrđava', 'perivoj', 'srednjovjekovni', 'samostan', 'trg', 'vrt', 'palaca', 'palača', 'kula', 'zvonik', 'kapela', 'ljetnikovac', 'otok', 'zaljev', 'ulica']
+
+/** True when a name is written in the local language rather than English: a Croatian place-type word, or the Croatian
+ * "sv." (saint) in lower case. Pure. */
+export function isLocalLanguageName(name: string): boolean {
+  const t = name.toLowerCase()
+  if (/(?:^|\s)[Ss]v\.?(?=\s|[A-ZÀ-Ý]|$)/.test(name)) return true
+  return t.split(/[\s.,-]+/).some((w) => LOCAL_NAME_WORDS.includes(w))
+}
+
+/** "Cathedral of St. Domnius), the main..." -> the English title and the rest. Null when there is none, or it is itself local. Pure. */
+export function englishTitleInBrackets(afterBracket: string): { name: string; rest: string } | null {
+  const m = /^\s*([^()]{3,60}?)\)\s*(.*)$/.exec(afterBracket)
+  if (!m) return null
+  const name = fixAbbrevSpacing(m[1].trim())
+  if (!/^[A-ZÀ-Ý]/.test(name) || isLocalLanguageName(name) || /\d/.test(name) || name.split(/\s+/).length > 7) return null
+  return { name, rest: m[2] }
+}
+
+/** "Srednjovjekovni vrt sv.Lovre" -> "... sv. Lovre"; "St.Lawrence" -> "St. Lawrence". Only listed abbreviations. Pure. */
+export function fixAbbrevSpacing(text: string): string {
+  return text.replace(/\b(St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto)\.(?=[A-Za-zÀ-ɏ])/g, '$1. ')
+}
+
+/** Which stop an activity belongs to when its name holds town names: the stop named LAST in it ("Adventure park Hvar Jelsa"
+ * is at Jelsa, on the island of Hvar). Null when it names no stop, or only the stop being asked about is fine. Pure. */
+export function ownerStop(activityText: string, stopNames: string[]): string | null {
+  const hay = fold(activityText)
+  let best: { name: string; end: number } | null = null
+  for (const s of stopNames) {
+    const n = fold(s)
+    if (n.length < 3) continue
+    const re = new RegExp(`(?:^|[^a-z])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`, 'g')
+    let m: RegExpExecArray | null
+    while ((m = re.exec(hay))) {
+      const end = m.index + m[0].length
+      if (!best || end > best.end || (end === best.end && n.length > fold(best.name).length)) best = { name: s, end }
+    }
+  }
+  return best?.name ?? null
+}
+
+/** True when an activity line or reference item is named after a DIFFERENT stop than `stop`. Such a line is dropped. Pure. */
+export function activityBelongsElsewhere(activityText: string, stop: string, stopNames: string[]): boolean {
+  const owner = ownerStop(activityText, stopNames)
+  return !!owner && fold(owner) !== fold(stop)
+}
+
+// Words that follow a town name inside an activity or sight name without being another town ("Hvar Fortress", "Split Old Town").
+const NOT_A_TOWN = new Set(['fortress', 'fort', 'castle', 'beach', 'beaches', 'bay', 'cove', 'island', 'islands', 'town', 'old', 'new', 'park', 'parks', 'garden', 'gardens', 'museum', 'museums', 'cathedral', 'church', 'monastery', 'palace', 'square', 'harbour', 'harbor', 'port', 'marina', 'cave', 'caves', 'gate', 'walls', 'wall', 'tower', 'theatre', 'theater', 'bridge', 'market', 'promenade', 'plain', 'national', 'hill', 'mount', 'valley', 'lake', 'falls', 'resort', 'hotel', 'trail', 'path', 'festival', 'cruise', 'tour', 'tours', 'centre', 'center', 'street', 'road', 'city', 'central', 'main', 'grand', 'great', 'upper', 'lower', 'east', 'west', 'north', 'south', 'sea', 'river', 'airport', 'cable', 'house', 'hall', 'villa', 'temple', 'forum', 'arena', 'gallery', 'library', 'lighthouse', 'summer', 'winter', 'card', 'pass', 'region', 'peninsula', 'coast', 'riviera', 'archaeological', 'maritime', 'natural', 'historic', 'historical', 'cultural', 'international', 'regional', 'municipal', 'public', 'local'])
+
+/** True when an ACTIVITY name puts another town after this stop's name ("Adventure park Hvar Jelsa" on the Hvar card): the activity
+ * is at that other town. Only a single capitalised word that is not an ordinary place-type word counts. Pure. */
+export function activityNamesOtherTown(activityName: string, stop: string): boolean {
+  const esc = stop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = new RegExp(`(?:^|[^\\p{L}])${esc}\\s+(\\p{Lu}[\\p{L}'-]{3,})(?![\\p{L}])`, 'u').exec(activityName)
+  return !!m && !NOT_A_TOWN.has(fold(m[1]))
+}
+
+/** The source names for the attribution line, each source once: "Wikivoyage", "Wikipedia". Pure. */
+export function attributionLabels(sources: KitSource[]): KitSource[] {
+  const seen = new Set<string>()
+  const out: KitSource[] = []
+  for (const s of sources) {
+    const k = fold(s.label)
+    if (!k || seen.has(k)) continue
+    seen.add(k)
+    out.push(s)
+  }
+  return out
+}
+
 /** The named things in a "See" or "Do" section: list lines, each reduced to a name and one clean sentence. No hours, prices,
  * phone numbers or addresses are kept. Pure. */
 export function itemsOfSection(body: string, max = 14): RefItem[] {
@@ -530,13 +614,22 @@ export function itemsOfSection(body: string, max = 14): RefItem[] {
     if (!/^\d+\s/.test(line) && !/^\s/.test(raw)) continue
     // The name stops at the first real punctuation, but a full stop after St, Mt, Dr ... belongs to the name
     // ("Cathedral of St. Lawrence", not "Cathedral of St").
-    const m = /^(?:\d+\s+)?((?=[A-ZÀ-Ý])(?:\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto)\.|(?!\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto)\.)[^(,.;:@—]){3,53}?)(?:\s*[(,.;:]|$)(.*)$/.exec(line)
+    const m = /^(?:\d+\s+)?((?=[A-ZÀ-Ý])(?:\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto)\.|(?!\b(?:St|Sts|Ste|Mt|Mts|Dr|Fr|Mr|Mrs|Ms|Ft|Sv|sv|Sta|Sto)\.)[^(,.;:@—]){3,53}?)(?:\s*([(,.;:])|$)(.*)$/.exec(line)
     if (!m) continue
-    const name = m[1].trim()
+    let name = fixAbbrevSpacing(m[1].trim())
+    let rest = m[3] ?? ''
+    // A name in the local language ("Katedrala sv. Duje") is shown only through the English title the page itself gives in
+    // brackets right after it ("(Cathedral of St. Domnius)"). With no English title the line is dropped: names are never translated.
+    if (isLocalLanguageName(name)) {
+      const english = m[2] === '(' ? englishTitleInBrackets(rest) : null
+      if (!english) continue
+      name = english.name
+      rest = english.rest
+    }
     if (dangling(name)) continue
     if (/\d/.test(name) || name.split(/\s+/).length > 7 || /\b(?:is|are|was|were|has|have)\b/.test(name) || /^(?:see|note|the following|for more|there (?:is|are))\b/i.test(name)) continue
     if (out.some((x) => fold(x.name) === fold(name))) continue
-    out.push({ name, blurb: scrubReferenceText(m[2].replace(/^[\s).,;:]+/, ''), 1) })
+    out.push({ name, blurb: scrubReferenceText(fixAbbrevSpacing(rest.replace(/^[\s).,;:]+/, '')), 1) })
     if (out.length >= max) break
   }
   return out

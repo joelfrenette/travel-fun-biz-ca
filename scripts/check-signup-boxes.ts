@@ -49,7 +49,7 @@ expect('consent checkbox is controlled by that state, never defaultChecked or ch
 expect('form keeps the CASL consent wording', form.includes('"Yes, I agree to receive travel deals and updates from"') && form.includes('"by email. I can unsubscribe at any time."'))
 expect('form refuses to submit without the tick', form.includes('if (!consent) return setError'))
 expect('form keeps the honeypot field and posts to /api/trip-alerts with the source', form.includes('company_website') && form.includes('"/api/trip-alerts"') && form.includes('JSON.stringify({ slug, source, email'))
-expect('form still has the trip page usage (slug)', read('app/packages/[slug]/page.tsx').includes('<TripAlertForm slug={pkg.slug}'))
+expect('form still has the trip page usage (slug)', (read('app/packages/[slug]/page.tsx') + read('components/trip/past-trip-page.tsx') + read('components/trip/trip-kit-page.tsx')).includes('<TripAlertForm slug={pkg.slug}'))
 
 // 3. The API accepts a slugless sign-up with a source, still needs consent, and keeps the guards.
 const base = { email: 'a@b.co', consent: true, source: '/blog/x' }
