@@ -23,6 +23,7 @@ import { runIndexNowCatchupIfDue } from '@/lib/indexnow-catchup'
 import { runVisitPurgeIfDue } from '@/lib/visit-tracking'
 import { runNewsStep } from '@/lib/news-run'
 import { runAutoPolicies } from '@/lib/auto-policies'
+import { runFlywheelSteps } from '@/lib/flywheel/registry'
 import { autoblogNudgePending, clearAutoblogNudge } from '@/lib/funnel-watchdog'
 import { runPublishVerifyIfDue } from '@/lib/publish-verify'
 import { runHotLeadReminders } from '@/lib/lead-desk-store'
@@ -277,6 +278,10 @@ export async function runPipeline(admin: SupabaseClient, opts: { force?: boolean
       run.steps.push({ step: 'auto', ok: false, note: e instanceof Error ? e.message : 'the automatic decisions failed' })
     }
   }
+
+  // 1f. FLYWHEEL (lib/flywheel/registry.ts): the registered flywheel steps (docs/factory/FLYWHEEL-REGISTRY.md), each gated, time-floored and
+  // isolated by the runner. This is the only call site; steps are added in lib/flywheel/steps/, never here. Never fails the pipeline.
+  if (!overBudget()) await runFlywheelSteps({ admin, startedAt, budgetMs: TIME_BUDGET_MS, run }).catch(() => null)
 
   // 2. POST (the post itself, to social)
   if (overBudget()) {

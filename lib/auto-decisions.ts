@@ -32,7 +32,22 @@ export type EvergreenPolicyName = 'evergreen_reshare'
 /** The "same meaning" topic check (lib/topic-meaning-run.ts): a topic that says the same thing as an existing post, a queued topic or a recent
  * rejection is skipped and logged with an Undo. Its switch (auto_policy_topic_meaning) defaults to ON; the AI tie-break (topic_meaning_ai) to OFF. */
 export type TopicMeaningPolicyName = 'topic_meaning'
-export type PolicyName = AutopilotPolicyName | SeoPolicyName | SystemCheckPolicyName | EvergreenPolicyName | TopicMeaningPolicyName
+/** The flywheel steps (lib/flywheel/registry.ts, docs/factory/FLYWHEEL-REGISTRY.md), one policy per work package WP2 to WP11. They have
+ * their own switches and caps and are not part of the Autopilot card's list (ALL_POLICIES). */
+export type FlywheelPolicyName =
+  | 'booked_sync'
+  | 'lead_retry'
+  | 'ai_heal'
+  | 'dead_letter'
+  | 'verify_fix'
+  | 'network_recover'
+  | 'promote_pick'
+  | 'keyword_assign'
+  | 'recap_auto'
+  | 'autonomy_ladder'
+export type PolicyName = AutopilotPolicyName | SeoPolicyName | SystemCheckPolicyName | EvergreenPolicyName | TopicMeaningPolicyName | FlywheelPolicyName
+
+export const FLYWHEEL_POLICIES: readonly FlywheelPolicyName[] = ['booked_sync', 'lead_retry', 'ai_heal', 'dead_letter', 'verify_fix', 'network_recover', 'promote_pick', 'keyword_assign', 'recap_auto', 'autonomy_ladder']
 
 /** The four decisions the owner approved. They default to ON. */
 export const APPROVED_POLICIES: readonly PolicyName[] = ['retry_failed_posts', 'approve_safe_topics', 'publish_passing_news', 'release_held_posts']
@@ -41,6 +56,16 @@ export const SEO_POLICIES: readonly SeoPolicyName[] = ['seo_topics', 'seo_links'
 
 export const POLICY_LABELS: Record<PolicyName, string> = {
   topic_meaning: 'Skip blog topics that mean the same as an existing post',
+  booked_sync: 'Mark a lead as booked when its order arrives',
+  lead_retry: 'Retry sending a lead to GoHighLevel with growing waits',
+  ai_heal: 'Run the System check AI fix once a day',
+  dead_letter: 'Retire posts and renders that can no longer succeed, and clear stale issues',
+  verify_fix: 'Refresh and re-ping a live page that failed the publish check',
+  network_recover: 'Resume a paused network once its account is healthy again',
+  promote_pick: 'Pick the next trip to promote from lead and order results',
+  keyword_assign: 'Give a keyword a target page, or seed a new guide',
+  recap_auto: 'Draft a private recap and testimonial after a trip ends',
+  autonomy_ladder: 'Move a mode up a rung after a clean track record (off until you switch it on)',
   evergreen_reshare: 'Re-share one older evergreen page on social (off until you switch it on)',
   system_check_ai: 'AI fix started from the System check (Auto-heal)',
   seo_topics: 'Suggest blog topics from Google searches (SEO engines)',
@@ -55,6 +80,16 @@ export const POLICY_LABELS: Record<PolicyName, string> = {
 /** Most automatic actions per policy per UTC day. Counts every logged action of that policy that changed something. */
 export const POLICY_CAPS: Record<PolicyName, number> = {
   topic_meaning: 40,
+  booked_sync: 10,
+  lead_retry: 5,
+  ai_heal: 3,
+  dead_letter: 10,
+  verify_fix: 6,
+  network_recover: 2,
+  promote_pick: 1,
+  keyword_assign: 5,
+  recap_auto: 2,
+  autonomy_ladder: 1,
   evergreen_reshare: 1,
   system_check_ai: 12,
   seo_topics: 3,
@@ -73,7 +108,8 @@ const MAX_VETOES = 300
 
 export const policyKey = (p: PolicyName): string => `auto_policy_${p}`
 
-export type UndoKind = 'requeue-post' | 'topic-pending' | 'unpublish-news' | 'rehold-post' | 'unpause-network' | 'topic-withdraw' | 'revert-edit' | 'topic-restore'
+/** `fw:<stepId>` is a flywheel step's own undo: applyUndo hands the ref to that step's `undo` handler (lib/flywheel/registry.ts). */
+export type UndoKind = 'requeue-post' | 'topic-pending' | 'unpublish-news' | 'rehold-post' | 'unpause-network' | 'topic-withdraw' | 'revert-edit' | 'topic-restore' | `fw:${string}`
 
 export interface AutoDecision {
   /** ISO time the decision was made. */
@@ -91,7 +127,8 @@ export interface AutoDecision {
   undone_at?: string
 }
 
-const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpublish-news', 'rehold-post', 'unpause-network', 'topic-withdraw', 'revert-edit', 'topic-restore']
+const UNDO_KINDS: readonly string[] = ['requeue-post', 'topic-pending', 'unpublish-news', 'rehold-post', 'unpause-network', 'topic-withdraw', 'revert-edit', 'topic-restore']
+const isUndoKind = (k: unknown): k is UndoKind => typeof k === 'string' && (UNDO_KINDS.includes(k) || /^fw:[a-z_]+$/.test(k))
 
 // ---------------------------------------------------------------------------------------------------
 // Pure helpers
@@ -101,7 +138,7 @@ const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpub
 export const policyEnabled = (raw: string | null | undefined): boolean => raw !== 'off'
 
 export function isPolicyName(v: unknown): v is PolicyName {
-  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v) || v === 'system_check_ai' || v === 'evergreen_reshare' || v === 'topic_meaning')
+  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v) || (FLYWHEEL_POLICIES as readonly string[]).includes(v) || v === 'system_check_ai' || v === 'evergreen_reshare' || v === 'topic_meaning')
 }
 
 /** Reads the stored log. Corrupt or the wrong shape reads as empty; single bad entries are dropped. Pure. */
@@ -115,7 +152,7 @@ export function parseDecisions(raw: string | null | undefined): AutoDecision[] {
       if (!e || typeof e !== 'object') continue
       if (typeof e.at !== 'string' || !Number.isFinite(Date.parse(e.at)) || !isPolicyName(e.policy) || typeof e.subject !== 'string' || typeof e.action !== 'string' || typeof e.reason !== 'string') continue
       const u = e.undo
-      const undo = u && typeof u === 'object' && UNDO_KINDS.includes((u as { kind: UndoKind }).kind) && typeof (u as { ref: unknown }).ref === 'string' ? { kind: (u as { kind: UndoKind }).kind, ref: (u as { ref: string }).ref } : null
+      const undo = u && typeof u === 'object' && isUndoKind((u as { kind: unknown }).kind) && typeof (u as { ref: unknown }).ref === 'string' ? { kind: (u as { kind: UndoKind }).kind, ref: (u as { ref: string }).ref } : null
       out.push({ at: e.at, policy: e.policy, subject: e.subject, action: e.action, reason: e.reason, undo, ...(typeof e.undone_at === 'string' ? { undone_at: e.undone_at } : {}) })
     }
     return out
@@ -293,6 +330,11 @@ export async function undoAutoDecision(admin: SupabaseClient, entry: AutoDecisio
 
 async function applyUndo(admin: SupabaseClient, undo: { kind: UndoKind; ref: string }): Promise<UndoResult> {
   const now = new Date().toISOString()
+  if (undo.kind.startsWith('fw:')) {
+    // A flywheel step's own undo (dynamic import: the registry imports this file).
+    const { undoFlywheel } = await import('@/lib/flywheel/registry')
+    return undoFlywheel(admin, undo.kind.slice(3), undo.ref)
+  }
   if (undo.kind === 'requeue-post') {
     const { data, error } = await admin.from('post_distribution').select('stage, sent_platforms').eq('content_type', 'post').eq('slug', undo.ref).maybeSingle()
     if (error) return { ok: false, message: `Could not read the post (${error.message}).` }
