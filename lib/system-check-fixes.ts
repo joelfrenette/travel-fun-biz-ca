@@ -28,6 +28,7 @@ export const FIX_IMPACT: Record<StageId, number> = {
   discovery: 60,
   measurement: 55,
   seo: 50,
+  migrations: 52,
 }
 
 export interface FixItem {

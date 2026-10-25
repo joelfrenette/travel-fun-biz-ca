@@ -11,6 +11,7 @@ import { readStoredAiSpend } from '@/lib/ai-tripwire'
 import { DECISIONS_KEY, parseDecisions } from '@/lib/auto-decisions'
 import { VISUAL_GATE_STATS_KEY, parseStats, sumRecent } from '@/lib/visual-gate-stats'
 import { readHotWait } from '@/lib/lead-desk-store'
+import { readMigrationDrift } from '@/lib/migration-drift-check'
 import { DRY_RUN_KEY, DRY_RUN_SINCE_KEY, dryRunHours as dryRunHours_, isDryRunOn } from '@/lib/dry-run-shape'
 import { readDone } from '@/lib/followups-run'
 import { FOLLOWUPS_DONE_KEY, applyMark, serializeDone, siteDay } from '@/lib/followups'
@@ -118,7 +119,10 @@ export async function readCheckFacts(admin: SupabaseClient, deps: CheckDeps = {}
     return dryRunHours_(await strict(admin, DRY_RUN_SINCE_KEY), now)
   })
 
-  return { now, watchdog, crawl, seo, jobs, ai, orders, gateSkips7d, decisions, hotLeads, dryRunHours }
+  // Database changes: repo migration list against supabase_migrations.schema_migrations. Read only; null = could not be read (amber).
+  const migrations = await safe(() => readMigrationDrift(admin))
+
+  return { now, watchdog, crawl, seo, jobs, ai, orders, gateSkips7d, decisions, hotLeads, dryRunHours, migrations }
 }
 
 /** Reads the facts and judges them. Never throws. */

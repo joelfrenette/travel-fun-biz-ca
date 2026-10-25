@@ -233,9 +233,10 @@ const GREEN: CheckFacts = {
   orders: { paid30d: 1, webhookFailing: false },
   gateSkips7d: 0,
   decisions: [],
+  migrations: { repoCount: 57, unapplied: [], outOfOrder: [], duplicateNumbers: [], historyEmpty: false },
 }
 const gr = evaluateCheck(GREEN)
-expect('the check has the eleven stages in funnel order', gr.stages.map((s) => s.id).join(',') === STAGE_IDS.join(',') && STAGE_IDS.join(',') === 'production,quality,distribution,discovery,clicks,conversion,measurement,money,seo,jobs,ai')
+expect('the check has the twelve stages in funnel order', gr.stages.map((s) => s.id).join(',') === STAGE_IDS.join(',') && STAGE_IDS.join(',') === 'production,quality,distribution,discovery,clicks,conversion,measurement,money,seo,jobs,ai,migrations')
 expect('a healthy site is green on every stage, overall and has no worst stage', gr.overall === 'green' && gr.worst === null && gr.stages.every((s) => s.light === 'green'))
 const stageOf = (r: ReturnType<typeof evaluateCheck>, id: string) => r.stages.find((s) => s.id === id)!
 expect('each watchdog verdict maps: ok green, warn amber, bad red', (() => {
@@ -296,10 +297,10 @@ expect('"needs you" links to a real admin page', evaluateCheck(unreadFacts(NOW))
 
 // store and cache
 const stored2 = parseCheck(serializeCheck(withFixes))
-expect('the stored answer round-trips', !!stored2 && stored2.overall === withFixes.overall && stored2.stages.length === 11 && stored2.stages[2].fixed.length === 2 && stored2.at === withFixes.at)
+expect('the stored answer round-trips', !!stored2 && stored2.overall === withFixes.overall && stored2.stages.length === 12 && stored2.stages[2].fixed.length === 2 && stored2.at === withFixes.at)
 expect('junk or the wrong version is not an answer', parseCheck('x') === null && parseCheck('{"v":2}') === null && parseCheck(null) === null && parseCheck('{"v":1,"at":"2026-10-24T00:00:00Z","stages":[]}') === null)
 expect('an answer is reused for 5 minutes and not after, and a clock in the future is not fresh', SYSTEM_CHECK_TTL_MS === 300_000 && isFresh(NOW.toISOString(), NOW.getTime() + 299_000) && !isFresh(NOW.toISOString(), NOW.getTime() + 301_000) && !isFresh(NOW.toISOString(), NOW.getTime() - 3_600_000) && !isFresh('junk', NOW.getTime()))
-expect('the summary counts the lights', (() => { const s = summarizeCheck(evaluateCheck({ ...GREEN, ai: { spend: 9, ceiling: 5 } })); return s.counts.red === 1 && s.counts.green === 10 && s.overall === 'red' })())
+expect('the summary counts the lights', (() => { const s = summarizeCheck(evaluateCheck({ ...GREEN, ai: { spend: 9, ceiling: 5 } })); return s.counts.red === 1 && s.counts.green === 11 && s.overall === 'red' })())
 const runSrc = read('lib/system-check-run.ts')
 expect('the reader reads each fact on its own and saves its own answer under system_check_state', (runSrc.match(/await safe\(/g) ?? []).length >= 8 && /SYSTEM_CHECK_KEY/.test(runSrc) && read('lib/system-check.ts').includes("'system_check_state'"))
 expect('the reader reuses the watchdog, the issues list, the cron judge, the crawl state, the SEO audit and the AI tripwire', ['funnel-watchdog', 'plain-steps', 'cron-health', 'site-crawl', 'seo-playbook-view', 'ai-tripwire', 'auto-decisions', 'issues'].every((m) => runSrc.includes(`@/lib/${m}`)))
@@ -358,7 +359,7 @@ const withLights = (lights: Partial<Record<(typeof STAGE_IDS)[number], 'green' |
   stages: base.stages.map((s) => ({ ...s, light: lights[s.id] ?? 'green', read })),
 })
 const allUnread = buildFixList(base)
-expect('every amber or red stage becomes one fix; all-unread gives 11, in impact order (conversion first)', allUnread.length === 11 && allUnread[0].stage === 'conversion' && allUnread[1].stage === 'money' && allUnread[2].stage === 'jobs')
+expect('every amber or red stage becomes one fix; all-unread gives 12, in impact order (conversion first)', allUnread.length === 12 && allUnread[0].stage === 'conversion' && allUnread[1].stage === 'money' && allUnread[2].stage === 'jobs')
 const mixed = buildFixList(withLights({ seo: 'amber', money: 'red', clicks: 'amber', jobs: 'red' }))
 expect('red comes before amber, then by impact', mixed.map((f) => f.stage).join(',') === 'money,jobs,clicks,seo', mixed.map((f) => f.stage).join(','))
 expect('a red stage that could not be read sorts below a red stage we can see', (() => {
@@ -376,7 +377,7 @@ ticks = applyMark(ticks, DAYX, { id: fixIdOf('jobs'), persist: false }, 'later')
 const views = withMarks(mixed, ticks, DAYX)
 expect('Done and Later are read from the follow-ups store; only open fixes are in the Today top list', views.find((v) => v.stage === 'money')!.mark === 'done' && views.find((v) => v.stage === 'jobs')!.mark === 'later' && topOpenFixes(views, 3).map((v) => v.stage).join(',') === 'clicks,seo' && summarizeFixes(views).open === 2 && summarizeFixes(views).total === 4)
 expect('a tick is for one day: tomorrow the fix is open again', withMarks(mixed, ticks, '2026-10-25').every((v) => v.mark === 'open'))
-expect('the top list is capped at 3', topOpenFixes(withMarks(allUnread, {}, DAYX), 3).length === 3 && summarizeFixes(withMarks(allUnread, {}, DAYX)).open === 11)
+expect('the top list is capped at 3', topOpenFixes(withMarks(allUnread, {}, DAYX), 3).length === 3 && summarizeFixes(withMarks(allUnread, {}, DAYX)).open === 12)
 expect('a reopened fix is open again', withMarks(mixed, applyMark(ticks, DAYX, { id: fixIdOf('money'), persist: false }, 'reopen'), DAYX).find((v) => v.stage === 'money')!.mark === 'open')
 
 const checkRoute = read('app/api/admin/system-check/route.ts')

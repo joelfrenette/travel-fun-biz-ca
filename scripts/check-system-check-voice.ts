@@ -64,6 +64,7 @@ const GREEN: CheckFacts = {
   orders: { paid30d: 2, webhookFailing: false },
   gateSkips7d: 2,
   decisions: [],
+  migrations: { repoCount: 57, unapplied: [], outOfOrder: [], duplicateNumbers: [], historyEmpty: false },
 }
 
 const RED: CheckFacts = {
@@ -103,7 +104,7 @@ const results: Record<string, CheckResult> = {
 }
 
 // ---- the rules ---------------------------------------------------------------------------------------
-expect('the check has eleven stages in funnel order', STAGE_IDS.join(',') === 'production,quality,distribution,discovery,clicks,conversion,measurement,money,seo,jobs,ai' && Object.values(results).every((r) => r.stages.map((s) => s.id).join(',') === STAGE_IDS.join(',')))
+expect('the check has twelve stages in funnel order', STAGE_IDS.join(',') === 'production,quality,distribution,discovery,clicks,conversion,measurement,money,seo,jobs,ai,migrations' && Object.values(results).every((r) => r.stages.map((s) => s.id).join(',') === STAGE_IDS.join(',')))
 
 const all: { where: string; text: string }[] = []
 for (const [name, r] of Object.entries(results)) {

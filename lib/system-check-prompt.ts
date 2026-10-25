@@ -83,6 +83,7 @@ export const STAGE_FILES: Record<StageId, string[]> = {
   seo: ['lib/seo-playbook-view.ts', 'lib/site-crawl.ts', 'app/admin/seo-manager/page.tsx'],
   jobs: ['lib/cron-health.ts', 'lib/cron-heartbeat.ts', 'app/api/cron/gsc-snapshot/route.ts'],
   ai: ['lib/ai-tripwire.ts', 'app/admin/users/page.tsx'],
+  migrations: ['lib/migration-drift.ts', 'lib/migration-drift-check.ts', 'lib/migrations-manifest.ts', 'docs/factory/MIGRATIONS-CI.md'],
 }
 
 export interface PromptInput {
