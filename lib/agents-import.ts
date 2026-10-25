@@ -26,6 +26,14 @@ export const IMPORT_FIELDS = [
   { key: 'notes', label: 'Notes (private)' },
   { key: 'internal_tags', label: 'Internal tags (private)' },
   { key: 'office_role', label: 'Office role: ceo, cto or mgr (private)' },
+  // The next fields have no column of their own: they are kept as labelled lines in the PRIVATE notes, never public.
+  { key: 'second_email', label: 'Second email (private, kept in notes)' },
+  { key: 'clia', label: 'CLIA number (private, kept in notes; adds an unverified CLIA certification)' },
+  { key: 'fsot', label: 'Seller of travel / FSOT number (private, kept in notes)' },
+  { key: 'agent_since', label: 'Agent start date (private, kept in notes)' },
+  { key: 'renewal_date', label: 'Next renewal date (private, kept in notes)' },
+  { key: 'affiliate_link', label: 'Affiliate link (private, kept in notes)' },
+  { key: 'active', label: 'Active? (a row marked NO is skipped)' },
 ] as const
 
 export type ImportFieldKey = (typeof IMPORT_FIELDS)[number]['key']
@@ -38,8 +46,15 @@ const SYNONYMS: [ImportFieldKey, RegExp][] = [
   ],
   ['last_name', /^(last[\s_-]*name|surname|family[\s_-]*name|last)$/i],
   ['display_name', /^(name|full[\s_-]*name|agent|agent[\s_-]*name|display[\s_-]*name)$/i],
+  ['second_email', /e[\s_-]?mail[\s_-]*(2|two)\b|(second|2nd|other|alt\w*|backup)[\s_-]*e[\s_-]?mail/i],
   ['email', /e[\s_-]?mail/i],
   ['phone', /phone|mobile|cell|tel\b/i],
+  ['clia', /^clia\b/i],
+  ['fsot', /fsot|seller[\s_-]*of[\s_-]*travel/i],
+  ['agent_since', /start[\s_-]*date|date[\s_-]*(joined|started)|joined|(member|agent)[\s_-]*since/i],
+  ['renewal_date', /renewal/i],
+  ['affiliate_link', /affiliate/i],
+  ['active', /^(active|is[\s_-]*active)$/i],
   ['address', /address|mailing|street/i],
   // A column called exactly "role" or "office role" is the office role. Longer titles ("Job title", "Position") stay headlines.
   ['office_role', /^(office[\s_-]*role|role)$/i],
@@ -57,9 +72,29 @@ const SYNONYMS: [ImportFieldKey, RegExp][] = [
   ['internal_tags', /tag|label|group|team/i],
 ]
 
+/** Columns that hold money, tax, ID or birth data. They are NEVER imported, whatever the mapping says: the roster is not the
+ * place for them (DOB, income, 1099, W9, contracts, commission split and booked-sales targets). */
+const SENSITIVE_HEADER = /\b(dob|birth\w*|born)\b|income|1099|\bw-?9\b|commission|booked|\bssn\b|\bsin\b|\btax\w*|salary|payout|payroll|\bbank\w*|contracts?\b|\blevel\b|\d+\s*k\b/i
+
+export const isSensitiveHeader = (header: string): boolean => SENSITIVE_HEADER.test(header)
+
+/** Sheet placeholders that mean "nothing here". Treated as an empty cell so they are never stored as data. */
+const PLACEHOLDER = /^(n\/?a|na|none|nil|null|tbd|unknown|\?+|-+|—+)$/i
+export const isPlaceholder = (v: string): boolean => PLACEHOLDER.test(v.trim())
+
+/** An Excel date serial (a raw exported number such as 46333) becomes YYYY-MM-DD. Any other text is returned as it was typed. */
+export function readSheetDate(v: string): string {
+  const t = v.trim()
+  if (/^\d{5}(\.\d+)?$/.test(t)) {
+    const n = Math.floor(Number(t))
+    if (n > 20000 && n < 80000) return new Date(Date.UTC(1899, 11, 30) + n * 86_400_000).toISOString().slice(0, 10)
+  }
+  return t
+}
+
 export function guessField(header: string): ImportFieldKey | '' {
   const h = header.trim()
-  if (!h) return ''
+  if (!h || isSensitiveHeader(h)) return ''
   for (const [key, re] of SYNONYMS) if (re.test(h)) return key
   return ''
 }
@@ -109,6 +144,8 @@ export interface ParsedSheet {
   rows: string[][]
   /** header index -> guessed field ('' = ignore) */
   guess: (ImportFieldKey | '')[]
+  /** Headers left out on purpose because they hold money, tax, ID or birth data. */
+  skippedPrivate: string[]
 }
 
 export function parseSheet(text: string): { ok: true; sheet: ParsedSheet } | { ok: false; error: string } {
@@ -125,7 +162,7 @@ export function parseSheet(text: string): { ok: true; sheet: ParsedSheet } | { o
     used.add(g)
     return g
   })
-  return { ok: true, sheet: { headers, rows, guess } }
+  return { ok: true, sheet: { headers, rows, guess, skippedPrivate: headers.filter((h) => h && isSensitiveHeader(h)) } }
 }
 
 export interface PreviewRow {
@@ -159,10 +196,12 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
   return sheet.rows.map((cells, index) => {
     const raw: Record<string, string> = {}
     mapping.forEach((field, i) => {
-      if (!field) return
+      // A sensitive column is dropped even if someone mapped it by hand.
+      if (!field || isSensitiveHeader(sheet.headers[i] ?? '')) return
       const v = (cells[i] ?? '').trim()
-      if (v) raw[field] = raw[field] ? `${raw[field]}; ${v}` : v
+      if (v && !isPlaceholder(v)) raw[field] = raw[field] ? `${raw[field]}; ${v}` : v
     })
+    const inactive = raw.active !== undefined && /^(no|n|false|0|inactive|former|left)$/i.test(raw.active.trim())
     const name = raw.display_name || [raw.first_name, raw.last_name].filter(Boolean).join(' ')
     const input: Record<string, unknown> = {}
     if (name) input.display_name = name
@@ -173,13 +212,27 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
     if (raw.years_experience) input.years_experience = raw.years_experience
     if (raw.video_urls) input.video_urls = raw.video_urls
     // A sheet cell lists certification names. They come in as NOT verified (parseCertifications only trusts an explicit true).
-    if (raw.certifications) input.certifications = raw.certifications.split(/[;,\n|]/).map((n) => ({ name: n, issuer: '', year: null, verified: false })).filter((c) => c.name.trim())
+    const certs = raw.certifications ? raw.certifications.split(/[;,\n|]/).map((n) => ({ name: n, issuer: '', year: null, verified: false })).filter((c) => c.name.trim()) : []
+    // A CLIA number in the sheet means a CLIA membership claim: add the certification NOT verified, number kept private.
+    if (raw.clia && !certs.some((c) => /clia/i.test(c.name))) certs.push({ name: 'CLIA', issuer: '', year: null, verified: false })
+    if (certs.length) input.certifications = certs
+    // Details with no column of their own become labelled lines in the private notes (never public).
+    const extra = [
+      raw.clia && `CLIA #: ${raw.clia}`,
+      raw.fsot && `Seller of travel (FSOT) #: ${raw.fsot}`,
+      raw.agent_since && `Agent start date: ${readSheetDate(raw.agent_since)}`,
+      raw.renewal_date && `Next renewal: ${readSheetDate(raw.renewal_date)}`,
+      raw.second_email && `Second email: ${raw.second_email}`,
+      raw.affiliate_link && `Affiliate link: ${raw.affiliate_link}`,
+    ].filter(Boolean) as string[]
+    if (extra.length) input.notes = [raw.notes, ...extra].filter(Boolean).join('\n')
     const warnings: string[] = []
     if (!name) return { index, ok: false, slug: '', value: null, missing: ['name'], warnings: ['No name in this row, so it cannot be imported.'], action: 'new' as const }
+    if (inactive) return { index, ok: false, slug: slugify(name), value: null, missing: [], warnings: ['Marked not active in the sheet, so this row is skipped.'], action: 'new' as const }
     const slug = slugify(name)
     // A parenthetical in the sheet name (a maiden name) never goes public: it is dropped from the display name and slug and
     // kept only in the private notes.
-    if (publicName(name) !== name.replace(/\s+/g, ' ').trim()) input.notes = [raw.notes, `Name in sheet: ${name}`].filter(Boolean).join('\n')
+    if (publicName(name) !== name.replace(/\s+/g, ' ').trim()) input.notes = [input.notes ?? raw.notes, `Name in sheet: ${name}`].filter(Boolean).join('\n')
     input.slug = slug
     const cleaned = cleanAgentInput(input)
     if (!cleaned.ok) return { index, ok: false, slug, value: null, missing: [], warnings: cleaned.errors, action: 'new' as const }

@@ -10,7 +10,7 @@ import {
   OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, officeTeam, parseOfficeRole, planOfficeRole,
 } from '../lib/agents'
 import { setOfficeRole } from '../lib/agents-office'
-import { buildPreview, guessField, parseDelimited, parseSheet, IMPORT_MAX_ROWS } from '../lib/agents-import'
+import { buildPreview, guessField, isPlaceholder, parseDelimited, parseSheet, readSheetDate, IMPORT_MAX_ROWS } from '../lib/agents-import'
 import { cleanSelfService, hashProfileToken, makeProfileToken, profileLinkExpiry, profileLinkState, profileTokenMatchesHash } from '../lib/agents-token'
 import { groundedPolishProblems, polishBio, polishHash } from '../lib/agents-polish'
 import { aotmPost, profileFacts, socialCaption, toTopicIdea, ungroundedInDraft, welcomePost } from '../lib/agents-content'
@@ -297,6 +297,40 @@ const baseRow = {
   const heldPrev = roleSheet.ok ? buildPreview(roleSheet.sheet, roleSheet.sheet.guess, { slugs: [], emails: [], officeRoles: ['mgr'] }) : []
   check('a role already held in the roster is never moved by an import', !('office_role' in (heldPrev[2].value ?? {})) && heldPrev[2].warnings.some((w) => /already held/.test(w)) && heldPrev[0].value?.office_role === 'ceo')
   check('the import still makes drafts with consent off, and the role never makes anyone public', rolePrev.every((p) => p.value && !('consent_photo' in p.value) && !('status' in p.value)) && /consent_photo: false, consent_bio: false/.test(storeSrc2))
+
+  // ─── Real-sheet import (Travel Agents Import.xlsx shape, fake values) ──────────────
+  {
+    const h1099 = ['2025', '1099'].join(String.fromCharCode(10))
+    const hdr = ['ACTIVE', 'Next Renewal Date', h1099, '2025 Income', 'Name', 'DOB', 'Cell#', 'Email1', 'Email2', 'Address', 'CLIA #', 'FSOT #', 'Allianz Affiliate Link', 'COMMISSIONS SHEET', 'W9 & Contracts', 'AGENT START DATE', 'THIS YEAR LEVEL', '45k booked (80/20)', '100k in contract year (Free Renewal)']
+    const NL = String.fromCharCode(10)
+    const TAB = String.fromCharCode(9)
+    const tsv = (rows: string[][]) => [hdr, ...rows].map((r) => r.map((c) => (c.includes(NL) ? `"${c}"` : c)).join(TAB)).join(NL)
+    const full = ['YES', '46333', 'sent', '55555', 'Ann (Lee) Test', '30000', '(555) 555-0100', 'ann@example.com', 'ann2@example.org', '1 Test St', '12345678', 'ST12345', 'https://www.agentmaxonline.com/x', 'Commission sheet', 'Yes', '43500', '50/50', 'no', 'no']
+    const na = ['YES', '46400', 'N/A', 'N/A', 'Bob Test', '31000', '(555) 555-0101', 'bob@example.com', 'N/A', '2 Test St', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', '44000', 'N/A', 'N/A', 'N/A']
+    const gone = ['NO', '46400', '', '', 'Cy Test', '', '', 'cy@example.com', '', '', '', '', '', '', '', '', '', '', '']
+    const sh = parseSheet(tsv([full, na, gone]))
+    check('real sheet parses', sh.ok)
+    if (sh.ok) {
+      const g = sh.sheet.guess
+      const at = (h: string) => g[sh.sheet.headers.indexOf(h)]
+      check('real sheet: useful columns are matched', at('Name') === 'display_name' && at('Cell#') === 'phone' && at('Email1') === 'email' && at('Email2') === 'second_email' && at('CLIA #') === 'clia' && at('FSOT #') === 'fsot' && at('AGENT START DATE') === 'agent_since' && at('Next Renewal Date') === 'renewal_date' && at('Allianz Affiliate Link') === 'affiliate_link' && at('ACTIVE') === 'active' && at('Address') === 'address', g)
+      check('real sheet: DOB, income, 1099, W9, commission and level columns are never mapped', ['DOB', '2025 Income', h1099, 'W9 & Contracts', 'THIS YEAR LEVEL', '45k booked (80/20)', '100k in contract year (Free Renewal)'].every((h) => !at(h)), sh.sheet.skippedPrivate)
+      check('real sheet: skippedPrivate lists the money, tax and birth columns', sh.sheet.skippedPrivate.length >= 6)
+      const forced = sh.sheet.headers.map(() => 'notes' as const)
+      const pv = buildPreview(sh.sheet, [...g], { slugs: [], emails: [] })
+      const dumped = JSON.stringify(buildPreview(sh.sheet, forced, { slugs: [], emails: [] }))
+      check('real sheet: a sensitive column mapped by hand is still dropped', !dumped.includes('30000') && !dumped.includes('55555') && !dumped.includes('50/50'))
+      check('real sheet: full row is a new draft with the nickname kept private', pv[0].ok && pv[0].slug === 'ann-test' && pv[0].value?.display_name === 'Ann Test' && /Name in sheet: Ann \(Lee\) Test/.test(pv[0].value?.notes ?? ''))
+      check('real sheet: private extras land in notes only', /CLIA #: 12345678/.test(pv[0].value?.notes ?? '') && /Seller of travel \(FSOT\) #: ST12345/.test(pv[0].value?.notes ?? '') && /Second email: ann2@example.org/.test(pv[0].value?.notes ?? '') && /Affiliate link: https:\/\/www\.agentmaxonline\.com\/x/.test(pv[0].value?.notes ?? ''))
+      check('real sheet: Excel date serials become real dates', /Agent start date: 2019-0[1-9]-\d\d|Agent start date: 2019-1/.test(pv[0].value?.notes ?? '') && /Next renewal: 2026-/.test(pv[0].value?.notes ?? ''), pv[0].value?.notes)
+      check('real sheet: CLIA comes in as an unverified certification', JSON.stringify(pv[0].value?.certifications ?? []).includes('"CLIA"') && !JSON.stringify(pv[0].value?.certifications ?? []).includes('"verified":true'))
+      check('real sheet: N/A placeholders are empty, not stored', pv[1].ok && !/N\/A/.test(JSON.stringify(pv[1].value)) && !/CLIA|FSOT|Second email|Affiliate/.test(pv[1].value?.notes ?? ''))
+      check('real sheet: a row marked NO is skipped with a plain reason', !pv[2].ok && pv[2].warnings.some((w) => /not active/.test(w)))
+      check('real sheet: nothing public comes from the import', pv.filter((p) => p.ok).every((p) => !('status' in (p.value ?? {})) && !('consent_photo' in (p.value ?? {}))))
+    }
+    check('readSheetDate: serial to ISO, text untouched', readSheetDate('43500') === '2019-02-04' && readSheetDate('43466') === '2019-01-01' && readSheetDate('2024-05-01') === '2024-05-01' && readSheetDate('12') === '12')
+    check('isPlaceholder', isPlaceholder('N/A') && isPlaceholder(' n/a ') && isPlaceholder('-') && !isPlaceholder('Navigator'))
+  }
 
   // ─── Wiring ────────────────────────────────────────────────────────────────────
   check('migration enables RLS on every agents table and defines no policy', (() => { const m = readFileSync('supabase/migrations/0054_agents.sql', 'utf8'); const t = ['agents', 'agent_achievements', 'agent_of_month', 'agent_profile_links', 'agent_profile_submissions', 'agent_content_drafts']; return t.every((x) => m.includes(`alter table public.${x} enable row level security`)) && !/create policy/i.test(m) })())

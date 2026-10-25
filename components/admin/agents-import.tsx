@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { agentsCall } from "@/components/admin/agents-api"
 import { IMPORT_FIELDS, type PreviewRow } from "@/lib/agents-import"
 
-interface Sheet { headers: string[]; rows: string[][]; guess: string[] }
+interface Sheet { headers: string[]; rows: string[][]; guess: string[]; skippedPrivate?: string[] }
 
 export function AgentsImport({ onDone }: { onDone: () => void }) {
   const [text, setText] = useState("")
@@ -59,6 +59,11 @@ export function AgentsImport({ onDone }: { onDone: () => void }) {
       {sheet && (
         <div className="space-y-2">
           <h3 className="font-medium">Match your columns ({sheet.rows.length} agent row{sheet.rows.length === 1 ? "" : "s"} found)</h3>
+          {!!sheet.skippedPrivate?.length && (
+            <p role="status" className="rounded-md border bg-muted/40 p-2 text-sm">
+              Left out on purpose (money, tax, ID or birth data, never imported): {sheet.skippedPrivate.map((h) => h.replace(/\s+/g, " ")).join(" | ")}
+            </p>
+          )}
           <div className="grid gap-2 md:grid-cols-2">
             {sheet.headers.map((h, i) => (
               <label key={i} className="flex items-center justify-between gap-2 text-sm">
