@@ -39,6 +39,7 @@ import { listSitePages } from '@/lib/site-pages'
 import { getBestTimeToVisitSlugs } from '@/lib/best-time-to-visit'
 import { generateSlug } from '@/lib/utils'
 import { findDuplicate } from '@/lib/content-dedupe'
+import { loadMeaningContext, meaningRejection } from '@/lib/topic-meaning-run'
 import { enrollIfDue } from '@/lib/distribution'
 import { getAutoblogPostsPerWeek, getAutoblogMaxPerDay, mayWriteAnotherToday, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 import { checkCadence, postCadenceKey, postLimits, recordPublish } from '@/lib/publish-cadence'
@@ -403,11 +404,15 @@ async function runAutoblogLocked(admin: ReturnType<typeof getSupabaseAdmin>, mod
   // loop-blog-quality: of the approved topics that are due, the ones Search Console already supports go first (striking distance,
   // positions 8 to 20). A read problem leaves the old oldest-first order.
   const dueRows = rankByGsc(await dueApprovedTopics(admin), await readGscQueries(admin))
+  // Same-meaning layer (lib/topic-meaning-run.ts): an approved topic that says the same thing as an existing post is marked rejected as
+  // "duplicate of <slug>" (logged with an Undo) and the loop moves on to the next due topic. null = layer off or unreadable.
+  const meaningCtx = dueRows.length ? await loadMeaningContext(admin) : null
   for (const row of dueRows) {
     if (findDuplicate(row.angle, existingPosts)) {
       await setTopicStatus(admin, row.id, 'used', {})
       continue
     }
+    if (await meaningRejection(admin, { keyword: row.keyword, angle: row.angle, why: row.why, title: row.title_idea }, meaningCtx, { queueRowId: row.id, wasApproved: true, where: 'approved queue pick' })) continue
     topic = { angle: row.angle, keyword: row.keyword, why: row.why, source: row.source, keywords: keywordSetOf(row), package_slug: row.package_slug ?? null }
     queueRowId = row.id
     break

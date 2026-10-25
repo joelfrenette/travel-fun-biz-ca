@@ -29,7 +29,10 @@ export type SystemCheckPolicyName = 'system_check_ai'
 /** The evergreen re-share (lib/evergreen-reshare-run.ts): one older page a day goes back through social. It has its own switch, DEFAULT OFF
  * (app_settings.evergreen_reshare_enabled), so it is not part of the Autopilot card's list (those default on) and not in ALL_POLICIES. */
 export type EvergreenPolicyName = 'evergreen_reshare'
-export type PolicyName = AutopilotPolicyName | SeoPolicyName | SystemCheckPolicyName | EvergreenPolicyName
+/** The "same meaning" topic check (lib/topic-meaning-run.ts): a topic that says the same thing as an existing post, a queued topic or a recent
+ * rejection is skipped and logged with an Undo. Its switch (auto_policy_topic_meaning) defaults to ON; the AI tie-break (topic_meaning_ai) to OFF. */
+export type TopicMeaningPolicyName = 'topic_meaning'
+export type PolicyName = AutopilotPolicyName | SeoPolicyName | SystemCheckPolicyName | EvergreenPolicyName | TopicMeaningPolicyName
 
 /** The four decisions the owner approved. They default to ON. */
 export const APPROVED_POLICIES: readonly PolicyName[] = ['retry_failed_posts', 'approve_safe_topics', 'publish_passing_news', 'release_held_posts']
@@ -37,6 +40,7 @@ export const ALL_POLICIES: readonly PolicyName[] = [...APPROVED_POLICIES, 'funne
 export const SEO_POLICIES: readonly SeoPolicyName[] = ['seo_topics', 'seo_links']
 
 export const POLICY_LABELS: Record<PolicyName, string> = {
+  topic_meaning: 'Skip blog topics that mean the same as an existing post',
   evergreen_reshare: 'Re-share one older evergreen page on social (off until you switch it on)',
   system_check_ai: 'AI fix started from the System check (Auto-heal)',
   seo_topics: 'Suggest blog topics from Google searches (SEO engines)',
@@ -50,6 +54,7 @@ export const POLICY_LABELS: Record<PolicyName, string> = {
 
 /** Most automatic actions per policy per UTC day. Counts every logged action of that policy that changed something. */
 export const POLICY_CAPS: Record<PolicyName, number> = {
+  topic_meaning: 40,
   evergreen_reshare: 1,
   system_check_ai: 12,
   seo_topics: 3,
@@ -68,7 +73,7 @@ const MAX_VETOES = 300
 
 export const policyKey = (p: PolicyName): string => `auto_policy_${p}`
 
-export type UndoKind = 'requeue-post' | 'topic-pending' | 'unpublish-news' | 'rehold-post' | 'unpause-network' | 'topic-withdraw' | 'revert-edit'
+export type UndoKind = 'requeue-post' | 'topic-pending' | 'unpublish-news' | 'rehold-post' | 'unpause-network' | 'topic-withdraw' | 'revert-edit' | 'topic-restore'
 
 export interface AutoDecision {
   /** ISO time the decision was made. */
@@ -86,7 +91,7 @@ export interface AutoDecision {
   undone_at?: string
 }
 
-const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpublish-news', 'rehold-post', 'unpause-network', 'topic-withdraw', 'revert-edit']
+const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpublish-news', 'rehold-post', 'unpause-network', 'topic-withdraw', 'revert-edit', 'topic-restore']
 
 // ---------------------------------------------------------------------------------------------------
 // Pure helpers
@@ -96,7 +101,7 @@ const UNDO_KINDS: readonly UndoKind[] = ['requeue-post', 'topic-pending', 'unpub
 export const policyEnabled = (raw: string | null | undefined): boolean => raw !== 'off'
 
 export function isPolicyName(v: unknown): v is PolicyName {
-  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v) || v === 'system_check_ai' || v === 'evergreen_reshare')
+  return typeof v === 'string' && ((ALL_POLICIES as readonly string[]).includes(v) || (SEO_POLICIES as readonly string[]).includes(v) || v === 'system_check_ai' || v === 'evergreen_reshare' || v === 'topic_meaning')
 }
 
 /** Reads the stored log. Corrupt or the wrong shape reads as empty; single bad entries are dropped. Pure. */
@@ -306,6 +311,19 @@ async function applyUndo(admin: SupabaseClient, undo: { kind: UndoKind; ref: str
     if (row.status !== 'approved' || row.used_slug) return { ok: false, message: row.used_slug ? 'A post was already written from this topic.' : `It is already ${row.status}.` }
     const { error: e2 } = await admin.from('blog_topic_queue').update({ status: 'suggested', scheduled_for: null }).eq('id', undo.ref).eq('status', 'approved')
     return e2 ? { ok: false, message: e2.message } : { ok: true, message: 'The topic is back in the list for you to decide.' }
+  }
+  if (undo.kind === 'topic-restore') {
+    // A topic the same-meaning check skipped: ref is "<queue row id>|<status it had>". The caller adds a veto, so it is not skipped again.
+    const [id, back] = undo.ref.split('|')
+    const status = back === 'approved' ? 'approved' : 'suggested'
+    const { data, error } = await admin.from('blog_topic_queue').select('status, used_slug').eq('id', id).maybeSingle()
+    if (error) return { ok: false, message: `Could not read the topic (${error.message}).` }
+    const row = data as { status: string; used_slug: string | null } | null
+    if (!row) return { ok: false, message: 'That topic no longer exists.' }
+    if (row.used_slug || row.status === 'used') return { ok: false, message: 'A post was already written from this topic.' }
+    if (row.status !== 'rejected') return { ok: false, message: `It is already ${row.status}.` }
+    const { error: e2 } = await admin.from('blog_topic_queue').update({ status, scheduled_for: null }).eq('id', id).eq('status', 'rejected')
+    return e2 ? { ok: false, message: e2.message } : { ok: true, message: `The topic is back as ${status} and will not be skipped as a duplicate again.` }
   }
   if (undo.kind === 'topic-withdraw') {
     // A topic the SEO engines suggested: withdrawing it turns it down for good (a rejected keyword is never queued again).

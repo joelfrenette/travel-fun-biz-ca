@@ -10,6 +10,8 @@ import { getSetting, setSetting } from '@/lib/app-settings'
 import { blockIfDry } from '@/lib/dry-run'
 import { generateSlug } from '@/lib/utils'
 import { isNewsSlug } from '@/lib/news-post'
+import { loadMeaningContext, judgeTopicMeaning, meaningRejection, type MeaningVerdict } from '@/lib/topic-meaning-run'
+import { appendDecisions, decision } from '@/lib/auto-decisions'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-topics.ts (Factory Phase 2:
 // blog/autoblog), trimmed to what this site's own blog needs: no visa/passport material (100%
@@ -177,11 +179,35 @@ export async function queueIdeas(admin: SupabaseClient, ideas: TopicIdea[], stat
   if (ideas.length === 0) return { queued: 0 }
   const { data: taken } = await admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved', 'used', 'rejected'])
   const takenKeywords = new Set((taken ?? []).map((r: { keyword: string }) => r.keyword.toLowerCase()))
-  const rows = ideas.filter((i) => !takenKeywords.has(i.keyword.toLowerCase())).map((i) => ({ ...i, status }))
+  // Same-meaning layer (lib/topic-meaning-run.ts): an idea that says the same thing as an existing post, a queued topic, a recent
+  // rejection or an earlier idea in this batch is NOT dropped silently - it is stored as 'rejected' with "duplicate of <slug>" in its
+  // `why`, and a line goes to the Autopilot decisions log with an Undo. Fails open (no check) when the layer is off or unreadable.
+  const ctx = await loadMeaningContext(admin)
+  const verdicts = new Map<string, MeaningVerdict>()
+  const rows = ideas
+    .filter((i) => !takenKeywords.has(i.keyword.toLowerCase()))
+    .map((i) => ({ ...i, status: status as BlogTopicQueueRow['status'] }))
+  if (ctx) {
+    for (const r of rows) {
+      const v = await judgeTopicMeaning(admin, { keyword: r.keyword, angle: r.angle }, ctx)
+      if (v) {
+        verdicts.set(r.keyword.toLowerCase(), v)
+        r.status = 'rejected'
+        r.why = `${r.why ?? ''} | ${v.reason}`.replace(/^\s*\|\s*/, '')
+      } else {
+        ctx.docs.push({ kind: 'queued', slug: r.keyword, title: r.angle, keyword: r.keyword })
+      }
+    }
+  }
   if (rows.length === 0) return { queued: 0 }
-  const { error } = await admin.from('blog_topic_queue').insert(rows)
+  const { data: inserted, error } = await admin.from('blog_topic_queue').insert(rows).select('id, keyword')
   if (error) throw new Error(error.message)
-  return { queued: rows.length }
+  const entries = ((inserted ?? []) as { id: string; keyword: string }[]).flatMap((row) => {
+    const v = verdicts.get(row.keyword.toLowerCase())
+    return v ? [decision('topic_meaning', row.keyword, 'Skipped a suggested topic (queue)', v.reason, { kind: 'topic-restore', ref: `${row.id}|suggested` })] : []
+  })
+  await appendDecisions(admin, entries)
+  return { queued: rows.length - verdicts.size }
 }
 
 // ---- auto-approval of engine ideas (WP18-B) -------------------------------------------------------------
@@ -598,11 +624,20 @@ export async function pickKeywordTopic(admin: SupabaseClient, existing: { title:
   const open = await admin.from('blog_topic_queue').select('keyword, keywords').in('status', ['suggested', 'approved']).limit(500)
   const openRows = (open.error ? ((await admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved']).limit(500)).data ?? []) : (open.data ?? [])) as { keyword: string; keywords?: string[] | null }[]
   const inQueue = new Set(openRows.flatMap((q) => [q.keyword, ...(q.keywords ?? [])]).map((k) => k.toLowerCase()))
+  // Same-meaning layer (lib/topic-meaning-run.ts): null when switched off or unreadable (then only the word checks below apply).
+  const meaningCtx = await loadMeaningContext(admin)
   for (const c of nextUp(rankKeywords(rows as ScoreKeyword[], pk as ScorePackage[], new Date(), peaks), 12)) {
     if (findDuplicate(c.keyword, existing)) continue
     // loop-blog-quality: also the same search as a post's primary or secondary keyword, not only its title.
     if (postWithSameKeyword(c.keyword, existing.map((e) => ({ slug: '', title: e.title, primary_keyword: e.primary_keyword, secondary_keywords: e.secondary_keywords })))) continue
     if ([c.keyword, ...c.secondary].some((k) => inQueue.has(k.toLowerCase()))) continue
+    {
+      const dup = await meaningRejection(admin, { keyword: c.keyword }, meaningCtx, { where: 'keyword research pick' })
+      if (dup) {
+        await markKeywordSkipped(admin, c.keyword, dup)
+        continue
+      }
+    }
     if (c.packageSlug) {
       const { count, error } = await admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since).ilike('body', `%/packages/${c.packageSlug}%`)
       if (error || (count ?? 0) > 0) continue
@@ -631,8 +666,11 @@ export async function pickOneTopic(admin: SupabaseClient, existingPostTitles: st
   const ideas = await suggestTopics(admin, { count: 3 })
   const notDuplicate = ideas.filter((i) => !findDuplicate(i.angle, existingPostTitles.map((title) => ({ title }))))
   // loop-blog-quality: among the fresh ideas, the one Search Console already supports (striking distance first). Fails open.
-  const fresh = rankByGsc(notDuplicate, await readGscQueries(admin))[0]
-  if (fresh) return fresh
+  // Same-meaning layer: the first ranked idea that does not say the same thing as an existing post, queued topic or recent rejection.
+  const meaningCtx = await loadMeaningContext(admin)
+  for (const idea of rankByGsc(notDuplicate, await readGscQueries(admin))) {
+    if (!(await meaningRejection(admin, { keyword: idea.keyword, angle: idea.angle }, meaningCtx, { where: 'AI suggestion pick' }))) return idea
+  }
   const usedClusters = new Set((await admin.from('blog_topic_queue').select('keyword').eq('status', 'used')).data?.map((r: { keyword: string }) => r.keyword) ?? [])
   return TOPIC_CLUSTERS.find((c) => !usedClusters.has(c.keyword)) ?? TOPIC_CLUSTERS[0] ?? null
 }
