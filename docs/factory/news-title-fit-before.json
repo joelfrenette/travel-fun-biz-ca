@@ -1,0 +1,130 @@
+[
+  {
+    "id": "7321054d-5ff1-4b99-91bd-d27cd635d882",
+    "slug": "news-canada-advisory-for-paraguay-exercise-a-high-degree-of-cauti-de0f93",
+    "status": "published",
+    "title": "News: Canada advisory for Paraguay exercise a high degree of caution",
+    "meta_title": null,
+    "updated_at": "2026-10-22T03:17:27.624+00:00"
+  },
+  {
+    "id": "e2e1a07c-1b0d-4f13-b71c-d6373206659a",
+    "slug": "news-post-tropical-cyclone-trudy-becomes-a-remnant-low-318ea2",
+    "status": "published",
+    "title": "News: Post-Tropical Cyclone Trudy becomes a remnant low",
+    "meta_title": null,
+    "updated_at": "2026-10-22T03:17:34.581+00:00"
+  },
+  {
+    "id": "6dbcd88c-c27c-4947-b5ad-5da800328f93",
+    "slug": "news-canada-updates-its-travel-advisory-for-saudi-arabia-ef69e6",
+    "status": "published",
+    "title": "News: Canada updates its travel advisory for Saudi Arabia",
+    "meta_title": null,
+    "updated_at": "2026-10-22T03:17:40.056+00:00"
+  },
+  {
+    "id": "25ca19c2-c4ae-4612-846a-a301fefd369a",
+    "slug": "news-subtropical-storm-josephine-advisory-number-2-with-maximum-s-34c415",
+    "status": "published",
+    "title": "News: Subtropical Storm Josephine advisory number 2 with maximum sustained winds of 65 mph",
+    "meta_title": null,
+    "updated_at": "2026-10-22T11:45:15.155+00:00"
+  },
+  {
+    "id": "21e6f09f-cd86-4936-b08e-1f2286f9bf0d",
+    "slug": "news-hurricane-trudy-starting-to-weaken-rapidly-f7f32e",
+    "status": "published",
+    "title": "News: Hurricane Trudy starting to weaken rapidly",
+    "meta_title": null,
+    "updated_at": "2026-10-22T03:17:46.334+00:00"
+  },
+  {
+    "id": "6d7b92c0-1645-4ff5-969d-a2dc0bc924be",
+    "slug": "news-canada-advisory-updated-for-democratic-republic-of-congo-9466ce",
+    "status": "published",
+    "title": "News: Canada advisory updated for Democratic Republic of Congo",
+    "meta_title": null,
+    "updated_at": "2026-10-22T03:17:33.346+00:00"
+  },
+  {
+    "id": "f13cefcf-13b0-4d33-847a-2763b2ec6d3b",
+    "slug": "news-tropical-storm-vance-strengthens-slightly-7d5ae1",
+    "status": "published",
+    "title": "News: Tropical Storm Vance strengthens slightly",
+    "meta_title": null,
+    "updated_at": "2026-10-23T04:00:16.125+00:00"
+  },
+  {
+    "id": "5d938012-66b1-45cf-9230-e6b38d87cea9",
+    "slug": "news-canada-travel-advisory-update-for-saudi-arabia-3d9939",
+    "status": "published",
+    "title": "News: Canada travel advisory update for Saudi Arabia",
+    "meta_title": null,
+    "updated_at": "2026-10-23T04:00:14.495728+00:00"
+  },
+  {
+    "id": "08ca398d-38b8-4027-a3ea-2e04cfbb17ff",
+    "slug": "news-canada-travel-advisory-update-for-saudi-arabia-caaff2",
+    "status": "published",
+    "title": "News: Canada travel advisory update for Saudi Arabia",
+    "meta_title": null,
+    "updated_at": "2026-10-23T04:00:13.430734+00:00"
+  },
+  {
+    "id": "0423ff72-121b-4540-9d9c-23335d646cbc",
+    "slug": "news-tropical-storm-vance-strengthening-as-it-moves-northwestward-1a1368",
+    "status": "published",
+    "title": "News: Tropical Storm Vance strengthening as it moves northwestward",
+    "meta_title": null,
+    "updated_at": "2026-10-24T04:00:15.513+00:00"
+  },
+  {
+    "id": "4847cae6-abc1-40e0-9a56-f071a0dc34c1",
+    "slug": "news-canada-travel-advisory-update-for-el-salvador-155743",
+    "status": "published",
+    "title": "News: Canada travel advisory update for El Salvador",
+    "meta_title": null,
+    "updated_at": "2026-10-24T04:00:16.956834+00:00"
+  },
+  {
+    "id": "1a31922d-5e96-421b-9924-ade1876e4b02",
+    "slug": "news-canada-travel-advisory-update-for-france-f0b456",
+    "status": "published",
+    "title": "News: Canada travel advisory update for France",
+    "meta_title": null,
+    "updated_at": "2026-10-24T04:00:17.894633+00:00"
+  },
+  {
+    "id": "8b0e9545-4285-4d75-9781-62980a5be32a",
+    "slug": "news-hurricane-vance-near-major-hurricane-strength-e6ad8c",
+    "status": "published",
+    "title": "News: Hurricane Vance near major hurricane strength",
+    "meta_title": null,
+    "updated_at": "2026-10-25T04:00:14.718+00:00"
+  },
+  {
+    "id": "ca4d8855-fb50-4b0f-b6be-1883d4492612",
+    "slug": "news-hurricane-vance-weakens-a-little-as-it-moves-slowly-north-no-6c7104",
+    "status": "published",
+    "title": "News: Hurricane Vance weakens a little as it moves slowly north-northwestward",
+    "meta_title": null,
+    "updated_at": "2026-10-25T04:00:14.335539+00:00"
+  },
+  {
+    "id": "d18c5841-d634-41d8-9c84-9885dd441366",
+    "slug": "news-canada-travel-advisory-update-for-tanzania-b07f07",
+    "status": "published",
+    "title": "News: Canada travel advisory update for Tanzania",
+    "meta_title": null,
+    "updated_at": "2026-10-25T04:00:16.001858+00:00"
+  },
+  {
+    "id": "005b3a5f-69d8-42c0-a732-bf563cdef26a",
+    "slug": "news-canada-travel-advisory-update-for-mexico-fa29bb",
+    "status": "published",
+    "title": "News: Canada travel advisory update for Mexico",
+    "meta_title": null,
+    "updated_at": "2026-10-25T04:00:16.948633+00:00"
+  }
+]
