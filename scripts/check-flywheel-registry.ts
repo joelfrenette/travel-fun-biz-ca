@@ -56,7 +56,8 @@ async function main(): Promise<void> {
   check('the registry holds exactly the ten packages', FLYWHEEL_STEPS.length === 10 && FLYWHEEL_POLICIES.length === 10)
   check('step ids are unique and equal their policy name', new Set(FLYWHEEL_STEPS.map((s) => s.id)).size === FLYWHEEL_STEPS.length && FLYWHEEL_STEPS.every((s) => s.id === s.policy))
   check('step orders are unique', new Set(FLYWHEEL_STEPS.map((s) => s.order)).size === FLYWHEEL_STEPS.length)
-  check('every placeholder is a no-op that says "not built yet"', (await Promise.all(FLYWHEEL_STEPS.map((s) => s.run({ admin: fakeAdmin().admin, now: NOW, startedAt: 0, budgetMs: 1, dryRun: false, remainingMs: () => 1, room: 1 })))).every((r) => r.ran === false && r.reason === NOT_BUILT.reason))
+  // Built steps (WP2 and later) answer a dry run with a no-op; a placeholder says "not built yet". Either way: ran false, and it never throws.
+  check('every step is a no-op in a dry run (placeholder or built)', (await Promise.all(FLYWHEEL_STEPS.map((s) => s.run({ admin: fakeAdmin().admin, now: NOW, startedAt: 0, budgetMs: 1, dryRun: true, remainingMs: () => 1, room: 1 })))).every((r) => r.ran === false && (r.reason === NOT_BUILT.reason || r.reason === 'dry run')))
   check('only the autonomy ladder is opt-in (defaultOn false)', FLYWHEEL_STEPS.filter((s) => s.defaultOn === false).map((s) => s.id).join() === 'autonomy_ladder')
   check('caps are conservative (at most 12 a day, at least 1)', FLYWHEEL_POLICIES.every((p) => POLICY_CAPS[p] >= 1 && POLICY_CAPS[p] <= 12))
 

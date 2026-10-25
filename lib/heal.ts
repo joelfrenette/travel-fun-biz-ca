@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { blockIfDry } from '@/lib/dry-run'
 import { submitLeadToGoHighLevel, subscribeNewsletterToGoHighLevel } from '@/lib/gohighlevel'
+import { HEAL_TRIES, LADDER_WAITS_MIN, LADDER_WINDOW_MS, parseLeadMarker, retryDue, retryMarker } from '@/lib/lead-retry-ladder'
 
 // Self-healing: the few repairs that are provably safe to do without asking, run once per pipeline
 // pass. Everything else that goes wrong is reported (Needs attention, the alert email and the daily
@@ -10,7 +11,7 @@ import { submitLeadToGoHighLevel, subscribeNewsletterToGoHighLevel } from '@/lib
 // (it may already have been charged). Each repair is logged so the daily brief can say what it fixed.
 const HEAL_LOG_KEY = 'selfheal_log'
 const MAX_LOG = 60
-const MAX_LEAD_TRIES = 3
+const MAX_LEAD_SENDS_PER_PASS = 5
 
 export interface HealEntry {
   at: string
@@ -33,8 +34,9 @@ async function logHeal(admin: SupabaseClient, texts: string[]): Promise<void> {
   await setSetting(admin, HEAL_LOG_KEY, JSON.stringify([...list, ...texts.map((text) => ({ at, text }))].slice(-MAX_LOG)))
 }
 
-interface LeadRow {
+export interface LeadRow {
   id: string
+  created_at: string
   name: string
   email: string
   phone: string | null
@@ -50,38 +52,54 @@ interface LeadRow {
   ghl_error: string | null
 }
 
-/** Sends leads and newsletter signups that were saved here but never reached GoHighLevel, a few
- * minutes after they were saved (so a send still in progress is left alone), up to 3 tries each. */
-async function healLeads(admin: SupabaseClient): Promise<string[]> {
+/** The columns a saved lead needs to be sent again. Shared with the retry ladder step (lib/flywheel/steps/lead-retry.ts). */
+export const LEAD_RESEND_COLUMNS = 'id, created_at, name, email, phone, package, travel_date, travelers, message, utm_source, utm_medium, utm_campaign, utm_content, page_path, ghl_error'
+
+/** True for a newsletter signup row (kept in the leads table with this package name). */
+export const isNewsletterRow = (row: Pick<LeadRow, 'package'>): boolean => row.package === 'Newsletter signup'
+
+/** A signup is only re-sent when its record shows the consent box was ticked (older rows have none). A lead is always eligible. */
+export const canResendLead = (row: Pick<LeadRow, 'package' | 'message'>): boolean => !isNewsletterRow(row) || /Consent to emails and texts: yes/i.test(row.message ?? '')
+
+/** Sends one saved row to GoHighLevel again (the same call the form makes; GoHighLevel upserts the contact by email). Does not touch the row. */
+export async function resendLeadRow(row: LeadRow): Promise<{ ok: boolean; error?: string }> {
+  const attribution = { utm_source: row.utm_source ?? undefined, utm_medium: row.utm_medium ?? undefined, utm_campaign: row.utm_campaign ?? undefined, utm_content: row.utm_content ?? undefined, page_path: row.page_path ?? undefined }
+  const deals = ((row.message ?? '').split('\n')[0] ?? '').replace(/^Deal interests:\s*/i, '').split(',').map((d) => d.trim()).filter(Boolean)
+  return isNewsletterRow(row)
+    ? await subscribeNewsletterToGoHighLevel({ fullName: row.name, email: row.email, phone: row.phone ?? '', deals: deals.length ? deals : ['general'], consent: true, attribution })
+    : await submitLeadToGoHighLevel({ name: row.name, email: row.email, phone: row.phone ?? undefined, package: row.package ?? 'Website', travelDate: row.travel_date ?? undefined, travelers: row.travelers ?? undefined, message: row.message ?? undefined, attribution })
+}
+
+/** Sends leads and newsletter signups that were saved here but never reached GoHighLevel, on the retry ladder (lib/lead-retry-ladder.ts):
+ * tries 1 to 3 at 5 minutes, 1 hour and 6 hours after the lead was saved (so a send still in progress is left alone, and an outage cannot use
+ * up every try in three passes). Tries 4 and 5 (24 h, 72 h) and the hand-over to a person after that belong to the capped, undoable
+ * "lead_retry" step in the flywheel; this function never marks a lead as given up. */
+export async function healLeads(admin: SupabaseClient): Promise<string[]> {
   const done: string[] = []
+  const now = Date.now()
   const { data } = await admin
     .from('leads')
-    .select('id, name, email, phone, package, travel_date, travelers, message, utm_source, utm_medium, utm_campaign, utm_content, page_path, ghl_error')
+    .select(LEAD_RESEND_COLUMNS)
     .eq('forwarded_to_ghl', false)
-    .lt('created_at', new Date(Date.now() - 5 * 60_000).toISOString())
-    .gt('created_at', new Date(Date.now() - 48 * 3_600_000).toISOString())
+    .lt('created_at', new Date(now - LADDER_WAITS_MIN[0] * 60_000).toISOString())
+    .gt('created_at', new Date(now - LADDER_WINDOW_MS).toISOString())
     .order('created_at', { ascending: true })
-    .limit(5)
+    .limit(40)
+  let sent = 0
   for (const row of (data ?? []) as LeadRow[]) {
-    const tries = Number(/^\[retry (\d+)\]/.exec(row.ghl_error ?? '')?.[1] ?? 0)
-    if (/^\[gave up\]/.test(row.ghl_error ?? '')) continue
-    if (tries >= MAX_LEAD_TRIES) {
-      await admin.from('leads').update({ ghl_error: `[gave up] ${row.ghl_error ?? ''}`.slice(0, 300) }).eq('id', row.id)
-      continue
-    }
-    const attribution = { utm_source: row.utm_source ?? undefined, utm_medium: row.utm_medium ?? undefined, utm_campaign: row.utm_campaign ?? undefined, utm_content: row.utm_content ?? undefined, page_path: row.page_path ?? undefined }
-    const isNewsletter = row.package === 'Newsletter signup'
-    const deals = ((row.message ?? '').split('\n')[0] ?? '').replace(/^Deal interests:\s*/i, '').split(',').map((d) => d.trim()).filter(Boolean)
-    // A signup is only re-sent when its record shows the consent box was ticked (older rows have none).
-    if (isNewsletter && !/Consent to emails and texts: yes/i.test(row.message ?? '')) continue
-    const result = isNewsletter
-      ? await subscribeNewsletterToGoHighLevel({ fullName: row.name, email: row.email, phone: row.phone ?? '', deals: deals.length ? deals : ['general'], consent: true, attribution })
-      : await submitLeadToGoHighLevel({ name: row.name, email: row.email, phone: row.phone ?? undefined, package: row.package ?? 'Website', travelDate: row.travel_date ?? undefined, travelers: row.travelers ?? undefined, message: row.message ?? undefined, attribution })
+    if (sent >= MAX_LEAD_SENDS_PER_PASS) break
+    const marker = parseLeadMarker(row.ghl_error)
+    // Later tries and the give-up belong to the flywheel step; a row it has finished or a person stopped is left alone.
+    if (marker.finished || marker.tries >= HEAL_TRIES) continue
+    if (!retryDue(marker, Date.parse(row.created_at), now)) continue
+    if (!canResendLead(row)) continue
+    sent++
+    const result = await resendLeadRow(row)
     if (result.ok) {
       await admin.from('leads').update({ forwarded_to_ghl: true, ghl_error: null }).eq('id', row.id)
-      done.push(`Sent a saved ${isNewsletter ? 'newsletter signup' : 'lead'} to GoHighLevel on try ${tries + 1}.`)
+      done.push(`Sent a saved ${isNewsletterRow(row) ? 'newsletter signup' : 'lead'} to GoHighLevel on try ${marker.tries + 1}.`)
     } else {
-      await admin.from('leads').update({ ghl_error: `[retry ${tries + 1}] ${result.error}`.slice(0, 300) }).eq('id', row.id)
+      await admin.from('leads').update({ ghl_error: retryMarker(marker.tries + 1, result.error ?? 'GoHighLevel did not accept it', new Date()) }).eq('id', row.id)
     }
   }
   return done
