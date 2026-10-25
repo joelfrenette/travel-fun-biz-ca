@@ -12,6 +12,7 @@ import { generateSlug } from '@/lib/utils'
 import { isNewsSlug } from '@/lib/news-post'
 import { loadMeaningContext, judgeTopicMeaning, meaningRejection, type MeaningVerdict } from '@/lib/topic-meaning-run'
 import { appendDecisions, decision } from '@/lib/auto-decisions'
+import { loadConversionSignal, topicTier, type ConversionSignal } from '@/lib/conversion-rank'
 
 // Ported from Nomad Escape Plan's modules/marketing/blog-topics.ts (Factory Phase 2:
 // blog/autoblog), trimmed to what this site's own blog needs: no visa/passport material (100%
@@ -593,15 +594,17 @@ export function gscSupport(keywords: string[], rows: GscQuery[]): { impressions:
 
 /** Reorders candidates so topics Search Console supports come first: striking-distance ones (position 8 to 20), then other topics with
  * impressions, then the rest. The order inside each group is kept. With no rows the list is returned unchanged. Pure. */
-export function rankByGsc<T extends { keyword: string; keywords?: string[] | null }>(items: T[], rows: GscQuery[]): T[] {
-  if (rows.length === 0) return items
+export function rankByGsc<T extends { keyword: string; keywords?: string[] | null; angle?: string | null; package_slug?: string | null }>(items: T[], rows: GscQuery[], signal?: ConversionSignal | null): T[] {
+  // WP8: a lead/order signal is a bounded tie-break INSIDE each Search Console group (never across groups), see lib/conversion-rank.ts.
+  const conv = signal && signal.sample > 0 ? signal : null
+  if (rows.length === 0 && !conv) return items
   const rank = (it: T): number => {
     const s = gscSupport([it.keyword, ...(it.keywords ?? [])], rows)
     return s.striking ? 0 : s.impressions > 0 ? 1 : 2
   }
   return items
-    .map((it, i) => ({ it, i, r: rank(it), imp: gscSupport([it.keyword, ...(it.keywords ?? [])], rows).impressions }))
-    .sort((a, b) => a.r - b.r || b.imp - a.imp || a.i - b.i)
+    .map((it, i) => ({ it, i, r: rank(it), t: conv ? topicTier(conv, it) : 0, imp: gscSupport([it.keyword, ...(it.keywords ?? [])], rows).impressions }))
+    .sort((a, b) => a.r - b.r || b.t - a.t || b.imp - a.imp || a.i - b.i)
     .map((x) => x.it)
 }
 
@@ -668,7 +671,7 @@ export async function pickOneTopic(admin: SupabaseClient, existingPostTitles: st
   // loop-blog-quality: among the fresh ideas, the one Search Console already supports (striking distance first). Fails open.
   // Same-meaning layer: the first ranked idea that does not say the same thing as an existing post, queued topic or recent rejection.
   const meaningCtx = await loadMeaningContext(admin)
-  for (const idea of rankByGsc(notDuplicate, await readGscQueries(admin))) {
+  for (const idea of rankByGsc(notDuplicate, await readGscQueries(admin), await loadConversionSignal(admin))) {
     if (!(await meaningRejection(admin, { keyword: idea.keyword, angle: idea.angle }, meaningCtx, { where: 'AI suggestion pick' }))) return idea
   }
   const usedClusters = new Set((await admin.from('blog_topic_queue').select('keyword').eq('status', 'used')).data?.map((r: { keyword: string }) => r.keyword) ?? [])
