@@ -366,7 +366,7 @@ export function RecapStudio({ packageId }: { packageId: string }) {
   const photoMap = useMemo(() => new Map((v?.photos ?? []).map((p) => [p.id, p])), [v])
   const shown = useMemo(() => (v ? [...order.filter((id) => photoMap.has(id)), ...v.photos.map((p) => p.id).filter((id) => !order.includes(id))] : []), [v, order, photoMap])
 
-  if (error) return <Card className="mx-auto max-w-3xl"><CardContent className="p-4 text-sm text-red-700">{error}</CardContent></Card>
+  if (error) return <Card className="mx-auto max-w-3xl"><CardContent className="p-4 text-sm text-red-700 dark:text-red-400">{error}</CardContent></Card>
   if (!v) return <div className="flex items-center justify-center gap-2 p-10 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" />Warming up the Studio</div>
 
   const answered = QUESTIONS.filter((q) => (answers[q.id] ?? "").trim()).length
@@ -402,7 +402,7 @@ export function RecapStudio({ packageId }: { packageId: string }) {
 
       {/* What came in through a link */}
       {v.pending.length > 0 && (
-        <Card className="border-amber-300">
+        <Card className="border-amber-300 dark:border-amber-800">
           <CardContent className="space-y-3 p-4">
             <h2 className="font-semibold">Waiting for you ({v.pending.length})</h2>
             <p className="text-xs text-muted-foreground">Nothing here is on the site. Approve, edit then approve, or reject each item.</p>
@@ -541,17 +541,17 @@ export function RecapStudio({ packageId }: { packageId: string }) {
           <p className="text-sm text-muted-foreground">One AI call writes a draft from your notes and the trip page. Checks look for invented facts, prices, names, superlatives and quotes nobody approved. A draft that fails stays private and says why.</p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={writeDraft} disabled={busy === "draft" || answered < 3}>{busy === "draft" ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" />Writing</> : draft ? "Write it again" : "Write the draft"}</Button>
-            {answered < 3 && <p className="self-center text-xs text-amber-700">Answer at least 3 questions in step 2 first.</p>}
+            {answered < 3 && <p className="self-center text-xs text-amber-700 dark:text-amber-400">Answer at least 3 questions in step 2 first.</p>}
           </div>
           {draft && edit && (
             <>
               {draft.blockers.length > 0 ? (
-                <div className="space-y-1 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                <div className="space-y-1 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/30 dark:text-red-100">
                   <p className="font-semibold">Held back. This draft is private until these are fixed:</p>
                   <ul className="list-disc pl-5">{draft.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
                 </div>
               ) : (
-                <p className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">The checks pass. Read it once, then publish.</p>
+                <p className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100">The checks pass. Read it once, then publish.</p>
               )}
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-2">
@@ -605,7 +605,7 @@ export function RecapStudio({ packageId }: { packageId: string }) {
       <Card><CardContent className="space-y-3 p-4">
         <h2 className="font-semibold">Ask a travel agent to fill this in</h2>
         <p className="text-sm text-muted-foreground">Make a private link for one trip. She opens it on her phone, adds photos, answers the five questions and can add quotes. No account, no password. What she sends waits here for your OK. The link works for 14 days.</p>
-        {!v.migrated && <p className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">One database update is missing: run migration 0053 (supabase/migrations/0053_recap_studio.sql) in the Supabase SQL editor to turn links on.</p>}
+        {!v.migrated && <p className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">One database update is missing: run migration 0053 (supabase/migrations/0053_recap_studio.sql) in the Supabase SQL editor to turn links on.</p>}
         <div className="flex flex-wrap gap-2">
           <Input className="max-w-[220px]" placeholder="Her first name (optional)" value={agentName} maxLength={40} onChange={(e) => setAgentName(e.target.value)} aria-label="Agent first name" />
           <Button type="button" variant="outline" disabled={busy === "link:agent" || !v.migrated} onClick={() => makeLink("agent")}>Make a link</Button>

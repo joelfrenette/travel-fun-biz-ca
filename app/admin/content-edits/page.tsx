@@ -186,7 +186,7 @@ export default function ContentEditsPage() {
                     {e.published_after ? <Badge>Live</Badge> : <Badge variant="outline">Draft</Badge>}
                     {e.reverted_at && <Badge variant="destructive">Undone {new Date(e.reverted_at).toLocaleDateString("en-CA", { timeZone: "America/Toronto" })}</Badge>}
                   </p>
-                  {withPublish && <p className="text-xs text-amber-700">This text went live with an automatic publish. Undo also takes the page back to a draft, so the old text is never shown live.</p>}
+                  {withPublish && <p className="text-xs text-amber-700 dark:text-amber-400">This text went live with an automatic publish. Undo also takes the page back to a draft, so the old text is never shown live.</p>}
                   <p className="text-xs text-muted-foreground">{new Date(e.created_at).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium", timeStyle: "short" })} &middot; {e.reason}</p>
                 </div>
                 {!e.reverted_at && (
@@ -200,7 +200,7 @@ export default function ContentEditsPage() {
                   <summary className="cursor-pointer text-muted-foreground">What changed</summary>
                   <div className="mt-1 space-y-1">
                     {bits.removed.slice(0, 6).map((t, i) => <p key={`r${i}`} className="rounded bg-destructive/10 px-2 py-1 text-destructive">- {clip(t)}</p>)}
-                    {bits.added.slice(0, 6).map((t, i) => <p key={`a${i}`} className="rounded bg-emerald-500/10 px-2 py-1 text-emerald-700">+ {clip(t)}</p>)}
+                    {bits.added.slice(0, 6).map((t, i) => <p key={`a${i}`} className="rounded bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-400">+ {clip(t)}</p>)}
                     {bits.removed.length + bits.added.length > 12 && <p className="text-muted-foreground">... and more</p>}
                   </div>
                 </details>

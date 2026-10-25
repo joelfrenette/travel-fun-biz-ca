@@ -240,7 +240,7 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
     })
   }
 
-  if (error) return <Card className="mx-auto mb-4 max-w-4xl"><CardContent className="p-4 text-sm text-red-700">{error}</CardContent></Card>
+  if (error) return <Card className="mx-auto mb-4 max-w-4xl"><CardContent className="p-4 text-sm text-red-700 dark:text-red-400">{error}</CardContent></Card>
   if (!s) return <Card className="mx-auto mb-4 max-w-4xl"><CardContent className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading the past trip card</CardContent></Card>
 
   const enoughNotes = s.notesUsable >= s.notesNeeded
@@ -251,12 +251,12 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           Convert to Past Trip
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.isPast ? "bg-sky-100 text-sky-800" : "bg-emerald-100 text-emerald-800"}`}>{s.isPast ? "Showing as a past trip" : "Showing as a live trip"}</span>
-          {s.isPast && !hasText && <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">Needs a recap</span>}
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.isPast ? "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"}`}>{s.isPast ? "Showing as a past trip" : "Showing as a live trip"}</span>
+          {s.isPast && !hasText && <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">Needs a recap</span>}
         </CardTitle>
         <CardDescription>
           A past trip is never unpublished. The page keeps its address, title and text, and gains a recap, your photos and a sign-up for the next trip like it.
-          {!s.migrated && <span className="mt-1 block font-medium text-red-700">One database update is missing: run migration 0037 (supabase/migrations/0037_trip_recap.sql) in the Supabase SQL editor first.</span>}
+          {!s.migrated && <span className="mt-1 block font-medium text-red-700 dark:text-red-400">One database update is missing: run migration 0037 (supabase/migrations/0037_trip_recap.sql) in the Supabase SQL editor first.</span>}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8">
@@ -309,7 +309,7 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
                       <Button type="button" size="icon" variant="ghost" className="h-8 w-8" aria-label="Delete photo" disabled={busy === `del:${p.id}`} onClick={() => deletePhoto(p)}><X className="h-4 w-4" /></Button>
                     </div>
                   )}
-                  {p.added && <p className="text-xs font-medium text-emerald-700">In the gallery</p>}
+                  {p.added && <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">In the gallery</p>}
                 </div>
               ))}
             </div>
@@ -349,23 +349,23 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
             {hasText && !editing && <Button type="button" variant="outline" onClick={() => { setEditSummary(s.summary); setEditHighlights(s.highlights.join("\n")); setEditBlockers([]); setEditing(true) }}><Pencil className="mr-1 h-4 w-4" />Edit</Button>}
             {s.hasRecap && <Button type="button" variant="outline" disabled={busy === "undo"} onClick={undo}><Undo2 className="mr-1 h-4 w-4" />Undo recap</Button>}
           </div>
-          {!enoughNotes && <p className="text-xs text-amber-700">Add at least {s.notesNeeded} journal notes (and save them) to enable this button.</p>}
+          {!enoughNotes && <p className="text-xs text-amber-700 dark:text-amber-400">Add at least {s.notesNeeded} journal notes (and save them) to enable this button.</p>}
 
           {s.draft?.readyToReplace && (
-            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
               <p className="font-semibold">Replace the live recap?</p>
               <p>A new recap passed the checks. Your current recap (it may include your own edits) is still the one on the page until you click.</p>
-              <p className="whitespace-pre-line rounded bg-white/70 p-2 text-foreground">{s.draft.summary}</p>
+              <p className="whitespace-pre-line rounded bg-white/70 p-2 text-foreground dark:bg-black/30">{s.draft.summary}</p>
               {s.draft.highlights.length > 0 && <ul className="list-disc pl-5">{s.draft.highlights.map((h) => <li key={h}>{h}</li>)}</ul>}
               <Button type="button" size="sm" disabled={busy === "replace"} onClick={replaceLive}>{busy === "replace" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Replace the live recap"}</Button>
             </div>
           )}
 
           {s.draft && !s.draft.readyToReplace && (
-            <div className="space-y-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+            <div className="space-y-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/30 dark:text-red-100">
               <p className="font-semibold">A recap was written but is NOT on the page. The checks held it back:</p>
               <ul className="list-disc pl-5">{s.draft.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
-              <p className="whitespace-pre-line rounded bg-white/70 p-2 text-foreground">{s.draft.summary}</p>
+              <p className="whitespace-pre-line rounded bg-white/70 p-2 text-foreground dark:bg-black/30">{s.draft.summary}</p>
               <p className="text-xs">Fix your notes and write it again, or copy the text, fix the part named above, and use Edit.</p>
             </div>
           )}
@@ -375,7 +375,7 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
               <Textarea rows={8} value={editSummary} onChange={(e) => setEditSummary(e.target.value)} />
               <p className="text-xs text-muted-foreground">Highlights, one per line:</p>
               <Textarea rows={5} value={editHighlights} onChange={(e) => setEditHighlights(e.target.value)} />
-              {editBlockers.length > 0 && <ul className="list-disc pl-5 text-sm text-red-700">{editBlockers.map((b) => <li key={b}>{b}</li>)}</ul>}
+              {editBlockers.length > 0 && <ul className="list-disc pl-5 text-sm text-red-700 dark:text-red-400">{editBlockers.map((b) => <li key={b}>{b}</li>)}</ul>}
               <div className="flex gap-2">
                 <Button type="button" size="sm" disabled={busy === "edit"} onClick={saveEdit}>{busy === "edit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Check className="mr-1 h-4 w-4" />Save and publish</>}</Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
@@ -383,8 +383,8 @@ export function PastTripPanel({ packageId, onChanged }: { packageId: string; onC
             </div>
           ) : (
             hasText && (
-              <div className="space-y-2 rounded-lg border bg-emerald-50/50 p-3 text-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">On the page now{s.generatedAt ? `, written ${new Date(s.generatedAt).toLocaleDateString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium" })}` : ""}</p>
+              <div className="space-y-2 rounded-lg border bg-emerald-50/50 p-3 text-sm dark:bg-emerald-950/20">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">On the page now{s.generatedAt ? `, written ${new Date(s.generatedAt).toLocaleDateString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium" })}` : ""}</p>
                 <p className="whitespace-pre-line">{s.summary}</p>
                 {s.highlights.length > 0 && <ul className="list-disc pl-5">{s.highlights.map((h) => <li key={h}>{h}</li>)}</ul>}
               </div>
