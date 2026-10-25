@@ -11,10 +11,11 @@
 
 import { hotWaitLight, hotWaitSentence, waitText, type HotWait } from '@/lib/lead-desk'
 import { DRY_RUN_AMBER_HOURS, dryRunSentence } from '@/lib/dry-run-shape'
+import type { MigrationFact } from '@/lib/migration-drift'
 
 export type Light = 'green' | 'amber' | 'red'
 
-export const STAGE_IDS = ['production', 'quality', 'distribution', 'discovery', 'clicks', 'conversion', 'measurement', 'money', 'seo', 'jobs', 'ai'] as const
+export const STAGE_IDS = ['production', 'quality', 'distribution', 'discovery', 'clicks', 'conversion', 'measurement', 'money', 'seo', 'jobs', 'ai', 'migrations'] as const
 export type StageId = (typeof STAGE_IDS)[number]
 
 export const STAGE_LABELS: Record<StageId, string> = {
@@ -29,6 +30,7 @@ export const STAGE_LABELS: Record<StageId, string> = {
   seo: 'SEO score',
   jobs: 'Daily jobs',
   ai: 'AI spending',
+  migrations: 'Database changes',
 }
 
 /** Where "needs you" points for each stage: a short action and the page. */
@@ -44,6 +46,7 @@ export const STAGE_NEEDS: Record<StageId, { text: string; href: string }> = {
   seo: { text: 'Open the SEO and GEO Manager', href: '/admin/seo-manager' },
   jobs: { text: 'Open System Health', href: '/admin/system-health' },
   ai: { text: 'Open Users and Analytics', href: '/admin/users' },
+  migrations: { text: 'Open the system check', href: '/admin/system-check' },
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -91,6 +94,8 @@ export interface CheckFacts {
   hotLeads?: HotWait | null
   /** Whole hours Autopilot has been in dry run (nothing is published). undefined/null = not in dry run, or not known. */
   dryRunHours?: number | null
+  /** Repo migrations against the applied rows (lib/migration-drift-check.ts). undefined/null = not asked or could not be read: the stage is amber, never green. */
+  migrations?: MigrationFact | null
 }
 
 export interface CheckStage {
@@ -360,6 +365,22 @@ function ai(f: CheckFacts): CheckStage {
   return { id: 'ai', label: STAGE_LABELS.ai, light, read: true, sentence: `The site used about ${usd(spend)} of AI in a day. The limit is ${usd(ceiling)}.`, number: `${usd(spend)} of ${usd(ceiling)}`, fixed: [], needs: null }
 }
 
+/** Database changes: the repo's migration files against the rows the database says it applied (lib/migration-drift-check.ts).
+ * Read only; this stage never applies anything. Not asked (undefined) or unreadable (null) is amber "could not be read", never green. */
+function migrations(f: CheckFacts): CheckStage {
+  const m = f.migrations
+  if (!m) return unread('migrations', 'The list of database changes')
+  const n = m.unapplied.length
+  const base = { id: 'migrations' as const, label: STAGE_LABELS.migrations, read: true, fixed: [] as string[], needs: null }
+  if (m.historyEmpty) return { ...base, light: 'amber', sentence: 'The database has no record of any change being applied.', number: `0 of ${m.repoCount} recorded` }
+  if (n > 0) {
+    const extra = m.outOfOrder.length ? ' Some are older than ones already applied.' : ''
+    return { ...base, light: 'amber', sentence: `${count(n, 'database change')} ${n === 1 ? 'is' : 'are'} not applied yet. The next one is ${m.unapplied[0]}.${extra}`, number: `${n} of ${m.repoCount} not applied` }
+  }
+  if (m.duplicateNumbers.length) return { ...base, light: 'amber', sentence: `Two database changes share the number ${m.duplicateNumbers[0]}.`, number: `duplicate ${m.duplicateNumbers[0]}` }
+  return { ...base, light: 'green', sentence: `The database has all ${m.repoCount} changes.`, number: `${m.repoCount} applied` }
+}
+
 // ---------------------------------------------------------------------------------------------------
 // What the site fixed by itself
 // ---------------------------------------------------------------------------------------------------
@@ -413,8 +434,10 @@ export function fixedByStage(log: DecisionLike[] | null, now: Date, perStage = 3
 export function evaluateCheck(f: CheckFacts): CheckResult {
   const fixed = fixedByStage(f.decisions, f.now)
   const conversionTop = f.watchdog ? find(f, 'conversion') : null
-  const stages = [production(f), quality(f), distribution(f), discovery(f), clicks(f), conversion(f), measurement(f), money(f), seo(f), jobs(f), ai(f)].map((s) => {
+  const stages = [production(f), quality(f), distribution(f), discovery(f), clicks(f), conversion(f), measurement(f), money(f), seo(f), jobs(f), ai(f), migrations(f)].map((s) => {
     const needs = s.light === 'green' ? null : { ...STAGE_NEEDS[s.id] }
+    // "apply migration NNNN": name the first one not applied. It only links to the System check page; nothing is ever applied from here.
+    if (needs && s.id === 'migrations' && f.migrations && f.migrations.unapplied.length > 0 && !f.migrations.historyEmpty) needs.text = `Apply migration ${f.migrations.unapplied[0]}`
     if (needs && s.id === 'conversion' && conversionTop && typeof conversionTop.evidence.top_page === 'string') needs.text = `Look at ${conversionTop.evidence.top_page}`
     // A hot lead with no agent is the most urgent thing on this stage: send the person to the Today card where an agent is chosen.
     if (needs && s.id === 'conversion' && ['amber', 'red'].includes(hotWaitLight(f.hotLeads) ?? '')) {
