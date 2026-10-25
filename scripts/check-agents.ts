@@ -394,6 +394,7 @@ const baseRow = {
     const inv = readFileSync('app/api/admin/agent-invites/route.ts', 'utf8')
     check('invite route checks admin auth and that the roster agent exists', (inv.match(/isAuthorized\(request\)/g) ?? []).length >= 2 && inv.includes("from('agents').select('id').eq('id', body.agent_id)"))
     const prof = readFileSync('app/api/agent-profile/[token]/route.ts', 'utf8')
+    check('recap link is made only for a trip on this agent\'s approved list and only if published', prof.includes("includes(slug)") && prof.includes(".eq('status', 'published')") && prof.includes("createShare(admin, String((pkg as { id: string }).id), 'agent'"))
     check('profile GET returns only the agent\'s own live trip link', prof.includes(".eq('agent_id', r.ctx.agent.id)") && prof.includes(".is('revoked_at', null)") && prof.includes(".gt('expires_at'"))
   }
 

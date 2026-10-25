@@ -31,6 +31,19 @@ export function AgentProfileForm({ token }: { token: string }) {
   const [picked, setPicked] = useState<string[]>([])
   const [testimonial, setTestimonial] = useState("")
   const [tripLink, setTripLink] = useState<string | null>(null)
+  const [approved, setApproved] = useState<string[]>([])
+  const [recapMsg, setRecapMsg] = useState("")
+
+  // One press = one fresh upload link for that trip, opened in a new tab. The link is not stored in readable form.
+  async function recapLink(slug: string) {
+    setRecapMsg("")
+    try {
+      const r = await fetch(`/api/agent-profile/${encodeURIComponent(token)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "recap_link", slug }) })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || "Could not make the link.")
+      window.open(d.path, "_blank", "noopener")
+    } catch (e) { setRecapMsg(e instanceof Error ? e.message : "Could not make the link.") }
+  }
   const [honey, setHoney] = useState("")
   const [busy, setBusy] = useState(false)
 
@@ -42,7 +55,7 @@ export function AgentProfileForm({ token }: { token: string }) {
         const a = d.agent as Existing
         setName(a.display_name); setBio(a.bio ?? ""); setHeadline(a.headline ?? ""); setSpecialties(a.specialties.join(", "))
         setLanguages(a.languages.join(", ")); setYears(a.years_experience == null ? "" : String(a.years_experience)); setVideo(a.video_urls[0] ?? "")
-        setPkgs((d.packages ?? []) as Pkg[]); setPicked(a.promoted_package_slugs ?? []); setTripLink(typeof d.tripLink === "string" ? d.tripLink : null)
+        setPkgs((d.packages ?? []) as Pkg[]); setPicked(a.promoted_package_slugs ?? []); setApproved(a.promoted_package_slugs ?? []); setTripLink(typeof d.tripLink === "string" ? d.tripLink : null)
         setState("form")
       })
       .catch((e) => { setError(e instanceof Error ? e.message : "This link is not valid."); setState("error") })
@@ -118,6 +131,21 @@ export function AgentProfileForm({ token }: { token: string }) {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">Pick up to 12. These show on your public page with a form so visitors can ask about them. To add a brand new trip, or to share photos and videos from a trip that has finished, ask the office for the trip link.</p>
+        </fieldset>
+      )}
+      {approved.length > 0 && (
+        <fieldset className="space-y-2 rounded-md border p-3">
+          <legend className="px-1 text-sm font-medium">Finished a trip? Share photos and your story</legend>
+          <ul className="space-y-1">
+            {approved.map((slug) => (
+              <li key={slug} className="flex flex-wrap items-center gap-2 text-sm">
+                <span>{pkgs.find((p) => p.slug === slug)?.name ?? slug}</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => recapLink(slug)}>Open upload page</Button>
+              </li>
+            ))}
+          </ul>
+          {recapMsg && <p role="alert" className="text-sm text-destructive">{recapMsg}</p>}
+          <p className="text-xs text-muted-foreground">The office reviews everything before it goes on the site.</p>
         </fieldset>
       )}
       {tripLink && (

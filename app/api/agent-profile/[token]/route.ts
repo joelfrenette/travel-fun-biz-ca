@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { isHoneypotFilled, allowRequest } from '@/lib/abuse-guard'
 import { resolveProfileLink, submitSelfService } from '@/lib/agents-store'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { createShare } from '@/lib/recap-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,6 +59,19 @@ export async function POST(request: Request, { params }: { params: { token: stri
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   if (!body) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   if (isHoneypotFilled(body)) return NextResponse.json({ ok: true })
+
+  // A photo-and-story upload link for one of THIS agent's approved trips (the office's recap link, kind "agent"). The trip must
+  // be on their approved list and published now. Only a hash is stored, so each press makes a fresh link; the per-trip cap in
+  // createShare stops a pile-up.
+  if (body.action === 'recap_link') {
+    const slug = typeof body.slug === 'string' ? body.slug.trim().toLowerCase() : ''
+    if (!slug || !(r.ctx.agent.promoted_package_slugs ?? []).includes(slug)) return NextResponse.json({ error: 'That trip is not on your approved list yet.' }, { status: 400 })
+    const admin = getSupabaseAdmin()
+    const { data: pkg } = await admin.from('travel_packages').select('id').eq('slug', slug).eq('status', 'published').maybeSingle()
+    if (!pkg) return NextResponse.json({ error: 'That trip is not published right now.' }, { status: 400 })
+    const made = await createShare(admin, String((pkg as { id: string }).id), 'agent', r.ctx.agent.display_name)
+    return made.ok ? NextResponse.json({ path: made.value.path }) : NextResponse.json({ error: made.error }, { status: made.status })
+  }
   const s = await submitSelfService(r.ctx, body)
   return s.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: s.errors.join(' ') }, { status: 400 })
 }
