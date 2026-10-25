@@ -30,6 +30,7 @@ export function AgentProfileForm({ token }: { token: string }) {
   const [pkgs, setPkgs] = useState<Pkg[]>([])
   const [picked, setPicked] = useState<string[]>([])
   const [testimonial, setTestimonial] = useState("")
+  const [tripLink, setTripLink] = useState<string | null>(null)
   const [honey, setHoney] = useState("")
   const [busy, setBusy] = useState(false)
 
@@ -41,7 +42,7 @@ export function AgentProfileForm({ token }: { token: string }) {
         const a = d.agent as Existing
         setName(a.display_name); setBio(a.bio ?? ""); setHeadline(a.headline ?? ""); setSpecialties(a.specialties.join(", "))
         setLanguages(a.languages.join(", ")); setYears(a.years_experience == null ? "" : String(a.years_experience)); setVideo(a.video_urls[0] ?? "")
-        setPkgs((d.packages ?? []) as Pkg[]); setPicked(a.promoted_package_slugs ?? [])
+        setPkgs((d.packages ?? []) as Pkg[]); setPicked(a.promoted_package_slugs ?? []); setTripLink(typeof d.tripLink === "string" ? d.tripLink : null)
         setState("form")
       })
       .catch((e) => { setError(e instanceof Error ? e.message : "This link is not valid."); setState("error") })
@@ -118,6 +119,11 @@ export function AgentProfileForm({ token }: { token: string }) {
           </div>
           <p className="text-xs text-muted-foreground">Pick up to 12. These show on your public page with a form so visitors can ask about them. To add a brand new trip, or to share photos and videos from a trip that has finished, ask the office for the trip link.</p>
         </fieldset>
+      )}
+      {tripLink && (
+        <p className="rounded-md border p-3 text-sm">
+          Promoting a trip that is not on the list? <a href={tripLink} className="font-medium underline">Add a new trip</a>. The office reviews it, and once it is published it shows on your page.
+        </p>
       )}
       <div className="space-y-1"><Label htmlFor="p-test">A short testimonial or message to your travellers (optional, up to 600 characters)</Label><Textarea id="p-test" rows={3} maxLength={600} value={testimonial} onChange={(e) => setTestimonial(e.target.value)} /></div>
       <fieldset className="space-y-2 rounded-md border p-3">

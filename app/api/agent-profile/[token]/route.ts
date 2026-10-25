@@ -27,7 +27,11 @@ export async function GET(request: Request, { params }: { params: { token: strin
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
   // The drop-down of trips the agent can pick from: published packages only, name and slug.
   const { data: pk } = await getSupabaseAdmin().from('travel_packages').select('slug, name').eq('status', 'published').order('name', { ascending: true }).limit(300)
-  return NextResponse.json({ agent: r.ctx.agent, packages: pk ?? [] })
+  // This agent's OWN add-a-trip link, if the office made one for them and it still works. It is theirs, so showing it back
+  // to them is fine; it is never shown to anyone else.
+  const { data: inv } = await getSupabaseAdmin().from('agent_invites').select('token').eq('agent_id', r.ctx.agent.id).is('revoked_at', null).gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  const tripLink = inv && typeof (inv as { token?: unknown }).token === 'string' ? `/submit-trip/${(inv as { token: string }).token}` : null
+  return NextResponse.json({ agent: r.ctx.agent, packages: pk ?? [], tripLink })
 }
 
 export async function POST(request: Request, { params }: { params: { token: string } }) {

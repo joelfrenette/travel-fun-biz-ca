@@ -35,6 +35,16 @@ export function AgentInvitesCard({ onOpenPackage }: { onOpenPackage?: (packageId
   const [email, setEmail] = useState("")
   const [note, setNote] = useState("")
   const [days, setDays] = useState("30")
+  const [roster, setRoster] = useState<{ id: string; name: string }[]>([])
+  const [agentId, setAgentId] = useState("")
+
+  // The roster, for the "put approved trips on this agent's page" pick. A failure just leaves the list empty.
+  useEffect(() => {
+    fetch("/api/admin/agents", { headers: authHeaders(false) })
+      .then((r) => r.json())
+      .then((d) => setRoster(((d.agents ?? []) as { id?: unknown; display_name?: unknown }[]).filter((a) => typeof a.id === "string" && typeof a.display_name === "string").map((a) => ({ id: a.id as string, name: a.display_name as string }))))
+      .catch(() => setRoster([]))
+  }, [])
 
   const load = useCallback(async () => {
     try {
@@ -58,10 +68,10 @@ export function AgentInvitesCard({ onOpenPackage }: { onOpenPackage?: (packageId
     setBusy("create")
     setError("")
     try {
-      const res = await fetch("/api/admin/agent-invites", { method: "POST", headers: authHeaders(), body: JSON.stringify({ agent_name: name, agent_email: email, note, expires_days: Number(days) || 30 }) })
+      const res = await fetch("/api/admin/agent-invites", { method: "POST", headers: authHeaders(), body: JSON.stringify({ agent_id: agentId || undefined, agent_name: name, agent_email: email, note, expires_days: Number(days) || 30 }) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || `Could not create the link (HTTP ${res.status})`)
-      setName(""); setEmail(""); setNote("")
+      setName(""); setEmail(""); setNote(""); setAgentId("")
       await load()
       await copy(data.invite.link, data.invite.id)
     } catch (e) {
@@ -107,6 +117,15 @@ export function AgentInvitesCard({ onOpenPackage }: { onOpenPackage?: (packageId
         {error && <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
 
         <div className="grid gap-3 rounded-md border p-3 md:grid-cols-2">
+          {roster.length > 0 && (
+            <div className="md:col-span-2">
+              <label htmlFor="invite-agent" className="text-sm">Put approved trips on this roster agent's page (optional)</label>
+              <select id="invite-agent" value={agentId} onChange={(e) => { setAgentId(e.target.value); const r = roster.find((x) => x.id === e.target.value); if (r && !name.trim()) setName(r.name) }} className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm">
+                <option value="">Not tied to a roster agent</option>
+                {roster.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+          )}
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Agent's name" maxLength={80} aria-label="Agent's name" />
           <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Agent's email (optional)" type="email" aria-label="Agent's email" />
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="A note for yourself (optional)" maxLength={300} aria-label="Note" />

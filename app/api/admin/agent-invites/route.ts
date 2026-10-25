@@ -32,14 +32,22 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const body = (await request.json().catch(() => null)) as { agent_name?: unknown; agent_email?: unknown; note?: unknown; expires_days?: unknown; max_uses?: unknown } | null
+  const body = (await request.json().catch(() => null)) as { agent_id?: unknown; agent_name?: unknown; agent_email?: unknown; note?: unknown; expires_days?: unknown; max_uses?: unknown } | null
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   const agent_name = cleanText(body.agent_name, 80)
   if (agent_name.length < 2) return NextResponse.json({ error: "Please type the agent's name." }, { status: 400 })
   const email = cleanText(body.agent_email, 160)
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: 'That email address does not look right.' }, { status: 400 })
+  // Optional: tie the link to a roster agent, so a trip they send and you approve lands on their page. Must be a real agent.
+  let agent_id: string | null = null
+  if (typeof body.agent_id === 'string' && body.agent_id) {
+    const { data: found } = await getSupabaseAdmin().from('agents').select('id').eq('id', body.agent_id).maybeSingle()
+    if (!found) return NextResponse.json({ error: 'That roster agent was not found.' }, { status: 400 })
+    agent_id = String((found as { id: string }).id)
+  }
   const row = {
     token: generateToken(),
+    agent_id,
     agent_name,
     agent_email: email || null,
     note: cleanText(body.note, 300) || null,

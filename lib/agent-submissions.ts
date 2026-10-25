@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getPackageById, updatePackage, deletePackage } from '@/lib/packages'
+import { addPromotedSlug } from '@/lib/agents'
 import { createDraftPackage } from '@/lib/package-ingest'
 import { isPrivateIp } from '@/lib/supplier-photos'
 import { publishTrip, publishBlockers } from '@/lib/trip-wizard'
@@ -290,6 +291,25 @@ export async function getSubmissionForPackage(admin: SupabaseClient, packageId: 
   return (data as SubmissionRow | null) ?? null
 }
 
+/**
+ * After an approved trip is live, add it to the page of the roster agent the link belongs to (if the link was tied to one).
+ * Never throws and never blocks the approval: the trip is already published, and the office can add it by hand if this fails.
+ */
+async function attachToAgentPage(admin: SupabaseClient, inviteId: string | null, slug: unknown): Promise<void> {
+  try {
+    if (!inviteId || typeof slug !== 'string' || !slug) return
+    const { data: inv } = await admin.from('agent_invites').select('agent_id').eq('id', inviteId).maybeSingle()
+    const agentId = (inv as { agent_id?: string | null } | null)?.agent_id
+    if (!agentId) return
+    const { data: ag } = await admin.from('agents').select('promoted_package_slugs').eq('id', agentId).maybeSingle()
+    if (!ag) return
+    const next = addPromotedSlug((ag as { promoted_package_slugs?: unknown }).promoted_package_slugs, slug)
+    await admin.from('agents').update({ promoted_package_slugs: next }).eq('id', agentId)
+  } catch {
+    /* best effort */
+  }
+}
+
 /** Approve = publish (guarded: required fields must be filled). Reject = back to the agent with a note they can read. */
 export async function decideSubmission(admin: SupabaseClient, packageId: string, action: 'approve' | 'reject', note?: string): Promise<{ ok: true; state: SubmissionState } | (Fail & { missing?: string[] })> {
   const sub = await getSubmissionForPackage(admin, packageId)
@@ -312,6 +332,7 @@ export async function decideSubmission(admin: SupabaseClient, packageId: string,
       await admin.from('package_submissions').update({ submission_state: prior, decided_at: null, updated_at: new Date().toISOString() }).eq('id', sub.id).eq('submission_state', 'approved')
       return fail(pub.status, pub.error)
     }
+    await attachToAgentPage(admin, sub.invite_id, pkg.slug)
     return { ok: true, state: 'approved' }
   }
   const clean = (note ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, 1000)

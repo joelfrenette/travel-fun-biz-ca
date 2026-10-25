@@ -7,7 +7,7 @@ import {
   AGENT_PRIVATE_COLUMNS, AGENT_PUBLIC_COLUMNS, AGENT_PUBLIC_SELECT, ACHIEVEMENT_PUBLIC_COLUMNS, ACHIEVEMENT_PUBLIC_SELECT, amountLike, buildAgentsCollectionJsonLd,
   buildPersonJsonLd, buildProfilePageJsonLd, buildVideoJsonLd, cleanAgentInput, isPubliclyVisible, parseCertifications, parseVideoUrl, publicCertifications,
   publishBlockers, slugify, suggestAgentOfMonth, toPublicAchievements, toPublicAgent, agentDescription, agentTitle, agentPhotoAlt, type PublicAgent,
-  OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, officeTeam, parseOfficeRole, planOfficeRole, parseSocialLinks, cleanPackageSlugs,
+  OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, officeTeam, parseOfficeRole, planOfficeRole, parseSocialLinks, cleanPackageSlugs, addPromotedSlug,
 } from '../lib/agents'
 import { setOfficeRole } from '../lib/agents-office'
 import { buildPreview, guessField, isPlaceholder, parseDelimited, parseSheet, readSheetDate, IMPORT_MAX_ROWS } from '../lib/agents-import'
@@ -379,6 +379,22 @@ const baseRow = {
     check('testimonial_text is not a public column', !(AGENT_PUBLIC_COLUMNS as readonly string[]).includes('testimonial_text'))
     check('migration 0059 adds both columns and no policy', (() => { const m = readFileSync('supabase/migrations/0059_agents_promoted_trips.sql', 'utf8'); return m.includes('add column if not exists promoted_package_slugs') && m.includes('add column if not exists testimonial_text') && !/create policy/i.test(m) })())
     check('submit drops slugs that are not published packages', readFileSync('lib/agents-store.ts', 'utf8').includes(".eq('status', 'published')") && readFileSync('lib/agents-store.ts', 'utf8').includes('cleaned.value.promoted_package_slugs.filter'))
+  }
+
+  // ─── Add-a-trip links tied to a roster agent ──────────────────────────────────
+  {
+    check('addPromotedSlug appends a new clean slug', addPromotedSlug(['a-1'], 'B-2').join() === 'a-1,b-2')
+    check('addPromotedSlug skips a duplicate', addPromotedSlug(['a-1'], 'a-1').join() === 'a-1')
+    check('addPromotedSlug ignores a bad slug and a non-array', addPromotedSlug(null, 'bad slug!').length === 0 && addPromotedSlug(undefined, 'ok-1').join() === 'ok-1')
+    check('addPromotedSlug leaves a full list of 12 alone', addPromotedSlug(Array.from({ length: 12 }, (_, i) => `t-${i}`), 'extra').length === 12)
+    const subs = readFileSync('lib/agent-submissions.ts', 'utf8')
+    check('approval attaches the trip only after a successful publish', subs.indexOf('attachToAgentPage(admin, sub.invite_id') > subs.indexOf('const pub = await publishTrip(packageId)') && subs.indexOf('attachToAgentPage(admin, sub.invite_id') < subs.indexOf("return { ok: true, state: 'approved' }"))
+    check('attachToAgentPage never throws', /async function attachToAgentPage[\s\S]*?try \{[\s\S]*?\} catch \{/.test(subs))
+    check('migration 0060 adds agent_id nullable with set null and no policy', (() => { const m = readFileSync('supabase/migrations/0060_agent_invites_agent_id.sql', 'utf8'); return m.includes('add column if not exists agent_id uuid references public.agents(id) on delete set null') && !/create policy/i.test(m) && !/add column[^\n]*agent_id[^\n]*not null/i.test(m) })())
+    const inv = readFileSync('app/api/admin/agent-invites/route.ts', 'utf8')
+    check('invite route checks admin auth and that the roster agent exists', (inv.match(/isAuthorized\(request\)/g) ?? []).length >= 2 && inv.includes("from('agents').select('id').eq('id', body.agent_id)"))
+    const prof = readFileSync('app/api/agent-profile/[token]/route.ts', 'utf8')
+    check('profile GET returns only the agent\'s own live trip link', prof.includes(".eq('agent_id', r.ctx.agent.id)") && prof.includes(".is('revoked_at', null)") && prof.includes(".gt('expires_at'"))
   }
 
   // ─── Wiring ────────────────────────────────────────────────────────────────────

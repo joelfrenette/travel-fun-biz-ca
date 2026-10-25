@@ -276,6 +276,14 @@ export function cleanPackageSlugs(value: unknown): string[] {
   return out
 }
 
+/** Adds one approved trip to an agent's promoted list: cleaned, no duplicate, appended last. A full list (12) is left as it is. */
+export function addPromotedSlug(existing: unknown, slug: string): string[] {
+  const list = cleanPackageSlugs(existing)
+  const [one] = cleanPackageSlugs([slug])
+  if (!one || list.includes(one) || list.length >= 12) return list
+  return [...list, one]
+}
+
 export function cleanLanguages(value: unknown): string[] {
   return cleanList(value, 10, 40)
 }
