@@ -1,4 +1,16 @@
-import { cleanAgentInput, cleanText, parseOfficeRole, publicName, slugify, type AgentEditable, parseCertifications } from '@/lib/agents'
+import { cleanAgentInput, cleanHttpsUrl, cleanText, parseOfficeRole, publicName, slugify, socialHostOk, SOCIAL_KINDS, type AgentEditable, type SocialKind, parseCertifications } from '@/lib/agents'
+
+/** Import column -> social kind. */
+const SOCIAL_IMPORT: [ImportFieldKey, SocialKind][] = [
+  ['facebook_profile', 'facebook_profile'],
+  ['facebook_page', 'facebook_page'],
+  ['facebook_group', 'facebook_group'],
+  ['instagram', 'instagram'],
+  ['tiktok', 'tiktok'],
+  ['youtube_channel', 'youtube'],
+  ['linkedin', 'linkedin'],
+  ['website', 'website'],
+]
 
 // CSV / Excel-paste import for the agent roster (pure). Joel's 20+ agents live in a spreadsheet today. He copies the cells
 // (Excel pastes tab-separated text) or uploads a CSV, maps each column to a field, sees a PREVIEW, and only then imports.
@@ -35,6 +47,17 @@ export const IMPORT_FIELDS = [
   { key: 'affiliate_link', label: 'Affiliate link (private, kept in notes)' },
   { key: 'commission_sheet', label: 'Commission sheet link (private, kept in notes; only a real https link is kept)' },
   { key: 'active', label: 'Active? (a row marked NO is skipped)' },
+  // Social links import as PRIVATE. You make each one public in the editor, one link at a time.
+  { key: 'facebook_profile', label: 'Facebook personal page link (private until you make it public)' },
+  { key: 'facebook_page', label: 'Facebook fan / business page link (private until you make it public)' },
+  { key: 'facebook_group', label: 'Facebook group link (private until you make it public)' },
+  { key: 'instagram', label: 'Instagram link (private until you make it public)' },
+  { key: 'tiktok', label: 'TikTok link (private until you make it public)' },
+  { key: 'youtube_channel', label: 'YouTube channel link (private until you make it public)' },
+  { key: 'linkedin', label: 'LinkedIn link (private until you make it public)' },
+  { key: 'website', label: 'Website link (private until you make it public)' },
+  { key: 'asta_member', label: 'ASTA member? Yes or No (shown publicly only after you verify it)' },
+  { key: 'asta_number', label: 'ASTA member number (private)' },
 ] as const
 
 export type ImportFieldKey = (typeof IMPORT_FIELDS)[number]['key']
@@ -57,6 +80,16 @@ const SYNONYMS: [ImportFieldKey, RegExp][] = [
   ['affiliate_link', /affiliate/i],
   ['commission_sheet', /^commissions?[\s_-]*sheet/i],
   ['active', /^(active|is[\s_-]*active)$/i],
+  ['asta_number', /asta[\s_-]*(#|no\b|num\w*|id)/i],
+  ['asta_member', /^asta\b|asta[\s_-]*member/i],
+  ['facebook_group', /(facebook|fb)\b.*group|group.*\b(facebook|fb)\b/i],
+  ['facebook_page', /(fan|business|facebook|fb)[\s_-]*page/i],
+  ['facebook_profile', /facebook|^fb\b/i],
+  ['instagram', /instagram|^insta\b|^ig\b/i],
+  ['tiktok', /tik[\s_-]*tok/i],
+  ['youtube_channel', /youtube[\s_-]*(channel|page)/i],
+  ['linkedin', /linked[\s_-]*in/i],
+  ['website', /web[\s_-]*site|^site$|^url$/i],
   ['address', /address|mailing|street/i],
   // A column called exactly "role" or "office role" is the office role. Longer titles ("Job title", "Position") stay headlines.
   ['office_role', /^(office[\s_-]*role|role)$/i],
@@ -221,6 +254,28 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
     // A CLIA number in the sheet means a CLIA membership claim: add the certification NOT verified, number kept private.
     if (raw.clia && !certs.some((c) => /clia/i.test(c.name))) certs.push({ name: 'CLIA', issuer: '', year: null, verified: false })
     if (certs.length) input.certifications = certs
+    // Social links: always private on import (public = false). A bare "facebook.com/x" gets https://; a bare @handle is not guessed.
+    const socials: Record<string, unknown>[] = []
+    const socialWarn: string[] = []
+    for (const [field, kind] of SOCIAL_IMPORT) {
+      const cell = raw[field]
+      if (!cell) continue
+      let any = false
+      for (const piece of cell.split(/[\s;,|]+/).filter(Boolean)) {
+        const url = /^https:\/\//i.test(piece) ? piece : /^[a-z0-9-]+(\.[a-z0-9-]+)+\/\S*$/i.test(piece) || /^(www\.)[a-z0-9.-]+$/i.test(piece) ? `https://${piece}` : ''
+        if (url && socialHostOk(kind, cleanHttpsUrl(url) || 'x:')) {
+          socials.push({ kind, label: '', url, public: false })
+          any = true
+        }
+      }
+      if (!any) socialWarn.push(`The ${SOCIAL_KINDS[kind].label} cell was not a full link for that site, so it was left empty.`)
+    }
+    if (socials.length) input.social_links = socials
+    // ASTA: a Yes, or a number, is a claim. It is never imported as verified.
+    if (raw.asta_number) {
+      input.asta_number = raw.asta_number
+      input.asta_member = true
+    } else if (raw.asta_member && /^(yes|y|true|1|member)$/i.test(raw.asta_member.trim())) input.asta_member = true
     // Details with no column of their own become labelled lines in the private notes (never public).
     const extra = [
       raw.clia && `CLIA #: ${raw.clia}`,
@@ -259,6 +314,7 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
       if (v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)) missing.push(label)
     }
     if (raw.commission_sheet && !/^https:\/\/\S+$/i.test(raw.commission_sheet)) warnings.push('The commission sheet cell was not a full https link (just text), so it was not stored. Paste the real link.')
+    warnings.push(...socialWarn)
     if (raw.photo_url && !value.photo_url) warnings.push('The photo link was not a valid https link, so it was left empty.')
     if (raw.video_urls && !(value.video_urls?.length)) warnings.push('No video link was a YouTube or Vimeo https link, so the videos were left empty.')
     if (raw.years_experience && value.years_experience == null) warnings.push('Years of experience was not a number from 0 to 80, so it was left empty.')

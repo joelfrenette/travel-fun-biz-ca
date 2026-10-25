@@ -7,7 +7,7 @@ import {
   AGENT_PRIVATE_COLUMNS, AGENT_PUBLIC_COLUMNS, AGENT_PUBLIC_SELECT, ACHIEVEMENT_PUBLIC_COLUMNS, ACHIEVEMENT_PUBLIC_SELECT, amountLike, buildAgentsCollectionJsonLd,
   buildPersonJsonLd, buildProfilePageJsonLd, buildVideoJsonLd, cleanAgentInput, isPubliclyVisible, parseCertifications, parseVideoUrl, publicCertifications,
   publishBlockers, slugify, suggestAgentOfMonth, toPublicAchievements, toPublicAgent, agentDescription, agentTitle, agentPhotoAlt, type PublicAgent,
-  OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, officeTeam, parseOfficeRole, planOfficeRole,
+  OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, officeTeam, parseOfficeRole, planOfficeRole, parseSocialLinks,
 } from '../lib/agents'
 import { setOfficeRole } from '../lib/agents-office'
 import { buildPreview, guessField, isPlaceholder, parseDelimited, parseSheet, readSheetDate, IMPORT_MAX_ROWS } from '../lib/agents-import'
@@ -39,7 +39,7 @@ const baseRow = {
   check('public column list has no private column', AGENT_PRIVATE_COLUMNS.every((c) => !(AGENT_PUBLIC_COLUMNS as readonly string[]).includes(c)), AGENT_PUBLIC_COLUMNS)
   check('public select is explicit (no star)', !AGENT_PUBLIC_SELECT.includes('*') && !ACHIEVEMENT_PUBLIC_SELECT.includes('*'))
   check('achievement public columns exclude internal_value and public flag leak', !(ACHIEVEMENT_PUBLIC_COLUMNS as readonly string[]).includes('internal_value'))
-  check('private columns are exactly email, phone, address, notes, internal_tags, office_role', [...AGENT_PRIVATE_COLUMNS].sort().join() === 'address,email,internal_tags,notes,office_role,phone')
+  check('private columns are exactly email, phone, address, notes, internal_tags, office_role, asta_number', [...AGENT_PRIVATE_COLUMNS].sort().join() === 'address,asta_number,email,internal_tags,notes,office_role,phone')
 
   // Source scan: the public half of the store, and every public file, never touch private columns or select star.
   const store = readFileSync('lib/agents-store.ts', 'utf8')
@@ -332,6 +332,41 @@ const baseRow = {
     }
     check('readSheetDate: serial to ISO, text untouched', readSheetDate('43500') === '2019-02-04' && readSheetDate('43466') === '2019-01-01' && readSheetDate('2024-05-01') === '2024-05-01' && readSheetDate('12') === '12')
     check('isPlaceholder', isPlaceholder('N/A') && isPlaceholder(' n/a ') && isPlaceholder('-') && !isPlaceholder('Navigator'))
+  }
+
+  // ─── Social links and ASTA ─────────────────────────────────────────────────────
+  {
+    const links = [
+      { kind: 'instagram', label: '', url: 'https://www.instagram.com/jane', public: true },
+      { kind: 'facebook_group', label: 'Jane Cruises Fans', url: 'https://www.facebook.com/groups/janefans', public: false },
+      { kind: 'instagram', label: '', url: 'https://evil.example/jane', public: true },
+      { kind: 'website', label: '', url: 'http://insecure.example', public: true },
+      { kind: 'website', label: '', url: 'https://jane.example', public: 'yes' },
+    ]
+    const parsed = parseSocialLinks(links)
+    check('social links: wrong-site and non-https links are dropped, the rest kept', parsed.length === 3 && parsed.map((l) => l.url).join() === 'https://www.instagram.com/jane,https://www.facebook.com/groups/janefans,https://jane.example/', parsed)
+    check('social links: public is true only for an explicit true', parsed.map((l) => l.public).join() === 'true,false,false')
+    const pubRow = { ...baseRow, social_links: links, asta_member: true, asta_verified: false, asta_number: 'ASTA-123' }
+    const pa = toPublicAgent(pubRow) as PublicAgent
+    check('public agent shows ONLY links made public', pa.social_links.length === 1 && pa.social_links[0].url === 'https://www.instagram.com/jane', pa.social_links)
+    check('private Facebook group never reaches the public agent', !JSON.stringify(pa).includes('janefans'))
+    check('ASTA claim without verification is not public', pa.asta_member === false && !JSON.stringify(pa).includes('ASTA-123'))
+    const verified = toPublicAgent({ ...pubRow, asta_verified: true }) as PublicAgent
+    check('verified ASTA member is public, number still private', verified.asta_member === true && !JSON.stringify(verified).includes('ASTA-123'))
+    check('asta_verified without asta_member is not public', (toPublicAgent({ ...pubRow, asta_member: false, asta_verified: true }) as PublicAgent).asta_member === false)
+    check('JSON-LD sameAs lists only public links; memberOf only when verified', (() => { const ctx = { siteName: 'S', absoluteUrl: (p: string) => `https://x.test${p}`, orgUrl: 'https://x.test/' }; const a = buildPersonJsonLd(pa, ctx) as Record<string, unknown>; const b = buildPersonJsonLd(verified, ctx) as Record<string, unknown>; return JSON.stringify(a.sameAs) === '["https://www.instagram.com/jane"]' && !('memberOf' in a) && 'memberOf' in b })())
+    const ed = cleanAgentInput({ social_links: links, asta_member: true, asta_number: ' A-1 ', asta_verified: true })
+    check('admin edit cleans socials and ASTA', ed.ok && ed.value.social_links?.length === 3 && ed.value.asta_number === 'A-1' && ed.value.asta_verified === true, ed)
+    check('public column list has social_links and ASTA flags but not the number', (AGENT_PUBLIC_COLUMNS as readonly string[]).includes('social_links') && !(AGENT_PUBLIC_COLUMNS as readonly string[]).includes('asta_number'))
+    const sheet = parseSheet('Name\tInstagram\tFacebook Group\tFacebook\tASTA Member\tASTA #\nJane Doe\thttps://instagram.com/jane\tfacebook.com/groups/jfans\t@jane\tYes\tA-77\n')
+    check('import maps social + ASTA headers', sheet.ok && sheet.sheet.guess.join() === 'display_name,instagram,facebook_group,facebook_profile,asta_member,asta_number', sheet.ok ? sheet.sheet.guess : sheet)
+    if (sheet.ok) {
+      const pv = buildPreview(sheet.sheet, sheet.sheet.guess, { slugs: [], emails: [] })[0]
+      check('import: links come in PRIVATE, bare domain gets https, a bare @handle is not guessed', (pv.value?.social_links ?? []).length === 2 && (pv.value?.social_links ?? []).every((l) => l.public === false) && pv.warnings.some((w) => /Facebook \(personal page\)/.test(w)), pv)
+      check('import: ASTA is a claim, never verified', pv.value?.asta_member === true && pv.value?.asta_number === 'A-77' && !pv.value?.asta_verified, pv.value)
+    }
+    check('self-service cannot set socials, ASTA or public flags', (() => { const r = cleanSelfService({ bio: 'x'.repeat(60), specialties: 'Italy', social_links: links, asta_verified: true }); return r.ok && !('social_links' in r.value) && !('asta_verified' in r.value) })())
+    check('migration 0058 adds the four columns and no policy', (() => { const m = readFileSync('supabase/migrations/0058_agents_socials_asta.sql', 'utf8'); return ['social_links', 'asta_member', 'asta_number', 'asta_verified'].every((c) => m.includes(`add column if not exists ${c}`)) && !/create policy/i.test(m) })())
   }
 
   // ─── Wiring ────────────────────────────────────────────────────────────────────

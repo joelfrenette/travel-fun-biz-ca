@@ -9,7 +9,7 @@ import { AgentAvatar } from "@/components/agents-ui"
 import { getAgentOfMonth, getPublicAchievements, getPublishedAgent } from "@/lib/agents-store"
 import {
   achievementLabel, agentDescription, agentPath, agentPhotoAlt, agentTitle, buildProfilePageJsonLd, buildVideoJsonLd, firstName, monthLabel,
-  parseVideoUrl, publicCertifications, specialtyKey,
+  parseVideoUrl, publicCertifications, socialLabel, specialtyKey,
 } from "@/lib/agents"
 import { buildBreadcrumbJsonLd, jsonLdHtml } from "@/lib/jsonld"
 import { getDestinationSlugs } from "@/lib/destinations"
@@ -103,6 +103,7 @@ export default async function AgentPage({ params }: Props) {
                 <dl className="mt-4 flex flex-wrap justify-center gap-x-8 gap-y-2 text-sm sm:justify-start">
                   {agent.years_experience !== null && agent.years_experience > 0 && <div><dt className="text-muted-foreground">Experience</dt><dd className="font-medium">{agent.years_experience} year{agent.years_experience === 1 ? "" : "s"} in travel</dd></div>}
                   {agent.languages.length > 0 && <div><dt className="text-muted-foreground">Languages</dt><dd className="font-medium">{agent.languages.join(", ")}</dd></div>}
+                  {agent.asta_member && <div><dt className="text-muted-foreground">Member of</dt><dd className="font-medium">ASTA (American Society of Travel Advisors)</dd></div>}
                   {(agent.home_city || agent.region) && <div><dt className="text-muted-foreground">Based in</dt><dd className="font-medium">{[agent.home_city, agent.region].filter(Boolean).join(", ")}</dd></div>}
                 </dl>
                 <p className="mt-5"><a href="#plan" className="inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-bold uppercase text-primary-foreground hover:opacity-90">Plan your trip with {f}</a></p>
@@ -136,6 +137,17 @@ export default async function AgentPage({ params }: Props) {
               <h2 id="certs" className="text-xl font-bold text-foreground">Certifications</h2>
               <ul className="mt-3 list-disc space-y-1 pl-5 text-muted-foreground">
                 {certs.map((c) => <li key={`${c.name}-${c.issuer}`}>{c.name}{c.issuer ? `, ${c.issuer}` : ""}{c.year ? ` (${c.year})` : ""}</li>)}
+              </ul>
+            </section>
+          )}
+
+          {agent.social_links.length > 0 && (
+            <section aria-labelledby="online">
+              <h2 id="online" className="text-xl font-bold text-foreground">Find {f} online</h2>
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {agent.social_links.map((l) => (
+                  <li key={l.url}><a href={l.url} target="_blank" rel="me noopener noreferrer" className="inline-block rounded-full border px-4 py-1.5 text-sm hover:bg-muted">{socialLabel(l)}</a></li>
+                ))}
               </ul>
             </section>
           )}

@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { agentsCall, agentsHeaders, arr, s, type Row } from "@/components/admin/agents-api"
-import { ACHIEVEMENT_KINDS, OFFICE_ROLES, OFFICE_ROLE_LABEL, isOfficeRole, planOfficeRole, publishBlockers } from "@/lib/agents"
+import { ACHIEVEMENT_KINDS, OFFICE_ROLES, OFFICE_ROLE_LABEL, SOCIAL_KINDS, SOCIAL_KIND_KEYS, isOfficeRole, parseSocialLinks, planOfficeRole, publishBlockers, socialHostOk, type SocialKind } from "@/lib/agents"
 
 interface Cert { name: string; issuer: string; year: string; verified: boolean }
+interface Social { kind: SocialKind; label: string; url: string; public: boolean }
 
 function certsOf(v: unknown): Cert[] {
   return Array.isArray(v) ? (v as Row[]).map((c) => ({ name: s(c.name), issuer: s(c.issuer), year: c.year == null ? "" : s(c.year), verified: c.verified === true })) : []
@@ -31,6 +32,10 @@ export function AgentsEditor({ agent, achievements, roster, onClose, onChanged }
   const [photo, setPhoto] = useState(s(agent?.photo_url))
   const [videos, setVideos] = useState(arr(agent?.video_urls).join("\n"))
   const [certs, setCerts] = useState<Cert[]>(certsOf(agent?.certifications))
+  const [socials, setSocials] = useState<Social[]>(parseSocialLinks(agent?.social_links))
+  const [asta, setAsta] = useState(agent?.asta_member === true)
+  const [astaNo, setAstaNo] = useState(s(agent?.asta_number))
+  const [astaOk, setAstaOk] = useState(agent?.asta_verified === true)
   const [cPhoto, setCPhoto] = useState(agent?.consent_photo === true)
   const [cBio, setCBio] = useState(agent?.consent_bio === true)
   const [featured, setFeatured] = useState(agent?.featured === true)
@@ -57,6 +62,7 @@ export function AgentsEditor({ agent, achievements, roster, onClose, onChanged }
 
   const payload = () => ({
     display_name: name, slug: slug || undefined, headline, bio, specialties, languages, years_experience: years, home_city: city, region, photo_url: photo,
+    social_links: socials, asta_member: asta, asta_number: astaNo, asta_verified: asta && astaOk,
     video_urls: videos, certifications: certs.map((c) => ({ ...c, year: c.year ? Number(c.year) : null })), consent_photo: cPhoto, consent_bio: cBio, featured,
     sort_order: sort, email, phone, address, notes,
   })
@@ -179,6 +185,35 @@ export function AgentsEditor({ agent, achievements, roster, onClose, onChanged }
           </div>
         ))}
         <Button type="button" size="sm" variant="outline" onClick={() => setCerts([...certs, { name: "", issuer: "", year: "", verified: false }])}>Add a certification</Button>
+      </fieldset>
+
+      <fieldset className="space-y-2 rounded-md border p-3">
+        <legend className="px-1 text-sm font-medium">Social links (private until you press Make public on a link)</legend>
+        {socials.map((l, i) => (
+          <div key={i} className="flex flex-wrap items-center gap-2">
+            <select className="h-10 rounded-md border bg-background px-2 text-sm" aria-label="Kind of link" value={l.kind} onChange={(e) => setSocials(socials.map((x, j) => (j === i ? { ...x, kind: e.target.value as SocialKind } : x)))}>
+              {SOCIAL_KIND_KEYS.map((k) => <option key={k} value={k}>{SOCIAL_KINDS[k].label}</option>)}
+            </select>
+            <Input className="w-72" aria-label="Link (https)" placeholder="https://" value={l.url} onChange={(e) => setSocials(socials.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} />
+            <Input className="w-44" aria-label="Button name (optional)" placeholder="Button name (optional)" value={l.label} onChange={(e) => setSocials(socials.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+            <Button type="button" size="sm" variant={l.public ? "default" : "outline"} onClick={() => setSocials(socials.map((x, j) => (j === i ? { ...x, public: !x.public } : x)))}>{l.public ? "Public: click to make private" : "Private: Make public"}</Button>
+            {l.url && !socialHostOk(l.kind, l.url) && <span className="text-xs text-destructive">This is not a {SOCIAL_KINDS[l.kind].label} address, so it will be dropped on save.</span>}
+            <Button type="button" size="sm" variant="ghost" onClick={() => setSocials(socials.filter((_, j) => j !== i))}>Remove</Button>
+          </div>
+        ))}
+        <Button type="button" size="sm" variant="outline" onClick={() => setSocials([...socials, { kind: "facebook_profile", label: "", url: "", public: false }])}>Add a link</Button>
+        <p className="text-xs text-muted-foreground">A link only shows on the agent&apos;s public page when the agent is published AND you made that link public. Save after changing. Pasting a link from the wrong site is dropped.</p>
+      </fieldset>
+
+      <fieldset className="space-y-2 rounded-md border p-3">
+        <legend className="px-1 text-sm font-medium">ASTA membership (shown publicly ONLY when verified)</legend>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={asta} onChange={(e) => setAsta(e.target.checked)} /> The agent says they are an ASTA member</label>
+        {asta && (
+          <>
+            <div className={field}><Label htmlFor="ag-asta-no">ASTA member number (private, never shown on the site)</Label><Input id="ag-asta-no" className="max-w-xs" value={astaNo} onChange={(e) => setAstaNo(e.target.value)} /></div>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={astaOk} onChange={(e) => setAstaOk(e.target.checked)} /> I checked it: Verified (shows &quot;ASTA member&quot; on the public page)</label>
+          </>
+        )}
       </fieldset>
 
       <fieldset className="space-y-2 rounded-md border p-3">

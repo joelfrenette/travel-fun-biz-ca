@@ -24,11 +24,11 @@ export type AgentStatus = (typeof AGENT_STATUSES)[number]
 export const AGENT_PUBLIC_COLUMNS = [
   'id', 'slug', 'display_name', 'headline', 'bio', 'specialties', 'certifications', 'years_experience', 'languages',
   'home_city', 'region', 'photo_url', 'video_urls', 'status', 'consent_photo', 'consent_bio', 'featured', 'sort_order',
-  'published_at', 'updated_at',
+  'published_at', 'updated_at', 'social_links', 'asta_member', 'asta_verified',
 ] as const
 
 /** Columns that must never appear in a public select, a page, JSON-LD or an API response a visitor can reach. */
-export const AGENT_PRIVATE_COLUMNS = ['email', 'phone', 'address', 'notes', 'internal_tags', 'office_role'] as const
+export const AGENT_PRIVATE_COLUMNS = ['email', 'phone', 'address', 'notes', 'internal_tags', 'office_role', 'asta_number'] as const
 
 // ─── Office team (CEO, CTO, Manager) ────────────────────────────────────────────────
 // One roster person can hold an office role AND be an agent (one agents row, no second table). The role is ADMIN ONLY:
@@ -91,6 +91,88 @@ export interface AgentCertification {
   verified: boolean
 }
 
+// ─── Social links and ASTA ──────────────────────────────────────────────────────────
+// Every link is PRIVATE until the owner presses "Make public" on that one link (public === true). Imports and self-service can
+// never set it. ASTA shows publicly only when it is a claim AND the owner ticked verified. The ASTA number is private.
+
+export const SOCIAL_KINDS = {
+  facebook_profile: { label: 'Facebook (personal page)', hosts: ['facebook.com', 'fb.com', 'fb.me', 'fb.watch'] },
+  facebook_page: { label: 'Facebook (fan or business page)', hosts: ['facebook.com', 'fb.com', 'fb.me'] },
+  facebook_group: { label: 'Facebook group', hosts: ['facebook.com', 'fb.com', 'fb.me'] },
+  instagram: { label: 'Instagram', hosts: ['instagram.com', 'instagr.am'] },
+  tiktok: { label: 'TikTok', hosts: ['tiktok.com'] },
+  youtube: { label: 'YouTube channel', hosts: ['youtube.com', 'youtu.be'] },
+  linkedin: { label: 'LinkedIn', hosts: ['linkedin.com', 'lnkd.in'] },
+  x: { label: 'X (Twitter)', hosts: ['x.com', 'twitter.com'] },
+  pinterest: { label: 'Pinterest', hosts: ['pinterest.com', 'pin.it'] },
+  website: { label: 'Website', hosts: [] as string[] },
+  other: { label: 'Other link', hosts: [] as string[] },
+} as const
+export type SocialKind = keyof typeof SOCIAL_KINDS
+export const SOCIAL_KIND_KEYS = Object.keys(SOCIAL_KINDS) as SocialKind[]
+
+export interface AgentSocialLink {
+  kind: SocialKind
+  /** Optional name shown on the button, for example "Shelby's Cruise Fans". */
+  label: string
+  url: string
+  /** false until the owner makes this one link public. */
+  public: boolean
+}
+
+const isSocialKind = (v: unknown): v is SocialKind => typeof v === 'string' && v in SOCIAL_KINDS
+
+/** True when the https URL belongs to a host the kind allows (a website or other link may be anywhere). */
+export function socialHostOk(kind: SocialKind, url: string): boolean {
+  const hosts: readonly string[] = SOCIAL_KINDS[kind].hosts
+  if (hosts.length === 0) return true
+  try {
+    const h = new URL(url).hostname.toLowerCase().replace(/^(www|m|web|l|mbasic)\./, '')
+    return hosts.some((d) => h === d || h.endsWith(`.${d}`))
+  } catch {
+    return false
+  }
+}
+
+/** Reads the stored list (or an admin edit). Drops anything not https, a named kind on the wrong site, repeats, and caps at 12.
+ * `public` is true only when it is an explicit true. */
+export function parseSocialLinks(value: unknown): AgentSocialLink[] {
+  let raw: unknown = value
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw)
+    } catch {
+      raw = []
+    }
+  }
+  if (!Array.isArray(raw)) return []
+  const out: AgentSocialLink[] = []
+  for (const l of raw) {
+    if (!l || typeof l !== 'object') continue
+    const o = l as Record<string, unknown>
+    const kind: SocialKind = isSocialKind(o.kind) ? o.kind : 'other'
+    const url = cleanHttpsUrl(o.url)
+    if (!url || !socialHostOk(kind, url) || out.some((x) => x.url === url)) continue
+    out.push({ kind, label: cleanText(o.label, 60), url, public: o.public === true })
+    if (out.length >= 12) break
+  }
+  return out
+}
+
+/** Links a visitor may see: public = true only. */
+export function publicSocialLinks(links: AgentSocialLink[]): AgentSocialLink[] {
+  return links.filter((l) => l.public === true)
+}
+
+export function socialLabel(l: Pick<AgentSocialLink, 'kind' | 'label'>): string {
+  return l.label || SOCIAL_KINDS[l.kind].label
+}
+
+/** "ASTA member" may be shown only when the owner ticked verified. */
+export function publicAstaMember(a: { asta_member?: unknown; asta_verified?: unknown }): boolean {
+  return a.asta_member === true && a.asta_verified === true
+}
+
 export interface PublicAgent {
   id: string
   slug: string
@@ -105,6 +187,10 @@ export interface PublicAgent {
   region: string | null
   photo_url: string | null
   video_urls: string[]
+  /** Only links the owner made public. */
+  social_links: AgentSocialLink[]
+  /** True only for a verified ASTA member. */
+  asta_member: boolean
   status: AgentStatus
   consent_photo: boolean
   consent_bio: boolean
@@ -294,6 +380,11 @@ export interface AgentEditable {
   region?: string | null
   photo_url?: string | null
   video_urls?: string[]
+  social_links?: AgentSocialLink[]
+  asta_member?: boolean
+  /** Admin only. */
+  asta_number?: string | null
+  asta_verified?: boolean
   consent_photo?: boolean
   consent_bio?: boolean
   featured?: boolean
@@ -333,6 +424,10 @@ export function cleanAgentInput(input: Record<string, unknown>): { ok: true; val
   if ('region' in input) v.region = orNull(cleanText(input.region, 80))
   if ('photo_url' in input) v.photo_url = orNull(cleanHttpsUrl(input.photo_url))
   if ('video_urls' in input) v.video_urls = cleanVideoUrls(input.video_urls)
+  if ('social_links' in input) v.social_links = parseSocialLinks(input.social_links)
+  if ('asta_member' in input) v.asta_member = input.asta_member === true
+  if ('asta_number' in input) v.asta_number = orNull(cleanText(input.asta_number, 40))
+  if ('asta_verified' in input) v.asta_verified = input.asta_verified === true
   if ('consent_photo' in input) v.consent_photo = input.consent_photo === true
   if ('consent_bio' in input) v.consent_bio = input.consent_bio === true
   if ('featured' in input) v.featured = input.featured === true
@@ -403,6 +498,8 @@ export function toPublicAgent(row: Record<string, unknown> | null | undefined): 
     region: str('region'),
     photo_url: row.consent_photo === true ? cleanHttpsUrl(row.photo_url) || null : null,
     video_urls: arr('video_urls').filter((u) => !!parseVideoUrl(u)),
+    social_links: publicSocialLinks(parseSocialLinks(row.social_links)),
+    asta_member: publicAstaMember(row),
     status: 'published',
     consent_photo: true,
     consent_bio: true,
@@ -486,6 +583,9 @@ export function buildPersonJsonLd(a: PublicAgent, ctx: { siteName: string; absol
     worksFor: { '@type': 'TravelAgency', name: ctx.siteName, url: ctx.orgUrl },
     ...(a.specialties.length ? { knowsAbout: a.specialties } : {}),
     ...(a.languages.length ? { knowsLanguage: a.languages } : {}),
+    // Only links the owner made public. Verified ASTA members only.
+    ...(a.social_links.length ? { sameAs: a.social_links.map((l) => l.url) } : {}),
+    ...(a.asta_member ? { memberOf: { '@type': 'Organization', name: 'American Society of Travel Advisors (ASTA)', url: 'https://www.asta.org' } } : {}),
     ...(certs.length
       ? { hasCredential: certs.map((c) => ({ '@type': 'EducationalOccupationalCredential', name: c.name, ...(c.issuer ? { recognizedBy: { '@type': 'Organization', name: c.issuer } } : {}) })) }
       : {}),
