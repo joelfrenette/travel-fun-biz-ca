@@ -33,6 +33,7 @@ export const IMPORT_FIELDS = [
   { key: 'agent_since', label: 'Agent start date (private, kept in notes)' },
   { key: 'renewal_date', label: 'Next renewal date (private, kept in notes)' },
   { key: 'affiliate_link', label: 'Affiliate link (private, kept in notes)' },
+  { key: 'commission_sheet', label: 'Commission sheet link (private, kept in notes; only a real https link is kept)' },
   { key: 'active', label: 'Active? (a row marked NO is skipped)' },
 ] as const
 
@@ -54,6 +55,7 @@ const SYNONYMS: [ImportFieldKey, RegExp][] = [
   ['agent_since', /start[\s_-]*date|date[\s_-]*(joined|started)|joined|(member|agent)[\s_-]*since/i],
   ['renewal_date', /renewal/i],
   ['affiliate_link', /affiliate/i],
+  ['commission_sheet', /^commissions?[\s_-]*sheet/i],
   ['active', /^(active|is[\s_-]*active)$/i],
   ['address', /address|mailing|street/i],
   // A column called exactly "role" or "office role" is the office role. Longer titles ("Job title", "Position") stay headlines.
@@ -76,7 +78,10 @@ const SYNONYMS: [ImportFieldKey, RegExp][] = [
  * place for them (DOB, income, 1099, W9, contracts, commission split and booked-sales targets). */
 const SENSITIVE_HEADER = /\b(dob|birth\w*|born)\b|income|1099|\bw-?9\b|commission|booked|\bssn\b|\bsin\b|\btax\w*|salary|payout|payroll|\bbank\w*|contracts?\b|\blevel\b|\d+\s*k\b/i
 
-export const isSensitiveHeader = (header: string): boolean => SENSITIVE_HEADER.test(header)
+/** The one exception: the column that holds each agent's commission SHEET link. The link is kept (private notes); the figures stay out. */
+const COMMISSION_SHEET_HEADER = /^commissions?[\s_-]*sheet\b/i
+
+export const isSensitiveHeader = (header: string): boolean => !COMMISSION_SHEET_HEADER.test(header.trim()) && SENSITIVE_HEADER.test(header)
 
 /** Sheet placeholders that mean "nothing here". Treated as an empty cell so they are never stored as data. */
 const PLACEHOLDER = /^(n\/?a|na|none|nil|null|tbd|unknown|\?+|-+|—+)$/i
@@ -224,6 +229,8 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
       raw.renewal_date && `Next renewal: ${readSheetDate(raw.renewal_date)}`,
       raw.second_email && `Second email: ${raw.second_email}`,
       raw.affiliate_link && `Affiliate link: ${raw.affiliate_link}`,
+      // Only a real https link is stored, never the words "Commission sheet" or a pasted figure.
+      raw.commission_sheet && /^https:\/\/\S+$/i.test(raw.commission_sheet) && `Commission sheet: ${raw.commission_sheet}`,
     ].filter(Boolean) as string[]
     if (extra.length) input.notes = [raw.notes, ...extra].filter(Boolean).join('\n')
     const warnings: string[] = []
@@ -251,6 +258,7 @@ export function buildPreview(sheet: { headers: string[]; rows: string[][] }, map
       const v = (value as Record<string, unknown>)[k]
       if (v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)) missing.push(label)
     }
+    if (raw.commission_sheet && !/^https:\/\/\S+$/i.test(raw.commission_sheet)) warnings.push('The commission sheet cell was not a full https link (just text), so it was not stored. Paste the real link.')
     if (raw.photo_url && !value.photo_url) warnings.push('The photo link was not a valid https link, so it was left empty.')
     if (raw.video_urls && !(value.video_urls?.length)) warnings.push('No video link was a YouTube or Vimeo https link, so the videos were left empty.')
     if (raw.years_experience && value.years_experience == null) warnings.push('Years of experience was not a number from 0 to 80, so it was left empty.')

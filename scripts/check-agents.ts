@@ -305,8 +305,8 @@ const baseRow = {
     const NL = String.fromCharCode(10)
     const TAB = String.fromCharCode(9)
     const tsv = (rows: string[][]) => [hdr, ...rows].map((r) => r.map((c) => (c.includes(NL) ? `"${c}"` : c)).join(TAB)).join(NL)
-    const full = ['YES', '46333', 'sent', '55555', 'Ann (Lee) Test', '30000', '(555) 555-0100', 'ann@example.com', 'ann2@example.org', '1 Test St', '12345678', 'ST12345', 'https://www.agentmaxonline.com/x', 'Commission sheet', 'Yes', '43500', '50/50', 'no', 'no']
-    const na = ['YES', '46400', 'N/A', 'N/A', 'Bob Test', '31000', '(555) 555-0101', 'bob@example.com', 'N/A', '2 Test St', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', '44000', 'N/A', 'N/A', 'N/A']
+    const full = ['YES', '46333', 'sent', '55555', 'Ann (Lee) Test', '30000', '(555) 555-0100', 'ann@example.com', 'ann2@example.org', '1 Test St', '12345678', 'ST12345', 'https://www.agentmaxonline.com/x', 'https://docs.google.com/spreadsheets/d/abc123/edit', 'Yes', '43500', '50/50', 'no', 'no']
+    const na = ['YES', '46400', 'N/A', 'N/A', 'Bob Test', '31000', '(555) 555-0101', 'bob@example.com', 'N/A', '2 Test St', 'N/A', 'N/A', 'N/A', 'Commission sheet', 'N/A', '44000', 'N/A', 'N/A', 'N/A']
     const gone = ['NO', '46400', '', '', 'Cy Test', '', '', 'cy@example.com', '', '', '', '', '', '', '', '', '', '', '']
     const sh = parseSheet(tsv([full, na, gone]))
     check('real sheet parses', sh.ok)
@@ -325,6 +325,8 @@ const baseRow = {
       check('real sheet: Excel date serials become real dates', /Agent start date: 2019-0[1-9]-\d\d|Agent start date: 2019-1/.test(pv[0].value?.notes ?? '') && /Next renewal: 2026-/.test(pv[0].value?.notes ?? ''), pv[0].value?.notes)
       check('real sheet: CLIA comes in as an unverified certification', JSON.stringify(pv[0].value?.certifications ?? []).includes('"CLIA"') && !JSON.stringify(pv[0].value?.certifications ?? []).includes('"verified":true'))
       check('real sheet: N/A placeholders are empty, not stored', pv[1].ok && !/N\/A/.test(JSON.stringify(pv[1].value)) && !/CLIA|FSOT|Second email|Affiliate/.test(pv[1].value?.notes ?? ''))
+      check('real sheet: the commission SHEET link is kept in private notes, the figures column stays out', at('COMMISSIONS SHEET') === 'commission_sheet' && /Commission sheet: https:\/\/docs\.google\.com\/spreadsheets\/d\/abc123\/edit/.test(pv[0].value?.notes ?? ''))
+      check('real sheet: the words "Commission sheet" are never stored, with a plain warning', !/Commission sheet/i.test(pv[1].value?.notes ?? '') && pv[1].warnings.some((w) => /not a full https link/.test(w)))
       check('real sheet: a row marked NO is skipped with a plain reason', !pv[2].ok && pv[2].warnings.some((w) => /not active/.test(w)))
       check('real sheet: nothing public comes from the import', pv.filter((p) => p.ok).every((p) => !('status' in (p.value ?? {})) && !('consent_photo' in (p.value ?? {}))))
     }
