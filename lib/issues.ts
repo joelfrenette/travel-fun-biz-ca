@@ -467,11 +467,13 @@ export async function collectIssues(admin: SupabaseClient): Promise<Issue[]> {
   const { data: unsent } = await admin.from('leads').select('ghl_error, created_at').eq('is_test', false).eq('forwarded_to_ghl', false).gte('created_at', new Date(Date.now() - 14 * 86_400_000).toISOString()).order('created_at', { ascending: false }).limit(50)
   if (unsent?.length) {
     const reason = (unsent[0] as { ghl_error: string | null }).ghl_error ?? 'no reason recorded'
+    // Leads the automatic retry ladder gave up on (lib/lead-retry-ladder.ts) need a person; the rest are still being retried.
+    const gaveUp = (unsent as { ghl_error: string | null }[]).filter((l) => /^\[gave up\]/.test(l.ghl_error ?? '')).length
     issues.push({
       id: 'system:leads-not-forwarded',
       area: 'system',
       title: `${unsent.length} lead${unsent.length === 1 ? '' : 's'} saved but not sent to GoHighLevel`,
-      detail: `Latest reason: ${reason}. They are safe on the Leads page in the admin.`,
+      detail: `Latest reason: ${reason}. They are safe on the Leads page in the admin.${gaveUp ? ` ${gaveUp} of them ${gaveUp === 1 ? 'is' : 'are'} past the automatic retries (5 tries over 3 days) and need${gaveUp === 1 ? 's' : ''} you to add ${gaveUp === 1 ? 'it' : 'them'} by hand.` : ''}`,
       fix: adviceFor(reason) ?? 'Open the Leads page, copy the contact into GoHighLevel by hand, and check the GoHighLevel keys in Vercel.',
     })
   }
