@@ -3,6 +3,7 @@ import { ungroundedNumbers, repairDashes, normaliseHashtags } from '@/lib/hook-s
 import { isValidCoverHeadline, fallbackCoverHeadline, shortestWholePhrase, pickReelCoverTitle } from '@/lib/cover-headline'
 import { templatedHookQuestion, commentBaitQuestion, isAcceptableHook, type PostIdea } from '@/lib/reel-questions'
 import { repairReelScript, reelHookProblems } from '@/lib/reel-script-rules'
+import { loadLearnedRules, withLearnedRules } from '@/lib/learn-loop'
 import { REEL_MIN_BEATS, REEL_MAX_BEATS, PATTERN_INTERRUPT_INDEX, BEAT_VO_MIN_WORDS, BEAT_VO_MAX_WORDS, INTERRUPT_VO_MAX_WORDS, BEAT_TEXT_MAX_WORDS, wordsIn } from '@/lib/reel-beats'
 
 // Short-form video script generation (factory item 1/6, video pipeline): one model call produces
@@ -207,7 +208,7 @@ export function shapeBeats(rawScript: VideoScript, idea: PostIdea): VideoScript 
 }
 
 async function runScriptStep(postTitle: string, postSummary: string, formulaHint?: HookFormula, facts?: string, ctx?: ReelPostContext): Promise<VideoScript | null> {
-  const r = await callAnthropic({ max_tokens: 2500, messages: [{ role: 'user', content: scriptPrompt(postTitle, postSummary, formulaHint, facts, ctx) }] }, { timeoutMs: 40_000, feature: 'video-script' })
+  const r = await callAnthropic({ max_tokens: 2500, messages: [{ role: 'user', content: withLearnedRules(scriptPrompt(postTitle, postSummary, formulaHint, facts, ctx), await loadLearnedRules('reel')) }] }, { timeoutMs: 40_000, feature: 'video-script' })
   if (!r || !r.res.ok) return null
   const parsed = parseModelJson<Partial<VideoScript>>(anthropicText(await r.res.json()))
   if (!parsed || typeof parsed.hook !== 'string' || !Array.isArray(parsed.beats) || parsed.beats.length === 0) return null

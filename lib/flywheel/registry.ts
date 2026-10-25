@@ -14,6 +14,7 @@ import { promotePickStep } from '@/lib/flywheel/steps/promote-pick'
 import { keywordAssignStep } from '@/lib/flywheel/steps/keyword-assign'
 import { recapAutoStep } from '@/lib/flywheel/steps/recap-auto'
 import { autonomyStep } from '@/lib/flywheel/steps/autonomy'
+import { learnLoopStep } from '@/lib/flywheel/steps/learn-loop'
 
 // The flywheel registry: the ONE list of autopilot "flywheel steps" and the ONE runner for them (docs/factory/FLYWHEEL-REGISTRY.md).
 // lib/pipeline.ts calls runFlywheelSteps once; a package (WP2 to WP11) lives entirely in its own lib/flywheel/steps/<name>.ts file and is
@@ -27,7 +28,7 @@ import { autonomyStep } from '@/lib/flywheel/steps/autonomy'
 //  - a step that ran or failed leaves a heartbeat in app_settings (flywheel_last_run:<id>) and the pass log gets one summary line.
 
 /** Every step, in the order they run (the runner sorts by `order`). */
-export const FLYWHEEL_STEPS: readonly FlywheelStep[] = [bookedSyncStep, leadRetryStep, aiHealStep, deadLetterStep, verifyFixStep, networkRecoverStep, promotePickStep, keywordAssignStep, recapAutoStep, autonomyStep]
+export const FLYWHEEL_STEPS: readonly FlywheelStep[] = [bookedSyncStep, leadRetryStep, aiHealStep, deadLetterStep, verifyFixStep, networkRecoverStep, promotePickStep, keywordAssignStep, recapAutoStep, autonomyStep, learnLoopStep]
 
 export const DEFAULT_STEP_MAX_MS = 60_000
 export const heartbeatKey = (id: string): string => `flywheel_last_run:${id}`

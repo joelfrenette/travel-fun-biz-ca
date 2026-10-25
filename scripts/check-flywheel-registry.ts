@@ -48,12 +48,12 @@ function step(id: string, order: number, fn: FlywheelStep['run'], extra: Partial
 
 async function main(): Promise<void> {
   // ---- registry shape ------------------------------------------------------------------------------------------------
-  const WP: Record<string, FlywheelPolicyName> = { WP2: 'booked_sync', WP3: 'lead_retry', WP4: 'ai_heal', WP5: 'dead_letter', WP6: 'verify_fix', WP7: 'network_recover', WP8: 'promote_pick', WP9: 'keyword_assign', WP10: 'recap_auto', WP11: 'autonomy_ladder' }
+  const WP: Record<string, FlywheelPolicyName> = { WP2: 'booked_sync', WP3: 'lead_retry', WP4: 'ai_heal', WP5: 'dead_letter', WP6: 'verify_fix', WP7: 'network_recover', WP8: 'promote_pick', WP9: 'keyword_assign', WP10: 'recap_auto', WP11: 'autonomy_ladder', WP12: 'learn_loop' }
   for (const [wp, id] of Object.entries(WP)) {
     check(`${wp} (${id}) is registered exactly once`, FLYWHEEL_STEPS.filter((s) => s.id === id).length === 1)
     check(`${wp} (${id}) has a label, a cap and is a known policy name`, typeof POLICY_LABELS[id] === 'string' && POLICY_LABELS[id].length > 10 && POLICY_CAPS[id] > 0 && isPolicyName(id) && FLYWHEEL_POLICIES.includes(id))
   }
-  check('the registry holds exactly the ten packages', FLYWHEEL_STEPS.length === 10 && FLYWHEEL_POLICIES.length === 10)
+  check('the registry holds exactly the eleven packages', FLYWHEEL_STEPS.length === 11 && FLYWHEEL_POLICIES.length === 11)
   check('step ids are unique and equal their policy name', new Set(FLYWHEEL_STEPS.map((s) => s.id)).size === FLYWHEEL_STEPS.length && FLYWHEEL_STEPS.every((s) => s.id === s.policy))
   check('step orders are unique', new Set(FLYWHEEL_STEPS.map((s) => s.order)).size === FLYWHEEL_STEPS.length)
   check('every step is a no-op in a dry run, with a reason', (await Promise.all(FLYWHEEL_STEPS.map((s) => s.run({ admin: fakeAdmin().admin, now: NOW, startedAt: 0, budgetMs: 1, dryRun: true, remainingMs: () => 1, room: 1 }).catch(() => NOT_BUILT)))).every((r) => r.ran === false && typeof r.reason === 'string' && r.reason.length > 0))
@@ -213,7 +213,7 @@ async function main(): Promise<void> {
   console.log('\nall flywheel registry checks passed')
 }
 
-const FILES: Record<string, string> = { booked_sync: 'booked-sync', lead_retry: 'lead-retry', ai_heal: 'ai-heal', dead_letter: 'dead-letter', verify_fix: 'verify-fix', network_recover: 'network-recover', promote_pick: 'promote-pick', keyword_assign: 'keyword-assign', recap_auto: 'recap-auto', autonomy_ladder: 'autonomy' }
+const FILES: Record<string, string> = { booked_sync: 'booked-sync', lead_retry: 'lead-retry', ai_heal: 'ai-heal', dead_letter: 'dead-letter', verify_fix: 'verify-fix', network_recover: 'network-recover', promote_pick: 'promote-pick', keyword_assign: 'keyword-assign', recap_auto: 'recap-auto', autonomy_ladder: 'autonomy', learn_loop: 'learn-loop' }
 function stepFile(id: string): string {
   return FILES[id]
 }

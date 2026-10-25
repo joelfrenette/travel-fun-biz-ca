@@ -1,5 +1,6 @@
 import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/lib/ai-verify'
 import { captionShapeProblems, captionFormatRules } from '@/lib/hook-rules'
+import { loadLearnedRules, withLearnedRules } from '@/lib/learn-loop'
 import { firstLineProblems, wantsCommentPrompt, HOOK_LINE_MAX_CHARS } from '@/lib/caption-plan'
 import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, hashtagCapFor, normaliseHashtags, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
@@ -412,7 +413,7 @@ export async function generatePlatformCaptions(
   if (!isAiConfigured() || platforms.length === 0) return null
 
   const linkFor = (p: string) => opts.links?.[p] || link
-  const prompt = buildCaptionPrompt(postTitle, postDescription, link, platforms, opts)
+  const prompt = withLearnedRules(buildCaptionPrompt(postTitle, postDescription, link, platforms, opts), await loadLearnedRules('caption'))
 
   try {
     const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000, feature: 'social-captions' })
