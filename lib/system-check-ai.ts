@@ -85,6 +85,8 @@ export interface AiFixDeps {
   repairs?: Partial<Record<AiKind, (ctx: { limit: number; budget: HealBudget; deadlineMs: number }) => Promise<RepairOutcome>>>
   edits?: (type: 'post' | 'guide' | 'page_copy', sinceIso: string) => Promise<AiEditLike[]>
   append?: (entries: AutoDecision[]) => Promise<void>
+  /** Absolute time (Date.now() ms) the repairs must stop by. Default: now + AI_BUDGET_MS. The unattended flywheel step passes a tighter one. */
+  deadlineMs?: number
 }
 
 const done = (skipped: string): AiFixReport => ({ items: [], calls: 0, skipped })
@@ -148,7 +150,7 @@ export async function runAiFixStep(admin: SupabaseClient, listed: ListedStage[],
 
     const repairs = { ...realRepairs(admin, now), ...(deps.repairs ?? {}) }
     const startedIso = now.toISOString()
-    const deadlineMs = Date.now() + AI_BUDGET_MS
+    const deadlineMs = deps.deadlineMs ?? Date.now() + AI_BUDGET_MS
     const items: AiFixItem[] = []
     const entries: AutoDecision[] = []
     let slotsLeft = AI_ITEMS_PER_CLICK
