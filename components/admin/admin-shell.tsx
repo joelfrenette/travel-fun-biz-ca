@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { LogOut, ExternalLink, Menu, X, ChevronDown, ChevronRight, CalendarCheck, ListChecks, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { adminNavSections, type NavBadge, type NumberedNavLink } from "@/lib/admin-nav"
 import { BADGES_EVENT, clearCheckRan, fetchToday, readCachedBadges, type NavBadges } from "@/components/admin/today-client"
 
@@ -434,6 +435,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </Button>
           <span className="hidden text-sm text-muted-foreground md:inline">{email}</span>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <Button variant="outline" size="sm" asChild>
               <a href="/" target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="mr-1 h-3 w-3" />

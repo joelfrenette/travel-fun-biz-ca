@@ -26,6 +26,19 @@ replica (US company), never a code fork.
    RTK's cumulative savings from `rtk gain` (commands run, tokens saved, %). If a number isn't
    available (no prior turn, rtk not installed, counter reset on a session resume), say so
    inside the box instead of guessing.
+7. **Session context and VACHIAI savings, plus ASCII progress art, INSIDE the same board**
+   (added 2026-10-24 at Joel's request): add two more rows with real numbers only. (a) SESSION
+   CONTEXT: tokens remaining in the session budget (latest `<total_tokens>` value) and, when the
+   session has been compacted, how many times and how much was condensed to bookmarks. (b)
+   TOKENS SAVED BY VACHIAI: the figure from VACHIAI's own counter when one is reachable in the
+   session; if no source exists, print "VACHIAI: no counter available" instead of a number, and
+   ask Joel once where the counter lives. Also draw progress as ASCII bars inside the box, one
+   per lane (CLAUDE, JOEL), e.g. `CLAUDE [########----] 8/12 steps`, where the step counts are
+   the real counts of DONE vs total listed steps.
+   RTK gets its own ASCII bar row too (added 2026-10-25): run `rtk gain` each report and draw
+   `RTK saved <N>M [####------] <pct>%` from its real total (global scope, all projects). VACHIAI
+   has no savings command on Joel's machine (only its installer and statusline at `~/.vachi`, whose
+   /v1/usage probe needs a private key); never read `~/.vachi/credentials.json` to get one.
 
 ## Working conventions
 
