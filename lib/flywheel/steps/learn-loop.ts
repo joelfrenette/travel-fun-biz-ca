@@ -40,11 +40,12 @@ async function collect(admin: SupabaseClient, now: Date): Promise<Observation[]>
 }
 
 export async function runLearnLoop(ctx: FlywheelContext): Promise<FlywheelResult> {
-  if (ctx.dryRun) return { ran: false, reason: 'dry run: nothing is learned' }
   const { admin, now } = ctx
   const before = await readLedger(admin)
   const seen = observe(before, await collect(admin, now))
   const { ledger, events } = evolveAll(seen, now, Math.max(0, ctx.room))
+  // Dry run: say what a real pass would do, write nothing (no ledger, no rule, no log line).
+  if (ctx.dryRun) return { ran: false, reason: events.length ? `dry run, would: ${summarise(events)}` : 'dry run: nothing to change' }
   const changed = JSON.stringify(ledger) !== JSON.stringify(before)
   if (!changed) return { ran: false, reason: 'no new failures to learn from' }
   const saved = await writeLedger(admin, ledger)
@@ -65,6 +66,8 @@ export const learnLoopStep: FlywheelStep = {
   policy: 'learn_loop',
   label: 'Learn from repeated content and posting failures',
   order: 95,
+  // Opt-in: it changes what the caption and reel writers are told, so it stays off until the switch is exactly 'on'.
+  defaultOn: false,
   floorMs: 20_000,
   maxMs: 30_000,
   run: runLearnLoop,
