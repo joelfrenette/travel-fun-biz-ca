@@ -5,7 +5,8 @@ import { internalLinksOfText, internalPath, stripLinks, type ContentEdit } from 
 import { columnsFor, deleteEdits, insertEdits, storedValue } from '@/lib/content-edits'
 import { GUIDE_KINDS, guideKinds } from '@/lib/guides'
 import { coverAlt, heroAlt, isGenericAlt } from '@/lib/image-quality'
-import { SITE_URL } from '@/lib/site'
+import { SITE_NAME, SITE_URL } from '@/lib/site'
+import { fitTitle, planPostTitle } from '@/lib/title-fit'
 import { STATE_KEY, crawlWindow, emptyState, fetchFollow, fetchSitemap, mergeState, parseState, pathOf, pickWindow, realFetch, windowSize, type CrawlState, type FetchLike, type Finding } from '@/lib/site-crawl'
 
 // The database side of the site health crawl: read the stored state, run one rotating window of the live site, repair the few things
@@ -13,11 +14,15 @@ import { STATE_KEY, crawlWindow, emptyState, fetchFollow, fetchSitemap, mergeSta
 //
 // Self-heal rules (anything else is only reported):
 //   a) a dead internal link inside a post or guide body: the link goes, the words stay;
-//   b) a post cover or guide hero with an empty or generic description: a descriptive one is set from the title / name.
+//   b) a post cover or guide hero with an empty or generic description: a descriptive one is set from the title / name;
+//   c) a title over 60 characters, or a title two pages share (title-long, title-duplicate): the title fields are shortened by
+//      lib/title-fit.ts (deterministic, no AI), at most MAX_TITLE_FIXES_PER_RUN a run, never publishing or unpublishing.
 // Hard caps: MAX_FIXES_PER_RUN a run, nothing is changed while "Pause all automation" is on (or when that switch cannot be read),
 // every change is written to the audit log BEFORE it is applied and taken back out of the log if it cannot be applied.
 
 export const MAX_FIXES_PER_RUN = 5
+/** Title rewrites (titles over 60 characters, shared titles) a run may make, on top of MAX_FIXES_PER_RUN. */
+export const MAX_TITLE_FIXES_PER_RUN = 25
 /** The whole step (sitemap, pages, links, repairs) stops starting new work after this long. */
 export const CRAWL_BUDGET_MS = 40_000
 /** A repair is only started with at least this long left. */
@@ -33,7 +38,7 @@ export interface HealResult {
 }
 
 type Row = Record<string, unknown>
-interface Located {
+export interface Located {
   type: 'post' | 'guide'
   row: Row
   path: string
@@ -58,8 +63,8 @@ export async function locateContent(admin: SupabaseClient, path: string): Promis
 }
 
 /** Logs, then applies, one edit. Re-checks that the page did not change since it was read; takes the log row back if the page cannot be written. */
-async function applyEdit(admin: SupabaseClient, loc: Located, edit: ContentEdit, columns: Row): Promise<{ ok: boolean; note?: string }> {
-  const logged = await insertEdits(admin, [edit])
+export async function applyEdit(admin: SupabaseClient, loc: Located, edit: ContentEdit | ContentEdit[], columns: Row): Promise<{ ok: boolean; note?: string }> {
+  const logged = await insertEdits(admin, Array.isArray(edit) ? edit : [edit])
   if (logged.error) return { ok: false, note: `the audit log could not be written (${logged.error}), so nothing was changed` }
   const table = loc.type === 'post' ? 'posts' : 'guides'
   let q = admin.from(table).update({ ...columns, updated_at: new Date().toISOString() }).eq('id', loc.row.id as string).eq('status', 'published')
@@ -77,7 +82,7 @@ async function applyEdit(admin: SupabaseClient, loc: Located, edit: ContentEdit,
 export async function healCrawlFindings(
   admin: SupabaseClient,
   findings: readonly Finding[],
-  opts: { fetch: FetchLike; sitemapPaths: ReadonlySet<string>; cap?: number; deadlineMs?: number },
+  opts: { fetch: FetchLike; sitemapPaths: ReadonlySet<string>; cap?: number; titleCap?: number; deadlineMs?: number },
 ): Promise<HealResult> {
   const out: HealResult = { fixed: 0, healedKeys: new Set(), changedPaths: [], notes: [] }
   const cap = opts.cap ?? MAX_FIXES_PER_RUN
@@ -172,6 +177,72 @@ export async function healCrawlFindings(
       }
       out.fixed++
       out.changedPaths.push(page)
+    }
+
+    // c) Titles over 60 characters, and titles two pages share. A post gets a shorter title and search title; a guide a shorter search
+    // title. Only the title fields change: never the text, never published or unpublished (published_after is false, so Undo cannot
+    // unpublish). Own cap (MAX_TITLE_FIXES_PER_RUN), logged first and undoable like the repairs above.
+    const titleFindings = findings.filter((f) => f.kind === 'title-long' || f.kind === 'title-duplicate')
+    if (titleFindings.length > 0 && timeLeft() >= MIN_MS_FOR_REPAIR) {
+      const titleCap = opts.titleCap ?? MAX_TITLE_FIXES_PER_RUN
+      let titleFixed = 0
+      const taken = new Map<string, string>() // lower-cased search title -> slug of the post that has it
+      const { data: others } = await admin.from('posts').select('slug, title, meta_title').eq('status', 'published').limit(2000)
+      for (const r of (others ?? []) as { slug: string; title: string | null; meta_title: string | null }[]) {
+        const shown = (r.meta_title ?? '').trim() || `${r.title ?? ''} | ${SITE_NAME}`
+        taken.set(shown.toLowerCase().replace(/\s+/g, ' ').trim(), r.slug)
+      }
+      const seen = new Set<string>()
+      for (const f of titleFindings) {
+        if (titleFixed >= titleCap || timeLeft() < MIN_MS_FOR_REPAIR) break
+        const page = pathOf(f.url)
+        if (seen.has(page)) continue
+        seen.add(page)
+        const loc = await locateContent(admin, page)
+        if (!loc) continue
+        const edits: ContentEdit[] = []
+        let columns: Row | null = null
+        const reason = `Site crawl: ${f.kind === 'title-long' ? 'the title was longer than 60 characters' : 'another page had the same title'}, so it was shortened`
+        if (loc.type === 'post') {
+          const slug = str(loc.row.slug)
+          const others = new Set([...taken].filter(([, s]) => s !== slug).map(([k]) => k))
+          const plan = planPostTitle({ slug, title: str(loc.row.title), meta_title: str(loc.row.meta_title), publish_date: str(loc.row.publish_date) }, others, SITE_NAME)
+          const base = { content_type: 'post' as const, content_id: loc.row.id as string, path: page, reason: reason.slice(0, 480), method: 'fixer' as const, published_after: false, cost_usd: 0 }
+          columns = {}
+          if (plan.titleChanged) {
+            edits.push({ ...base, field: 'title', before: str(loc.row.title), after: plan.title })
+            columns.title = plan.title
+          }
+          if (plan.metaChanged) {
+            edits.push({ ...base, field: 'meta_title', before: str(loc.row.meta_title), after: plan.meta_title ?? '' })
+            columns.meta_title = plan.meta_title
+          }
+        } else {
+          const meta = str(loc.row.meta_title).trim()
+          const next = meta ? fitTitle(meta) : ''
+          if (next && next !== meta) {
+            edits.push({ content_type: 'guide', content_id: loc.row.id as string, path: page, field: 'meta_title', reason: reason.slice(0, 480), before: meta, after: next, method: 'fixer', published_after: false, cost_usd: 0 })
+            columns = { meta_title: next }
+          }
+        }
+        if (edits.length === 0 || !columns) continue
+        const res = await applyEdit(admin, loc, edits, columns)
+        if (!res.ok) {
+          out.notes.push(`${page}: ${res.note}`)
+          continue
+        }
+        titleFixed++
+        out.fixed++
+        out.changedPaths.push(page)
+        out.healedKeys.add(findingKeyOf(f))
+        if (loc.type === 'post') {
+          const slug = str(loc.row.slug)
+          for (const [k, s] of [...taken]) if (s === slug) taken.delete(k)
+          const nextMeta = (columns.meta_title as string | null | undefined) ?? (str(loc.row.meta_title).trim() || null)
+          const nextTitle = (columns.title as string | undefined) ?? str(loc.row.title)
+          taken.set(((nextMeta ?? '').trim() || `${nextTitle} | ${SITE_NAME}`).toLowerCase().replace(/\s+/g, ' ').trim(), slug)
+        }
+      }
     }
   } catch (e) {
     out.notes.push(`self-heal stopped: ${e instanceof Error ? e.message : 'failed'}`)

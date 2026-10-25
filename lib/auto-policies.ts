@@ -6,7 +6,7 @@ import { resolveIssue } from '@/lib/issues'
 import { AUTO_APPROVE_MAX_BACKLOG, countApprovedUnused, gscSupport, rankByGsc, readGscQueries, setTopicStatus, topicConflict, type GscQuery, type PostFact, type TopicFacts } from '@/lib/blog-topics'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { generateSlug } from '@/lib/utils'
-import { isNewsSlug, parseNewsBody } from '@/lib/news-post'
+import { isNewsSlug, newsHeadlineOf, parseNewsBody, trustedHeadline } from '@/lib/news-post'
 import { SITE_ID, SITE_URL } from '@/lib/site'
 import { AUTO_HOLD_PREFIX, CAPTION_FAILED_PREFIX, guideCaptionProblems, readReleaseHours } from '@/lib/guide-release'
 import { guideFromPath, loadGuidePostSource, packageSlugFromPath } from '@/lib/guide-post-source'
@@ -419,17 +419,17 @@ export async function runPublishPassingNews(admin: SupabaseClient, now: Date = n
       if (ageHours < NEWS_COOLING_HOURS) continue
       if (isVetoedIn(vetoes, 'publish_passing_news', slug)) continue
 
-      const { data: post } = await admin.from('posts').select('title, body, status, meta_description').eq('slug', slug).maybeSingle()
-      const p = post as { title: string; body: string; status: string; meta_description: string | null } | null
+      const { data: post } = await admin.from('posts').select('title, body, status, meta_description, alt_text').eq('slug', slug).maybeSingle()
+      const p = post as { title: string; body: string; status: string; meta_description: string | null; alt_text: string | null } | null
       const parsed = p ? parseNewsBody(p.body) : null
-      const intact = !!p && p.status === 'draft' && !!parsed && /^News: /.test(p.title)
+      const intact = !!p && p.status === 'draft' && !!parsed && (trustedHeadline(p) !== null || /^News: /.test(p.title))
       let problems: string[] = []
       let review: NewsDraftFacts['review'] = 'none'
       let brief: NewsBrief | null = null
       let facts: NewsFacts | null = null
       if (source && p && parsed && intact) {
         facts = factsOf(item, source.name, source.tier)
-        brief = { headline: p.title.replace(/^News: /, ''), happened: parsed.happened, means: parsed.means }
+        brief = { headline: newsHeadlineOf(p), happened: parsed.happened, means: parsed.means }
         const templated = (isNhcSource(item.source_key) && isTemplateBrief(facts, item.source_key, brief)) || (isUkFcdoSource(item.source_key) && isUkTemplateBrief(facts, item.source_key, brief)) || (isCaAdvisorySource(item.source_key) && isCaTemplateBrief(facts, item.source_key, brief))
         problems = [
           ...briefProblems(brief, facts, { template: templated }),

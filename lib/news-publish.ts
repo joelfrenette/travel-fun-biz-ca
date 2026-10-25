@@ -6,6 +6,9 @@ import type { NewsBrief, NewsFacts } from '@/lib/news-brief'
 import { NEWS_TAG, buildNewsBody, markSupersededBody, newsSlug, newsTitle } from '@/lib/news-post'
 import type { NewsItemRow } from '@/lib/news-ingest'
 import { newsCoverAlt, newsCoverUrl } from '@/lib/news-cover'
+import { dateSuffix, slugIdSuffix, uniqueFitTitle } from '@/lib/title-fit'
+
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
 
 // Growth loop WP20: saving a news brief as a normal blog post. Reuses the blog (posts table, /blog/<slug>): no new page type,
 // no new route. A post goes live only when the caller says so (mode publish AND the brief passed the gate and the judge),
@@ -66,7 +69,8 @@ export function buildNewsPostRow(i: NewsPostInput, phone: string = site.phone ??
     related_package_id: null,
     status: i.publish ? 'published' : 'draft',
     publish_date: i.publish ? todayDate(i.now) : null,
-    meta_title: null,
+    // The search title is written explicitly (the page would otherwise add " | TravelFunBiz.ca" and run past 60 characters).
+    meta_title: newsTitle(i.brief.headline),
     meta_description: i.brief.happened,
     // The first key takeaway is the hook of the social caption (lib/social-captions.ts reads it): the brief's first sentence.
     key_takeaways: [i.brief.happened],
@@ -95,6 +99,14 @@ export async function createNewsPost(admin: SupabaseClient, input: NewsPostInput
     const slug = String(row.slug)
     const { data: clash } = await admin.from('posts').select('id').eq('slug', slug).maybeSingle()
     if (clash) return { ok: false, slug, published: false, note: 'a post with this address already exists' }
+
+    // Two news posts must not share a title (the crawl flags it): if another post has this one, a date or the id is added (still 60 or less).
+    const { data: sameTitle } = await admin.from('posts').select('id').eq('title', String(row.title)).limit(1)
+    if (sameTitle && sameTitle.length > 0) {
+      const unique = uniqueFitTitle(String(row.title), new Set([norm(String(row.title))]), [dateSuffix(input.item.published_at ?? input.item.fetched_at), slugIdSuffix(slug)].filter(Boolean))
+      row.title = unique
+      row.meta_title = unique
+    }
 
     let publish = input.publish
     let logIds: string[] = []
