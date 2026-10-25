@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   check('the registry holds exactly the ten packages', FLYWHEEL_STEPS.length === 10 && FLYWHEEL_POLICIES.length === 10)
   check('step ids are unique and equal their policy name', new Set(FLYWHEEL_STEPS.map((s) => s.id)).size === FLYWHEEL_STEPS.length && FLYWHEEL_STEPS.every((s) => s.id === s.policy))
   check('step orders are unique', new Set(FLYWHEEL_STEPS.map((s) => s.order)).size === FLYWHEEL_STEPS.length)
-  check('every placeholder is a no-op that says "not built yet"', (await Promise.all(FLYWHEEL_STEPS.map((s) => s.run({ admin: fakeAdmin().admin, now: NOW, startedAt: 0, budgetMs: 1, dryRun: false, remainingMs: () => 1, room: 1 })))).every((r) => r.ran === false && r.reason === NOT_BUILT.reason))
+  check('every step with nothing to do (empty settings) is a no-op that gives a reason, whether still a placeholder or built', (await Promise.all(FLYWHEEL_STEPS.map((s) => s.run({ admin: fakeAdmin().admin, now: NOW, startedAt: 0, budgetMs: 1, dryRun: false, remainingMs: () => 1, room: 1 })))).every((r) => r.ran === false && !!r.reason))
   check('only the autonomy ladder is opt-in (defaultOn false)', FLYWHEEL_STEPS.filter((s) => s.defaultOn === false).map((s) => s.id).join() === 'autonomy_ladder')
   check('caps are conservative (at most 12 a day, at least 1)', FLYWHEEL_POLICIES.every((p) => POLICY_CAPS[p] >= 1 && POLICY_CAPS[p] <= 12))
 
