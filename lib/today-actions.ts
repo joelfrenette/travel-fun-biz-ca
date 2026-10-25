@@ -7,6 +7,8 @@ import { setTopicStatus } from '@/lib/blog-topics'
 import { decideSubmission } from '@/lib/agent-submissions'
 import { dismissFindings } from '@/lib/source-watch'
 import { todayEt } from '@/lib/ai-verify'
+import { revertEdit } from '@/lib/content-edits'
+import { approveReview, findItem as findReviewItem, readQueue as readReviewQueue, rejectReview, reopenReview, REVIEW_HOLD_NOTE, type ReviewDeps } from '@/lib/ai-heal-review'
 import { DISMISS_ACTIONS, type TodayKindId } from '@/lib/today-cards'
 import { TODAY_LEADS_DONE_KEY, addToIdList, parseIdList, removeFromIdList, type TodayOp } from '@/lib/today-state'
 
@@ -36,6 +38,38 @@ async function callHandler(handler: Handler, request: Request, method: 'POST' | 
 }
 
 const errorOf = (json: Record<string, unknown>, fallback: string) => (typeof json.error === 'string' && json.error ? json.error : fallback)
+
+/** The real collaborators of a heal-review decision: the page's own admin route (so its publish check still runs), revertEdit, and the
+ * review marker on the row's quality note. */
+function reviewDeps(admin: SupabaseClient, request: Request): ReviewDeps {
+  return {
+    publish: async (item, status = 'published') => {
+      const mod =
+        item.type === 'post'
+          ? await import('@/app/api/admin/blog/[id]/route')
+          : item.type === 'guide'
+            ? await import('@/app/api/admin/guides/[id]/route')
+            : await import('@/app/api/admin/page-copy/[id]/route')
+      let body: Record<string, unknown> = { status }
+      if (item.type === 'post' && status === 'published') {
+        const { data } = await admin.from('posts').select('publish_date').eq('id', item.id).maybeSingle()
+        if (!(data as { publish_date: string | null } | null)?.publish_date) body = { status, publish_date: todayEt() }
+      }
+      const r = await callHandler(mod.PATCH as unknown as Handler, request, 'PATCH', body, { id: item.id })
+      return { ok: r.ok, status: r.status, ...(r.ok ? {} : { error: errorOf(r.json, 'The publish route refused it.') }) }
+    },
+    revert: async (editId) => {
+      const r = await revertEdit(admin, editId)
+      return { ok: r.ok, error: r.error, needsForce: r.needsForce }
+    },
+    setNotes: async (item, notes) => {
+      if (item.type === 'post') return
+      const table = item.type === 'guide' ? 'guides' : 'page_copy'
+      if (notes === REVIEW_HOLD_NOTE) await admin.from(table).update({ quality_notes: notes }).eq('id', item.id)
+      else await admin.from(table).update({ quality_notes: notes }).eq('id', item.id).eq('quality_notes', REVIEW_HOLD_NOTE)
+    },
+  }
+}
 
 export interface RunInput {
   admin: SupabaseClient
@@ -143,6 +177,14 @@ export async function runCardAction(input: RunInput): Promise<ActionResult> {
       return r.ok ? done(yes ? 'Guide published.' : 'Guide rejected. It stays a draft.') : fail(r.status, errorOf(r.json, 'Could not save the guide.'))
     }
 
+    case 'heal-review': {
+      // Right = publish through the page's own admin route (its check decides); left = keep held and revertEdit every audit row.
+      const deps = reviewDeps(admin, request)
+      const r = yes ? await approveReview(admin, key, deps) : await rejectReview(admin, key, deps)
+      if (!r.ok) return fail(r.status, r.error)
+      return r.noop ? noop(r.message) : done(r.message)
+    }
+
     case 'blog-draft': {
       const { data } = await admin.from('posts').select('status, publish_date').eq('id', key).maybeSingle()
       const row = data as { status: string; publish_date: string | null } | null
@@ -230,6 +272,17 @@ export async function undoCardAction(input: { admin: SupabaseClient; request: Re
       const body = op === 'approve' ? { status: 'draft' } : { review_state: null }
       const r = await callHandler(mod.PATCH as unknown as Handler, request, 'PATCH', body, { id: key })
       return r.ok ? done(op === 'approve' ? 'Unpublished. It is a draft again.' : 'The guide is back in the review queue.') : fail(r.status, errorOf(r.json, 'Could not undo.'))
+    }
+    case 'heal-review': {
+      // Only Publish can be undone: the page goes back to a draft and waits for review again. Keeping it held (the revert) cannot be.
+      if (op !== 'approve') return fail(409, 'That cannot be undone.')
+      const deps = reviewDeps(admin, request)
+      const item = findReviewItem(await readReviewQueue(admin), key)
+      if (!item || item.status !== 'approved') return fail(409, 'That item is not published from this list, so there is nothing to put back.')
+      const r = await deps.publish(item, 'draft')
+      if (!r.ok) return fail(r.status, r.error || 'Could not put it back to a draft.')
+      await reopenReview(admin, key, deps)
+      return done('Back to a held draft. It is waiting for review again.')
     }
     case 'blog-draft': {
       const mod = await import('@/app/api/admin/blog/[id]/route')

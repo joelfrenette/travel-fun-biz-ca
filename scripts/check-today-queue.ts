@@ -36,6 +36,7 @@ const INVENTORY: Record<string, TodayKindId> = {
   'social post held in Prepare mode': 'held-post',
   'blog topic awaiting approval': 'topic',
   'guide held in the review queue': 'guide-review',
+  'held draft the scheduled AI auto-heal improved but did not publish (publish, or keep held and undo the fix)': 'heal-review',
   'blog draft awaiting publish (with its quality check)': 'blog-draft',
   'supplier page says a trip changed (Dismiss)': 'supplier-change',
   'other Needs attention items with a Dismiss button': 'issue-dismiss',

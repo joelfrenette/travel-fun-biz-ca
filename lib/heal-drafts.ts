@@ -16,6 +16,7 @@ import type { HealBudget, HealOutcome, LadderStep } from '@/lib/heal-loop'
 import { SAFE_PAGE_NOTE, isSafePageNote } from '@/lib/guide-repairs'
 import { pingIndexNow } from '@/lib/indexnow'
 import type { ModelCall } from '@/lib/content-repair'
+import { REVIEW_HOLD_NOTE, type ImprovedInfo } from '@/lib/ai-heal-review'
 
 // Growth loop WP19: the daily heal-content step also gives the held GUIDES and held PAGE COPY a go at the heal loop
 // (lib/heal-loop.ts), the same way lib/blog-reheal.ts does for blog drafts. A guide or page copy row that the quality
@@ -160,6 +161,11 @@ interface HealDraftOpts {
   limit?: number
   /** Tests (and the admin script) inject a budget; the default opens today's persistent one. */
   budget?: HealBudget
+  /** Default true (the daily self-heal and the Auto-heal button publish a clean row, as always). False = repair the text, leave the row a
+   * HELD draft, mark it as waiting for review and report it through `onImproved`. The scheduled ai_heal step uses false. */
+  publish?: boolean
+  /** Called once for each held row whose text was improved but not published (only when `publish` is false). */
+  onImproved?: (info: ImprovedInfo) => Promise<void> | void
 }
 
 async function defaultGuideBrief(row: Row, admin: SupabaseClient): Promise<GuideBriefParts | null> {
@@ -247,7 +253,7 @@ export async function describeGuideRow(admin: SupabaseClient, row: Row, opts: { 
 export async function healGuideRow(
   admin: SupabaseClient,
   row: Row,
-  opts: { now?: Date; model?: ModelCall; deadlineMs?: number; guideBrief?: HealDraftOpts['guideBrief']; budget?: HealBudget; skipClaim?: boolean },
+  opts: { now?: Date; model?: ModelCall; deadlineMs?: number; guideBrief?: HealDraftOpts['guideBrief']; budget?: HealBudget; skipClaim?: boolean; publish?: boolean; onImproved?: HealDraftOpts['onImproved'] },
   out: DraftHealResult = emptyResult(),
 ): Promise<GuideRowResult> {
   const now = opts.now ?? new Date()
@@ -280,7 +286,7 @@ export async function healGuideRow(
     })
     out.calls += healed.outcome.calls
     const before = { ...out, problems: [...out.problems] }
-    const action = await applyHealedRow(admin, 'guides', 'guide', row, path, healed.outcome, healed.logIds, healed.outcome.status === 'healed' ? sectionsColumns(healed.value) : null, guessed, now, out, (note) => ({ quality_notes: note, review_state: 'rejected' }), GUESSED_PROPERTY_NOTE)
+    const action = await applyHealedRow(admin, 'guides', 'guide', row, path, healed.outcome, healed.logIds, healed.outcome.status === 'healed' ? sectionsColumns(healed.value) : null, guessed, now, out, (note) => ({ quality_notes: note, review_state: 'rejected' }), GUESSED_PROPERTY_NOTE, { publish: opts.publish !== false, onImproved: opts.onImproved, title: str(row.name) })
     // A draft that was already rejected and is rejected again uses up one of its bounded retries (same counter the writer uses).
     if (action === 'rejected' && row.review_state === 'rejected') await bumpRejectionCount(admin, `${kind}:${slug}`, { name: str(row.name), kind, reason: 'a rejected draft was healed again and rejected again' }).catch(() => undefined)
     return {
@@ -314,7 +320,8 @@ export async function healHeldGuides(admin: SupabaseClient, opts: HealDraftOpts 
     // cannot be read they stay out: fail closed, so an unreadable counter can never mean unlimited retries.
     const counted = await readGuideFailuresChecked(admin)
     const retry = counted.error ? undefined : { rejections: (row: Row) => counted.failures[`${str(row.kind)}:${str(row.slug)}`]?.n ?? 0 }
-    const picks = selectHealDrafts((data ?? []) as Row[], now, opts.limit ?? GUIDES_HEALED_PER_DAY, [MODE_HOLD_NOTE], retry)
+    // A row the scheduled auto-heal already improved (REVIEW_HOLD_NOTE) waits for a person; no caller heals it again or publishes it.
+    const picks = selectHealDrafts((data ?? []) as Row[], now, opts.limit ?? GUIDES_HEALED_PER_DAY, [MODE_HOLD_NOTE, REVIEW_HOLD_NOTE], retry)
     if (!picks.length) return { ...out, note: 'no held guides waiting' }
 
     // The shared publishing limiter (lib/publish-cadence.ts): a held guide that could go live is only given its go (and its AI spend)
@@ -324,7 +331,7 @@ export async function healHeldGuides(admin: SupabaseClient, opts: HealDraftOpts 
     const limits = guideLimits(await getGuideCaps(admin))
     let waitNote = ''
     for (const [i, row] of picks.entries()) {
-      if (!isGuessedPropertyNote(str(row.quality_notes))) {
+      if (opts.publish !== false && !isGuessedPropertyNote(str(row.quality_notes))) {
         const slot = await checkCadence(admin, 'guide', limits, now)
         if (!slot.allowed) {
           // Everything after this one needs the same slot, so stop here: nothing is claimed for today and no AI call is made.
@@ -333,7 +340,7 @@ export async function healHeldGuides(admin: SupabaseClient, opts: HealDraftOpts 
           break
         }
       }
-      const r = await healGuideRow(admin, row, { now, model: opts.model, deadlineMs: opts.deadlineMs, guideBrief: opts.guideBrief, budget: opts.budget }, out)
+      const r = await healGuideRow(admin, row, { now, model: opts.model, deadlineMs: opts.deadlineMs, guideBrief: opts.guideBrief, budget: opts.budget, publish: opts.publish, onImproved: opts.onImproved }, out)
       // A safe page is kept out of search (noindex, no sitemap entry), so it is not announced either.
       if (r.action === 'published' && !r.ladder.includes('safe-page')) await pingIndexNow([r.path, '/sitemap.xml']).catch(() => undefined)
     }
@@ -354,7 +361,7 @@ export async function healHeldCopy(admin: SupabaseClient, opts: HealDraftOpts = 
     if (!(await editsLoggable(admin))) return { ...out, problems: ['held page copy not re-checked: apply migration 0033'], note: 'held page copy not re-checked' }
     const { data, error } = await admin.from('page_copy').select('*').eq('status', 'draft').eq('source', 'ai').order('created_at', { ascending: true }).limit(READ_LIMIT)
     if (error) return { ...out, problems: [`could not read the page copy (${error.message})`], note: 'held page copy not re-checked' }
-    const picks = selectHealDrafts((data ?? []) as Row[], now, opts.limit ?? COPY_HEALED_PER_DAY, ['held for review (page_copy_publish_mode=draft)'])
+    const picks = selectHealDrafts((data ?? []) as Row[], now, opts.limit ?? COPY_HEALED_PER_DAY, ['held for review (page_copy_publish_mode=draft)', REVIEW_HOLD_NOTE])
     if (!picks.length) return { ...out, note: 'no held page copy waiting' }
 
     for (const row of picks) {
@@ -375,7 +382,7 @@ export async function healHeldCopy(admin: SupabaseClient, opts: HealDraftOpts = 
         healed.outcome.status === 'healed'
           ? { intro: v.intro, linked_slugs: linkedPackageSlugs(v.intro), faq: v.faq, key_takeaways: v.key_takeaways, meta_title: v.meta_title || null, meta_description: v.meta_description || null, og_title: v.og_title || null, og_description: v.og_description || null }
           : null
-      await applyHealedRow(admin, 'page_copy', 'page_copy', row, path, healed.outcome, healed.logIds, columns, false, now, out, (note) => ({ quality_notes: note }), '')
+      await applyHealedRow(admin, 'page_copy', 'page_copy', row, path, healed.outcome, healed.logIds, columns, false, now, out, (note) => ({ quality_notes: note }), '', { publish: opts.publish !== false, onImproved: opts.onImproved, title: path })
       if (out.published && healed.outcome.status === 'healed') await pingIndexNow([path, '/sitemap.xml']).catch(() => undefined)
     }
     out.note = `held page copy: ${out.tried} re-checked, ${out.published} published, ${out.rejected} rejected, ${out.deferred} waiting`
@@ -402,6 +409,7 @@ async function applyHealedRow(
   out: DraftHealResult,
   rejectedPatch: (note: string) => Row,
   guessedNote: string,
+  mode: { publish: boolean; onImproved?: HealDraftOpts['onImproved']; title: string } = { publish: true, title: '' },
 ): Promise<GuideRowAction> {
   const id = str(row.id)
   const stamp = { updated_at: now.toISOString() }
@@ -463,6 +471,29 @@ async function applyHealedRow(
     await finalizeEdits(admin, logIds, { id, path, published: true })
     out.healedDraft++
     return 'healed_live'
+  }
+  if (!mode.publish) {
+    // Review mode (the scheduled ai_heal step): the text repair above is real and logged, but the row is NEVER published here. It stays a
+    // held draft, marked as waiting for a person, and is reported so a Today card can ask. A row with nothing repaired (a clean row) is
+    // left exactly as it was: there is nothing to undo and nothing "improved" to show. A safe page is not an improvement worth a card either.
+    if (outcome.status !== 'healed' || logIds.length === 0) return 'clean'
+    if (safeNote) {
+      // The rebuilt safe page stays a held draft (the edits stay logged, so Undo works); it is not offered for review.
+      await finalizeEdits(admin, logIds, { id, path, published: false })
+      out.healedDraft++
+      return 'healed_draft'
+    }
+    const marked = await guarded(admin.from(table).update({ quality_notes: REVIEW_HOLD_NOTE, ...stamp }).eq('id', id).eq('status', 'draft'), expected).select('id')
+    if (marked.error || !marked.data?.length) {
+      out.problems.push(`${path}: the text was improved but could not be marked for review (${marked.error ? marked.error.message : 'changed by someone else meanwhile'})`)
+      await finalizeEdits(admin, logIds, { id, path, published: false })
+      out.healedDraft++
+      return 'healed_draft'
+    }
+    await finalizeEdits(admin, logIds, { id, path, published: false })
+    out.healedDraft++
+    await mode.onImproved?.({ type, id, path, title: mode.title || path, editIds: logIds, originalNotes: str(row.quality_notes) || null })
+    return 'healed_draft'
   }
   const problem = await publishLogged(admin, table, type, row, path, logIds, now, expected, safeNote)
   if (problem) {

@@ -45,6 +45,28 @@ No new tables, no new crons.
 5. If you change an existing file (for example `lib/heal.ts` for WP3), keep it to the files the audit names for your package.
 6. Add a check for your step as a new `scripts/check-<name>.ts`; do not extend `check-flywheel-registry.ts` beyond the id list.
 
+## WP4 `ai_heal`: review mode, it never publishes (Joel's rule)
+
+The scheduled AI auto-heal **never publishes a held draft by itself**. `lib/flywheel/steps/ai-heal.ts` runs `runAiFixStep` with `publish: false` (set after any caller options, so nothing can turn it back on). The three reused repairs take that option and keep today's behaviour when it is left out:
+
+| Repair | Option | In review mode |
+|---|---|---|
+| `rehealStuckDrafts` (`lib/blog-reheal.ts`, blog drafts) | `publish`, `onImproved` | repairs and saves the text (logged), skips the publish gate, the publishing slot and the status edit; tags the draft `reheal_state: 'review'` so no later heal touches it |
+| `healHeldGuides` / `healGuideRow` (`lib/heal-drafts.ts`) | `publish`, `onImproved` | repairs and saves the text (logged), no publish, no cadence slot; the row's quality note becomes the review marker `REVIEW_HOLD_NOTE`, which the daily heal treats as a hold note and skips |
+| `healHeldCopy` (`lib/heal-drafts.ts`) | `publish`, `onImproved` | same as guides |
+
+Callers (all checked): the flywheel step (review mode), the System check **Auto-heal button** via `runAutoHeal` in `lib/system-check-heal.ts` (unchanged: a person pressed it, so it still publishes), the daily `lib/content-heal-run.ts` self-heal (unchanged, but it skips a row that is waiting for review), and the offline scripts. A guessed-property guide and a rebuilt safe page are never queued for review (they could not be published from the card anyway).
+
+Each healed-but-unpublished item is recorded by `enqueueReview` in `lib/ai-heal-review.ts`: one JSON value in `app_settings.ai_heal_review` (no table, no migration), at most **20 open** (a full queue stops the step before any AI call; the same page is never queued twice). Each item keeps the page type and id, the `content_edits` ids (the Undo handles), a short what/before/after summary and the original quality note.
+
+Today card `heal-review` ("Auto-heal improved this", group "Needs your yes", `lib/today-cards.ts`, loader `healReviewCards` in `lib/today-queue.ts`, actions in `lib/today-actions.ts`):
+
+- **Swipe right, Publish it**: `PATCH {status:'published'}` on the page's own admin route (`/api/admin/blog/[id]`, `/api/admin/guides/[id]`, `/api/admin/page-copy/[id]`), so that route's own check still decides. If it refuses, the draft stays held, the card stays and shows the reason ("The last publish check said"). Undoable from Today (back to draft, item reopens).
+- **Swipe left, Keep held, undo the fix**: `revertEdit` on every audit row of the repair (newest first) and the original quality note comes back. If a person changed the page since, nothing is forced and the card stays. Needs a confirm tap (the revert cannot be undone from Today).
+- **Later / Skip / Open** work like every other card (Open goes to the draft, or Content edits for page copy). The plain `blog-draft` and `guide-review` cards for the same row are hidden while the review card exists. An item whose draft was published, deleted or fully reverted elsewhere is closed and drops out.
+
+Pause all automation, dry run and the daily cap (3 a day, `ai_heal`) are enforced by the runner as for every step; `enqueueReview` also writes nothing in a dry run. Check: `pnpm dlx tsx scripts/check-ai-heal-review.ts`.
+
 ## Rules every step keeps (from the audit)
 
 Capped per day; every change logged with an Undo; never touch unpublished trips, never write a price, never call `assignLead`, send nothing to a person except existing alerts; respect dry run (do not write) and the veto list (`isVetoed`).
