@@ -1,6 +1,7 @@
 import type { GuideCandidate, GuideKind } from '@/lib/guides'
 import type { GuideScope } from '@/lib/guide-scope'
 import { generateSlug } from '@/lib/utils'
+import { destinationTier, getCachedSignal, type ConversionSignal } from '@/lib/conversion-rank'
 
 // The planned destination guides (growth loop): every country, port, city and named place where the agency has planned trips
 // or packages, taken from the sister site's sitemap (docs/factory/GUIDE-PLAN-DESTINATIONS.md, supplied by the owner on
@@ -169,12 +170,19 @@ export function planRank(place: PlannedPlace, writtenSlugs: ReadonlySet<string>)
   return place.parent_slug && writtenSlugs.has(place.parent_slug) ? 1 : 2
 }
 
-/** The planned places in the order they should be offered: by rank, then in the stable table order (countries by how many places
+/** WP8: how strongly lead and order results (lib/conversion-rank.ts) back a place: its own name or its country's. 0 with no data. */
+function placeTier(signal: ConversionSignal, place: PlannedPlace): number {
+  if (signal.sample === 0) return 0
+  return destinationTier(signal, [place.name, place.parent_slug ? planCountryName(place.parent_slug) : null])
+}
+
+/** The planned places in the order they should be offered: by rank, then (WP8) by a small conversion tie-break from lead and order
+ * results inside the same rank (never across ranks), then in the stable table order (countries by how many places
  * they hold, places country by country). `writtenSlugs` are the destination slugs that already have a guide (drafts count). Pure. */
-export function orderPlannedPlaces(writtenSlugs: ReadonlySet<string>, places: PlannedPlace[] = PLANNED_PLACES): PlannedPlace[] {
+export function orderPlannedPlaces(writtenSlugs: ReadonlySet<string>, places: PlannedPlace[] = PLANNED_PLACES, signal: ConversionSignal = getCachedSignal()): PlannedPlace[] {
   return places
-    .map((p, i) => ({ p, i, r: planRank(p, writtenSlugs) }))
-    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((p, i) => ({ p, i, r: planRank(p, writtenSlugs), t: placeTier(signal, p) }))
+    .sort((a, b) => a.r - b.r || b.t - a.t || a.i - b.i)
     .map((x) => x.p)
 }
 

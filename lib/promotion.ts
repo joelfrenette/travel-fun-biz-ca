@@ -10,6 +10,7 @@ import { getDistributionMode } from '@/lib/distribution'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { packageDistributionPath, packageDistributionSlug } from '@/lib/guide-post-source'
 import { bestTimePath, listPageCopyCandidates } from '@/lib/page-copy'
+import { packageTier, type ConversionSignal } from '@/lib/conversion-rank'
 import { SITE_ID } from '@/lib/site'
 import { generateSlug } from '@/lib/utils'
 
@@ -501,6 +502,24 @@ export function isAbandonedClaim(row: Pick<PromotionRow, 'plan' | 'started_at'> 
 }
 
 /** Ids from outside are checked before they reach the database. */
+/** WP8: orders trips that may be posted next. Same rotation as lib/trip-social.ts pickTripToPost (a trip that never had a post comes
+ * first, then the older ledger row, then the older trip, then slug), with ONE addition: inside the "never posted" group and inside
+ * the "posted before" group, a trip whose page earned leads or orders (lib/conversion-rank.ts, bounded tiers with a minimum sample)
+ * comes before one that did not. `lastPostedAt` is the ledger row time in ms, or -1 for a trip that never had a post. Pure. */
+export function orderTripsByConversion<T extends { slug: string; created_at?: string | null }>(trips: readonly T[], lastPostedAt: (slug: string) => number, signal: ConversionSignal | null | undefined): T[] {
+  const made = (t: T) => {
+    const n = t.created_at ? Date.parse(t.created_at) : NaN
+    return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n
+  }
+  return [...trips].sort((a, b) => {
+    const la = lastPostedAt(a.slug)
+    const lb = lastPostedAt(b.slug)
+    const ga = la < 0 ? 0 : 1
+    const gb = lb < 0 ? 0 : 1
+    return ga - gb || packageTier(signal, b.slug) - packageTier(signal, a.slug) || la - lb || made(a) - made(b) || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0)
+  })
+}
+
 export const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 
 const isMissingTable = (message: string) => /package_promotions|relation|schema cache|does not exist/i.test(message)
