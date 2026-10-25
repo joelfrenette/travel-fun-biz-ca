@@ -13,7 +13,8 @@ import { SITE_URL } from '@/lib/site'
 // PURE half first (verifyPage, planPass, applyResults, the state parser): no network, no database. Then a thin runner (runPublishVerifyIfDue).
 //
 // Rules:
-//  - READ ONLY against the site. It never edits, unpublishes or deletes anything. (The guide repair ladder's "safe page" rung rebuilds TEXT for
+//  - READ ONLY against the site. It never edits, unpublishes or deletes anything. (The one automatic remedy is the flywheel step verify_fix,
+//    which only refreshes the cached copy of a failing page and re-pings search engines, then lets this check look again.) (The guide repair ladder's "safe page" rung rebuilds TEXT for
 //    the quality gate; it does not fix a rendering fault, and nothing in the ladder unpublishes, so there is no automatic action to take here.
 //    A failure becomes a Needs attention item and a log line, and a person or Claude looks at the page.)
 //  - "Could not read" is `unknown`, never `pass` (the SEO playbook audit rule), and unknown never raises an issue.
@@ -318,6 +319,67 @@ export function applyResults(state: VerifyState, planned: readonly VerifyEntry[]
     newlyFailing,
     fixed,
   }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Remediation (flywheel step verify_fix, lib/flywheel/steps/verify-fix.ts). The verify itself stays read only; the step refreshes the cached
+// copy of a failing page and re-pings it, and the next verify pass re-checks it. These are the pure rules for WHICH pages it may touch.
+// ---------------------------------------------------------------------------------------------------
+
+export const VERIFY_FIX_STATE_KEY = 'publish_verify_fix_state'
+/** One page is refreshed at most this many times (each time followed by a re-check) before it is left to the Needs attention item. */
+export const VERIFY_FIX_MAX_PER_PAGE = 2
+export const VERIFY_FIX_KEEP = 30
+
+export interface FixRecord {
+  /** How many times this page has been refreshed. */
+  n: number
+  /** When it was last refreshed (ISO). */
+  at: string
+}
+export type FixState = Record<string, FixRecord>
+
+/** The stored refresh counts, or {} for a missing or damaged value. Pure. */
+export function parseFixState(raw: string | null | undefined): FixState {
+  if (!raw) return {}
+  try {
+    const p = JSON.parse(raw) as unknown
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return {}
+    const out: FixState = {}
+    for (const [path, r] of Object.entries(p as Record<string, Partial<FixRecord>>)) {
+      if (path.startsWith('/') && r && typeof r.n === 'number' && r.n >= 0 && typeof r.at === 'string' && Number.isFinite(Date.parse(r.at))) out[path] = { n: Math.floor(r.n), at: r.at }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** Keeps only the newest VERIFY_FIX_KEEP records. Pure. */
+export function boundFixState(s: FixState): FixState {
+  return Object.fromEntries(Object.entries(s).sort((a, b) => Date.parse(a[1].at) - Date.parse(b[1].at)).slice(-VERIFY_FIX_KEEP))
+}
+
+/** The pages worth a refresh now, at most `max`: a page that failed once and is waiting for its re-check (cheapest to rescue), then pages
+ * already reported. Never a page that has used its VERIFY_FIX_MAX_PER_PAGE refreshes, and never one refreshed since the last verify pass
+ * (it has not been re-checked yet, so we do not know whether the refresh worked). A page with no recorded reason is skipped. Pure. */
+export function remediationTargets(state: VerifyState, fixes: FixState, now: number, max: number): VerifyEntry[] {
+  const lastRun = state.lastRun ? Date.parse(state.lastRun) : NaN
+  const out: VerifyEntry[] = []
+  const consider = (e: VerifyEntry) => {
+    if (out.length >= max || out.some((x) => x.path === e.path)) return
+    if (!e.reasons?.length) return
+    if (now - Date.parse(e.since ?? e.at) > VERIFY_FAILING_KEEP_MS) return
+    const f = fixes[e.path]
+    if (f) {
+      if (f.n >= VERIFY_FIX_MAX_PER_PAGE) return
+      if (!Number.isFinite(lastRun) || lastRun <= Date.parse(f.at)) return
+    }
+    out.push(e)
+  }
+  state.pending.filter((e) => e.tries >= 1).forEach(consider)
+  state.failing.forEach(consider)
+  return out
 }
 
 /** The reported failures, for the Needs attention item. Pure. */
