@@ -156,7 +156,7 @@ async function main() {
   check('json-ld: FAQPage and BreadcrumbList are there', ld.some((o) => o['@type'] === 'FAQPage') && ld.some((o) => o['@type'] === 'BreadcrumbList'))
   const pageSrc = read('app', 'packages', '[slug]', 'page.tsx')
   check('trip page source: past trips use the past kit, no Event/Article markup, no supplier link, no cookie read outside preferences', /PastTripPage/.test(pageSrc) && !/"Event"|"Article"/.test(pageSrc) && !/booking_url|more_info_url/.test(pageSrc.replace(/pkg\.booking_url/g, '')) === true && !/cookies\(/.test(pageSrc) && /getVisitorPreferences\(\)/.test(pageSrc))
-  check('generateMetadata stays safe: no preferences or cookies inside it', (() => { const m = /export async function generateMetadata[\s\S]*?\n}\n/.exec(pageSrc)?.[0] ?? ''; return m.length > 100 && !/getVisitorPreferences|cookies\(/.test(m) })())
+  check('generateMetadata stays safe: no preferences or cookies inside it', (() => { const m = /export async function generateMetadata[\s\S]*?\r?\n}\r?\n/.exec(pageSrc)?.[0] ?? ''; return m.length > 100 && !/getVisitorPreferences|cookies\(/.test(m) })())
 
   // ─── Title and description ─────────────────────────────────────────────────────────
   const t1 = pastTripTitle({ name: 'SOUTHERN ITALY & SICILY w/ Amy & Liz', destination: 'Italy', from: '2026-05-02', to: '2026-05-11' })
