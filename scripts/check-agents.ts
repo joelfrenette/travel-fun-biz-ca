@@ -7,7 +7,7 @@ import {
   AGENT_PRIVATE_COLUMNS, AGENT_PUBLIC_COLUMNS, AGENT_PUBLIC_SELECT, ACHIEVEMENT_PUBLIC_COLUMNS, ACHIEVEMENT_PUBLIC_SELECT, amountLike, buildAgentsCollectionJsonLd,
   buildPersonJsonLd, buildProfilePageJsonLd, buildVideoJsonLd, cleanAgentInput, isPubliclyVisible, parseCertifications, parseVideoUrl, publicCertifications,
   publishBlockers, slugify, suggestAgentOfMonth, toPublicAchievements, toPublicAgent, agentDescription, agentTitle, agentPhotoAlt, type PublicAgent,
-  OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, officeTeam, parseOfficeRole, planOfficeRole, parseSocialLinks,
+  OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, officeTeam, parseOfficeRole, planOfficeRole, parseSocialLinks, cleanPackageSlugs,
 } from '../lib/agents'
 import { setOfficeRole } from '../lib/agents-office'
 import { buildPreview, guessField, isPlaceholder, parseDelimited, parseSheet, readSheetDate, IMPORT_MAX_ROWS } from '../lib/agents-import'
@@ -367,6 +367,18 @@ const baseRow = {
     }
     check('self-service cannot set socials, ASTA or public flags', (() => { const r = cleanSelfService({ bio: 'x'.repeat(60), specialties: 'Italy', social_links: links, asta_verified: true }); return r.ok && !('social_links' in r.value) && !('asta_verified' in r.value) })())
     check('migration 0058 adds the four columns and no policy', (() => { const m = readFileSync('supabase/migrations/0058_agents_socials_asta.sql', 'utf8'); return ['social_links', 'asta_member', 'asta_number', 'asta_verified'].every((c) => m.includes(`add column if not exists ${c}`)) && !/create policy/i.test(m) })())
+  }
+
+  // ─── Promoted trips and testimonial ───────────────────────────────────────────
+  {
+    const r = cleanSelfService({ bio: 'x'.repeat(60), specialties: 'Italy', promoted_package_slugs: ['italy-2027', 'ITALY-2027', 'bad slug!', 7, '../x', 'greece-cruise'], testimonial_text: 'Great group trip.' })
+    check('self-service keeps clean, unique, lowercase package slugs only', r.ok && r.value.promoted_package_slugs.join() === 'italy-2027,greece-cruise', r.ok ? r.value.promoted_package_slugs : r)
+    check('self-service testimonial is stored as text', r.ok && r.value.testimonial_text === 'Great group trip.')
+    check('package slugs are capped at 12', cleanSelfService({ bio: 'x'.repeat(60), specialties: 'Italy', promoted_package_slugs: Array.from({ length: 30 }, (_, i) => `trip-${i}`) }).ok === true && cleanPackageSlugs(Array.from({ length: 30 }, (_, i) => `trip-${i}`)).length === 12)
+    check('public mapper cleans promoted slugs', toPublicAgent({ id: 'a', slug: 's', display_name: 'A B', bio: 'x'.repeat(50), status: 'published', consent_photo: true, consent_bio: true, promoted_package_slugs: ['ok-1', 'No Good'] })?.promoted_package_slugs.join() === 'ok-1')
+    check('testimonial_text is not a public column', !(AGENT_PUBLIC_COLUMNS as readonly string[]).includes('testimonial_text'))
+    check('migration 0059 adds both columns and no policy', (() => { const m = readFileSync('supabase/migrations/0059_agents_promoted_trips.sql', 'utf8'); return m.includes('add column if not exists promoted_package_slugs') && m.includes('add column if not exists testimonial_text') && !/create policy/i.test(m) })())
+    check('submit drops slugs that are not published packages', readFileSync('lib/agents-store.ts', 'utf8').includes(".eq('status', 'published')") && readFileSync('lib/agents-store.ts', 'utf8').includes('cleaned.value.promoted_package_slugs.filter'))
   }
 
   // ─── Wiring ────────────────────────────────────────────────────────────────────

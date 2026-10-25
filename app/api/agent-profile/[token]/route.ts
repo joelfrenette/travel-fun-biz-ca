@@ -25,7 +25,9 @@ export async function GET(request: Request, { params }: { params: { token: strin
   if (!(await allowRequest(request, 'agent-profile-get', 30, 600))) return NextResponse.json({ error: 'Too many requests. Please wait a little.' }, { status: 429 })
   const r = await resolveProfileLink(params.token)
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
-  return NextResponse.json({ agent: r.ctx.agent })
+  // The drop-down of trips the agent can pick from: published packages only, name and slug.
+  const { data: pk } = await getSupabaseAdmin().from('travel_packages').select('slug, name').eq('status', 'published').order('name', { ascending: true }).limit(300)
+  return NextResponse.json({ agent: r.ctx.agent, packages: pk ?? [] })
 }
 
 export async function POST(request: Request, { params }: { params: { token: string } }) {

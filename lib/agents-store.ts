@@ -40,6 +40,21 @@ export async function getPublishedAgents(): Promise<PublicAgent[]> {
   }
 }
 
+/** The published trips for a set of slugs, in the agent's order. A slug whose package is not published right now is skipped. */
+export async function getPublishedPackagesBySlugs(slugs: string[]): Promise<{ slug: string; name: string; destination: string; short_description: string | null }[]> {
+  if (!slugs.length) return []
+  try {
+    const { data } = await getSupabaseAdmin().from('travel_packages').select('slug, name, destination, short_description').in('slug', slugs).eq('status', 'published')
+    const by = new Map(((data ?? []) as unknown as Row[]).map((r) => [String(r.slug), r]))
+    return slugs.flatMap((sl) => {
+      const r = by.get(sl)
+      return r ? [{ slug: sl, name: String(r.name), destination: String(r.destination ?? ''), short_description: typeof r.short_description === 'string' ? r.short_description : null }] : []
+    })
+  } catch {
+    return []
+  }
+}
+
 export async function getPublishedAgent(slug: string): Promise<PublicAgent | null> {
   try {
     const { data, error } = await getSupabaseAdmin().from('agents').select(AGENT_PUBLIC_SELECT).eq('slug', slug).eq('status', 'published').maybeSingle()
@@ -239,7 +254,7 @@ export async function revokeProfileLink(agentId: string, linkId: string): Promis
 
 export interface LinkContext {
   link: Row
-  agent: { id: string; display_name: string; bio: string | null; headline: string | null; specialties: string[]; years_experience: number | null; languages: string[]; video_urls: string[] }
+  agent: { id: string; display_name: string; bio: string | null; headline: string | null; specialties: string[]; years_experience: number | null; languages: string[]; video_urls: string[]; promoted_package_slugs: string[] }
 }
 
 /** Validates a token (format first, then hash lookup, then expiry). The agent sees only their own profile fields: never
@@ -250,7 +265,7 @@ export async function resolveProfileLink(token: string, now: Date = new Date()):
   if (error || !link) return { ok: false, status: 404, error: 'This link is not valid.' }
   const st = profileLinkState(link as never, now)
   if (!st.ok) return { ok: false, status: 410, error: st.reason === 'expired' ? 'This link has expired. Ask the office for a new one.' : 'This link is no longer active. Ask the office for a new one.' }
-  const { data: a } = await admin().from('agents').select('id, display_name, bio, headline, specialties, years_experience, languages, video_urls').eq('id', (link as Row).agent_id).maybeSingle()
+  const { data: a } = await admin().from('agents').select('id, display_name, bio, headline, specialties, years_experience, languages, video_urls, promoted_package_slugs').eq('id', (link as Row).agent_id).maybeSingle()
   if (!a) return { ok: false, status: 404, error: 'This link is not valid.' }
   return { ok: true, ctx: { link: link as Row, agent: a as LinkContext['agent'] } }
 }
@@ -258,6 +273,12 @@ export async function resolveProfileLink(token: string, now: Date = new Date()):
 export async function submitSelfService(ctx: LinkContext, input: Record<string, unknown>): Promise<{ ok: true } | { ok: false; errors: string[] }> {
   const cleaned = cleanSelfService(input)
   if (!cleaned.ok) return cleaned
+  // Only trips that are published right now can be proposed; anything else the agent typed or a stale page sent is dropped.
+  if (cleaned.value.promoted_package_slugs.length) {
+    const { data: live } = await admin().from('travel_packages').select('slug').in('slug', cleaned.value.promoted_package_slugs).eq('status', 'published')
+    const ok = new Set(((live ?? []) as Row[]).map((r) => String(r.slug)))
+    cleaned.value.promoted_package_slugs = cleaned.value.promoted_package_slugs.filter((x) => ok.has(x))
+  }
   const { count } = await admin().from('agent_profile_submissions').select('id', { count: 'exact', head: true }).eq('link_id', String(ctx.link.id))
   if ((count ?? 0) >= 10) return { ok: false, errors: ['This link has been used the maximum number of times. Ask the office for a new one.'] }
   const { error } = await admin().from('agent_profile_submissions').insert({ agent_id: ctx.agent.id, link_id: ctx.link.id, payload: cleaned.value, status: 'pending' })
@@ -287,6 +308,14 @@ export async function decideSubmission(id: string, action: 'approve' | 'reject')
     if (p.consent_bio === true) patch.consent_bio = true
     const r = await saveAgent(String(s.agent_id), patch)
     if (!r.ok) return r.errors.join(' ')
+    // Promoted trips and the testimonial statement: only what the agent actually sent, only on approval.
+    const extra: Record<string, unknown> = {}
+    if (Array.isArray(p.promoted_package_slugs)) extra.promoted_package_slugs = p.promoted_package_slugs
+    if (typeof p.testimonial_text === 'string' && p.testimonial_text.trim()) extra.testimonial_text = p.testimonial_text
+    if (Object.keys(extra).length) {
+      const e = await admin().from('agents').update(extra).eq('id', String(s.agent_id))
+      if (e.error) return e.error.message
+    }
   }
   const up = await admin().from('agent_profile_submissions').update({ status: action === 'approve' ? 'approved' : 'rejected', decided_at: new Date().toISOString() }).eq('id', id)
   return up.error ? up.error.message : null

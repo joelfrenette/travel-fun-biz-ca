@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 
 interface Cert { name: string; issuer: string; year: string }
-interface Existing { display_name: string; bio: string | null; headline: string | null; specialties: string[]; years_experience: number | null; languages: string[]; video_urls: string[] }
+interface Existing { display_name: string; bio: string | null; headline: string | null; specialties: string[]; years_experience: number | null; languages: string[]; video_urls: string[]; promoted_package_slugs?: string[] }
+interface Pkg { slug: string; name: string }
 
 // The self-service profile form behind an agent's private link. They fill their own bio, photo, certifications, years,
 // languages, specialties and a testimonial video link. Everything is saved as a PENDING draft: the office approves it before
@@ -26,6 +27,9 @@ export function AgentProfileForm({ token }: { token: string }) {
   const [certs, setCerts] = useState<Cert[]>([])
   const [cPhoto, setCPhoto] = useState(false)
   const [cBio, setCBio] = useState(false)
+  const [pkgs, setPkgs] = useState<Pkg[]>([])
+  const [picked, setPicked] = useState<string[]>([])
+  const [testimonial, setTestimonial] = useState("")
   const [honey, setHoney] = useState("")
   const [busy, setBusy] = useState(false)
 
@@ -37,6 +41,7 @@ export function AgentProfileForm({ token }: { token: string }) {
         const a = d.agent as Existing
         setName(a.display_name); setBio(a.bio ?? ""); setHeadline(a.headline ?? ""); setSpecialties(a.specialties.join(", "))
         setLanguages(a.languages.join(", ")); setYears(a.years_experience == null ? "" : String(a.years_experience)); setVideo(a.video_urls[0] ?? "")
+        setPkgs((d.packages ?? []) as Pkg[]); setPicked(a.promoted_package_slugs ?? [])
         setState("form")
       })
       .catch((e) => { setError(e instanceof Error ? e.message : "This link is not valid."); setState("error") })
@@ -58,7 +63,7 @@ export function AgentProfileForm({ token }: { token: string }) {
     try {
       const r = await fetch(`/api/agent-profile/${encodeURIComponent(token)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bio, headline, specialties, languages, years_experience: years, video_urls: video ? [video] : [], photo_url: photo, certifications: certs.map((c) => ({ name: c.name, issuer: c.issuer, year: c.year ? Number(c.year) : null })), consent_photo: cPhoto, consent_bio: cBio, company_website: honey }),
+        body: JSON.stringify({ bio, headline, specialties, languages, years_experience: years, video_urls: video ? [video] : [], photo_url: photo, certifications: certs.map((c) => ({ name: c.name, issuer: c.issuer, year: c.year ? Number(c.year) : null })), consent_photo: cPhoto, consent_bio: cBio, promoted_package_slugs: picked, testimonial_text: testimonial, company_website: honey }),
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.error || "Could not send. Please try again.")
@@ -101,6 +106,20 @@ export function AgentProfileForm({ token }: { token: string }) {
         {photo && /* eslint-disable-next-line @next/next/no-img-element */ <img src={photo} alt="Your uploaded photo" className="mt-2 h-24 w-24 rounded-md object-cover" />}
       </div>
       <div className="space-y-1"><Label htmlFor="p-video">Testimonial or intro video link (YouTube or Vimeo, optional)</Label><Input id="p-video" type="url" value={video} onChange={(e) => setVideo(e.target.value)} placeholder="https://" /></div>
+      {pkgs.length > 0 && (
+        <fieldset className="space-y-2 rounded-md border p-3">
+          <legend className="px-1 text-sm font-medium">Trips you are hosting or promoting (the office confirms the list)</legend>
+          <div className="max-h-56 space-y-1 overflow-y-auto">
+            {pkgs.map((p) => (
+              <label key={p.slug} className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={picked.includes(p.slug)} onChange={(e) => setPicked(e.target.checked ? [...picked, p.slug].slice(0, 12) : picked.filter((x) => x !== p.slug))} /> {p.name}
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">Pick up to 12. These show on your public page with a form so visitors can ask about them. To add a brand new trip, or to share photos and videos from a trip that has finished, ask the office for the trip link.</p>
+        </fieldset>
+      )}
+      <div className="space-y-1"><Label htmlFor="p-test">A short testimonial or message to your travellers (optional, up to 600 characters)</Label><Textarea id="p-test" rows={3} maxLength={600} value={testimonial} onChange={(e) => setTestimonial(e.target.value)} /></div>
       <fieldset className="space-y-2 rounded-md border p-3">
         <legend className="px-1 text-sm font-medium">Permission</legend>
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={cBio} onChange={(e) => setCBio(e.target.checked)} /> I agree that my name and this bio may be shown publicly on the website.</label>

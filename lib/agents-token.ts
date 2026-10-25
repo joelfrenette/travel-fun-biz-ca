@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { clampDays, expiryFrom, generateToken, isTokenFormat, type InviteLike } from '@/lib/agent-invites'
 import { cleanText } from '@/lib/agent-invites'
-import { cleanHttpsUrl, cleanLanguages, cleanSpecialties, cleanVideoUrls, cleanYears, parseCertifications, type AgentCertification } from '@/lib/agents'
+import { cleanHttpsUrl, cleanLanguages, cleanPackageSlugs, cleanSpecialties, cleanVideoUrls, cleanYears, parseCertifications, type AgentCertification } from '@/lib/agents'
 
 // Self-service profile links (server only: uses node:crypto). Same pattern as the Recap Studio and submit-trip links: a
 // random token is shown to the admin ONCE; only its SHA-256 hash is stored; the link expires; it can be revoked.
@@ -47,6 +47,8 @@ export interface SelfServiceInput {
   photo_url: string | null
   consent_photo: boolean
   consent_bio: boolean
+  promoted_package_slugs: string[]
+  testimonial_text: string
 }
 
 /**
@@ -74,6 +76,8 @@ export function cleanSelfService(input: Record<string, unknown>): { ok: true; va
       photo_url: cleanHttpsUrl(input.photo_url) || null,
       consent_photo: input.consent_photo === true,
       consent_bio: input.consent_bio === true,
+      promoted_package_slugs: cleanPackageSlugs(input.promoted_package_slugs),
+      testimonial_text: cleanText(input.testimonial_text, 600, true),
     },
   }
 }

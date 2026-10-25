@@ -24,7 +24,7 @@ export type AgentStatus = (typeof AGENT_STATUSES)[number]
 export const AGENT_PUBLIC_COLUMNS = [
   'id', 'slug', 'display_name', 'headline', 'bio', 'specialties', 'certifications', 'years_experience', 'languages',
   'home_city', 'region', 'photo_url', 'video_urls', 'status', 'consent_photo', 'consent_bio', 'featured', 'sort_order',
-  'published_at', 'updated_at', 'social_links', 'asta_member', 'asta_verified',
+  'published_at', 'updated_at', 'social_links', 'asta_member', 'asta_verified', 'promoted_package_slugs',
 ] as const
 
 /** Columns that must never appear in a public select, a page, JSON-LD or an API response a visitor can reach. */
@@ -191,6 +191,8 @@ export interface PublicAgent {
   social_links: AgentSocialLink[]
   /** True only for a verified ASTA member. */
   asta_member: boolean
+  /** Slugs the office approved; the page still shows one only if that package is published right now. */
+  promoted_package_slugs: string[]
   status: AgentStatus
   consent_photo: boolean
   consent_bio: boolean
@@ -259,6 +261,19 @@ function cleanList(value: unknown, maxItems: number, maxLen: number): string[] {
 
 export function cleanSpecialties(value: unknown): string[] {
   return cleanList(value, 12, 60)
+}
+
+/** Package slugs an agent proposes: lowercase letters, digits and hyphens only, no duplicates, at most 12. */
+export function cleanPackageSlugs(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : []
+  const out: string[] = []
+  for (const v of raw) {
+    if (typeof v !== 'string') continue
+    const s = v.trim().toLowerCase()
+    if (/^[a-z0-9][a-z0-9-]{0,120}$/.test(s) && !out.includes(s)) out.push(s)
+    if (out.length >= 12) break
+  }
+  return out
 }
 
 export function cleanLanguages(value: unknown): string[] {
@@ -500,6 +515,7 @@ export function toPublicAgent(row: Record<string, unknown> | null | undefined): 
     video_urls: arr('video_urls').filter((u) => !!parseVideoUrl(u)),
     social_links: publicSocialLinks(parseSocialLinks(row.social_links)),
     asta_member: publicAstaMember(row),
+    promoted_package_slugs: cleanPackageSlugs(row.promoted_package_slugs),
     status: 'published',
     consent_photo: true,
     consent_bio: true,

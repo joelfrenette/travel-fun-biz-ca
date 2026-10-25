@@ -6,7 +6,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { ContactForm } from "@/components/contact-form"
 import { AgentAvatar } from "@/components/agents-ui"
-import { getAgentOfMonth, getPublicAchievements, getPublishedAgent } from "@/lib/agents-store"
+import { getAgentOfMonth, getPublicAchievements, getPublishedAgent, getPublishedPackagesBySlugs } from "@/lib/agents-store"
 import {
   achievementLabel, agentDescription, agentPath, agentPhotoAlt, agentTitle, buildProfilePageJsonLd, buildVideoJsonLd, firstName, monthLabel,
   parseVideoUrl, publicCertifications, socialLabel, specialtyKey,
@@ -43,12 +43,13 @@ export default async function AgentPage({ params }: Props) {
   const { language, currency } = getVisitorPreferences()
   const agent = await getPublishedAgent(params.slug)
   if (!agent) notFound()
-  const [achMap, aotm, dests, guides, packages] = await Promise.all([
+  const [achMap, aotm, dests, guides, packages, hosted] = await Promise.all([
     getPublicAchievements([agent.id]),
     getAgentOfMonth(),
     getDestinationSlugs().catch(() => []),
     getPublishedGuidePaths().catch(() => []),
     getPackages().catch(() => []),
+    getPublishedPackagesBySlugs(agent.promoted_package_slugs),
   ])
   const achievements = achMap.get(agent.id) ?? []
   const certs = publicCertifications(agent.certifications)
@@ -137,6 +138,22 @@ export default async function AgentPage({ params }: Props) {
               <h2 id="certs" className="text-xl font-bold text-foreground">Certifications</h2>
               <ul className="mt-3 list-disc space-y-1 pl-5 text-muted-foreground">
                 {certs.map((c) => <li key={`${c.name}-${c.issuer}`}>{c.name}{c.issuer ? `, ${c.issuer}` : ""}{c.year ? ` (${c.year})` : ""}</li>)}
+              </ul>
+            </section>
+          )}
+
+          {hosted.length > 0 && (
+            <section aria-labelledby="trips">
+              <h2 id="trips" className="text-xl font-bold text-foreground">Trips {f} is hosting</h2>
+              <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+                {hosted.map((t) => (
+                  <li key={t.slug} className="rounded-xl border bg-card p-4">
+                    {/* utm_source lets the lead desk see which agent's page sent the visitor. It is a hint, not an assignment. */}
+                    <Link href={`/packages/${t.slug}?utm_source=agent-${agent.slug}&utm_medium=agent-page`} className="font-semibold text-foreground hover:underline">{t.name}</Link>
+                    {t.destination && <p className="text-xs uppercase text-muted-foreground">{t.destination}</p>}
+                    {t.short_description && <p className="mt-1 line-clamp-3 text-sm text-muted-foreground">{t.short_description}</p>}
+                  </li>
+                ))}
               </ul>
             </section>
           )}
