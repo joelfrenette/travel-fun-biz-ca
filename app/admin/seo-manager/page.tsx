@@ -20,12 +20,12 @@ function authHeaders(): HeadersInit {
 
 const STATUS_LABEL: Record<ViewItem["status"], string> = { pass: "Pass", warn: "Warning", fail: "Fail", unknown: "Not checked", manual: "To do", "manual-done": "Done" }
 const STATUS_CLASS: Record<ViewItem["status"], string> = {
-  pass: "bg-green-100 text-green-800 border-green-300",
-  warn: "bg-amber-100 text-amber-900 border-amber-300",
-  fail: "bg-red-100 text-red-800 border-red-300",
-  unknown: "bg-slate-100 text-slate-700 border-slate-300",
-  manual: "bg-blue-50 text-blue-800 border-blue-200",
-  "manual-done": "bg-green-100 text-green-800 border-green-300",
+  pass: "bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-200 dark:border-green-800",
+  warn: "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800",
+  fail: "bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-200 dark:border-red-800",
+  unknown: "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800/60 dark:text-slate-300 dark:border-slate-600",
+  manual: "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-800",
+  "manual-done": "bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-200 dark:border-green-800",
 }
 const AUTOMATION_LABEL = { auto: "Automatic", assisted: "Assisted", manual: "Manual" } as const
 const EFFORT_LABEL = { 1: "Quick", 2: "An afternoon", 3: "Days" } as const
@@ -34,7 +34,7 @@ function Stars({ n }: { n: number }) {
   return (
     <span aria-label={`Impact ${n} of 5`} title={`Impact ${n} of 5`} className="whitespace-nowrap text-amber-500">
       {"★".repeat(n)}
-      <span className="text-slate-300">{"★".repeat(5 - n)}</span>
+      <span className="text-slate-300 dark:text-slate-600">{"★".repeat(5 - n)}</span>
     </span>
   )
 }
@@ -136,7 +136,7 @@ export default function SeoManagerPage() {
   }, [view, category, automation, minImpact, status, onlyMe])
 
   if (loading) return <div className="flex items-center gap-2 p-8 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading the checklist...</div>
-  if (!view) return <div className="p-8 text-red-700">{error || "Could not load the checklist."}</div>
+  if (!view) return <div className="p-8 text-red-700 dark:text-red-400">{error || "Could not load the checklist."}</div>
 
   const checked = view.counts.pass + view.counts.warn + view.counts.fail
   const grouped = CATEGORIES.map((c) => ({ id: c, items: items.filter((i) => i.category === c) })).filter((g) => g.items.length)
@@ -156,8 +156,8 @@ export default function SeoManagerPage() {
         </Button>
       </div>
 
-      {notice && <div className="rounded border border-slate-300 bg-slate-50 p-3 text-sm" role="status">{notice}</div>}
-      {error && <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
+      {notice && <div className="rounded border border-slate-300 bg-slate-50 p-3 text-sm dark:border-slate-600 dark:bg-slate-800/50" role="status">{notice}</div>}
+      {error && <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200">{error}</div>}
 
       <Card>
         <CardContent className="space-y-4 p-4">
@@ -172,8 +172,8 @@ export default function SeoManagerPage() {
                 {checked} of the checked items have an answer; {view.counts.unknown} could not be read (those count as zero, never as a pass).
               </p>
               <p className="mt-1">
-                <span className="font-medium text-red-700">{view.counts.fail} failing</span>, <span className="font-medium text-amber-700">{view.counts.warn} warnings</span>,{" "}
-                <span className="font-medium text-green-700">{view.counts.pass + view.counts["manual-done"]} done</span>, {view.counts.manual} to do by hand.
+                <span className="font-medium text-red-700 dark:text-red-400">{view.counts.fail} failing</span>, <span className="font-medium text-amber-700 dark:text-amber-400">{view.counts.warn} warnings</span>,{" "}
+                <span className="font-medium text-green-700 dark:text-green-400">{view.counts.pass + view.counts["manual-done"]} done</span>, {view.counts.manual} to do by hand.
               </p>
             </div>
           </div>
@@ -183,11 +183,11 @@ export default function SeoManagerPage() {
                 key={c.id}
                 type="button"
                 onClick={() => setCategory(category === c.id ? "all" : c.id)}
-                className={`rounded border p-2 text-left ${category === c.id ? "border-primary bg-primary/5" : "border-slate-200"}`}
+                className={`rounded border p-2 text-left ${category === c.id ? "border-primary bg-primary/5" : "border-slate-200 dark:border-slate-700"}`}
                 aria-pressed={category === c.id}
               >
                 <div className="flex items-center justify-between text-sm"><span className="font-medium">{c.label}</span><span>{c.score}/100</span></div>
-                <div className="mt-1 h-2 w-full rounded bg-slate-200"><div className={`h-2 rounded ${scoreColor(c.score)}`} style={{ width: `${c.score}%` }} /></div>
+                <div className="mt-1 h-2 w-full rounded bg-slate-200 dark:bg-slate-700"><div className={`h-2 rounded ${scoreColor(c.score)}`} style={{ width: `${c.score}%` }} /></div>
                 <div className="mt-1 text-xs text-muted-foreground">{c.count} steps</div>
               </button>
             ))}
@@ -290,7 +290,7 @@ export default function SeoManagerPage() {
                   <p className="text-sm">{i.why}</p>
                   {i.evidence && <p className="text-sm text-muted-foreground"><span className="font-medium">What the check found:</span> {i.evidence}</p>}
                   {i.caution && (
-                    <p className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900"><TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {i.caution}</p>
+                    <p className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"><TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {i.caution}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-2">
                     {i.fixHref && i.needsMe && (
@@ -300,7 +300,7 @@ export default function SeoManagerPage() {
                       {isOpen ? "Hide steps" : "How to do it"} {isOpen ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />}
                     </Button>
                     {i.custom && (
-                      <Button size="sm" variant="ghost" className="text-red-700" onClick={() => { if (window.confirm("Delete this tip?")) post({ action: "tip_delete", id: i.id }, i.id) }}>
+                      <Button size="sm" variant="ghost" className="text-red-700 dark:text-red-400" onClick={() => { if (window.confirm("Delete this tip?")) post({ action: "tip_delete", id: i.id }, i.id) }}>
                         <Trash2 className="mr-1 h-4 w-4" /> Delete tip
                       </Button>
                     )}

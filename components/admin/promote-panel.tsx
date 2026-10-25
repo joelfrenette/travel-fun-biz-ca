@@ -94,7 +94,7 @@ export function PromotePanel({ packageId }: { packageId: string }) {
     }
   }
 
-  if (error) return <Card className="mx-auto mb-4 max-w-4xl"><CardContent className="p-4 text-sm text-red-700">{error}</CardContent></Card>
+  if (error) return <Card className="mx-auto mb-4 max-w-4xl"><CardContent className="p-4 text-sm text-red-700 dark:text-red-400">{error}</CardContent></Card>
   if (!s) return <Card className="mx-auto mb-4 max-w-4xl"><CardContent className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading the promote card</CardContent></Card>
 
   const promo = s.promotion
@@ -108,11 +108,11 @@ export function PromotePanel({ packageId }: { packageId: string }) {
         <CardTitle className="flex flex-wrap items-center gap-2">
           <Megaphone className="h-5 w-5" />
           Promote this package
-          {statusText && <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${promo?.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{statusText}</span>}
+          {statusText && <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${promo?.status === "active" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200" : "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300"}`}>{statusText}</span>}
         </CardTitle>
         <CardDescription>
           One click turns this trip into marketing: search phrases to track, blog ideas, guide pages for the place and any named hotel or ship, and one social post. Everything is added to what already runs, on its normal schedule and limits. Nothing is posted from this card.
-          {!s.migrated && <span className="mt-1 block font-medium text-red-700">One database update is missing: run migration 0039 (supabase/migrations/0039_promotions.sql) in the Supabase SQL editor first.</span>}
+          {!s.migrated && <span className="mt-1 block font-medium text-red-700 dark:text-red-400">One database update is missing: run migration 0039 (supabase/migrations/0039_promotions.sql) in the Supabase SQL editor first.</span>}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -131,7 +131,7 @@ export function PromotePanel({ packageId }: { packageId: string }) {
               <Button type="button" variant="outline" disabled={!!busy} onClick={() => act("retry-social", "Queue the social post")}>Queue the social post</Button>
             )}
           </div>
-          {!s.gate.ok && <p className="text-sm text-amber-700">{s.gate.reason}</p>}
+          {!s.gate.ok && <p className="text-sm text-amber-700 dark:text-amber-400">{s.gate.reason}</p>}
           {s.gate.ok && promo && <p className="text-xs text-muted-foreground">Last promoted {dateLabel(promo.started_at)}.</p>}
         </div>
 
@@ -150,7 +150,7 @@ export function PromotePanel({ packageId }: { packageId: string }) {
             <section className="space-y-1.5">
               <h3 className="text-sm font-semibold">2. Blog ideas ({plan.ideas.length})</h3>
               <p className="text-xs text-muted-foreground">Approved already. The Monday, Wednesday and Friday posts use approved ideas oldest first, together with any other approved ideas. A trip gets at most one post a week; an idea that has to wait is moved a week on, not thrown away.</p>
-              {plan.ideas.length === 0 && <p className="text-sm text-amber-700">No ideas were saved. The reason is in Needs attention on the Autopilot page.</p>}
+              {plan.ideas.length === 0 && <p className="text-sm text-amber-700 dark:text-amber-400">No ideas were saved. The reason is in Needs attention on the Autopilot page.</p>}
               <ul className="space-y-1 text-sm">
                 {(progress?.ideas.length ? progress.ideas : plan.ideas.map((i) => ({ ...i, status: "approved", postSlug: null }))).map((i) => (
                   <li key={i.id}>

@@ -56,7 +56,7 @@ export function SubmissionBanner({ packageId, onChanged }: { packageId: string; 
   if (!sub) return null
   const open = sub.state === "submitted" || sub.state === "in_progress"
   return (
-    <Card className="mx-auto mb-4 max-w-4xl border-amber-300">
+    <Card className="mx-auto mb-4 max-w-4xl border-amber-300 dark:border-amber-800">
       <CardContent className="space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <UserCheck className="h-5 w-5 text-amber-600" />

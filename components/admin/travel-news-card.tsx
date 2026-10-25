@@ -163,7 +163,7 @@ export function TravelNewsCard() {
               {card.items.map((i) => (
                 <li key={i.id} className="rounded-md border px-3 py-1.5">
                   <p className="flex flex-wrap items-center gap-2 font-medium">
-                    <span className={i.status === "rejected" ? "text-destructive" : i.status === "published" ? "text-green-700" : ""}>{STATUS_LABEL[i.status]}</span>
+                    <span className={i.status === "rejected" ? "text-destructive" : i.status === "published" ? "text-green-700 dark:text-green-400" : ""}>{STATUS_LABEL[i.status]}</span>
                     <a className="hover:underline" href={i.url} target="_blank" rel="noopener noreferrer">{i.title}</a>
                   </p>
                   <p className="text-xs text-muted-foreground">

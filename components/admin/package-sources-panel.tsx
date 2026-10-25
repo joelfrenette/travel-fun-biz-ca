@@ -425,7 +425,7 @@ export function PackageSourcesPanel({ packageId, onChanged }: { packageId: strin
                     </div>
                     {proposal?.copyNote && <p className="text-xs text-muted-foreground">{proposal.copyNote}</p>}
                                     {(s.extracted_fields?.draft?.flags?.length ?? 0) > 0 && (
-                      <div className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                      <div className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
                         <p className="font-medium">Check these by hand</p>
                         <ul className="ml-4 list-disc">{s.extracted_fields!.draft!.flags!.map((f, i) => <li key={i}>{f}</li>)}</ul>
                       </div>

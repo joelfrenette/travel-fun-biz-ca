@@ -101,7 +101,7 @@ export function SeoEnginesPanel() {
     }
   }
 
-  if (error) return <p className="text-sm text-red-600">The SEO engines could not be read: {error}</p>
+  if (error) return <p className="text-sm text-red-600 dark:text-red-400">The SEO engines could not be read: {error}</p>
   if (!data) return <p className="text-sm text-muted-foreground">Loading ...</p>
   const { mining, cannibal, hubspoke, competitors, decisions, switches } = data
   const undoable = (d: AutoDecision) => !!d.undo && !d.undone_at
@@ -227,7 +227,7 @@ export function SeoEnginesPanel() {
         <CardContent className="space-y-3 p-4">
           <h2 className="text-base font-semibold">Competitors</h2>
           <p className="text-sm text-muted-foreground">Up to {competitors.max} competitor websites. The scanner is polite (obeys robots.txt, one page a second, at most 40 pages each) and keeps only phrases and counts, never their text.</p>
-          <p className="rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">{competitors.cannotRead}</p>
+          <p className="rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">{competitors.cannotRead}</p>
           <form
             className="flex flex-wrap gap-2"
             onSubmit={(e) => {
