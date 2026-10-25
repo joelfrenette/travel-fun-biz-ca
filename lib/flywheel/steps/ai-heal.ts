@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { appendDecisions, type AutoDecision } from '@/lib/auto-decisions'
 import { revertEdit } from '@/lib/content-edits'
+import { enqueueReview, isFull, openCount, readQueue } from '@/lib/ai-heal-review'
 import { readJsonSetting, writeJsonSetting } from '@/lib/flywheel/ctx'
 import { pickKinds, runAiFixStep, type AiFixDeps, type ListedStage } from '@/lib/system-check-ai'
 import type { AiFixReport } from '@/lib/system-check-prompt'
@@ -18,8 +19,11 @@ import type { FlywheelContext, FlywheelResult, FlywheelStep } from '@/lib/flywhe
 // On top of that this step adds: the policy gate (kill switch, own switch, 3 a day), dry run = nothing runs, a gap of AI_HEAL_MIN_GAP_MS
 // between attempts (so the 15 minute pass does not re-read the same queues all day), a tighter time limit than a click gets, and the
 // decision log: each page the repair changed is one line under ai_heal, with an Undo that puts the old text back.
-// It never assigns leads, sets prices or messages anyone. The repairs it reuses publish a held draft ONLY when the full publish gate and the
-// independent QA pass are clean and that content type is in publish mode (the same rule the daily self-heal already follows).
+// It never assigns leads, sets prices or messages anyone.
+// It also NEVER PUBLISHES a held draft (Joel's rule): it runs the repairs in review mode (publish: false). A draft whose text was improved
+// stays HELD, the item goes into the app_settings queue ai_heal_review (lib/ai-heal-review.ts, at most 20 open), and a Today card
+// "Auto-heal improved this: review" asks a person: swipe right publishes through the normal publish route (its gate still decides), swipe left
+// keeps it held and puts the old text back with revertEdit. The System check Auto-heal BUTTON still publishes as before (a person pressed it).
 
 export const AI_HEAL_LAST_KEY = 'ai_heal_last'
 /** Minimum time between two attempts. The per-kind daily cache inside runAiFixStep already stops repeat AI spend; this stops repeat reads. */
@@ -77,15 +81,26 @@ export async function runAiHeal(ctx: FlywheelContext, deps: AiHealDeps = realDep
   const wait = gapLeftMs(last?.at, now)
   if (wait > 0) return { ran: false, reason: `tried ${Math.round((AI_HEAL_MIN_GAP_MS - wait) / 60_000)} minutes ago; next try in about ${Math.ceil(wait / 60_000)} minutes` }
 
+  // Nothing new is repaired while the review list is full: each repair would only add a card nobody has room to look at.
+  const queue = await readQueue(admin)
+  if (isFull(queue)) return { ran: false, reason: `${openCount(queue)} improved items are waiting for your review on Today; nothing new is repaired until some are decided` }
+
   const listed = await deps.listed(admin, now)
   if (pickKinds(listed).length === 0) return { ran: false, reason: 'the System check lists nothing with a safe AI content fix' }
 
   const entries: AutoDecision[] = []
   const budget = Math.min(ctx.remainingMs(), MAX_RUN_MS) - SAFETY_MS
   if (budget <= 0) return { ran: false, reason: 'not enough time left in this pass' }
+  let queued = 0
   const report = await deps.runAi(admin, listed, {
     now,
+    // Each held item the repairs improve is queued for a Today card ("Auto-heal improved this: review").
+    onImproved: async (info) => {
+      if ((await enqueueReview(admin, info, now)).queued) queued++
+    },
     ...aiDeps,
+    // The scheduled run NEVER publishes a held draft (Joel's rule). This is set after the spread so nothing can switch it back on.
+    publish: false,
     deadlineMs: Date.now() + budget,
     // Every change gets a decision line under ai_heal with an Undo; nothing else is logged here.
     append: async (e) => {
@@ -102,7 +117,7 @@ export async function runAiHeal(ctx: FlywheelContext, deps: AiHealDeps = realDep
 
   if (report.skipped) return { ran: false, reason: report.skipped }
   if (tried === 0) return { ran: false, reason: report.items[0]?.note || 'nothing was waiting for a repair' }
-  return { ran: true, acted: changed, note: `AI repair tried ${tried} kind${tried === 1 ? '' : 's'} of page; ${note}` }
+  return { ran: true, acted: changed, note: `AI repair tried ${tried} kind${tried === 1 ? '' : 's'} of page; ${note}${queued ? `; ${queued} improved item${queued === 1 ? '' : 's'} held for your review on Today` : ''}` }
 }
 
 /** Puts one page's old text back (ref = the content_edits row id). If a person changed the page since, it is left alone. */

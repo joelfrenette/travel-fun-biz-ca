@@ -34,6 +34,7 @@ export const TODAY_KIND_IDS = [
   'held-post',
   'topic',
   'guide-review',
+  'heal-review',
   'blog-draft',
   'supplier-change',
   'issue-dismiss',
@@ -207,6 +208,19 @@ export const TODAY_KINDS: Record<TodayKindId, TodayKindDef> = {
     undo: { primary: true, secondary: true }, snoozeDays: 2, idPattern: UUID,
     routes: { primary: 'PATCH /api/admin/guides/[id] {status:published}', secondary: 'PATCH /api/admin/guides/[id] {review_state:rejected}', undo: 'PATCH /api/admin/guides/[id] {status:draft} or {review_state:null}' },
     routeFiles: ['app/api/admin/guides/[id]/route.ts'],
+  },
+  // The scheduled AI auto-heal (lib/flywheel/steps/ai-heal.ts) never publishes. It improves a held draft, leaves it held and queues it
+  // (lib/ai-heal-review.ts, app_settings ai_heal_review). Yes publishes through the page's normal publish route (its own check still
+  // decides; if it refuses, the card says why and the draft stays held). No keeps it held and puts the old text back (revertEdit).
+  'heal-review': {
+    kind: 'heal-review', group: 'approve', order: 11.5, badge: 'Auto-heal improved this',
+    why: 'The automatic AI repair rewrote part of a held draft. It did not publish it. Look it over, then publish or keep it held.',
+    facts: ['What changed', 'Before', 'After', 'Improved'],
+    primary: { label: 'Publish it', hint: 'Publishes the improved draft through the normal publish check. If the check refuses, it stays held and the card says why.', mode: 'run' },
+    secondary: { label: 'Keep held, undo the fix', hint: 'Leaves it held and puts the old text back, exactly as it was before the AI repair.', mode: 'run' },
+    undo: { primary: true, secondary: false }, snoozeDays: 2, idPattern: /^(post|guide|copy)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    routes: { primary: 'PATCH /api/admin/blog/[id] | /api/admin/guides/[id] | /api/admin/page-copy/[id] {status:published}', secondary: 'revertEdit (lib/content-edits.ts) on every audit row of the repair', undo: 'PATCH the same route {status:draft}' },
+    routeFiles: ['app/api/admin/blog/[id]/route.ts', 'app/api/admin/guides/[id]/route.ts', 'app/api/admin/page-copy/[id]/route.ts'],
   },
   'blog-draft': {
     kind: 'blog-draft', group: 'approve', order: 12, badge: 'Blog draft',

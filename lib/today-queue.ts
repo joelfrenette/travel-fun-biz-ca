@@ -22,6 +22,7 @@ import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeAllCrons, judgeCron } from '@/lib/cron-health'
 import { startOfSiteDayIso } from '@/lib/content-edits'
 import { readSeoFixCandidates, SEO_FIX_MAX } from '@/lib/seo-playbook-todo'
+import { closeGone as closeGoneReviews, openItems as openReviewItems, readQueue as readReviewQueue } from '@/lib/ai-heal-review'
 
 // Builds the Today queue: every human decision, as cards, most urgent first. Each source is read on its own inside a
 // try/catch, so a source that cannot be read (a table that is not there yet) is reported in `problems` and never
@@ -105,6 +106,45 @@ async function guideReviewCards(admin: SupabaseClient): Promise<TodayCard[]> {
       card('guide-review', str(g.id), str(g.name) || 'Guide page', facts(fact('Kind of page', str(g.kind).replace(/-/g, ' ')), fact('Quality notes', str(g.quality_notes) || 'None'), fact('Written', when(g.updated_at)), blocked ? fact('Cannot publish here', blocked) : null), blocked ? 1e15 + ms(g.updated_at) : ms(g.updated_at), { link: { label: 'Read it first', href: `/admin/guides/${str(g.id)}` } }),
     )
   }
+  return out
+}
+
+const REVIEW_TABLE = { post: 'posts', guide: 'guides', page_copy: 'page_copy' } as const
+
+/** Held drafts the scheduled AI auto-heal improved but did NOT publish (lib/ai-heal-review.ts). A person publishes or keeps them held.
+ * An item whose draft was published, deleted or already reverted elsewhere is closed and drops out (so it never clogs the 20-item cap). */
+async function healReviewCards(admin: SupabaseClient): Promise<TodayCard[]> {
+  const queue = await readReviewQueue(admin)
+  const open = openReviewItems(queue)
+  if (open.length === 0) return []
+  const gone: string[] = []
+  const live = new Set<string>()
+  for (const type of ['post', 'guide', 'page_copy'] as const) {
+    const ids = open.filter((i) => i.type === type).map((i) => i.id)
+    if (!ids.length) continue
+    const { data, error } = await admin.from(REVIEW_TABLE[type]).select('id, status').in('id', ids)
+    if (error) throw new Error(error.message)
+    for (const r of (data ?? []) as Row[]) if (r.status === 'draft') live.add(`${type}:${str(r.id)}`)
+  }
+  const allEditIds = open.flatMap((i) => i.editIds)
+  const reverted = new Set<string>()
+  if (allEditIds.length) {
+    const { data } = await admin.from('content_edits').select('id, reverted_at').in('id', allEditIds)
+    for (const r of (data ?? []) as Row[]) if (r.reverted_at) reverted.add(str(r.id))
+  }
+  const out: TodayCard[] = []
+  for (const i of open) {
+    const allReverted = i.editIds.length > 0 && i.editIds.every((e) => reverted.has(e))
+    if (!live.has(`${i.type}:${i.id}`) || allReverted) {
+      gone.push(i.key)
+      continue
+    }
+    const href = i.type === 'post' ? `/admin/blog/${i.id}` : i.type === 'guide' ? `/admin/guides/${i.id}` : '/admin/content-edits'
+    out.push(
+      card('heal-review', i.key, `Improved: ${i.title}`, facts(fact('What changed', i.summary.what), fact('Before', i.summary.before), fact('After', i.summary.after), fact('Improved', when(i.at)), fact('The last publish check said', i.refusal)), ms(i.at), { link: { label: 'Read it first', href } }),
+    )
+  }
+  if (gone.length) await closeGoneReviews(admin, gone).catch(() => undefined)
   return out
 }
 
@@ -239,6 +279,7 @@ export async function buildTodayQueue(admin: SupabaseClient, now: number = Date.
     ['News drafts', () => newsDraftCards(admin)],
     ['Blog topics', () => topicCards(admin)],
     ['Guide review queue', () => guideReviewCards(admin)],
+    ['Auto-heal improvements to review', () => healReviewCards(admin)],
     ['Blog drafts', () => blogDraftCards(admin)],
     ['Leads', () => leadCards(admin)],
     ['Hot leads', () => hotLeadCards(admin)],
@@ -257,6 +298,15 @@ export async function buildTodayQueue(admin: SupabaseClient, now: number = Date.
   // A hot lead has its own card (with the agent picker), so the plain "new lead" card for the same lead is left out.
   const hotIds = new Set(all.filter((c) => c.kind === 'hot-lead').map((c) => c.id.slice('hot-lead:'.length)))
   if (hotIds.size > 0) for (let i = all.length - 1; i >= 0; i--) if (all[i].kind === 'lead-reply' && hotIds.has(all[i].id.slice('lead-reply:'.length))) all.splice(i, 1)
+
+  // A draft the auto-heal improved has its own review card, so the plain draft cards for the same row are left out.
+  const reviewKeys = new Set(all.filter((c) => c.kind === 'heal-review').map((c) => c.id.slice('heal-review:'.length)))
+  if (reviewKeys.size > 0) {
+    for (let i = all.length - 1; i >= 0; i--) {
+      const c = all[i]
+      if ((c.kind === 'blog-draft' && reviewKeys.has(`post-${c.id.slice('blog-draft:'.length)}`)) || (c.kind === 'guide-review' && reviewKeys.has(`guide-${c.id.slice('guide-review:'.length)}`))) all.splice(i, 1)
+    }
+  }
 
   // Never more than PER_KIND of one kind, and never the same id twice.
   const seen = new Set<string>()

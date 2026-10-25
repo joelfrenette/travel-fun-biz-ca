@@ -8,6 +8,7 @@ import { listEdits, repairDay } from '@/lib/content-edits'
 import type { HealBudget } from '@/lib/heal-loop'
 import type { AiFixItem, AiFixReport } from '@/lib/system-check-prompt'
 import type { Light, StageId } from '@/lib/system-check'
+import type { ImprovedInfo } from '@/lib/ai-heal-review'
 
 // The ONE bounded AI step of the System check's Auto-heal ("rerun AI to try and fix everything listed").
 //
@@ -87,29 +88,34 @@ export interface AiFixDeps {
   append?: (entries: AutoDecision[]) => Promise<void>
   /** Absolute time (Date.now() ms) the repairs must stop by. Default: now + AI_BUDGET_MS. The unattended flywheel step passes a tighter one. */
   deadlineMs?: number
+  /** Default true: the repairs publish a held draft that passes the gate (the System check Auto-heal button, as always). The scheduled
+   * ai_heal step passes false: repair only, the draft stays HELD, and each improved item is reported to `onImproved`. */
+  publish?: boolean
+  onImproved?: (info: ImprovedInfo) => Promise<void> | void
 }
 
 const done = (skipped: string): AiFixReport => ({ items: [], calls: 0, skipped })
 
 /** The real repairs: the same functions the daily self-heal calls, each with its own caps and its own audit log. */
-function realRepairs(admin: SupabaseClient, now: Date): Required<AiFixDeps>['repairs'] {
+function realRepairs(admin: SupabaseClient, now: Date, mode: { publish?: boolean; onImproved?: AiFixDeps['onImproved'] } = {}): Required<AiFixDeps>['repairs'] {
+  const { publish, onImproved } = mode
   return {
     posts: async ({ deadlineMs }) => {
       const { buildSiteIndex } = await import('@/lib/content-heal-run')
       const { rehealStuckDrafts } = await import('@/lib/blog-reheal')
       const idx = await buildSiteIndex(admin)
       // refresh:false = only the stuck drafts, never a rewrite of an already published post.
-      const r = await rehealStuckDrafts(admin, { existing: idx.existing, now, deadlineMs, refresh: false })
+      const r = await rehealStuckDrafts(admin, { existing: idx.existing, now, deadlineMs, refresh: false, publish, onImproved })
       return { tried: r.tried, changed: r.published + r.repaired, calls: r.calls, note: r.note || (r.problems[0] ?? '') }
     },
     guides: async ({ limit, budget, deadlineMs }) => {
       const { healHeldGuides } = await import('@/lib/heal-drafts')
-      const r = await healHeldGuides(admin, { now, limit, budget, deadlineMs })
+      const r = await healHeldGuides(admin, { now, limit, budget, deadlineMs, publish, onImproved })
       return { tried: r.tried, changed: r.published + r.healedDraft, calls: r.calls, note: r.note || (r.problems[0] ?? '') }
     },
     copy: async ({ limit, budget, deadlineMs }) => {
       const { healHeldCopy } = await import('@/lib/heal-drafts')
-      const r = await healHeldCopy(admin, { now, limit, budget, deadlineMs })
+      const r = await healHeldCopy(admin, { now, limit, budget, deadlineMs, publish, onImproved })
       return { tried: r.tried, changed: r.published + r.healedDraft, calls: r.calls, note: r.note || (r.problems[0] ?? '') }
     },
   }
@@ -148,7 +154,7 @@ export async function runAiFixStep(admin: SupabaseClient, listed: ListedStage[],
     if (!budget.readable) return done(`The daily AI repair limit could not be read (${budget.reason ?? 'unknown'}), so no AI call was made.`)
     if (budget.remaining() < 1) return done(`The daily AI repair limit is used up (${budget.used} of ${budget.cap} calls today), so no AI call was made.`)
 
-    const repairs = { ...realRepairs(admin, now), ...(deps.repairs ?? {}) }
+    const repairs = { ...realRepairs(admin, now, { publish: deps.publish, onImproved: deps.onImproved }), ...(deps.repairs ?? {}) }
     const startedIso = now.toISOString()
     const deadlineMs = deps.deadlineMs ?? Date.now() + AI_BUDGET_MS
     const items: AiFixItem[] = []

@@ -22,6 +22,7 @@ import { openBudget, type HealBudget } from '@/lib/heal-loop'
 import { styleById } from '@/lib/content-styles'
 import { isAiConfigured, parseModelJson } from '@/lib/ai-verify'
 import { generateSlug } from '@/lib/utils'
+import type { ImprovedInfo } from '@/lib/ai-heal-review'
 
 // Growth loop WP19: a draft is no longer left for a person. The shared repair runs first (plain code and one cheap call),
 // and a draft that is still blocked goes through the heal loop (lib/heal-loop.ts: suggester, independent QA judge, up to
@@ -75,6 +76,8 @@ export function isRehealCandidate(row: Row, tags: RehealTags | null, now: Date):
   // Only the autoblog's own drafts: a draft an admin typed by hand is never published by the heal.
   if (!tags || !tags.cta_style) return false
   if (tags.reheal_state === 'rejected') return false
+  // Improved by the scheduled auto-heal and waiting for a person (Today card "Auto-heal improved this"): no caller touches it again.
+  if (tags.reheal_state === 'review') return false
   const created = Date.parse(str(row.created_at))
   if (!Number.isFinite(created) || now.getTime() - created > REHEAL_MAX_AGE_DAYS * 86_400_000) return false
   const stuck = !!(tags.held_reasons && tags.held_reasons.trim()) || row.seo_score === null || row.seo_score === undefined
@@ -179,7 +182,20 @@ async function groundingAndTrip(admin: SupabaseClient, post: ComposedPost): Prom
 
 /** Gives stuck autoblog drafts their daily try. `existing` is the set of paths that exist on the site (for the gate's
  * link check). Never throws. */
-export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number; refresh?: boolean }): Promise<RehealResult> {
+export async function rehealStuckDrafts(
+  admin: SupabaseClient,
+  opts: {
+    existing: Set<string>
+    now?: Date
+    model?: ModelCall
+    deadlineMs?: number
+    refresh?: boolean
+    /** Default true: a draft that passes the gate is published, as always. False (the scheduled ai_heal step) = repair only, never publish; the
+     * draft stays held and is reported through `onImproved`. */
+    publish?: boolean
+    onImproved?: (info: ImprovedInfo) => Promise<void> | void
+  },
+): Promise<RehealResult> {
   const drafts = await rehealDraftsOnly(admin, opts)
   // loop-blog-quality: the same daily step also gives the weakest PUBLISHED posts their weekly refresh (no new cron). It never throws and
   // only touches the result when it did something or had a problem to report.
@@ -195,7 +211,7 @@ export async function rehealStuckDrafts(admin: SupabaseClient, opts: { existing:
   }
 }
 
-async function rehealDraftsOnly(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number }): Promise<RehealResult> {
+async function rehealDraftsOnly(admin: SupabaseClient, opts: { existing: Set<string>; now?: Date; model?: ModelCall; deadlineMs?: number; publish?: boolean; onImproved?: (info: ImprovedInfo) => Promise<void> | void }): Promise<RehealResult> {
   const out: RehealResult = { tried: 0, published: 0, rejected: 0, deferred: 0, repaired: 0, calls: 0, problems: [], note: '' }
   const now = opts.now ?? new Date()
   try {
@@ -295,6 +311,17 @@ async function rehealDraftsOnly(admin: SupabaseClient, opts: { existing: Set<str
         key_takeaways: v.key_takeaways,
       }
       const changedText = editIds.length > 0
+
+      if (clean && opts.publish === false) {
+        // Review mode (the scheduled ai_heal step): a draft that now passes the gate is NEVER published here. The repaired text is kept on the
+        // draft (logged, so Undo works), the draft stays held, and it is reported so a Today card can ask a person. No publishing slot is used.
+        const repairedBefore = out.repaired
+        if (changedText) await writeDraft(admin, id, textColumns, editIds, path, false, out, row.updated_at)
+        const saved = changedText && out.repaired > repairedBefore
+        await tagVariant(admin, slug, { held_reasons: '', reheal_tries: next.tries, reheal_last: now.toISOString(), ...(saved ? { reheal_state: 'review' } : {}) })
+        if (saved) await opts.onImproved?.({ type: 'post', id, path, title: v.title, editIds, originalNotes: null })
+        continue
+      }
 
       if (clean) {
         // The shared publishing limiter (lib/publish-cadence.ts): asked only now, when the draft really is about to go live, so a wait never
