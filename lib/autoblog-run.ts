@@ -41,6 +41,7 @@ import { generateSlug } from '@/lib/utils'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { loadMeaningContext, meaningRejection } from '@/lib/topic-meaning-run'
 import { enrollIfDue } from '@/lib/distribution'
+import { fitTitle } from '@/lib/title-fit'
 import { getAutoblogPostsPerWeek, getAutoblogMaxPerDay, mayWriteAnotherToday, isPublishDayDue, currentWeekday } from '@/lib/autoblog-cadence'
 import { checkCadence, postCadenceKey, postLimits, recordPublish } from '@/lib/publish-cadence'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
@@ -613,7 +614,7 @@ A first draft of this post was refused by the quality checks for these reasons, 
       ? coverAlt({ title: final.title, destination: groundingPackage?.destination ?? null, keyword: final.primary_keyword })
       : image?.alt_text ?? null
     post = await createPost({
-      title: final.title,
+      title: fitTitle(final.title),
       slug: final.slug,
       body: appendStyledCta(final.body, ctaStyle.id, groundingPackage),
       tags: final.tags,
@@ -621,7 +622,7 @@ A first draft of this post was refused by the quality checks for these reasons, 
       alt_text: coverAltText,
       status: publishing ? 'published' : 'draft',
       publish_date: publishing ? new Date().toISOString().slice(0, 10) : null,
-      meta_title: final.seo_title,
+      meta_title: final.seo_title ? fitTitle(final.seo_title) : final.seo_title,
       meta_description: final.seo_description,
       content_style: final.content_style || style.id,
       faq: final.faq,

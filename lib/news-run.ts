@@ -14,7 +14,7 @@ import { buildNhcBrief, isNhcPublicAdvisory, isTemplateBrief } from '@/lib/news-
 import { buildUkBrief, isUkFcdoSource, isUkTemplateBrief } from '@/lib/news-uk'
 import { buildCaBrief, isCaAdvisorySource, isCaTemplateBrief } from '@/lib/news-ca'
 import { createNewsPost, markSuperseded, publishQueuedDraft } from '@/lib/news-publish'
-import { newsTitle, parseNewsBody } from '@/lib/news-post'
+import { newsHeadlineOf, newsTitle, parseNewsBody, trustedHeadline } from '@/lib/news-post'
 import { STORM_POST_WINDOW_MS, classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, priorityOf, stormKey, stormKeysMatch, stormSignature, titleKey, titleSimilarity, SIMILAR_TITLE_THRESHOLD } from '@/lib/news-relevance'
 import { getNewsMode, getNewsPerDay, getNewsSocialEnabled, getNewsUkPerDay, type NewsMode } from '@/lib/news-settings'
 import { maxAgeMs, sourceByKey, type NewsSource } from '@/lib/news-sources'
@@ -222,15 +222,15 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
           await setItem(admin, item.id, { status: 'expired', reject_reason: 'too old to publish any more (36 hours for storms and breaking notices, 7 days for the rest); the draft was left as it is' })
           continue
         }
-        const { data: post } = await admin.from('posts').select('title, body, status, meta_description').eq('slug', item.post_slug as string).maybeSingle()
-        const p = post as { title: string; body: string; status: string; meta_description: string | null } | null
+        const { data: post } = await admin.from('posts').select('title, body, status, meta_description, alt_text').eq('slug', item.post_slug as string).maybeSingle()
+        const p = post as { title: string; body: string; status: string; meta_description: string | null; alt_text: string | null } | null
         const parsed = p ? parseNewsBody(p.body) : null
-        if (!p || p.status !== 'draft' || !parsed || !/^News: /.test(p.title)) {
+        if (!p || p.status !== 'draft' || !parsed || !(trustedHeadline(p) !== null || /^News: /.test(p.title))) {
           notes.push(`a queued draft (${item.post_slug}) was left alone: it is gone, already live, or was edited out of shape`)
           continue
         }
         const facts = factsOf(item, source)
-        const brief: NewsBrief = { headline: p.title.replace(/^News: /, ''), happened: parsed.happened, means: parsed.means }
+        const brief: NewsBrief = { headline: newsHeadlineOf(p), happened: parsed.happened, means: parsed.means }
         // A draft that is exactly what a plain-code template builds from the item today is judged with the template word floor.
         const templated = (isNhcSource(item.source_key) && isTemplateBrief(facts, item.source_key, brief)) || (isUkFcdoSource(item.source_key) && isUkTemplateBrief(facts, item.source_key, brief)) || (isCaAdvisorySource(item.source_key) && isCaTemplateBrief(facts, item.source_key, brief))
         const problems = [

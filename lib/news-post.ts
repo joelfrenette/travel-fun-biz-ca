@@ -1,4 +1,5 @@
 import { generateSlug } from '@/lib/utils'
+import { fitTitle, TITLE_FIT_MAX } from '@/lib/title-fit'
 import type { NewsBrief } from '@/lib/news-brief'
 
 // Growth loop WP20: how a travel news post looks. A news post is an ordinary blog post (posts table, /blog/<slug>), tagged
@@ -24,7 +25,21 @@ export function newsSlug(headline: string, itemId: string): string {
   return `${NEWS_SLUG_PREFIX}${base || 'travel-news'}-${id}`
 }
 
-export const newsTitle = (headline: string): string => `News: ${headline.trim()}`
+/** "News: <headline>", never longer than 60 characters (Joel's title rule). The full headline stays in the cover alt text and the body. */
+export const newsTitle = (headline: string): string => fitTitle(`News: ${headline.trim()}`, TITLE_FIT_MAX)
+
+/** The headline a saved news post was written from. The cover alt text holds the full headline (the title may have been shortened to
+ * 60 characters, or given a date / id to keep it unique); it is trusted only while the title still matches it, so a title that was
+ * edited by hand is read as the title (and fails the checks as before). */
+export function trustedHeadline(post: { title: string; alt_text?: string | null }): string | null {
+  const alt = (post.alt_text ?? '').trim()
+  if (!alt) return null
+  if (post.title === newsTitle(alt)) return alt
+  const suffix = /\s(\((?:[A-Z][a-z]{2} \d{1,2}|[a-z0-9]{6})\))$/.exec(post.title)
+  return suffix && post.title === fitTitle(`News: ${alt}`, TITLE_FIT_MAX, { uniqueSuffix: suffix[1] }) ? alt : null
+}
+
+export const newsHeadlineOf = (post: { title: string; alt_text?: string | null }): string => trustedHeadline(post) ?? post.title.replace(/^News: /, '')
 
 /** The date as Canadians read it, in the site's time zone: "October 12, 2026". */
 export function formatNewsDate(iso: string | Date, timeZone = 'America/Toronto'): string {

@@ -36,7 +36,8 @@ export const MAX_REDIRECT_HOPS = 6
 export const POLITE_DELAY_MS = 120
 
 export const TITLE_MIN = 15
-export const TITLE_MAX = 65
+/** Joel's rule: no title is longer than 60 characters (lib/title-fit.ts shortens them; the crawl heal rewrites news titles). */
+export const TITLE_MAX = 60
 export const DESC_MIN = 70
 export const DESC_MAX = 165
 export const SLOW_MS = 3_000
