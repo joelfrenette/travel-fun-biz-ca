@@ -117,8 +117,8 @@ export function TodayStack() {
       if (effective !== "snooze") {
         const need = needsConfirm(card.kind, effective)
         if (need && !(confirming && confirming.id === card.id && confirming.op === effective)) {
+          // The button itself turns into "Tap again to confirm", so no banner is needed.
           setConfirming({ id: card.id, op: effective })
-          say(`"${actionFor(card.kind, effective)?.label}" cannot be undone. Tap it again to confirm.`, true)
           setDx(0)
           return
         }
@@ -145,7 +145,8 @@ export function TodayStack() {
           }
         }
         setConfirming(null)
-        await load(true)
+        // The card already moved on (dispatch above), so the refresh must not hold the buttons busy.
+        void load(true)
       } catch {
         say("Could not reach the server. Please try again.", true)
       } finally {

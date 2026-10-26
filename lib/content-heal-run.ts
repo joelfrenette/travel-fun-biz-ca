@@ -667,9 +667,10 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
     const reverted = revertedFields.get(`${item.type}:${item.id}`) ?? new Set<string>()
     const fixable = s.result.failed.some((id) => SEO_FIX[id] !== null)
     if (!fixable) continue
-    // A page with model-written additions still waiting for a person is left alone until they decide (no second proposal on top of it).
+    // A page with model-written additions still waiting for a person gets no second proposal on top of it, but its cheap fixes still run
+    // (a cheap fix that changes a held field closes that proposal as gone when it is approved).
     const addKey = additionKey(item.type as PageType, item.id)
-    if (findAddition(additions, addKey)?.status === 'open') continue
+    const hasOpenAddition = findAddition(additions, addKey)?.status === 'open'
 
     // With an incomplete site index no link is stripped (a page that looks missing may only be unread).
     const plan = planCheapFixes(item, s.result.failed, idx.existing, idx.targets, { stripDead: idx.ok })
@@ -677,7 +678,7 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
     let fields = plan.fields
     for (const field of reverted) fields = restoreField(fields, item.fields, field)
     const itemKey = `${item.type}:${item.type === 'page_copy' ? item.path : item.id}`
-    let wantsModel = aiOn && plan.generate.filter((k) => !reverted.has(k)).length > 0
+    let wantsModel = aiOn && !hasOpenAddition && plan.generate.filter((k) => !reverted.has(k)).length > 0
     // A page whose generation call produced nothing usable is not retried for 7 days, so one stubborn page cannot
     // take a slot every day and starve the others.
     if (wantsModel) {
