@@ -39,6 +39,7 @@ import {
   runPublishPassingNews,
   runReleaseHeldPosts,
   runRetryFailedPosts,
+  splitSetupBlocked,
   safeTopicVerdict,
   stepResumeVerdict,
   type FailedPostRow,
@@ -163,6 +164,14 @@ async function main() {
     for (const t of ['401 Unauthorized', 'The access token has expired, reconnect Instagram', 'UPLOAD_POST_API_KEY is not set', 'Forbidden: permission denied', 'instagram: 400 Invalid media aspect ratio', 'facebook: rejected as spam', '422 caption too long', 'None of your selected networks takes an image post', 'duplicate content', null, '', 'something odd nobody has seen']) check(`classify: ${JSON.stringify(t)} needs a person`, cls(t) === 'needs-person')
     for (const t of ['request timed out', 'Upload-Post accepted this but has not confirmed it posted yet', '504 Gateway Timeout', '500 Internal Server Error']) check(`classify: "${t.slice(0, 40)}" may already have posted (ambiguous)`, cls(t) === 'ambiguous')
     check('classify: a sign-in problem wins over a temporary-sounding word', cls('403 forbidden, try again') === 'needs-person')
+    // A TikTok title over 90 is shortened at send time, so a retry passes (real failure text 2026-10-26).
+    const tiktokLong = 'tiktok: TikTok title is too long (346 characters, counted the way TikTok does: an emoji counts as 2). Maximum allowed is 90. Please shorten it.'
+    check('classify: a TikTok title that is too long is self-fixable (the send path shortens it)', cls(tiktokLong) === 'self-fixable' && cls('tiktok/instagram: ' + tiktokLong.slice(8)) === 'self-fixable')
+    check('classify: an Instagram caption that is too long still needs a person', cls('instagram: caption is too long') === 'needs-person')
+    check('classify: a TikTok title error next to a real refusal still needs a person', cls(tiktokLong + '; instagram: 403 forbidden') === 'needs-person')
+    const setupErr = tiktokLong + '; pinterest: Pinterest Board ID is required when uploading to Pinterest.'
+    check('setup: the Pinterest board error is split out, the rest is kept', splitSetupBlocked(setupErr).blocked[0] === 'pinterest' && cls(splitSetupBlocked(setupErr).rest) === 'self-fixable')
+    check('setup: an error with no setup problem is untouched', splitSetupBlocked('429 rate limit').blocked.length === 0 && splitSetupBlocked(null).rest === '')
   }
 
   // ================================================================================================
@@ -213,6 +222,16 @@ async function main() {
       check('run: the rows that need a person are logged once as "Needs Joel", with no undo', log.filter((e) => e.action.startsWith('Needs Joel')).map((e) => e.subject).sort().join() === 'auth,partly' && log.filter((e) => e.action.startsWith('Needs Joel')).every((e) => e.undo === null))
       await runRetryFailedPosts(admin, NOW, { retryPost: requeue(db) })
       check('run: a second pass does not log the same card again', logOf(db).filter((e) => e.action.startsWith('Needs Joel')).length === 2)
+
+      // The real failure of 2026-10-26: TikTok title too long plus Pinterest board missing. Pinterest is paused, the post is retried.
+      {
+        const real = 'tiktok: TikTok title is too long (346 characters). Maximum allowed is 90. Please shorten it.; pinterest: Pinterest Board ID is required when uploading to Pinterest.'
+        const w = world(base, { post_distribution: [failedPost('germany', { last_error: real, updated_at: ago(30 * 60_000) })] })
+        const rr = await runRetryFailedPosts(w.admin, NOW, { retryPost: requeue(w.db) })
+        const pauses = parsePauses(setting(w.db, NETWORK_PAUSES_KEY))
+        check('real failure: the post is re-queued by itself, not shown to Joel', rr.acted === 1 && rowsOf(w.db, 'post_distribution')[0].stage === 'queued' && !logOf(w.db).some((e) => e.action.startsWith('Needs Joel')))
+        check('real failure: Pinterest is paused for a week and the pause has an undo', !!pauses.pinterest && Date.parse(pauses.pinterest.until) - NOW.getTime() >= 7 * 24 * HOUR - 1000 && logOf(w.db).some((e) => e.subject === 'pinterest' && e.undo?.kind === 'unpause-network'))
+      }
 
       const u = await undoAutoDecision(admin, retried as AutoDecision)
       check('undo: the retry is put back to failed (not re-sent) and says so', u.ok && rowsOf(db, 'post_distribution').find((x) => x.slug === 'ok-1')?.stage === 'failed')

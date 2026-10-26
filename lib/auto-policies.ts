@@ -3,6 +3,7 @@ import { getSetting, setSetting } from '@/lib/app-settings'
 import { decision, policyGate, appendDecisions, readVetoes, isVetoedIn, type AutoDecision } from '@/lib/auto-decisions'
 import { getDistributionMode } from '@/lib/distribution'
 import { resolveIssue } from '@/lib/issues'
+import { NETWORK_PAUSE_HOURS, pausedNow, readPauses, writePauses } from '@/lib/network-pause'
 import { AUTO_APPROVE_MAX_BACKLOG, countApprovedUnused, gscSupport, rankByGsc, readGscQueries, setTopicStatus, topicConflict, type GscQuery, type PostFact, type TopicFacts } from '@/lib/blog-topics'
 import { findDuplicate } from '@/lib/content-dedupe'
 import { generateSlug } from '@/lib/utils'
@@ -51,11 +52,32 @@ const AMBIGUOUS = /time(d)?[ -]?out|\b(408|500|504)\b|did not confirm|has not co
 const SELF_FIXABLE =
   /\b(429|502|503)\b|rate.?limit|too many requests|temporar|try again|service unavailable|bad gateway|econnreset|econnrefused|enotfound|socket hang up|fetch failed|network (error|request)|could not be (checked|reached)|unreachable|overloaded|did not finish|could not (generate|write)/i
 
+/** One failed network in a send error reads "network: message", joined with "; ". */
+const splitSegments = (text: string): string[] => text.split(/;\s+(?=[a-z][a-z/ ]*:\s)/i).map((x) => x.trim()).filter(Boolean)
+const TIKTOK_TITLE_SEGMENT = /^[a-z/ ]*tiktok[a-z/ ]*:\s*tiktok title is too long/i
+/** A network that cannot post until a person sets it up once (Pinterest needs a board chosen in GoHighLevel). */
+const NEEDS_SETUP_SEGMENT = /^pinterest\s*:\s*pinterest board id is required/i
+
+/** The error without the parts the send path now repairs by itself. Pure. */
+export function withoutRepairedSegments(text: string): string {
+  return splitSegments(text).filter((seg) => !TIKTOK_TITLE_SEGMENT.test(seg)).join('; ')
+}
+
+/** Networks named in the error that need a one-time setup, and the error without them. Pure. */
+export function splitSetupBlocked(text: string | null | undefined): { blocked: string[]; rest: string } {
+  const segs = splitSegments((text ?? '').trim())
+  const blocked = segs.filter((seg) => NEEDS_SETUP_SEGMENT.test(seg)).map((seg) => seg.split(':')[0].trim().toLowerCase())
+  return { blocked, rest: segs.filter((seg) => !NEEDS_SETUP_SEGMENT.test(seg)).join('; ') }
+}
+
 /** Sorts a send or step error into: a retry will probably fix it, it may already have posted, or a person must look. Unknown text is
  * treated as needing a person (never guess in favour of posting twice). Pure. */
 export function classifySendError(text: string | null | undefined): { cls: ErrorClass; why: string } {
-  const t = (text ?? '').trim()
-  if (!t) return { cls: 'needs-person', why: 'no reason was recorded' }
+  const raw = (text ?? '').trim()
+  if (!raw) return { cls: 'needs-person', why: 'no reason was recorded' }
+  // A TikTok title over 90 is repaired at send time (lib/ghl-social.ts fitTikTokTitle), so a retry passes. Segments the code now repairs are taken out first.
+  const t = withoutRepairedSegments(raw)
+  if (!t) return { cls: 'self-fixable', why: 'the TikTok title is now shortened to 90 before sending, so a retry passes' }
   if (NEEDS_PERSON.test(t)) return { cls: 'needs-person', why: 'a retry cannot fix this (sign-in, setup or the network refused the content)' }
   if (AMBIGUOUS.test(t)) return { cls: 'ambiguous', why: 'it may already have been posted, so a person should check before it is sent again' }
   if (SELF_FIXABLE.test(t)) return { cls: 'self-fixable', why: 'a temporary problem that usually passes by itself' }
@@ -69,6 +91,8 @@ export function classifySendError(text: string | null | undefined): { cls: Error
 /** How long a failed post waits before the 1st, 2nd and 3rd automatic retry (from the time it last failed). */
 export const RETRY_WAITS_MS: readonly number[] = [15 * MINUTE, 2 * HOUR, 12 * HOUR]
 export const MAX_AUTO_RETRIES = RETRY_WAITS_MS.length
+/** A network that needs a one-time setup is left out this long (NETWORK_PAUSE_HOURS is the watchdog's 24-hour pause). */
+export const SETUP_PAUSE_HOURS = Math.max(NETWORK_PAUSE_HOURS, 7 * 24)
 /** A failed carousel or video step must be this old before it is resumed (once). */
 export const STUCK_STEP_HOURS = 2
 export const RETRY_STATE_KEY = 'auto_retry_state'
@@ -181,9 +205,20 @@ export async function runRetryFailedPosts(admin: SupabaseClient, now: Date = new
     // Failed social posts. Only in auto mode (a held review mode must never post by itself).
     if ((await getDistributionMode(admin)) === 'auto') {
       const { data } = await admin.from('post_distribution').select('slug, stage, last_error, sent_platforms, updated_at').eq('content_type', 'post').eq('stage', 'failed').order('updated_at', { ascending: true }).limit(30)
+      let pauses = await readPauses(admin)
       for (const row of (data ?? []) as FailedPostRow[]) {
+        // A network that needs a one-time setup (Pinterest board) is paused for a week so posts stop failing on it; the post is judged on the rest.
+        const setup = splitSetupBlocked(row.last_error)
+        for (const net of setup.blocked) {
+          if (!pauses || pausedNow(pauses, now).includes(net)) continue
+          pauses[net] = { until: new Date(now.getTime() + SETUP_PAUSE_HOURS * HOUR).toISOString(), since: now.toISOString(), strikes: (pauses[net]?.strikes ?? 0) + 1 }
+          if ((await writePauses(admin, pauses)).error) { pauses = null; break }
+          dirty = true
+          log.push(decision('retry_failed_posts', net, `Paused ${net} for ${SETUP_PAUSE_HOURS / 24} days`, `${net} refuses every post until it is set up once (Pinterest: choose a board in the GoHighLevel Social Planner). Other networks keep posting. Setup is on the setup checklist.`, { kind: 'unpause-network', ref: net }, now))
+        }
         const n = state.retries[row.slug]?.n ?? 0
-        const v = postRetryVerdict(row, n, now, isVetoedIn(vetoes, 'retry_failed_posts', row.slug))
+        const judged = setup.blocked.length && pauses ? { ...row, last_error: setup.rest || null } : row
+        const v = postRetryVerdict(judged, n, now, isVetoedIn(vetoes, 'retry_failed_posts', row.slug))
         if (v.act === 'card') card(row.slug, `the post "${row.slug}" failed`, v.why)
         if (v.act !== 'retry' || room <= 0) continue
         const err = await retryPost(row.slug)
