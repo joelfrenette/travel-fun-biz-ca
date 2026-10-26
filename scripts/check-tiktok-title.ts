@@ -16,5 +16,9 @@ check('a short caption is unchanged', fitTikTokTitle('Cozumel in 60 seconds') ==
 check('one huge word is cut by weight', weight(fitTikTokTitle('x'.repeat(300))) <= 90 && fitTikTokTitle('x'.repeat(300)).length > 0)
 check('empty text gives empty title', fitTikTokTitle('') === '')
 
+// The live provider is Upload-Post (app_settings distribution_provider), so its photo and video sends must set TikTok's own title.
+const src = require('node:fs').readFileSync('lib/upload-post.ts', 'utf8') as string
+check('Upload-Post sends tiktok_title for photos and videos', (src.match(/form\.set\('tiktok_title', fitTikTokTitle\(input\.text\)\)/g) ?? []).length === 2)
+
 if (failed) { console.log(`\n${failed} check(s) failed`); process.exit(1) }
 console.log('\nAll checks passed.')

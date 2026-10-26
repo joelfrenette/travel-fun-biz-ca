@@ -6,6 +6,7 @@
  * load-bearing, not decoration.
  */
 import { blockIfDry } from '@/lib/dry-run'
+import { fitTikTokTitle } from '@/lib/ghl-social'
 const BASE = 'https://api.upload-post.com'
 
 export function uploadPostConfigured(): boolean {
@@ -218,6 +219,8 @@ export async function uploadPostSendPhotos(input: {
   form.set('user', input.user)
   for (const p of input.platforms) form.append('platform[]', p)
   if (input.text.trim()) form.set('title', input.text)
+  // TikTok refuses a title over 90 and would otherwise take the whole caption; its own field keeps the other networks' caption intact.
+  if (input.text.trim() && input.platforms.includes('tiktok')) form.set('tiktok_title', fitTikTokTitle(input.text))
   if (input.scheduleDate) form.set('scheduled_date', input.scheduleDate)
   let n = 0
   for (const url of urls) {
@@ -347,6 +350,7 @@ export async function uploadPostSendVideo(input: {
   form.set('user', input.user)
   for (const p of input.platforms) form.append('platform[]', p)
   if (input.text.trim()) form.set('title', input.text)
+  if (input.text.trim() && input.platforms.includes('tiktok')) form.set('tiktok_title', fitTikTokTitle(input.text))
   try {
     const src = await fetch(input.videoUrl, { cache: 'no-store', signal: AbortSignal.timeout(30_000) })
     const type = (src.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
