@@ -186,6 +186,10 @@ async function main() {
     check('retry: third retry needs 12 hours, not 5', v(failedRow({ updated_at: ago(5 * HOUR) }), 2) === 'wait' && v(failedRow({ updated_at: ago(13 * HOUR) }), 2) === 'retry')
     check('retry: after three retries it becomes a card for Joel', v(failedRow({ updated_at: ago(40 * HOUR) }), 3) === 'card')
     check('retry: must NOT retry a row that already reached a network (no duplicate post)', v(failedRow({ sent_platforms: ['instagram'], updated_at: ago(5 * HOUR) })) === 'card')
+    const tikTok = 'tiktok: TikTok title is too long (352 characters, counted the way TikTok does: an emoji counts as 2). Maximum allowed is 90. Please shorten it.'
+    check('retry: a row that reached other networks IS retried when only the repaired TikTok title failed (the sender skips networks already reached)', v(failedRow({ last_error: tikTok, sent_platforms: ['bluesky', 'x', 'facebook'], updated_at: ago(5 * HOUR) })) === 'retry')
+    check('retry: a row that reached a network is still a card when a different error is mixed in with the TikTok one', v(failedRow({ last_error: `${tikTok}; facebook: 422 content rejected`, sent_platforms: ['bluesky'], updated_at: ago(5 * HOUR) })) === 'card')
+    check('retry: an empty error on a row that reached a network is still a card', v(failedRow({ last_error: '', sent_platforms: ['bluesky'], updated_at: ago(5 * HOUR) })) === 'card')
     check('retry: must NOT retry an auth or setup error, or a content rejection (card)', v(failedRow({ last_error: '401 token expired', updated_at: ago(5 * HOUR) })) === 'card' && v(failedRow({ last_error: 'facebook: 422 content rejected', updated_at: ago(5 * HOUR) })) === 'card')
     check('retry: must NOT retry a timeout that may have posted (card)', v(failedRow({ last_error: 'request timed out', updated_at: ago(5 * HOUR) })) === 'card')
     check('retry: a person-undone retry is skipped, and a non-failed row is skipped', v(failedRow({ updated_at: ago(5 * HOUR) }), 0, true) === 'skip' && v(failedRow({ stage: 'queued', updated_at: ago(5 * HOUR) })) === 'skip')

@@ -116,7 +116,10 @@ export function postRetryVerdict(row: FailedPostRow, n: number, now: Date, vetoe
   if (vetoed) return { act: 'skip', why: 'a person undid an automatic retry of this post' }
   if (row.stage !== 'failed') return { act: 'skip', why: `the post is ${row.stage}, not failed` }
   const sent = row.sent_platforms ?? []
-  if (sent.length > 0) return { act: 'card', why: `it already reached ${sent.join(', ')}, so a retry could post it there twice; check which network is missing` }
+  // The send path skips networks a post already reached (distribution.ts), so a post that reached some networks may be retried when the only
+  // failures left are ones the send path now repairs (a TikTok title over 90). Any other failure still needs a person.
+  const onlyRepaired = !!(row.last_error ?? '').trim() && !withoutRepairedSegments(row.last_error ?? '')
+  if (sent.length > 0 && !onlyRepaired) return { act: 'card', why: `it already reached ${sent.join(', ')}, so a retry could post it there twice; check which network is missing` }
   const c = classifySendError(row.last_error)
   if (c.cls !== 'self-fixable') return { act: 'card', why: c.why }
   if (n >= MAX_AUTO_RETRIES) return { act: 'card', why: `${MAX_AUTO_RETRIES} automatic retries did not fix it` }
