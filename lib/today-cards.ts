@@ -35,6 +35,7 @@ export const TODAY_KIND_IDS = [
   'topic',
   'guide-review',
   'heal-review',
+  'live-additions',
   'blog-draft',
   'supplier-change',
   'issue-dismiss',
@@ -221,6 +222,19 @@ export const TODAY_KINDS: Record<TodayKindId, TodayKindDef> = {
     undo: { primary: true, secondary: false }, snoozeDays: 2, idPattern: /^(post|guide|copy)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     routes: { primary: 'PATCH /api/admin/blog/[id] | /api/admin/guides/[id] | /api/admin/page-copy/[id] {status:published}', secondary: 'revertEdit (lib/content-edits.ts) on every audit row of the repair', undo: 'PATCH the same route {status:draft}' },
     routeFiles: ['app/api/admin/blog/[id]/route.ts', 'app/api/admin/guides/[id]/route.ts', 'app/api/admin/page-copy/[id]/route.ts'],
+  },
+  // The daily live-page heal (lib/content-heal-run.ts) keeps its code-only fixes automatic, but what the MODEL wrote for an already-published
+  // page (FAQ, key takeaways, meta and share text) is held (lib/live-additions-review.ts, app_settings live_additions_review). Yes applies
+  // it to the live page, logged in Content edits with Undo; No discards it and the page is not proposed again for 30 days.
+  'live-additions': {
+    kind: 'live-additions', group: 'approve', order: 11.6, badge: 'AI wrote extras for a live page',
+    why: 'The AI wrote extra text (a FAQ, key takeaways or search text) for a page that is already live. Nothing was added yet. Look it over, then add it or not.',
+    facts: ['What', 'Before', 'After', 'Written'],
+    primary: { label: 'Add it to the live page', hint: 'Puts the new text on the live page and logs it in Content edits, where it can be undone.', mode: 'run' },
+    secondary: { label: 'Not now', hint: 'Throws the new text away. This page is not asked about again for 30 days.', mode: 'run' },
+    undo: { primary: true, secondary: false }, snoozeDays: 2, idPattern: /^(post|guide|copy)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    routes: { primary: 'applyLiveAdditions (lib/content-heal-run.ts): content_edits log first, then the page update', secondary: 'no page change (the proposal is discarded)', undo: 'revertEdit (lib/content-edits.ts) on every audit row written' },
+    routeFiles: ['app/api/admin/content-edits/route.ts'],
   },
   'blog-draft': {
     kind: 'blog-draft', group: 'approve', order: 12, badge: 'Blog draft',

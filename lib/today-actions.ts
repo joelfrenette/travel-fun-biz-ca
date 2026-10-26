@@ -8,6 +8,8 @@ import { decideSubmission } from '@/lib/agent-submissions'
 import { dismissFindings } from '@/lib/source-watch'
 import { todayEt } from '@/lib/ai-verify'
 import { revertEdit } from '@/lib/content-edits'
+import { approveAdditions, rejectAdditions, undoApproval as undoAdditions, type AdditionsDeps } from '@/lib/live-additions-review'
+import { applyLiveAdditions } from '@/lib/content-heal-run'
 import { approveReview, findItem as findReviewItem, readQueue as readReviewQueue, rejectReview, reopenReview, REVIEW_HOLD_NOTE, type ReviewDeps } from '@/lib/ai-heal-review'
 import { DISMISS_ACTIONS, type TodayKindId } from '@/lib/today-cards'
 import { TODAY_LEADS_DONE_KEY, addToIdList, parseIdList, removeFromIdList, type TodayOp } from '@/lib/today-state'
@@ -67,6 +69,17 @@ function reviewDeps(admin: SupabaseClient, request: Request): ReviewDeps {
       const table = item.type === 'guide' ? 'guides' : 'page_copy'
       if (notes === REVIEW_HOLD_NOTE) await admin.from(table).update({ quality_notes: notes }).eq('id', item.id)
       else await admin.from(table).update({ quality_notes: notes }).eq('id', item.id).eq('quality_notes', REVIEW_HOLD_NOTE)
+    },
+  }
+}
+
+/** The real collaborators of a live-additions decision: the heal's own apply path (log first, then update) and revertEdit. */
+function additionsDeps(admin: SupabaseClient): AdditionsDeps {
+  return {
+    apply: (item) => applyLiveAdditions(admin, item),
+    revert: async (editId) => {
+      const r = await revertEdit(admin, editId)
+      return { ok: r.ok, error: r.error, needsForce: r.needsForce }
     },
   }
 }
@@ -185,6 +198,13 @@ export async function runCardAction(input: RunInput): Promise<ActionResult> {
       return r.noop ? noop(r.message) : done(r.message)
     }
 
+    case 'live-additions': {
+      // Right = add the held text to the live page (re-checked, logged first, Undo in Content edits); left = throw it away for 30 days.
+      const r = yes ? await approveAdditions(admin, key, additionsDeps(admin)) : await rejectAdditions(admin, key)
+      if (!r.ok) return fail(r.status, r.error)
+      return r.noop ? noop(r.message) : done(r.message)
+    }
+
     case 'blog-draft': {
       const { data } = await admin.from('posts').select('status, publish_date').eq('id', key).maybeSingle()
       const row = data as { status: string; publish_date: string | null } | null
@@ -283,6 +303,12 @@ export async function undoCardAction(input: { admin: SupabaseClient; request: Re
       if (!r.ok) return fail(r.status, r.error || 'Could not put it back to a draft.')
       await reopenReview(admin, key, deps)
       return done('Back to a held draft. It is waiting for review again.')
+    }
+    case 'live-additions': {
+      // Only Yes can be undone: the audit rows are reverted and the proposal waits for review again.
+      if (op !== 'approve') return fail(409, 'That cannot be undone.')
+      const r = await undoAdditions(admin, key, additionsDeps(admin))
+      return r.ok ? done(r.message) : fail(r.status, r.error)
     }
     case 'blog-draft': {
       const mod = await import('@/app/api/admin/blog/[id]/route')

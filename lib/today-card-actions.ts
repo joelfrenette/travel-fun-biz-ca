@@ -48,6 +48,7 @@ export const CARD_ACTIONS: Partial<Record<TodayKindId, CardActionDef>> = {
   topic: plainDef({ files: ['lib/blog-topics.ts', 'lib/autoblog-run.ts'], pages: ['/admin/blog'] }),
   'guide-review': heal('heal-guide-draft', { files: ['lib/heal-drafts.ts', 'lib/guide-run.ts', 'app/api/admin/guides/[id]/route.ts'], pages: ['/admin/guides'] }),
   'heal-review': plainDef({ files: ['lib/ai-heal-review.ts', 'lib/flywheel/steps/ai-heal.ts', 'lib/system-check-ai.ts', 'lib/heal-drafts.ts'], pages: ['/admin/content-edits'] }),
+  'live-additions': plainDef({ files: ['lib/live-additions-review.ts', 'lib/content-heal-run.ts', 'lib/content-edits.ts'], pages: ['/admin/content-edits'] }),
   'blog-draft': plainDef({ files: ['lib/blog-reheal.ts', 'lib/blog-quality.ts', 'app/api/admin/blog/[id]/route.ts'], pages: ['/admin/blog'] }),
   'supplier-change': plainDef({ files: ['lib/source-watch.ts', 'lib/today-actions.ts'], pages: ['/admin/packages'] }),
   'issue-dismiss': plainDef({ files: ['lib/issues.ts', 'lib/today-issues.ts'], pages: ['/admin'] }),

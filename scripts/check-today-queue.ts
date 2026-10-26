@@ -37,6 +37,7 @@ const INVENTORY: Record<string, TodayKindId> = {
   'blog topic awaiting approval': 'topic',
   'guide held in the review queue': 'guide-review',
   'held draft the scheduled AI auto-heal improved but did not publish (publish, or keep held and undo the fix)': 'heal-review',
+  'AI-written FAQ, takeaways or search text for an already-live page, held by the daily heal (add it to the live page, or discard it for 30 days)': 'live-additions',
   'blog draft awaiting publish (with its quality check)': 'blog-draft',
   'supplier page says a trip changed (Dismiss)': 'supplier-change',
   'other Needs attention items with a Dismiss button': 'issue-dismiss',

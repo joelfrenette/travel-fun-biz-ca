@@ -22,6 +22,7 @@ import { readCronRuns } from '@/lib/cron-heartbeat'
 import { judgeAllCrons, judgeCron } from '@/lib/cron-health'
 import { startOfSiteDayIso } from '@/lib/content-edits'
 import { readSeoFixCandidates, SEO_FIX_MAX } from '@/lib/seo-playbook-todo'
+import { closeGone as closeGoneAdditions, describeChanges, openItems as openAdditionItems, readQueue as readAdditionsQueue } from '@/lib/live-additions-review'
 import { closeGone as closeGoneReviews, openItems as openReviewItems, readQueue as readReviewQueue } from '@/lib/ai-heal-review'
 
 // Builds the Today queue: every human decision, as cards, most urgent first. Each source is read on its own inside a
@@ -110,6 +111,36 @@ async function guideReviewCards(admin: SupabaseClient): Promise<TodayCard[]> {
 }
 
 const REVIEW_TABLE = { post: 'posts', guide: 'guides', page_copy: 'page_copy' } as const
+
+/** Model-written additions for pages that are already live, held by the daily heal (lib/live-additions-review.ts). A person adds them or not.
+ * An item whose page was unpublished or deleted is closed and drops out (so it never clogs the 20-item cap). */
+async function liveAdditionCards(admin: SupabaseClient): Promise<TodayCard[]> {
+  const queue = await readAdditionsQueue(admin)
+  const open = openAdditionItems(queue)
+  if (open.length === 0) return []
+  const gone: string[] = []
+  const live = new Set<string>()
+  for (const type of ['post', 'guide', 'page_copy'] as const) {
+    const ids = open.filter((i) => i.type === type).map((i) => i.id)
+    if (!ids.length) continue
+    const { data, error } = await admin.from(REVIEW_TABLE[type]).select('id, status').in('id', ids)
+    if (error) throw new Error(error.message)
+    for (const r of (data ?? []) as Row[]) if (r.status === 'published') live.add(`${type}:${str(r.id)}`)
+  }
+  const out: TodayCard[] = []
+  for (const i of open) {
+    if (!live.has(`${i.type}:${i.id}`)) {
+      gone.push(i.key)
+      continue
+    }
+    const d = describeChanges(i.changes)
+    out.push(
+      card('live-additions', i.key, `Extras for: ${i.title}`, facts(fact('What', i.what || d.what), fact('Before', d.before), fact('After', d.after), fact('Written', when(i.at)), fact('The last try said', i.note)), ms(i.at), { link: { label: 'Look at the page', href: i.path || '/admin/content-edits' } }),
+    )
+  }
+  if (gone.length) await closeGoneAdditions(admin, gone).catch(() => undefined)
+  return out
+}
 
 /** Held drafts the scheduled AI auto-heal improved but did NOT publish (lib/ai-heal-review.ts). A person publishes or keeps them held.
  * An item whose draft was published, deleted or already reverted elsewhere is closed and drops out (so it never clogs the 20-item cap). */
@@ -280,6 +311,7 @@ export async function buildTodayQueue(admin: SupabaseClient, now: number = Date.
     ['Blog topics', () => topicCards(admin)],
     ['Guide review queue', () => guideReviewCards(admin)],
     ['Auto-heal improvements to review', () => healReviewCards(admin)],
+    ['AI additions to live pages', () => liveAdditionCards(admin)],
     ['Blog drafts', () => blogDraftCards(admin)],
     ['Leads', () => leadCards(admin)],
     ['Hot leads', () => hotLeadCards(admin)],
