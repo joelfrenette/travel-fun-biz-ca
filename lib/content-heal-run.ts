@@ -51,6 +51,19 @@ import { runSafeEnrichment } from '@/lib/safe-enrich'
 import { runGuidePhotoHealDaily } from '@/lib/guide-photo-run'
 import { healLoopCard, type HealLoopCard } from '@/lib/heal-loop'
 import { runCtrLoop } from '@/lib/ctr-loop'
+import {
+  additionKey,
+  ADDITION_FIELDS,
+  enqueueAdditions,
+  findItem as findAddition,
+  openCount as openAdditionCount,
+  proposeVerdict,
+  readQueue as readAdditionsQueue,
+  readRejectStamp,
+  type AdditionChange,
+  type AdditionItem,
+  type ApplyOutcome,
+} from '@/lib/live-additions-review'
 import type { DbPackage } from '@/lib/packages'
 import { completenessScore } from '@/lib/package-completeness'
 import { generatePackageFaqsDetailed, hasFaqs, hasFaqSource } from '@/lib/package-faqs'
@@ -84,6 +97,7 @@ const NOGEN_PREFIX = 'content_heal_nogen'
 const NOGEN_DAYS = 7
 
 type Row = Record<string, unknown>
+type PageType = 'post' | 'guide' | 'page_copy'
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
 const faqList = (v: unknown): { q: string; a: string }[] => (Array.isArray(v) ? v.filter((x): x is { q: string; a: string } => !!x && typeof (x as { q?: unknown }).q === 'string' && typeof (x as { a?: unknown }).a === 'string').map((x) => ({ q: x.q, a: x.a })) : [])
@@ -101,6 +115,9 @@ export interface HealSummary {
   /** How many of `scored` are trip pages, and how many trip pages the last run fixed (absent in an older summary). */
   trips?: number
   tripsFixed?: number
+  /** AI-written additions to live pages held for a person today, and how many wait in all (absent in an older summary). */
+  additionsQueued?: number
+  additionsWaiting?: number
   note: string
 }
 
@@ -640,6 +657,9 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
   const changedPaths: string[] = []
   const problems: string[] = []
   const queue = scored.filter((s) => s.result.score < HEAL_BELOW).sort((a, b) => a.result.score - b.result.score)
+  let additions = await readAdditionsQueue(admin)
+  let additionsQueued = 0
+  let modelSkippedFull = false
 
   for (const s of queue) {
     if (Date.now() - started > HEAL_BUDGET_MS) break
@@ -647,6 +667,9 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
     const reverted = revertedFields.get(`${item.type}:${item.id}`) ?? new Set<string>()
     const fixable = s.result.failed.some((id) => SEO_FIX[id] !== null)
     if (!fixable) continue
+    // A page with model-written additions still waiting for a person is left alone until they decide (no second proposal on top of it).
+    const addKey = additionKey(item.type as PageType, item.id)
+    if (findAddition(additions, addKey)?.status === 'open') continue
 
     // With an incomplete site index no link is stripped (a page that looks missing may only be unread).
     const plan = planCheapFixes(item, s.result.failed, idx.existing, idx.targets, { stripDead: idx.ok })
@@ -660,6 +683,15 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
     if (wantsModel) {
       const stamp = Date.parse((await getSetting(admin, `${NOGEN_PREFIX}:${itemKey}`)) ?? '')
       if (Number.isFinite(stamp) && Date.now() - stamp < NOGEN_DAYS * 86_400_000) wantsModel = false
+    }
+    // Model-written additions are held for a person, so no call is made while the review queue is full or this page's last proposal
+    // was declined in the last 30 days.
+    if (wantsModel) {
+      const verdict = proposeVerdict(additions, addKey, await readRejectStamp(admin, addKey))
+      if (!verdict.ok) {
+        wantsModel = false
+        if (verdict.why === 'full') modelSkippedFull = true
+      }
     }
     const cheapChanged = !sameFields(fields, item.fields)
     if (!cheapChanged && !wantsModel) continue
@@ -675,6 +707,7 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
     if (!cheapChanged && !wantsModel) continue
 
     let usedCall = false
+    let modelChanges: AdditionChange[] = []
     if (wantsModel) {
       const keys = plan.generate.filter((k) => !reverted.has(k))
       const bodyCtx = makeDetectCtx(item.type, plainForPrompt(fields), [...item.names, item.keyword ?? ''])
@@ -698,36 +731,47 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
       // Share text that was still missing can now borrow the new meta text.
       if (!next.og_description.trim() && next.meta_description.trim()) next.og_description = cutAtWord(next.meta_description, item.limits.ogDescMax)
       if (!next.og_title.trim() && (next.meta_title.trim() || next.title)) next.og_title = cutAtWord((next.meta_title || next.title || '').trim(), item.limits.ogTitleMax)
-      for (const k of ['faq', 'key_takeaways', 'meta_title', 'meta_description', 'og_title', 'og_description'] as const) {
-        if (serializeField(item.type, next, k) !== serializeField(item.type, fields, k)) plan.tracker.touch(k, 'generate', `${k === 'faq' ? 'FAQ' : k === 'key_takeaways' ? 'key takeaways' : k.replace('_', ' ')} was missing, written from the page text only`)
-      }
-      fields = next
-      for (const field of reverted) fields = restoreField(fields, item.fields, field)
+      let proposedFields = next
+      for (const field of reverted) proposedFields = restoreField(proposedFields, item.fields, field)
+      // The model-written fields are NOT applied: `fields` stays the cheap-fix result, and the difference is held for a person.
+      modelChanges = modelAdditions(item.type, fields, proposedFields)
     }
     if (usedCall) await recordRepairSpend(admin, 1)
-    if (sameFields(fields, item.fields)) continue
 
-    // Log first, then apply: no audit row, no edit.
-    const edits = buildEdits({ type: item.type, id: item.id, path: item.path, published: true }, item.fields, fields, plan.tracker, usedCall ? 1 : 0)
-    if (edits.length === 0) continue
-    const logged = await insertEdits(admin, edits)
-    if (logged.error) {
-      problems.push(`the audit log could not be written (${logged.error})`)
-      break
+    // Cheap, code-only fixes: log first, then apply (no audit row, no edit). Exactly as before.
+    let cheapOk = true
+    if (!sameFields(fields, item.fields)) {
+      const edits = buildEdits({ type: item.type, id: item.id, path: item.path, published: true }, item.fields, fields, plan.tracker, 0)
+      if (edits.length > 0) {
+        const logged = await insertEdits(admin, edits)
+        if (logged.error) {
+          problems.push(`the audit log could not be written (${logged.error})`)
+          break
+        }
+        const { error: updateError } = await admin
+          .from(TABLE[item.type])
+          .update({ ...columnsFrom(item, fields), ...rescoreColumns(item, fields, idx.existing), updated_at: new Date().toISOString() })
+          .eq('status', 'published')
+          .eq('id', item.id)
+        if (updateError) {
+          await deleteEdits(admin, logged.ids)
+          problems.push(`could not update ${item.path}: ${updateError.message}`)
+          cheapOk = false
+        } else {
+          healedPages++
+          editCount += edits.length
+          changedPaths.push(item.path)
+        }
+      }
     }
-    const { error: updateError } = await admin
-      .from(TABLE[item.type])
-      .update({ ...columnsFrom(item, fields), ...rescoreColumns(item, fields, idx.existing), updated_at: new Date().toISOString() })
-      .eq('status', 'published')
-      .eq('id', item.id)
-    if (updateError) {
-      await deleteEdits(admin, logged.ids)
-      problems.push(`could not update ${item.path}: ${updateError.message}`)
-      continue
+    // Queue the held proposal only once the live page is in the state its "before" text describes.
+    if (modelChanges.length > 0 && cheapOk) {
+      const q = await enqueueAdditions(admin, { type: item.type as PageType, id: item.id, path: item.path, title: item.label || item.path, changes: modelChanges })
+      if (q.queued) {
+        additionsQueued++
+        additions = await readAdditionsQueue(admin)
+      } else problems.push(`could not hold the AI additions for ${item.path} (${q.reason})`)
     }
-    healedPages++
-    editCount += edits.length
-    changedPaths.push(item.path)
   }
   // 2b. Trip pages (wave 3): the ONE trip heal. Every published trip is scored with the same seoScore, and a trip under 70
   // gets only the fixes in lib/content-repair-adapters.ts (empty meta text, share picture, keywords, FAQ, one related
@@ -783,8 +827,10 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
   const lowest = [...everyone].sort((a, b) => a.score - b.score).slice(0, 5).map((s) => ({ type: s.type, path: s.path, score: s.score, reasons: s.reasons.slice(0, 3) }))
   const belowAll = queue.length + trips.scored.filter((t) => t.result.score < HEAL_BELOW).length
   const hardWaiting = await countHardWaiting(admin)
-  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${enrich.tried ? `; ${enrich.note}` : ''}${photos.tried && photos.note ? `; ${photos.note}` : ''}${ctr.active ? `; ${ctr.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
-  const summary: HealSummary = { at: new Date().toISOString(), scored: everyone.length, avg, below: belowAll, lowest, healedPages, edits: editCount, hardWaiting, calls, trips: trips.scored.length, tripsFixed: trips.fixed, note }
+  const additionsWaiting = openAdditionCount(await readAdditionsQueue(admin))
+  const additionsNote = additionsQueued > 0 || additionsWaiting > 0 || modelSkippedFull ? `; ${additionsQueued} AI addition${additionsQueued === 1 ? '' : 's'} held for review today, ${additionsWaiting} waiting for a person in all${modelSkippedFull ? ' (the review list is full, so no more AI additions were written)' : ''}` : ''
+  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${additionsNote}${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${enrich.tried ? `; ${enrich.note}` : ''}${photos.tried && photos.note ? `; ${photos.note}` : ''}${ctr.active ? `; ${ctr.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
+  const summary: HealSummary = { at: new Date().toISOString(), scored: everyone.length, avg, below: belowAll, lowest, healedPages, edits: editCount, hardWaiting, calls, trips: trips.scored.length, tripsFixed: trips.fixed, additionsQueued, additionsWaiting, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }
 }
@@ -967,6 +1013,83 @@ export async function applyTripChanges(admin: SupabaseClient, trip: { id: string
     return { error: `could not update ${trip.path}: ${error.message}` }
   }
   return {}
+}
+
+/** The model-written fields: the ones whose text differs between the cheap-fix result and the model's proposal. Pure. */
+export function modelAdditions(type: ContentType, cheap: RepairFields, proposed: RepairFields): AdditionChange[] {
+  const out: AdditionChange[] = []
+  for (const field of ADDITION_FIELDS) {
+    const before = serializeField(type, cheap, field)
+    const after = serializeField(type, proposed, field)
+    if (before !== after) out.push({ field, before, after })
+  }
+  return out
+}
+
+const ADDITION_REASON: Record<string, string> = {
+  faq: 'FAQ',
+  key_takeaways: 'key takeaways',
+  meta_title: 'meta title',
+  meta_description: 'meta description',
+  og_title: 'share title',
+  og_description: 'share description',
+}
+
+/** Rebuilds the item from a live row (the same builders the heal uses). */
+function itemFromRow(type: ContentType, row: Row, idx: SiteIndex): HealItem | null {
+  if (type === 'post') return postItem(row, idx)
+  if (type === 'guide') return guideItem(row, idx)
+  if (type === 'page_copy') return copyItem(row, idx)
+  return null
+}
+
+/** Applies a person-approved proposal to the live page. Re-reads the row first: it must still be published and every target field must
+ * still equal its "before" text, otherwise nothing is written and the item is reported as gone. Log first, then apply (Undo works). */
+export async function applyLiveAdditions(admin: SupabaseClient, addition: AdditionItem): Promise<ApplyOutcome> {
+  try {
+    const { data, error } = await admin.from(TABLE[addition.type]).select('*').eq('id', addition.id).maybeSingle()
+    if (error) return { ok: false, error: error.message }
+    const row = data as Row | null
+    if (!row) return { ok: false, gone: true, reason: 'the page no longer exists' }
+    if (row.status !== 'published') return { ok: false, gone: true, reason: 'the page is no longer published' }
+    const idx = await buildSiteIndex(admin)
+    const item = itemFromRow(addition.type, row, idx)
+    if (!item) return { ok: false, gone: true, reason: 'that kind of page cannot be updated here' }
+    const next = cloneFields(item.fields)
+    for (const c of addition.changes) {
+      if (serializeField(item.type, item.fields, c.field) !== c.before) return { ok: false, gone: true, reason: `the ${ADDITION_REASON[c.field]} on the page changed since the AI wrote this` }
+      if (c.field === 'faq' || c.field === 'key_takeaways') {
+        let v: unknown
+        try {
+          v = JSON.parse(c.after)
+        } catch {
+          return { ok: false, error: 'the held text is damaged' }
+        }
+        if (c.field === 'faq') next.faq = faqList(v)
+        else next.key_takeaways = strList(v)
+      } else (next as unknown as Record<string, unknown>)[c.field] = c.after
+    }
+    if (sameFields(next, item.fields)) return { ok: false, gone: true, reason: 'the page already has this text' }
+    const tracker = new Tracker()
+    for (const c of addition.changes) tracker.touch(c.field, 'generate', `${ADDITION_REASON[c.field]} was missing, written from the page text only, approved by a person`)
+    const edits = buildEdits({ type: item.type, id: item.id, path: item.path, published: true }, item.fields, next, tracker, 1)
+    if (edits.length === 0) return { ok: false, gone: true, reason: 'the page already has this text' }
+    const logged = await insertEdits(admin, edits)
+    if (logged.error) return { ok: false, error: `the audit log could not be written (${logged.error})` }
+    const { error: updateError } = await admin
+      .from(TABLE[item.type])
+      .update({ ...columnsFrom(item, next), ...rescoreColumns(item, next, idx.existing), updated_at: new Date().toISOString() })
+      .eq('status', 'published')
+      .eq('id', item.id)
+    if (updateError) {
+      await deleteEdits(admin, logged.ids)
+      return { ok: false, error: `could not update ${item.path}: ${updateError.message}` }
+    }
+    await pingIndexNow([item.path]).catch(() => undefined)
+    return { ok: true, editIds: logged.ids }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'unknown error' }
+  }
 }
 
 /** The new score columns for a fixed page, so the card is right straight away. */
