@@ -89,7 +89,7 @@ async function main() {
     check('3 enqueue: the same page is not queued twice', !again.queued && (await readQueue(admin)).items.length === 1)
     const dry = mkDb()
     const dr = await withDryRun(() => enqueueAdditions(fakeAdmin(dry), info(), now))
-    check('3 enqueue: a dry run writes nothing', !dr.queued && dry.tables.app_settings.length === 0)
+    check('3 enqueue: a dry run writes nothing', !dr.result.queued && dry.tables.app_settings.length === 0)
     check('3 enqueue: an empty change list queues nothing', !(await enqueueAdditions(fakeAdmin(mkDb()), { ...info(), changes: [] }, now)).queued)
   }
 
