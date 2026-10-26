@@ -72,6 +72,32 @@ export async function ghlListAccounts(): Promise<{ accounts: GhlAccount[]; error
   }
 }
 
+/** TikTok takes the post text as its title and refuses anything over 90, counting an emoji as 2
+ * (real failures 2026-10-24 to 26: 145 to 490 characters). Keeps whole words from the first line
+ * and drops hashtags and links, so the title always fits. */
+export const TIKTOK_TITLE_MAX = 90
+export function fitTikTokTitle(text: string, max: number = TIKTOK_TITLE_MAX): string {
+  const weight = (ch: string) => (ch.codePointAt(0)! > 0xffff || /\p{Extended_Pictographic}/u.test(ch) ? 2 : 1)
+  const first = text.split(/\r?\n/).map((l) => l.trim()).find((l) => l && !/^https?:\/\//i.test(l)) ?? ''
+  const words = first.split(/\s+/).filter((w) => w && !w.startsWith('#') && !/^https?:\/\//i.test(w))
+  let out = ''
+  let used = 0
+  for (const w of words) {
+    const add = [...w].reduce((n, ch) => n + weight(ch), 0) + (out ? 1 : 0)
+    if (used + add > max) break
+    out += (out ? ' ' : '') + w
+    used += add
+  }
+  if (out) return out
+  // A single very long first word: cut it by weight.
+  for (const ch of first) {
+    if (used + weight(ch) > max) break
+    out += ch
+    used += weight(ch)
+  }
+  return out
+}
+
 /** Creates one post on the given account ids right away. Never retried: a timeout may still have
  * created the post, and a duplicate public post is worse than a missed one. */
 export async function ghlCreatePost(input: { accountIds: string[]; text: string; mediaUrls?: string[]; mediaType?: 'image' | 'video'; kind?: 'post' | 'reel' }): Promise<UploadPostSendResult> {

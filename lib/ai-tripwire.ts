@@ -82,6 +82,8 @@ export function buildAiAlert(spend: number, ceiling: number): { subject: string;
 export const AI_SPEND_KEY = 'ai_spend_24h_usd'
 /** A stored reading older than this is ignored by the Needs attention list. */
 export const AI_SPEND_FRESH_MS = 36 * 3600_000
+/** A stored reading older than this is re-read live from api_calls before it is used. */
+export const AI_SPEND_LIVE_AFTER_MS = 3600_000
 
 /** Pure: the stored reading, or null if missing, junk or stale. */
 export function parseStoredSpend(raw: string | null | undefined, now: number = Date.now()): { spend: number; at: number } | null {
@@ -100,6 +102,14 @@ export async function readStoredAiSpend(admin: SupabaseClient, now: number = Dat
   try {
     const stored = parseStoredSpend(await getSetting(admin, AI_SPEND_KEY), now)
     const ceiling = parseCeiling(await getSetting(admin, AI_CEILING_KEY))
+    // A daily snapshot goes stale: on 2026-10-25 one taken at 14:00 UTC (the Opus days, $23.46) kept the AI heal
+    // refused all night while the real last 24 hours were $3.48. Past an hour old it is re-read live and re-stored.
+    if (stored && now - stored.at <= AI_SPEND_LIVE_AFTER_MS) return { spend: stored.spend, ceiling }
+    const live = await readAiSpend(admin, now)
+    if (live.spend !== null) {
+      await setSetting(admin, AI_SPEND_KEY, JSON.stringify({ at: new Date(now).toISOString(), spend: live.spend })).catch(() => undefined)
+      return { spend: live.spend, ceiling }
+    }
     return { spend: stored ? stored.spend : null, ceiling }
   } catch {
     return { spend: null, ceiling: AI_CEILING_DEFAULT_USD }

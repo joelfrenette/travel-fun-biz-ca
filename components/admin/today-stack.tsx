@@ -21,7 +21,7 @@ type Op = "approve" | "reject" | "snooze"
 
 // Compact on purpose: every conditional button (Previous, Later, Open, Skip, Auto-heal, Copy for Claude, Undo) sits in ONE row. The row never wraps
 // (whitespace-nowrap, shrink-0); on a very narrow phone it scrolls sideways instead of dropping buttons onto a second line.
-const ROW2_BTN = "inline-flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border bg-transparent px-2.5 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+const ROW2_BTN = "inline-flex min-h-11 min-w-0 flex-auto items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border border-border bg-transparent px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
 
 export function TodayStack() {
   const router = useRouter()
@@ -443,18 +443,18 @@ export function TodayStack() {
           </div>
           </>
           )}
-          <div role="group" aria-label="More options for this card" className="mt-3 flex flex-nowrap items-center gap-2 overflow-x-auto pb-1" data-testid="today-row2">
+          <div role="group" aria-label="More options for this card" className="mt-3 flex flex-nowrap items-center gap-1.5" data-testid="today-row2">
             {row2.previous && (
               <button type="button" disabled={busy} onClick={previous} className={ROW2_BTN} aria-keyshortcuts="P">
-                <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Previous
+                <ChevronLeft className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Previous
               </button>
             )}
             {row2.later && (
-              <span className="relative inline-flex" data-testid="today-later">
+              <span className="relative inline-flex min-w-0 flex-auto" data-testid="today-later">
                 <button type="button" disabled={busy} onClick={() => void decide("snooze", DEFAULT_SNOOZE_DAYS)} title="Hide this card for 1 day" className={cn(ROW2_BTN, "rounded-r-none border-r-0")} aria-keyshortcuts="L">
-                  <Clock className="h-4 w-4" aria-hidden="true" /> Later
+                  <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Later
                 </button>
-                <button type="button" disabled={busy} onClick={() => setLaterOpen((o) => !o)} aria-haspopup="menu" aria-expanded={laterOpen} aria-label="Choose how long to hide this card" className={cn(ROW2_BTN, "min-w-11 justify-center rounded-l-none px-2")}>
+                <button type="button" disabled={busy} onClick={() => setLaterOpen((o) => !o)} aria-haspopup="menu" aria-expanded={laterOpen} aria-label="Choose how long to hide this card" className={cn(ROW2_BTN, "w-8 flex-none justify-center rounded-l-none px-1")}>
                   <span aria-hidden="true">&#9662;</span>
                 </button>
                 {laterOpen && (
@@ -471,31 +471,31 @@ export function TodayStack() {
             {row2.open && target && (
               target.external ? (
                 <a href={target.href} target="_blank" rel="noopener noreferrer" className={ROW2_BTN}>
-                  <ExternalLink className="h-4 w-4" aria-hidden="true" /> Open
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Open
                 </a>
               ) : (
                 <Link href={target.href} className={ROW2_BTN}>
-                  <ExternalLink className="h-4 w-4" aria-hidden="true" /> Open
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Open
                 </Link>
               )
             )}
             {row2.skip && ordered.length > 1 && (
               <button type="button" disabled={busy} onClick={skip} className={ROW2_BTN} aria-keyshortcuts="S" aria-describedby="today-hint-skip">
-                <SkipForward className="h-4 w-4" aria-hidden="true" /> Skip
+                <SkipForward className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Skip
               </button>
             )}
             {row2.autoHeal && (
               <button type="button" disabled={busy || healing === card.id || (!!heal && heal.state !== "skipped")} onClick={() => void autoHeal()} className={ROW2_BTN} aria-describedby="today-heal-result">
-                <Wrench className="h-4 w-4" aria-hidden="true" /> {healing === card.id ? "Healing..." : "Auto-heal"}
+                <Wrench className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {healing === card.id ? "Healing..." : "Auto-heal"}
               </button>
             )}
             {row2.copy && (
               <button type="button" onClick={() => void copyForClaude()} className={ROW2_BTN}>
-                <ClipboardCopy className="h-4 w-4" aria-hidden="true" /> {copied ? "Copied" : "Copy for Claude"}
+                <ClipboardCopy className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {copied ? "Copied" : "Copy for Claude"}
               </button>
             )}
             <button type="button" disabled={busy || !last || !last.undoable} onClick={() => void undo()} className={ROW2_BTN} aria-keyshortcuts="U" title="Undo the last answer">
-              <Undo2 className="h-4 w-4" aria-hidden="true" /> Undo
+              <Undo2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Undo
             </button>
           </div>
           {/* Reserved height, so a result appearing never pushes the page. */}

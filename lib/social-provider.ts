@@ -6,7 +6,7 @@ import {
   uploadPostSendVideo,
   type UploadPostSendResult,
 } from '@/lib/upload-post'
-import { ghlSocialConfigured, ghlSocialMissing, ghlCreatePost, ghlHostMedia } from '@/lib/ghl-social'
+import { ghlSocialConfigured, ghlSocialMissing, ghlCreatePost, ghlHostMedia, fitTikTokTitle } from '@/lib/ghl-social'
 import { pausedNetworks } from '@/lib/network-pause'
 
 // One place that answers "where does a post go, and how do I send it": Upload-Post or GoHighLevel,
@@ -142,7 +142,7 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
       target: {
         provider,
         platforms: mediaCapable([...new Set(accounts.map((a) => a.platform))]).filter((p) => !paused.includes(p)),
-        sendPhotos: (p, text, imageUrls) => perNetwork(p, (ids) => ghlCreatePost({ accountIds: ids, text, mediaUrls: imageUrls, mediaType: 'image' })),
+        sendPhotos: (p, text, imageUrls) => perNetwork(p, (ids, platform) => ghlCreatePost({ accountIds: ids, text: platform === 'tiktok' ? fitTikTokTitle(text) : text, mediaUrls: imageUrls, mediaType: 'image' })),
         // TikTok only pulls videos from a domain it has verified, so its copy is hosted on GoHighLevel's
         // own storage first; the other networks take the original address.
         sendVideo: (p, text, videoUrl) =>
@@ -153,7 +153,7 @@ export async function resolvePostingTarget(admin: SupabaseClient): Promise<{ tar
               if (!hosted.url) return { ok: false, retryable: false, error: hosted.error }
               url = hosted.url
             }
-            return ghlCreatePost({ accountIds: ids, text, mediaUrls: [url], mediaType: 'video', kind: 'reel' })
+            return ghlCreatePost({ accountIds: ids, text: platform === 'tiktok' ? fitTikTokTitle(text) : text, mediaUrls: [url], mediaType: 'video', kind: 'reel' })
           }),
       },
     }
