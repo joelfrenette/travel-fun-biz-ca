@@ -12,8 +12,11 @@ export async function readAppliedMigrations(admin: SupabaseClient) {
   try {
     // The `supabase_migrations` schema is not exposed to the API on a default project; then this errors and we report "unread".
     const res = await admin.schema('supabase_migrations').from('schema_migrations').select('version,name')
-    if (res.error || !Array.isArray(res.data)) return null
-    return parseApplied(res.data)
+    if (!res.error && Array.isArray(res.data)) return parseApplied(res.data)
+    // Not exposed, so use the service-role-only function from migration 0061 (public.applied_migrations).
+    const fn = await admin.rpc('applied_migrations')
+    if (fn.error || !Array.isArray(fn.data)) return null
+    return parseApplied(fn.data)
   } catch {
     return null
   }

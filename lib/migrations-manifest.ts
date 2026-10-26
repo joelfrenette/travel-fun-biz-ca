@@ -61,4 +61,8 @@ export const MIGRATIONS_MANIFEST: readonly string[] = [
   '0055_lead_desk.sql',
   '0056_lead_ga_client_id.sql',
   '0057_agents_office_role.sql',
+  '0058_agents_socials_asta.sql',
+  '0059_agents_promoted_trips.sql',
+  '0060_agent_invites_agent_id.sql',
+  '0061_applied_migrations_fn.sql',
 ]
