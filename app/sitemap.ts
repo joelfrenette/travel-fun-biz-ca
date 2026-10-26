@@ -42,9 +42,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const destGuideDates = new Map<string, string>()
   for (const g of guides) if (g.kind === 'destinations') destGuideDates.set(g.slug, g.updated_at)
   const destGuidesMax = maxIso([...destGuideDates.values()])
+  // Pages built from other content take the newest stored change of what they list; a page with no stored date stays without one.
+  const packagesMax = maxIso(packages.map((p) => p.updated_at))
+  const siteMax = maxIso([packagesMax, ...posts.map((p) => p.updated_at), ...guides.map((g) => g.updated_at)])
   const kindMax = (k: string) => maxIso(guides.filter((g) => g.kind === k).map((g) => g.updated_at))
   return [
-    { url: absoluteUrl('/'), changeFrequency: 'weekly', priority: 1 },
+    { url: absoluteUrl('/'), ...lastModField(siteMax), changeFrequency: 'weekly' as const, priority: 1 },
     {
       url: absoluteUrl('/packages'),
       ...lastModField(maxIso(packages.map((p) => p.updated_at))),
@@ -52,7 +55,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     },
     { url: absoluteUrl('/who-we-are'), changeFrequency: 'monthly' as const, priority: 0.4 },
-    ...(agents.length > 0 ? [{ url: absoluteUrl('/agents'), changeFrequency: 'weekly' as const, priority: 0.6 }] : []),
+    ...(agents.length > 0 ? [{ url: absoluteUrl('/agents'), ...lastModField(maxIso(agents.map((a) => a.updated_at))), changeFrequency: 'weekly' as const, priority: 0.6 }] : []),
     ...agents.map((a) => ({ url: absoluteUrl('/agents/' + a.slug), ...lastModField(lastModOrUndefined(a.updated_at)), changeFrequency: 'monthly' as const, priority: 0.5 })),
     ...fromCityPages.map((c) => ({
       url: absoluteUrl(fromPath(c)),
@@ -68,7 +71,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })),
     ...destinations.map((d) => ({
       url: absoluteUrl(`/destinations/${d.slug}`),
-      ...lastModField(lastModOrUndefined(destGuideDates.get(d.slug))),
+      ...lastModField(lastModOrUndefined(destGuideDates.get(d.slug)) ?? packagesMax),
       changeFrequency: 'weekly' as const,
       priority: 0.7,
     })),
@@ -90,13 +93,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })),
     ...bestTimeToVisit.map((d) => ({
       url: absoluteUrl(`/best-time-to-visit/${d.slug}`),
-      ...lastModField(lastModOrUndefined(destGuideDates.get(d.slug))),
+      ...lastModField(lastModOrUndefined(destGuideDates.get(d.slug)) ?? packagesMax),
       changeFrequency: 'weekly' as const,
       priority: 0.6,
     })),
     ...compareDestinations.map((c) => ({
       url: absoluteUrl(`/compare/${c.pairSlug}`),
-      ...lastModField(maxIso([destGuideDates.get(c.destinationA), destGuideDates.get(c.destinationB)])),
+      ...lastModField(maxIso([destGuideDates.get(c.destinationA), destGuideDates.get(c.destinationB)]) ?? packagesMax),
       changeFrequency: 'weekly' as const,
       priority: 0.6,
     })),
