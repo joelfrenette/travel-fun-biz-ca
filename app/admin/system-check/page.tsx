@@ -62,10 +62,7 @@ export default function SystemCheckPage() {
       if (!res.ok) throw new Error(typeof body.error === "string" ? body.error : `HTTP ${res.status}`)
       const next = body as Loaded
       setData(next)
-      if (next.heal) {
-        setHeal(next.heal)
-        setPromptText(buildClaudePrompt({ now: new Date(), check: next, heal: next.heal.report, diff: next.heal.diff, siteUrl: window.location.origin }))
-      }
+      if (next.heal) setHeal(next.heal)
       setCopied("")
       announceBadges({ check: next.overall })
       setError(null)
@@ -84,9 +81,15 @@ export default function SystemCheckPage() {
     void load(!checkAlreadyRanToday())
   }, [load])
 
+  // Always built from the check on screen right now, so a plain "Run check now" after an Auto-heal never copies a stale list.
+  function currentPrompt(d: Loaded): string {
+    return buildClaudePrompt({ now: new Date(), check: d, heal: heal?.report ?? null, diff: heal?.diff ?? null, siteUrl: window.location.origin })
+  }
+
   async function copyForClaude() {
     if (!data) return
-    const text = promptText || buildClaudePrompt({ now: new Date(), check: data, heal: heal?.report ?? null, diff: heal?.diff ?? null, siteUrl: window.location.origin })
+    const text = currentPrompt(data)
+    setPromptText(text)
     setCopied((await copyText(text)) ? "ok" : "fail")
   }
 
@@ -101,37 +104,41 @@ export default function SystemCheckPage() {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">Every part of the machine, in the order a visitor moves through it. Green is fine. Amber is worth a look. Red needs you.</p>
         </div>
+      </div>
+
+      {/* One row for every button; it wraps on a narrow screen. Copy all to Claude is always here once the check has loaded, with or without an Auto-heal run. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="check-actions">
         <button
           type="button"
           disabled={busy || !data}
           onClick={() => void load(true, "heal")}
           data-testid="auto-heal"
           title="Runs the safe repairs the site already makes by itself, once, then checks again"
-          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40"
         >
           <Wand2 className={cn("h-4 w-4", phase === "heal" && "animate-pulse")} aria-hidden="true" /> {phase === "heal" ? "Healing..." : "Auto-heal"}
         </button>
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="check-actions">
         <button type="button" disabled={busy} onClick={() => void load(true)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted disabled:opacity-40">
           <RefreshCw className={cn("h-4 w-4", phase === "check" && "animate-spin")} aria-hidden="true" /> Run check now
         </button>
-        {heal && (
-          <button type="button" onClick={() => void copyForClaude()} data-testid="copy-for-claude" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-primary/50 px-3 text-sm font-medium text-primary hover:bg-muted">
-            <ClipboardCopy className="h-4 w-4" aria-hidden="true" /> {copied === "ok" ? "Copied. Paste it into Claude Code" : "Copy for Claude"}
-          </button>
-        )}
-        <span className="ml-auto flex flex-wrap items-center gap-2">
-          <Link href="/admin" data-testid="skip" className="inline-flex min-h-11 items-center rounded-lg border px-3 text-sm hover:bg-muted">
-            Skip
+        <button
+          type="button"
+          disabled={!data}
+          onClick={() => void copyForClaude()}
+          data-testid="copy-for-claude"
+          title="Copies one prompt that tells Claude Code to fix every issue below, with the full identify, fix, test, monitor and rule loop"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-primary/50 px-3 text-sm font-medium text-primary hover:bg-muted disabled:opacity-40"
+        >
+          <ClipboardCopy className="h-4 w-4" aria-hidden="true" /> {copied === "ok" ? "Copied. Paste it into Claude Code" : "Copy all to Claude"}
+        </button>
+        <Link href="/admin" data-testid="skip" className="inline-flex min-h-11 items-center rounded-lg border px-3 text-sm hover:bg-muted">
+          Skip
+        </Link>
+        {data && !busy && (
+          <Link href="/admin" data-testid="continue" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700">
+            Continue to admin <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
-          {data && !busy && (
-            <Link href="/admin" data-testid="continue" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700">
-              Continue to admin <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          )}
-        </span>
+        )}
       </div>
 
       {busy && (
@@ -140,7 +147,7 @@ export default function SystemCheckPage() {
           {phase === "heal" ? "Auto-heal is making the safe repairs, then may use a little AI on up to 3 pages, then checks again. This can take a few minutes." : "Running a fresh check of every stage..."}
         </p>
       )}
-      {copied === "fail" && heal && (
+      {copied === "fail" && data && (
         <div className="mb-4">
           <p role="alert" className="mb-1 text-sm text-destructive">Your browser blocked copying. Select this text and copy it yourself.</p>
           <textarea readOnly rows={8} value={promptText} onFocus={(e) => e.currentTarget.select()} className="w-full rounded-lg border bg-muted/40 p-2 font-mono text-xs" />

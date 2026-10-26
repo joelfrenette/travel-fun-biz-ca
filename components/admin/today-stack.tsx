@@ -19,7 +19,9 @@ const SWIPE_PX = 100
 const SKIPPED_KEY = "todaySkipped"
 type Op = "approve" | "reject" | "snooze"
 
-const ROW2_BTN = "inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-border bg-transparent px-3 text-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+// Compact on purpose: every conditional button (Previous, Later, Open, Skip, Auto-heal, Copy for Claude, Undo) sits in ONE row. The row never wraps
+// (whitespace-nowrap, shrink-0); on a very narrow phone it scrolls sideways instead of dropping buttons onto a second line.
+const ROW2_BTN = "inline-flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border bg-transparent px-2.5 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
 
 export function TodayStack() {
   const router = useRouter()
@@ -441,7 +443,7 @@ export function TodayStack() {
           </div>
           </>
           )}
-          <div role="group" aria-label="More options for this card" className="mt-3 flex flex-wrap items-center gap-2" data-testid="today-row2">
+          <div role="group" aria-label="More options for this card" className="mt-3 flex flex-nowrap items-center gap-2 overflow-x-auto pb-1" data-testid="today-row2">
             {row2.previous && (
               <button type="button" disabled={busy} onClick={previous} className={ROW2_BTN} aria-keyshortcuts="P">
                 <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Previous
@@ -449,8 +451,8 @@ export function TodayStack() {
             )}
             {row2.later && (
               <span className="relative inline-flex" data-testid="today-later">
-                <button type="button" disabled={busy} onClick={() => void decide("snooze", DEFAULT_SNOOZE_DAYS)} className={cn(ROW2_BTN, "rounded-r-none border-r-0")} aria-keyshortcuts="L">
-                  <Clock className="h-4 w-4" aria-hidden="true" /> Later (1 day)
+                <button type="button" disabled={busy} onClick={() => void decide("snooze", DEFAULT_SNOOZE_DAYS)} title="Hide this card for 1 day" className={cn(ROW2_BTN, "rounded-r-none border-r-0")} aria-keyshortcuts="L">
+                  <Clock className="h-4 w-4" aria-hidden="true" /> Later
                 </button>
                 <button type="button" disabled={busy} onClick={() => setLaterOpen((o) => !o)} aria-haspopup="menu" aria-expanded={laterOpen} aria-label="Choose how long to hide this card" className={cn(ROW2_BTN, "min-w-11 justify-center rounded-l-none px-2")}>
                   <span aria-hidden="true">&#9662;</span>
@@ -492,8 +494,8 @@ export function TodayStack() {
                 <ClipboardCopy className="h-4 w-4" aria-hidden="true" /> {copied ? "Copied" : "Copy for Claude"}
               </button>
             )}
-            <button type="button" disabled={busy || !last || !last.undoable} onClick={() => void undo()} className={ROW2_BTN} aria-keyshortcuts="U">
-              <Undo2 className="h-4 w-4" aria-hidden="true" /> Undo last
+            <button type="button" disabled={busy || !last || !last.undoable} onClick={() => void undo()} className={ROW2_BTN} aria-keyshortcuts="U" title="Undo the last answer">
+              <Undo2 className="h-4 w-4" aria-hidden="true" /> Undo
             </button>
           </div>
           {/* Reserved height, so a result appearing never pushes the page. */}
