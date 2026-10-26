@@ -97,8 +97,9 @@ export function TodayStack() {
     return () => clearTimeout(t)
   }, [confirming, card?.id])
 
+  // Only problems and warnings show a banner. A plain success ("Queued to try again.") needs no banner: the card moves on by itself.
   const say = (text: string, bad = false) => {
-    setNote(text)
+    setNote(bad ? text : "")
     setNoteBad(bad)
   }
 
@@ -134,7 +135,7 @@ export function TodayStack() {
         if (!res.ok) {
           say(body.error ?? "That did not work. Please try again.", true)
         } else {
-          say([body.message ?? "Done.", body.warning].filter(Boolean).join(" "))
+          say([body.message ?? "Done.", body.warning].filter(Boolean).join(" "), !!body.warning)
           const action = effective === "snooze" ? null : actionFor(card.kind, effective)
           dispatch({ type: "answered", id: card.id, op: effective, label: action?.label ?? `Later (${SNOOZE_CHOICES.find((c) => c.days === days)?.label ?? `${def.snoozeDays} day${def.snoozeDays === 1 ? "" : "s"}`})` })
           if (action?.mode === "open" && card.link?.href) {
