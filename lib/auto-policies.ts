@@ -54,7 +54,8 @@ const SELF_FIXABLE =
 
 /** One failed network in a send error reads "network: message", joined with "; ". */
 const splitSegments = (text: string): string[] => text.split(/;\s+(?=[a-z][a-z/ ]*:\s)/i).map((x) => x.trim()).filter(Boolean)
-const TIKTOK_TITLE_SEGMENT = /^[a-z/ ]*tiktok[a-z/ ]*:\s*tiktok title is too long/i
+// The prefix is optional: a carousel step saves the bare message ("TikTok title is too long ..."), a post row saves "tiktok: TikTok title ...".
+const TIKTOK_TITLE_SEGMENT = /^(?:[a-z/ ]*tiktok[a-z/ ]*:\s*)?tiktok title is too long/i
 /** A network that cannot post until a person sets it up once (Pinterest needs a board chosen in GoHighLevel). */
 const NEEDS_SETUP_SEGMENT = /^pinterest\s*:\s*pinterest board id is required/i
 

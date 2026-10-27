@@ -169,6 +169,10 @@ async function main() {
     // A TikTok title over 90 is shortened at send time, so a retry passes (real failure text 2026-10-26).
     const tiktokLong = 'tiktok: TikTok title is too long (346 characters, counted the way TikTok does: an emoji counts as 2). Maximum allowed is 90. Please shorten it.'
     check('classify: a TikTok title that is too long is self-fixable (the send path shortens it)', cls(tiktokLong) === 'self-fixable' && cls('tiktok/instagram: ' + tiktokLong.slice(8)) === 'self-fixable')
+    // A carousel step saves the bare message with no network prefix (real failure text 2026-10-26, three carousels were stuck as cards).
+    const bareTikTok = 'TikTok title is too long (473 characters, counted the way TikTok does: an emoji counts as 2). Maximum allowed is 90. Please shorten it.'
+    check('classify: the bare TikTok title message (carousel step, no network prefix) is self-fixable', cls(bareTikTok) === 'self-fixable')
+    check('classify: a bare TikTok title message next to a real refusal still needs a person', cls(`${bareTikTok}; instagram: 403 forbidden`) === 'needs-person')
     check('classify: an Instagram caption that is too long still needs a person', cls('instagram: caption is too long') === 'needs-person')
     check('classify: a TikTok title error next to a real refusal still needs a person', cls(tiktokLong + '; instagram: 403 forbidden') === 'needs-person')
     const setupErr = tiktokLong + '; pinterest: Pinterest Board ID is required when uploading to Pinterest.'
@@ -200,6 +204,7 @@ async function main() {
     const sv = (row: FailedStepRow, n = 0) => stepResumeVerdict(row, n, NOW, false).act
     check('step: a failed carousel older than 2 hours is resumed once', sv(step()) === 'retry' && sv(step({ updated_at: ago(HOUR) })) === 'wait')
     check('step: after one resume it escalates to a card', sv(step(), 1) === 'card')
+    check('step: a carousel stuck only on the TikTok title is resumed (the send path now shortens it)', sv(step({ last_error: 'TikTok title is too long (473 characters, counted the way TikTok does: an emoji counts as 2). Maximum allowed is 90. Please shorten it.' })) === 'retry')
     check('step: a step that already reached a network is never resumed', sv(step({ sent: ['instagram'] })) === 'card')
     check('step: a video whose render finished is not re-rendered by itself (credit), a render that never finished is', sv(step({ part: 'video', last_error: 'Shotstack render failed: bad clip' })) === 'card' && sv(step({ part: 'video', last_error: 'render did not finish within 30 minutes' })) === 'retry')
     check('step: a sign-in style error is a card', sv(step({ last_error: '401 unauthorized' })) === 'card')
