@@ -12,6 +12,7 @@ import {
   MAX_DECISIONS,
   POLICY_CAPS,
   actionsToday,
+  usesDailyCap,
   appendDecisions,
   boundDecisions,
   decision,
@@ -265,6 +266,17 @@ async function main() {
         check('settle undo: the post is failed again with a note, and cannot be reopened twice', ur.ok && rowsOf(w.db, 'post_distribution').find((x) => x.slug === 'italy')?.stage === 'failed' && !(await undoAutoDecision(w.admin, logOf(w.db).find((e) => e.subject === 'italy' && e.action === 'Settled the post as done') as AutoDecision)).ok)
         await runRetryFailedPosts(w.admin, NOW, { retryPost: requeue(w.db) })
         check('settle undo: a reopened post is never settled again by itself', rowsOf(w.db, 'post_distribution').find((x) => x.slug === 'italy')?.stage === 'failed')
+
+        // The daily cap limits posting again. Checking Upload-Post and settling post nothing, so a used-up cap must not block them (found 2026-10-27, six retries at midnight used the day).
+        const cw = world(base, { post_distribution: [failedPost('italy2', { last_error: pin, sent_platforms: six, updated_at: ago(5 * HOUR) }), failedPost('plain')] })
+        await appendDecisions(cw.admin, Array.from({ length: POLICY_CAPS.retry_failed_posts }, (_, i) => decision('retry_failed_posts', `used-${i}`, 'Put the failed post back in the posting queue', 'r', null, NOW)))
+        await runRetryFailedPosts(cw.admin, NOW, { retryPost: requeue(cw.db), syncPending: async () => ({ resolved: 2, stillPending: 0, checkFailed: 0, total: 2 }) })
+        const capStage = (slug: string) => rowsOf(cw.db, 'post_distribution').find((x) => x.slug === slug)?.stage
+        check('cap used up: the settle and the Upload-Post check still run, a real retry does not', capStage('italy2') === 'done' && capStage('plain') === 'failed' && logOf(cw.db).some((e) => e.subject === 'upload-post-sync'))
+        check('cap used up: settle and check lines do not use up the cap, a real retry line does', actionsToday(logOf(cw.db), 'retry_failed_posts', NOW) === POLICY_CAPS.retry_failed_posts + logOf(cw.db).filter((e) => e.action.startsWith('Paused')).length && !usesDailyCap('Settled the post as done') && !usesDailyCap('Checked 4 accepted posts with Upload-Post') && usesDailyCap('Put the failed post back in the posting queue'))
+        const paused = world({ ...base, automation_paused: 'true' }, { post_distribution: [failedPost('italy3', { last_error: pin, sent_platforms: six, updated_at: ago(5 * HOUR) })] })
+        await runRetryFailedPosts(paused.admin, NOW, { syncPending: async () => ({ resolved: 1, stillPending: 0, checkFailed: 0, total: 1 }) })
+        check('cap used up does not bypass Pause all automation: nothing is settled or checked while paused', rowsOf(paused.db, 'post_distribution')[0].stage === 'failed' && logOf(paused.db).length === 0)
       }
 
       // Sends Upload-Post accepted but had not confirmed are checked every pass instead of waiting for a person to press Sync.

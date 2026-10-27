@@ -169,10 +169,14 @@ export const boundDecisions = (list: AutoDecision[], max: number = MAX_DECISIONS
 
 export const utcDay = (now: Date): string => now.toISOString().slice(0, 10)
 
+/** Log lines that do not use up a policy's daily cap: a refusal, a card for a person, and two lines that post nothing and cannot repeat
+ * (an Upload-Post status check, a post settled as done because only a paused network is left). Pure. */
+export const usesDailyCap = (action: string): boolean => !/^(Refused|Needs|Settled the post|Checked \d+ accepted post)/.test(action)
+
 /** How many logged actions a policy has taken on the UTC day of `now`. Refusals (undo null and a "refused" action) are not counted. Pure. */
 export function actionsToday(log: AutoDecision[], policy: PolicyName, now: Date): number {
   const day = utcDay(now)
-  return log.filter((e) => e.policy === policy && e.at.slice(0, 10) === day && !e.action.startsWith('Refused') && !e.action.startsWith('Needs')).length
+  return log.filter((e) => e.policy === policy && e.at.slice(0, 10) === day && usesDailyCap(e.action)).length
 }
 
 export interface GateInput {
@@ -189,6 +193,8 @@ export interface GateResult {
   /** How many more actions are allowed today. */
   room: number
   reason: string
+  /** True only when the switches are fine and the daily cap is what stopped it, so a policy may still do work that posts nothing. */
+  capReached?: boolean
 }
 
 /** The one question every policy asks first: may I act right now? Pure. */
@@ -198,7 +204,7 @@ export function gateDecision(i: GateInput): GateResult {
   if (i.toggle === undefined) return { allowed: false, room: 0, reason: 'could not read this policy\'s switch, so nothing was done' }
   if (!policyEnabled(i.toggle)) return { allowed: false, room: 0, reason: 'this automatic decision is switched off' }
   const room = Math.max(0, i.cap - i.usedToday)
-  if (room <= 0) return { allowed: false, room: 0, reason: `today's limit of ${i.cap} is used up` }
+  if (room <= 0) return { allowed: false, room: 0, reason: `today's limit of ${i.cap} is used up`, capReached: true }
   return { allowed: true, room, reason: 'allowed' }
 }
 

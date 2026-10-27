@@ -206,7 +206,8 @@ export async function runRetryFailedPosts(admin: SupabaseClient, now: Date = new
   const out: RunResult = { acted: 0, note: '', decisions: [] }
   try {
     const gate = await policyGate(admin, 'retry_failed_posts', now)
-    if (!gate.allowed) return { ...out, note: gate.reason }
+    // A used-up daily cap stops retries (they can post again), but not the status check or settling below, which post nothing.
+    if (!gate.allowed && !gate.capReached) return { ...out, note: gate.reason }
     const retryPost = deps.retryPost ?? ((slug: string) => resolveIssue(admin, 'retry-post', slug))
     const retryStep = deps.retryStep ?? ((part: 'carousel' | 'video', slug: string) => resolveIssue(admin, part === 'video' ? 'retry-video' : 'retry-carousel', slug))
     let room = gate.room
@@ -250,10 +251,9 @@ export async function runRetryFailedPosts(admin: SupabaseClient, now: Date = new
         // Reached every network that can take it and only a paused, set-up-needed network is left: settle it as done (Undo reopens it).
         const settle = settledPostVerdict(row, isVetoedIn(vetoes, 'retry_failed_posts', row.slug))
         const pausedList = pauses ? pausedNow(pauses, now) : []
-        if (settle.settle && room > 0 && settle.blocked.every((net) => pausedList.includes(net))) {
+        if (settle.settle && settle.blocked.every((net) => pausedList.includes(net))) {
           const { error: sErr } = await admin.from('post_distribution').update({ stage: 'done', last_error: settledNote(settle.blocked, settle.reached), updated_at: now.toISOString() }).eq('content_type', 'post').eq('slug', row.slug).eq('stage', 'failed')
           if (!sErr) {
-            room--
             out.acted++
             log.push(decision('retry_failed_posts', row.slug, 'Settled the post as done', `It already reached ${settle.reached.join(', ')}; ${settle.blocked.join(', ')} is paused until its one-time setup is done, so nothing else can go out.`, { kind: 'reopen-post', ref: row.slug }, now))
             continue
