@@ -20,5 +20,17 @@ check('empty text gives empty title', fitTikTokTitle('') === '')
 const src = require('node:fs').readFileSync('lib/upload-post.ts', 'utf8') as string
 check('Upload-Post sends tiktok_title for photos and videos', (src.match(/form\.set\('tiktok_title', fitTikTokTitle\(input\.text\)\)/g) ?? []).length === 2)
 
-if (failed) { console.log(`\n${failed} check(s) failed`); process.exit(1) }
-console.log('\nAll checks passed.')
+// Upload-Post refuses every Pinterest pin without a board id ("Pinterest Board ID is required", 2026-10-26), so photos and videos send one when it is set.
+check('Upload-Post sends pinterest_board_id for photos and videos', (src.match(/form\.set\('pinterest_board_id', pinterestBoardId\(\) as string\)/g) ?? []).length === 2)
+import('../lib/upload-post').then(({ pinterestBoardId }) => {
+  const keep = process.env.UPLOAD_POST_PINTEREST_BOARD_ID
+  process.env.UPLOAD_POST_PINTEREST_BOARD_ID = ' 987654321098765432 '
+  check('pinterestBoardId reads a numeric board id and trims it', pinterestBoardId() === '987654321098765432')
+  process.env.UPLOAD_POST_PINTEREST_BOARD_ID = 'My Board'
+  check('pinterestBoardId ignores a board name (it must be the numeric id)', pinterestBoardId() === null)
+  delete process.env.UPLOAD_POST_PINTEREST_BOARD_ID
+  check('pinterestBoardId is null when unset, so Pinterest stays paused', pinterestBoardId() === null)
+  if (keep !== undefined) process.env.UPLOAD_POST_PINTEREST_BOARD_ID = keep
+  if (failed) { console.log(`\n${failed} check(s) failed`); process.exit(1) }
+  console.log('\nAll checks passed.')
+})

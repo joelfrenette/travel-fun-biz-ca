@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { decision, policyGate, appendDecisions, readVetoes, isVetoedIn, type AutoDecision } from '@/lib/auto-decisions'
-import { getDistributionMode } from '@/lib/distribution'
+import { getDistributionMode, syncPendingDistributionStats, type PendingSyncStats } from '@/lib/distribution'
 import { resolveIssue } from '@/lib/issues'
 import { NETWORK_PAUSE_HOURS, pausedNow, readPauses, writePauses } from '@/lib/network-pause'
 import { AUTO_APPROVE_MAX_BACKLOG, countApprovedUnused, gscSupport, rankByGsc, readGscQueries, setTopicStatus, topicConflict, type GscQuery, type PostFact, type TopicFacts } from '@/lib/blog-topics'
@@ -130,6 +130,19 @@ export function postRetryVerdict(row: FailedPostRow, n: number, now: Date, vetoe
   return { act: 'retry', n: n + 1, why: `${c.why}; retry ${n + 1} of ${MAX_AUTO_RETRIES}, nothing has been posted yet` }
 }
 
+/** A failed post whose only failure is a network waiting on a one-time setup (Pinterest board) and that already reached other networks:
+ * the post is out everywhere it can go, so it is settled as done instead of left as a failure. Anything else mixed in keeps it a failure. Pure. */
+export function settledPostVerdict(row: FailedPostRow, vetoed: boolean): { settle: false } | { settle: true; blocked: string[]; reached: string[] } {
+  if (vetoed || row.stage !== 'failed') return { settle: false }
+  const reached = row.sent_platforms ?? []
+  const setup = splitSetupBlocked(row.last_error)
+  if (reached.length === 0 || setup.blocked.length === 0 || setup.rest) return { settle: false }
+  return { settle: true, blocked: setup.blocked, reached }
+}
+
+/** The note saved on a settled post. */
+export const settledNote = (blocked: string[], reached: string[]): string => `Posted to ${reached.join(', ')}. ${blocked.join(', ')} was skipped until its one-time setup is done.`
+
 export interface FailedStepRow {
   slug: string
   part: 'carousel' | 'video'
@@ -181,6 +194,8 @@ export interface RunResult {
 }
 
 export interface RetryDeps {
+  /** Asks Upload-Post about sends it accepted but had not confirmed (held rows with a saved id). */
+  syncPending?: () => Promise<PendingSyncStats>
   retryPost?: (slug: string) => Promise<string | null>
   retryStep?: (part: 'carousel' | 'video', slug: string) => Promise<string | null>
 }
@@ -205,6 +220,18 @@ export async function runRetryFailedPosts(admin: SupabaseClient, now: Date = new
       log.push(decision('retry_failed_posts', subject, `Needs Joel: ${title}`, why, null, now))
     }
 
+    // Sends Upload-Post accepted but had not confirmed sit as held posts with a saved request id. Reading their status is free, so ask now
+    // instead of leaving them for a person to press Sync. A failed status read never stops the rest of the policy.
+    try {
+      const sync = await (deps.syncPending ?? (() => syncPendingDistributionStats(admin)))()
+      if (sync.resolved > 0) {
+        out.acted += sync.resolved
+        log.push(decision('retry_failed_posts', 'upload-post-sync', `Checked ${sync.total} accepted post${sync.total === 1 ? '' : 's'} with Upload-Post`, `${sync.resolved} settled (confirmed posted, or shown as failed if a network refused it), ${sync.stillPending} still pending, ${sync.checkFailed} could not be checked`, null, now))
+      }
+    } catch {
+      // the status read is best effort; the manual Sync button still works
+    }
+
     // Failed social posts. Only in auto mode (a held review mode must never post by itself).
     if ((await getDistributionMode(admin)) === 'auto') {
       const { data } = await admin.from('post_distribution').select('slug, stage, last_error, sent_platforms, updated_at').eq('content_type', 'post').eq('stage', 'failed').order('updated_at', { ascending: true }).limit(30)
@@ -218,6 +245,18 @@ export async function runRetryFailedPosts(admin: SupabaseClient, now: Date = new
           if ((await writePauses(admin, pauses)).error) { pauses = null; break }
           dirty = true
           log.push(decision('retry_failed_posts', net, `Paused ${net} for ${SETUP_PAUSE_HOURS / 24} days`, `${net} refuses every post until it is set up once (Pinterest: choose a board in the GoHighLevel Social Planner). Other networks keep posting. Setup is on the setup checklist.`, { kind: 'unpause-network', ref: net }, now))
+        }
+        // Reached every network that can take it and only a paused, set-up-needed network is left: settle it as done (Undo reopens it).
+        const settle = settledPostVerdict(row, isVetoedIn(vetoes, 'retry_failed_posts', row.slug))
+        const pausedList = pauses ? pausedNow(pauses, now) : []
+        if (settle.settle && room > 0 && settle.blocked.every((net) => pausedList.includes(net))) {
+          const { error: sErr } = await admin.from('post_distribution').update({ stage: 'done', last_error: settledNote(settle.blocked, settle.reached), updated_at: now.toISOString() }).eq('content_type', 'post').eq('slug', row.slug).eq('stage', 'failed')
+          if (!sErr) {
+            room--
+            out.acted++
+            log.push(decision('retry_failed_posts', row.slug, 'Settled the post as done', `It already reached ${settle.reached.join(', ')}; ${settle.blocked.join(', ')} is paused until its one-time setup is done, so nothing else can go out.`, { kind: 'reopen-post', ref: row.slug }, now))
+            continue
+          }
         }
         const n = state.retries[row.slug]?.n ?? 0
         const judged = setup.blocked.length && pauses ? { ...row, last_error: setup.rest || null } : row
@@ -261,7 +300,8 @@ export async function runRetryFailedPosts(admin: SupabaseClient, now: Date = new
     if (dirty) await setSetting(admin, RETRY_STATE_KEY, JSON.stringify({ retries: newest(state.retries, 200), carded: newest(state.carded, 200) }))
     await appendDecisions(admin, log)
     out.decisions = log
-    out.note = out.acted ? `retried ${out.acted}` : log.length ? `${log.length} need a person` : ''
+    const needsPerson = log.filter((e) => e.action.startsWith('Needs')).length
+    out.note = [out.acted ? `changed ${out.acted} (retried, settled or confirmed)` : '', needsPerson ? `${needsPerson} need a person` : ''].filter(Boolean).join(', ')
     return out
   } catch (e) {
     return { ...out, note: `retry policy failed: ${e instanceof Error ? e.message : 'unknown error'}` }

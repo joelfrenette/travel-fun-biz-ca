@@ -112,7 +112,7 @@ const MAX_VETOES = 300
 export const policyKey = (p: PolicyName): string => `auto_policy_${p}`
 
 /** `fw:<stepId>` is a flywheel step's own undo: applyUndo hands the ref to that step's `undo` handler (lib/flywheel/registry.ts). */
-export type UndoKind = 'requeue-post' | 'topic-pending' | 'unpublish-news' | 'rehold-post' | 'unpause-network' | 'topic-withdraw' | 'revert-edit' | 'topic-restore' | `fw:${string}`
+export type UndoKind = 'requeue-post' | 'topic-pending' | 'unpublish-news' | 'rehold-post' | 'unpause-network' | 'topic-withdraw' | 'revert-edit' | 'topic-restore' | 'reopen-post' | `fw:${string}`
 
 export interface AutoDecision {
   /** ISO time the decision was made. */
@@ -130,7 +130,7 @@ export interface AutoDecision {
   undone_at?: string
 }
 
-const UNDO_KINDS: readonly string[] = ['requeue-post', 'topic-pending', 'unpublish-news', 'rehold-post', 'unpause-network', 'topic-withdraw', 'revert-edit', 'topic-restore']
+const UNDO_KINDS: readonly string[] = ['requeue-post', 'topic-pending', 'unpublish-news', 'rehold-post', 'unpause-network', 'topic-withdraw', 'revert-edit', 'topic-restore', 'reopen-post']
 const isUndoKind = (k: unknown): k is UndoKind => typeof k === 'string' && (UNDO_KINDS.includes(k) || /^fw:[a-z_]+$/.test(k))
 
 // ---------------------------------------------------------------------------------------------------
@@ -404,6 +404,16 @@ async function applyUndo(admin: SupabaseClient, undo: { kind: UndoKind; ref: str
     delete pauses[undo.ref]
     const w = await writePauses(admin, pauses)
     return w.error ? { ok: false, message: w.error } : { ok: true, message: 'The network is posting again.' }
+  }
+  if (undo.kind === 'reopen-post') {
+    // A post that reached every network except one waiting on a one-time setup was settled as done: put it back to failed so a person sees it.
+    const { data, error } = await admin.from('post_distribution').select('stage').eq('content_type', 'post').eq('slug', undo.ref).maybeSingle()
+    if (error) return { ok: false, message: `Could not read the post (${error.message}).` }
+    const row = data as { stage: string } | null
+    if (!row) return { ok: false, message: 'That post is no longer in the posting list.' }
+    if (row.stage !== 'done') return { ok: false, message: `It is already ${row.stage}, so there is nothing to reopen.` }
+    const { error: e2 } = await admin.from('post_distribution').update({ stage: 'failed', last_error: 'Reopened by a person (an automatic settle was undone). It will not be settled by itself again.', updated_at: now }).eq('content_type', 'post').eq('slug', undo.ref).eq('stage', 'done')
+    return e2 ? { ok: false, message: e2.message } : { ok: true, message: 'The post is back to failed and will not be settled by itself again.' }
   }
   // rehold-post
   const { data, error } = await admin.from('post_distribution').select('stage, sent_platforms').eq('content_type', 'post').eq('slug', undo.ref).maybeSingle()

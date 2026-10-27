@@ -39,6 +39,8 @@ import {
   runPublishPassingNews,
   runReleaseHeldPosts,
   runRetryFailedPosts,
+  settledNote,
+  settledPostVerdict,
   splitSetupBlocked,
   safeTopicVerdict,
   stepResumeVerdict,
@@ -235,6 +237,43 @@ async function main() {
         const pauses = parsePauses(setting(w.db, NETWORK_PAUSES_KEY))
         check('real failure: the post is re-queued by itself, not shown to Joel', rr.acted === 1 && rowsOf(w.db, 'post_distribution')[0].stage === 'queued' && !logOf(w.db).some((e) => e.action.startsWith('Needs Joel')))
         check('real failure: Pinterest is paused for a week and the pause has an undo', !!pauses.pinterest && Date.parse(pauses.pinterest.until) - NOW.getTime() >= 7 * 24 * HOUR - 1000 && logOf(w.db).some((e) => e.subject === 'pinterest' && e.undo?.kind === 'unpause-network'))
+      }
+
+      // 2026-10-27: posts that reached every network except Pinterest (no board id) were shown as failures forever. They are settled as done.
+      {
+        const pin = 'pinterest: Pinterest Board ID is required when uploading to Pinterest.'
+        const six = ['bluesky', 'x', 'threads', 'facebook', 'instagram', 'tiktok']
+        const pv = (over: Partial<FailedPostRow> = {}, vetoed = false) => settledPostVerdict({ slug: 'g', stage: 'failed', last_error: pin, sent_platforms: six, updated_at: ago(5 * HOUR), ...over }, vetoed)
+        check('settle: a post that reached six networks and only lacks the Pinterest board is settled', pv().settle === true)
+        check('settle: not when nothing was sent (the post never went out)', pv({ sent_platforms: [] }).settle === false)
+        check('settle: not when another failure is mixed in', pv({ last_error: `${pin}; facebook: 422 content rejected` }).settle === false && pv({ last_error: `tiktok: TikTok title is too long (346 characters). Maximum allowed is 90.; ${pin}` }).settle === false)
+        check('settle: not for a person-undone settle, a non-failed row, or an error that is not a setup error', pv({}, true).settle === false && pv({ stage: 'queued' }).settle === false && pv({ last_error: '503 Service Unavailable' }).settle === false && pv({ last_error: null }).settle === false)
+        check('settle: the saved note names the networks reached and the one skipped', /bluesky, x/.test(settledNote(['pinterest'], six)) && /pinterest was skipped/.test(settledNote(['pinterest'], six)))
+
+        const w = world(base, { post_distribution: [failedPost('italy', { last_error: pin, sent_platforms: six, updated_at: ago(5 * HOUR) }), failedPost('mixed', { last_error: `${pin}; facebook: 422 content rejected`, sent_platforms: ['bluesky'], updated_at: ago(5 * HOUR) })] })
+        const sr = await runRetryFailedPosts(w.admin, NOW, { retryPost: requeue(w.db) })
+        const settled = rowsOf(w.db, 'post_distribution').find((x) => x.slug === 'italy')
+        const entry = logOf(w.db).find((e) => e.subject === 'italy' && e.action === 'Settled the post as done') as AutoDecision
+        check('settle run: the Pinterest-only post becomes done with a note, the mixed one stays failed and becomes a card', sr.acted === 1 && settled?.stage === 'done' && /was skipped/.test(String(settled.last_error)) && rowsOf(w.db, 'post_distribution').find((x) => x.slug === 'mixed')?.stage === 'failed' && logOf(w.db).some((e) => e.subject === 'mixed' && e.action.startsWith('Needs Joel')))
+        check('settle run: the settle is logged with an Undo that reopens the post', !!entry && entry.undo?.kind === 'reopen-post' && entry.undo.ref === 'italy')
+        const ur = await undoAutoDecision(w.admin, entry)
+        check('settle undo: the post is failed again with a note, and cannot be reopened twice', ur.ok && rowsOf(w.db, 'post_distribution').find((x) => x.slug === 'italy')?.stage === 'failed' && !(await undoAutoDecision(w.admin, logOf(w.db).find((e) => e.subject === 'italy' && e.action === 'Settled the post as done') as AutoDecision)).ok)
+        await runRetryFailedPosts(w.admin, NOW, { retryPost: requeue(w.db) })
+        check('settle undo: a reopened post is never settled again by itself', rowsOf(w.db, 'post_distribution').find((x) => x.slug === 'italy')?.stage === 'failed')
+      }
+
+      // Sends Upload-Post accepted but had not confirmed are checked every pass instead of waiting for a person to press Sync.
+      {
+        const syncing = world(base, {})
+        const rs = await runRetryFailedPosts(syncing.admin, NOW, { syncPending: async () => ({ resolved: 3, stillPending: 1, checkFailed: 0, total: 4 }) })
+        const line = logOf(syncing.db).find((e) => e.subject === 'upload-post-sync')
+        check('sync: confirmed held posts are reported in the log with a plain reason and no undo', rs.acted === 3 && !!line && /4 accepted posts/.test(line.action) && line.undo === null)
+        const quiet = world(base, {})
+        const rq = await runRetryFailedPosts(quiet.admin, NOW, { syncPending: async () => ({ resolved: 0, stillPending: 2, checkFailed: 0, total: 2 }) })
+        check('sync: nothing resolved means nothing is logged', rq.acted === 0 && logOf(quiet.db).length === 0)
+        const broke = world(base, { post_distribution: [failedPost('after-sync-error')] })
+        const rb = await runRetryFailedPosts(broke.admin, NOW, { syncPending: async () => { throw new Error('Upload-Post is down') }, retryPost: requeue(broke.db) })
+        check('sync: a status read that throws never stops the rest of the policy', rb.acted === 1 && rowsOf(broke.db, 'post_distribution')[0].stage === 'queued')
       }
 
       const u = await undoAutoDecision(admin, retried as AutoDecision)

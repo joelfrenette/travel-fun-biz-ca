@@ -657,6 +657,20 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
  * "credit-costing/external calls are admin-triggered" discipline as the rest of this phase, even
  * though checking status itself is free; the posts it's resolving are not. */
 export async function syncPendingDistribution(admin: SupabaseClient): Promise<string> {
+  const s = await syncPendingDistributionStats(admin)
+  return s.total === 0 ? 'nothing pending to sync' : `${s.resolved} resolved, ${s.stillPending} still pending, ${s.checkFailed} could not be checked, ${s.total} rows had a saved id`
+}
+
+export interface PendingSyncStats {
+  resolved: number
+  stillPending: number
+  checkFailed: number
+  /** Held rows that had a saved Upload-Post id. */
+  total: number
+}
+
+/** The counts behind syncPendingDistribution. The autopilot calls this every pass (a status read costs nothing), so an accepted send never waits on a person to press Sync. */
+export async function syncPendingDistributionStats(admin: SupabaseClient): Promise<PendingSyncStats> {
   const { data: rows, error } = await admin
     .from('post_distribution')
     .select('*')
@@ -665,7 +679,7 @@ export async function syncPendingDistribution(admin: SupabaseClient): Promise<st
     .or('provider_request_id.not.is.null,provider_job_id.not.is.null')
     .limit(20)
   if (error) throw new Error(`post_distribution: ${error.message}`)
-  if (!rows || rows.length === 0) return 'nothing pending to sync'
+  if (!rows || rows.length === 0) return { resolved: 0, stillPending: 0, checkFailed: 0, total: 0 }
 
   let resolved = 0
   let stillPending = 0
@@ -725,5 +739,5 @@ export async function syncPendingDistribution(admin: SupabaseClient): Promise<st
       checkFailed++
     }
   }
-  return `${resolved} resolved, ${stillPending} still pending, ${checkFailed} could not be checked, ${rows.length} rows had a saved id`
+  return { resolved, stillPending, checkFailed, total: rows.length }
 }

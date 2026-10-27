@@ -13,6 +13,12 @@ export function uploadPostConfigured(): boolean {
   return !!process.env.UPLOAD_POST_API_KEY?.trim()
 }
 
+/** The Pinterest board every pin is published to (Upload-Post refuses a Pinterest post without one). Digits only; anything else is ignored. */
+export function pinterestBoardId(): string | null {
+  const raw = process.env.UPLOAD_POST_PINTEREST_BOARD_ID?.trim() ?? ''
+  return /^\d{5,30}$/.test(raw) ? raw : null
+}
+
 export interface UploadPostProfile {
   username: string
   accounts: { platform: string; username?: string; status?: string }[]
@@ -221,6 +227,7 @@ export async function uploadPostSendPhotos(input: {
   if (input.text.trim()) form.set('title', input.text)
   // TikTok refuses a title over 90 and would otherwise take the whole caption; its own field keeps the other networks' caption intact.
   if (input.text.trim() && input.platforms.includes('tiktok')) form.set('tiktok_title', fitTikTokTitle(input.text))
+  if (input.platforms.includes('pinterest') && pinterestBoardId()) form.set('pinterest_board_id', pinterestBoardId() as string)
   if (input.scheduleDate) form.set('scheduled_date', input.scheduleDate)
   let n = 0
   for (const url of urls) {
@@ -351,6 +358,7 @@ export async function uploadPostSendVideo(input: {
   for (const p of input.platforms) form.append('platform[]', p)
   if (input.text.trim()) form.set('title', input.text)
   if (input.text.trim() && input.platforms.includes('tiktok')) form.set('tiktok_title', fitTikTokTitle(input.text))
+  if (input.platforms.includes('pinterest') && pinterestBoardId()) form.set('pinterest_board_id', pinterestBoardId() as string)
   try {
     const src = await fetch(input.videoUrl, { cache: 'no-store', signal: AbortSignal.timeout(30_000) })
     const type = (src.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
