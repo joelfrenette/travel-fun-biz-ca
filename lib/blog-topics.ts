@@ -70,17 +70,63 @@ const TOPIC_CLUSTERS: TopicIdea[] = [
   { angle: 'River cruise vs ocean cruise: which one fits your group', keyword: 'river cruise vs ocean cruise', why: 'evergreen, matches our packages', source: 'static fallback' },
 ]
 
+/** The autoblog's one-post-per-trip wall looks back this many days (see packageWall below). */
+const COVERED_WINDOW_DAYS = 30
+
+export interface CoveredPackage {
+  slug: string
+  name: string
+  destination: string
+}
+
+/** Pure: the packages that already have a post, i.e. a post body that links /packages/<slug> (the same test the autoblog wall uses). */
+export function coveredPackages<P extends { slug: string }>(packages: P[], posts: { body: string | null }[]): P[] {
+  return packages.filter((p) => posts.some((post) => (post.body ?? '').toLowerCase().includes(`/packages/${p.slug.toLowerCase()}`)))
+}
+
+/** Pure: does the idea name a covered trip or its destination? Same test findGroundingPackage uses, so an idea this
+ * rejects is exactly one the wall would have thrown away after the AI call was spent. */
+export function mentionsCovered(idea: Pick<TopicIdea, 'angle' | 'keyword'>, covered: { name?: string | null; destination?: string | null }[]): boolean {
+  const haystack = `${idea.angle} ${idea.keyword}`.toLowerCase()
+  return covered.some((c) => {
+    const dest = c.destination?.toLowerCase()
+    const name = c.name?.toLowerCase()
+    return (!!dest && haystack.includes(dest)) || (!!name && haystack.includes(name))
+  })
+}
+
+/** Trips with a post in the last 30 days. Empty when unreadable (then nothing is excluded, which is the old behaviour).
+ * A retired (rejected) draft still counts here: it only makes the suggester a little more careful, never less. */
+async function readCoveredPackages(admin: SupabaseClient): Promise<CoveredPackage[]> {
+  try {
+    const since = new Date(Date.now() - COVERED_WINDOW_DAYS * 86_400_000).toISOString()
+    const [pk, ps] = await Promise.all([
+      admin.from('travel_packages').select('slug, name, destination').eq('status', 'published').limit(200),
+      admin.from('posts').select('body').gte('created_at', since).limit(400),
+    ])
+    if (pk.error || ps.error) return []
+    return coveredPackages((pk.data ?? []) as CoveredPackage[], (ps.data ?? []) as { body: string | null }[])
+  } catch {
+    return []
+  }
+}
+
 /** Compact, real material for the AI prompt: recent post titles, live packages, and every keyword
  * already in play (queued or rejected) so it isn't re-suggested. Never invents anything - if a
  * table is empty, that section is just omitted. */
-async function gatherTopicMaterial(admin: SupabaseClient): Promise<string> {
-  const [{ data: posts }, { data: packages }, { data: queue }] = await Promise.all([
+async function gatherTopicMaterial(admin: SupabaseClient, covered: CoveredPackage[] = []): Promise<string> {
+  const coveredSlugs = new Set(covered.map((c) => c.slug))
+  const [{ data: posts }, { data: allPackages }, { data: queue }] = await Promise.all([
     admin.from('posts').select('title').order('created_at', { ascending: false }).limit(40),
-    admin.from('travel_packages').select('name, destination, category, short_description, available_from, available_to').eq('status', 'published').order('created_at', { ascending: false }).limit(60),
+    admin.from('travel_packages').select('slug, name, destination, category, short_description, available_from, available_to').eq('status', 'published').order('created_at', { ascending: false }).limit(60),
     admin.from('blog_topic_queue').select('keyword').in('status', ['suggested', 'approved', 'used', 'rejected']).limit(200),
   ])
+  // Trips that already have a post inside the autoblog's one-post-per-trip wall are left out of the list the model may ground an
+  // idea in; an idea about one would only be thrown away by that wall after the AI call was already spent.
+  const packages = ((allPackages ?? []) as { slug: string; name: string; destination: string; category: string; short_description: string | null; available_from: string | null; available_to: string | null }[]).filter((p) => !coveredSlugs.has(p.slug))
   const lines: string[] = []
   if (posts?.length) lines.push(`Existing blog post titles (do not repeat these angles):\n${posts.map((p: { title: string }) => `- ${p.title}`).join('\n')}`)
+  if (covered.length) lines.push(`OFF LIMITS for the next ${COVERED_WINDOW_DAYS} days (each already has a recent post): ${covered.map((c) => `${c.name} (${c.destination})`).join('; ')}. Do not name these trips or their destinations in any idea.${packages.length ? '' : ' Every trip we sell is off limits right now, so every idea must be a general travel-planning angle that names no destination we sell.'}`)
   if (packages?.length) {
     // short_description and dates are included so the AI grounds an angle in what's actually sold
     // (e.g. a sailing-yacht cruise, not a generic "overwater bungalow" cliche for the destination)
@@ -142,7 +188,8 @@ async function gatherTopicMaterial(admin: SupabaseClient): Promise<string> {
  * AI is unconfigured or the reply isn't usable JSON - never invents ideas from nothing. */
 export async function suggestTopics(admin: SupabaseClient, opts: { count: number }): Promise<TopicIdea[]> {
   if (!isAiConfigured()) return []
-  const material = await gatherTopicMaterial(admin)
+  const covered = await readCoveredPackages(admin)
+  const material = await gatherTopicMaterial(admin, covered)
   const prompt = `You suggest blog post topics for a travel agency's site (hosted group trips, river and ocean cruises, singles getaways).
 
 ${material || '(no existing posts, packages or queued keywords yet)'}
@@ -165,7 +212,7 @@ Return ONLY minified JSON of this exact shape, nothing else:
     const parsed = parseModelJson<{ ideas?: TopicIdea[] }>(anthropicText(data))
     if (!parsed) console.error('[blog-topics] suggestTopics: model reply was not valid JSON of the expected shape')
     const ideas = Array.isArray(parsed?.ideas) ? parsed!.ideas : []
-    return ideas.filter((i) => typeof i?.angle === 'string' && typeof i?.keyword === 'string' && i.angle && i.keyword)
+    return ideas.filter((i) => typeof i?.angle === 'string' && typeof i?.keyword === 'string' && i.angle && i.keyword && !mentionsCovered(i, covered))
   } catch (err) {
     console.error('[blog-topics] suggestTopics threw:', err instanceof Error ? err.message : err)
     return []
