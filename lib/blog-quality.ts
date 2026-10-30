@@ -274,6 +274,52 @@ export function firstSentenceIssue(body: string, primaryKeyword: string | null |
   return null
 }
 
+/** En and em dash, built from code points so no long dash appears in the source. */
+const LONG_DASHES = String.fromCharCode(0x2013, 0x2014)
+
+const DANGLING_END = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'of', 'to', 'for', 'with', 'in', 'on', 'at', 'by', 'that', 'which', 'who', 'while', 'so', 'as', 'than', 'is', 'are', 'be', 'it', 'its', 'their', 'your', 'our', 'from', 'into', 'about'])
+
+/**
+ * Plain-code repair for "opening sentence is N words, over 25": cut the sentence at a clause boundary (comma, semicolon, colon, dash,
+ * or just before "and / which / while / so / but") so what is left is 8 to 25 words, still names the keyword, and ends on a real word.
+ * It only ever REMOVES the end of the sentence. All 4 drafts the heal rejected between 23 and 30 Oct failed on this rule (two on nothing
+ * else), after the model had tried 1 to 3 rounds to shorten it. A cut is refused if it would split a link or bold marker, if the dropped end holds a link, or if the result
+ * still fails the opening-sentence gate. Returns the new body, or null when no safe cut exists (the model then tries as before). Pure.
+ */
+export function shortenOpening(body: string, primaryKeyword: string | null | undefined): string | null {
+  const issue = firstSentenceIssue(body, primaryKeyword)
+  if (!issue || !/^opening sentence is \d+ words/.test(issue)) return null
+  const lines = body.split('\n')
+  const idx = lines.findIndex((l) => l.trim() && !/^#{1,6}\s/.test(l.trim()) && !/^[-*_]{3,}$/.test(l.trim()))
+  if (idx < 0) return null
+  const line = lines[idx]
+  const lead = /^\s*/.exec(line)?.[0] ?? ''
+  const trimmed = line.trim()
+  const m = /^(.+?[.!?])(?=\s|$)/.exec(trimmed)
+  const sentence = m ? m[1] : trimmed
+  if (!/[.!]$/.test(sentence)) return null
+  const rest = trimmed.slice(sentence.length)
+  const core = sentence.slice(0, -1)
+  const positions = new Set<number>()
+  for (const x of core.matchAll(new RegExp(`,|;|:|\\s[-${LONG_DASHES}]\\s`, 'g'))) positions.add(x.index as number)
+  for (const x of core.matchAll(/\s(?:and|which|while|so|but|because|although)\s/gi)) positions.add(x.index as number)
+  for (const pos of [...positions].sort((a, b) => b - a)) {
+    const prefix = core.slice(0, pos).replace(new RegExp(`[\\s,;:\\-${LONG_DASHES}]+$`), '')
+    const dropped = core.slice(pos)
+    const words = prefix.split(/\s+/).filter(Boolean)
+    if (words.length < 8 || words.length > MAX_FIRST_SENTENCE_WORDS) continue
+    if (DANGLING_END.has(words[words.length - 1].toLowerCase().replace(/[^a-z]/g, ''))) continue
+    if ((prefix.match(/\[/g) ?? []).length !== (prefix.match(/\]/g) ?? []).length || (prefix.match(/\(/g) ?? []).length !== (prefix.match(/\)/g) ?? []).length) continue
+    if ((prefix.match(/\*\*/g) ?? []).length % 2 !== 0 || (prefix.match(/`/g) ?? []).length % 2 !== 0) continue
+    if (/\[|\]\(/.test(dropped)) continue
+    const next = [...lines]
+    next[idx] = `${lead}${prefix}.${rest}`
+    const out = next.join('\n')
+    if (firstSentenceIssue(out, primaryKeyword) === null) return out
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Links, Quick answer
 // ---------------------------------------------------------------------------------------------------

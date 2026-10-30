@@ -7,6 +7,7 @@ import { GUIDE_LIMITS, buildCopyItem, buildGuideItem, buildPostItem, copyFrom, g
 import { buildSafePage, guideOffenders, looseDelete, parentFromGrounding, repairGuideFields, type GuideRepairCfg } from '@/lib/guide-repairs'
 import type { GuideKind } from '@/lib/guides'
 import { deleteEdits } from '@/lib/content-edits'
+import { shortenOpening } from '@/lib/blog-quality'
 import { parseArticle } from '@/lib/guide-composer'
 import { healItem, type HealBudget, type HealOutcome, type HealTarget } from '@/lib/heal-loop'
 
@@ -54,6 +55,14 @@ export async function healComposedPost(
     path: `/blog/${post.slug}`,
     item,
     brief: ctx.groundingText ?? '',
+    // Plain code first: an opening sentence over 25 words is cut at a clause boundary (removes words only, adds no fact). The gate and the
+    // independent judge still decide afterwards; when no safe cut exists the model rounds run as before.
+    repair: (f, _blockers, tracker) => {
+      const shorter = shortenOpening(f.body, post.primary_keyword)
+      if (!shorter || shorter === f.body) return f
+      tracker.touch('body', 'fixer', 'cut an opening sentence over 25 words at a clause boundary')
+      return { ...f, body: shorter }
+    },
     regenerateWhole: opts.regenerate
       ? async (reasons) => {
           const fresh = await opts.regenerate!(reasons)
