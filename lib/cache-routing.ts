@@ -53,6 +53,9 @@ export const EXCLUDED_ROUTES: ReadonlyArray<{ folder: string; reason: string }> 
   { folder: 'agent-profile/[token]', reason: 'private agent self-service link, token in the path, noindex' },
   { folder: 'trip-quiz', reason: 'reads ?q1= to ?q4= (searchParams), so it is per request by design; off by default (404)' },
   { folder: 'recap/[token]', reason: 'private one-trip recap link for an agent or traveller, token in the path, noindex' },
+  { folder: 'itinerary/[token]', reason: 'private signed itinerary link for one lead, token in the path, noindex' },
+  { folder: 'travel-advisories', reason: 'index of country advisory pages; off by default (404) and read per request until it gets a mirror' },
+  { folder: 'travel-advisories/[country]', reason: 'country advisory page; off by default (404) and read per request until it gets a mirror' },
 ]
 
 export type RouteDecision =
