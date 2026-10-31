@@ -289,6 +289,15 @@ const DANGLING_END = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'of', 'to', 
 export function shortenOpening(body: string, primaryKeyword: string | null | undefined): string | null {
   const issue = firstSentenceIssue(body, primaryKeyword)
   if (!issue || !/^opening sentence is \d+ words/.test(issue)) return null
+  return cutFirstSentence(body, MAX_FIRST_SENTENCE_WORDS, (out) => firstSentenceIssue(out, primaryKeyword) === null)
+}
+
+/**
+ * The shared cut: shorten the first sentence of the first paragraph to at most `maxWords` (8 or more) at a clause boundary, trying the
+ * longest safe prefix first, and keep the first cut that `accept` says passes the caller's own gate. Words are only removed. Returns
+ * the new text, or null when no safe cut exists. Pure.
+ */
+export function cutFirstSentence(body: string, maxWords: number, accept: (next: string) => boolean): string | null {
   const lines = body.split('\n')
   const idx = lines.findIndex((l) => l.trim() && !/^#{1,6}\s/.test(l.trim()) && !/^[-*_]{3,}$/.test(l.trim()))
   if (idx < 0) return null
@@ -307,7 +316,7 @@ export function shortenOpening(body: string, primaryKeyword: string | null | und
     const prefix = core.slice(0, pos).replace(new RegExp(`[\\s,;:\\-${LONG_DASHES}]+$`), '')
     const dropped = core.slice(pos)
     const words = prefix.split(/\s+/).filter(Boolean)
-    if (words.length < 8 || words.length > MAX_FIRST_SENTENCE_WORDS) continue
+    if (words.length < 8 || words.length > maxWords) continue
     if (DANGLING_END.has(words[words.length - 1].toLowerCase().replace(/[^a-z]/g, ''))) continue
     if ((prefix.match(/\[/g) ?? []).length !== (prefix.match(/\]/g) ?? []).length || (prefix.match(/\(/g) ?? []).length !== (prefix.match(/\)/g) ?? []).length) continue
     if ((prefix.match(/\*\*/g) ?? []).length % 2 !== 0 || (prefix.match(/`/g) ?? []).length % 2 !== 0) continue
@@ -315,7 +324,7 @@ export function shortenOpening(body: string, primaryKeyword: string | null | und
     const next = [...lines]
     next[idx] = `${lead}${prefix}.${rest}`
     const out = next.join('\n')
-    if (firstSentenceIssue(out, primaryKeyword) === null) return out
+    if (accept(out)) return out
   }
   return null
 }

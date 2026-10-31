@@ -1,13 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ComposedPost, PublishGateContext } from '@/lib/blog-composer'
 import type { ComposedGuide, GateContext } from '@/lib/guide-composer'
-import type { ComposedPageCopy, CopyGateContext } from '@/lib/page-copy-composer'
+import { pageCopyBlockers, type ComposedPageCopy, type CopyGateContext } from '@/lib/page-copy-composer'
 import type { ModelCall, RepairFields } from '@/lib/content-repair'
 import { GUIDE_LIMITS, buildCopyItem, buildGuideItem, buildPostItem, copyFrom, guideFrom, postFields, postFrom } from '@/lib/content-repair-adapters'
 import { buildSafePage, guideOffenders, looseDelete, parentFromGrounding, repairGuideFields, type GuideRepairCfg } from '@/lib/guide-repairs'
 import type { GuideKind } from '@/lib/guides'
 import { deleteEdits } from '@/lib/content-edits'
-import { shortenOpening } from '@/lib/blog-quality'
+import { cutFirstSentence, shortenOpening } from '@/lib/blog-quality'
 import { parseArticle } from '@/lib/guide-composer'
 import { healItem, type HealBudget, type HealOutcome, type HealTarget } from '@/lib/heal-loop'
 
@@ -123,7 +123,22 @@ export async function healComposedCopy(
   opts: CommonOpts & { path: string; links: { path: string; label: string }[] },
 ): Promise<Healed<ComposedPageCopy>> {
   const item = buildCopyItem(copy, gateCtx, { path: opts.path, links: opts.links })
-  const target: HealTarget = { type: 'page_copy', key: `page_copy:${opts.path}`, path: opts.path, item, brief: gateCtx.grounding }
+  const target: HealTarget = {
+    type: 'page_copy',
+    key: `page_copy:${opts.path}`,
+    path: opts.path,
+    item,
+    brief: gateCtx.grounding,
+    // Plain code first: a first sentence over 45 words is cut at a clause boundary (removes words only). The cut is kept only when the page-copy
+    // gate no longer reports the long first sentence and the intro did not fall under its minimum length.
+    repair: (f, blockers, tracker) => {
+      if (!blockers.some((b) => /^the first sentence is too long/.test(b))) return f
+      const shorter = cutFirstSentence(f.body, 45, (out) => !pageCopyBlockers(copyFrom(copy, { ...f, body: out }), gateCtx).some((b) => /^(the first sentence is too long|intro too short)/.test(b)))
+      if (!shorter || shorter === f.body) return f
+      tracker.touch('body', 'fixer', 'cut a first sentence over 45 words at a clause boundary')
+      return { ...f, body: shorter }
+    },
+  }
   const run = await healItem(admin, target, { model: opts.model, deadlineMs: opts.deadlineMs, now: opts.now, budget: opts.budget, requireJudge: opts.requireJudge })
   if (run.outcome.status !== 'healed') return { value: copy, outcome: run.outcome, logIds: run.logIds }
   return { value: copyFrom(copy, run.outcome.fields), outcome: run.outcome, logIds: run.logIds }

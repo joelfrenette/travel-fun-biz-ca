@@ -4,7 +4,7 @@
 // Pure functions and a source assertion only: no network, no database, no AI call.
 // Run: pnpm dlx tsx scripts/check-opening-shorten.ts
 import { readFileSync } from 'node:fs'
-import { MAX_FIRST_SENTENCE_WORDS, firstSentenceIssue, firstSentenceOf, shortenOpening } from '../lib/blog-quality'
+import { MAX_FIRST_SENTENCE_WORDS, cutFirstSentence, firstSentenceIssue, firstSentenceOf, shortenOpening } from '../lib/blog-quality'
 
 let failed = 0
 function check(label: string, ok: boolean, extra?: string) {
@@ -68,6 +68,19 @@ const LATER = '\n\n## What is included\n\nMeals, drinks and activities are cover
   check('the repair records the change with the tracker (so it is logged with Undo)', /tracker\.touch\('body', 'fixer', 'cut an opening sentence over 25 words/.test(src))
   const q = readFileSync('lib/blog-quality.ts', 'utf8')
   check('no long dash in the new code or comments', !/[–—]/.test(q.slice(q.indexOf('const DANGLING_END'), q.indexOf('// Links, Quick answer'))))
+}
+
+// 7. The same cut for compare and best-time page copy (first sentence over 45 words, 2026-10-30 /compare/dominican-republic-vs-germany).
+{
+  const copySentence = 'Dominican Republic and Germany suit very different travelers, because the first offers warm beaches, all inclusive resorts and easy flights from most Canadian cities in every season, while the second offers castles, river towns, rail travel, forest walks, regional food and a long list of museums for every kind of curious visitor who likes to learn something new on holiday.'
+  const copyBody = copySentence + '\n\nSecond paragraph that stays exactly as it was.'
+  const cut = cutFirstSentence(copyBody, 45, () => true)
+  check('setup: the page-copy first sentence is over 45 words', words(copySentence) > 45)
+  check('a first sentence over 45 words is cut to 45 or fewer', cut !== null && words(firstSentenceOf(cut)) <= 45 && /\.$/.test(firstSentenceOf(cut)))
+  check('the page-copy cut removes words only and leaves the next paragraph alone', cut !== null && copySentence.startsWith(firstSentenceOf(cut).replace(/\.$/, '')) && cut.endsWith('\n\nSecond paragraph that stays exactly as it was.'))
+  check('the cut is refused when the gate of the caller says no', cutFirstSentence(copyBody, 45, () => false) === null)
+  const src2 = readFileSync('lib/heal-targets.ts', 'utf8')
+  check('the page-copy heal target runs the cut only for the long-first-sentence blocker, and re-checks the real gate', /\/\^the first sentence is too long\/\.test\(b\)\)\) return f/.test(src2) && /pageCopyBlockers\(copyFrom\(copy,/.test(src2) && /tracker\.touch\('body', 'fixer', 'cut a first sentence over 45 words/.test(src2))
 }
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed')
