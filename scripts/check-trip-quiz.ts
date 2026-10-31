@@ -369,7 +369,11 @@ async function main() {
     for (let i = 0; i < 70; i++) big = bumpQuizCount(big, 'started', new Date(Date.UTC(2026, 0, 1 + i)))
     expect('counters: at most 60 days are kept', Object.keys(parseQuizCounts(big)).length === 60)
     const page = src('app/trip-quiz/page.tsx')
-    expect('counters: server side only (no script, no cookie, no tracking call, no headers or cookies read)', !/document\.cookie|localStorage|gtag|track\(|next\/headers|cookies\(/.test(page) && /recordQuizEvent\(step === 0 \? "started"/.test(page))
+    expect('counters: server side only (no script, no cookie, no tracking call, no headers or cookies read in the page)', !/document\.cookie|localStorage|gtag|track\(|next\/headers|cookies\(/.test(page) && /recordQuizEvent\(step === 0 \? "started"/.test(page))
+    const store = src('lib/trip-quiz-store.ts')
+    const headerReads = store.match(/headers\(\)\.[a-z]+\([^)]*\)/g) ?? []
+    expect('counters: the only header read is the user agent, to leave bots uncounted', headerReads.length === 1 && /headers\(\)\.get\('user-agent'\)/.test(store) && /isBotUserAgent/.test(store))
+    expect('robots.txt keeps crawlers off the answer combinations of the quiz', /'\/trip-quiz\?'/.test(src('app/robots.ts')))
     const admin = src('app/api/admin/trip-quiz/route.ts')
     expect('admin route: both methods check isAuthorized first', (admin.match(/if \(!isAuthorized\(request\)\)/g) ?? []).length === 2)
     const health = src('app/admin/system-health/page.tsx')

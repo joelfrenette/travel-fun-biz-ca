@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { headers } from 'next/headers'
+import { isBotUserAgent } from '@/lib/visit-tracking'
 import { supabase as anonClient } from '@/integrations/supabase/client'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
@@ -29,9 +31,14 @@ export async function readQuizCounts(admin: SupabaseClient): Promise<QuizCounts>
   }
 }
 
-/** One more of this funnel event today. Server side only, best effort: a lost count never touches the visitor. */
+/**
+ * One more of this funnel event today. Server side only, best effort: a lost count never touches the visitor.
+ * Crawlers walk every answer combination through the links (a first look read 243 results for 3 starts), so a request whose
+ * user agent is a bot is served but not counted. The user agent is read for that and nothing else, and is never stored.
+ */
 export async function recordQuizEvent(event: QuizEvent, admin?: SupabaseClient, now: Date = new Date()): Promise<void> {
   try {
+    if (!admin && isBotUserAgent(headers().get('user-agent'))) return
     const db = admin ?? getSupabaseAdmin()
     await setSetting(db, TRIP_QUIZ_COUNTS_KEY, bumpQuizCount(await getSetting(db, TRIP_QUIZ_COUNTS_KEY), event, now))
   } catch {
