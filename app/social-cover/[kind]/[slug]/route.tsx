@@ -27,6 +27,8 @@ import {
 import { findAlternatePortraitPhoto } from '@/lib/pexels'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { readCoverHeadline } from '@/lib/cover-headline-store'
+import { advisoryTitle, countryOfAdvisoryLedgerSlug } from '@/lib/country-advisory'
+import { getAdvisoryMode, readAdvisoryRow } from '@/lib/country-advisory-store'
 
 // Titled single-image social cover, 1080x1350 (Instagram portrait): /social-cover/<kind>/<slug>.
 //   blog / trip / guide: the post's own photo, un-dimmed, with a short ALL-CAPS headline in a solid red block
@@ -160,6 +162,16 @@ function parseGuideLedgerSlug(slug: string): { prefix: OgPrefix; slug: string } 
 async function resolveContent(kind: SocialCoverKind, slug: string, alt = 0): Promise<CoverContent | null> {
   if (kind === 'news') {
     const post = await getPublishedPostBySlug(slug)
+    // A country travel advisory ledger slug (advisory-<country>-<yyyymmdd>) is not a post: its card says the page title, only while the pages are on.
+    const advisoryCountry = post ? null : countryOfAdvisoryLedgerSlug(slug)
+    if (!post && advisoryCountry) {
+      const admin = getSupabaseAdmin()
+      if ((await getAdvisoryMode(admin)) !== 'on') return null
+      const row = await readAdvisoryRow(admin, advisoryCountry)
+      if (!row || row.status !== 'published' || !row.ca_level) return null
+      const advisoryHeadline = shortenNewsHeadline(advisoryTitle(row), NEWS_ALT_WORDS[Math.min(alt, NEWS_ALT_WORDS.length - 1)])
+      return advisoryHeadline ? { kind, headline: advisoryHeadline, photoUrl: null } : null
+    }
     if (!post) return null
     const headline = shortenNewsHeadline(post.title, NEWS_ALT_WORDS[Math.min(alt, NEWS_ALT_WORDS.length - 1)])
     return headline ? { kind, headline, photoUrl: null } : null

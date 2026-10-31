@@ -12,11 +12,12 @@ import { FROM_CITIES, INDEXABLE_FROM_SLUGS, fromPath, upcomingTrips } from '@/li
 import { absoluteUrl } from '@/lib/site'
 import { getPublishedAgents } from '@/lib/agents-store'
 import { maxIso, lastModOrUndefined, lastModField } from '@/lib/sitemap-dates'
+import { loadAdvisorySitemap } from '@/lib/country-advisory-public'
 
 export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths, publishedRows, agents] = await Promise.all([
+  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths, publishedRows, agents, advisoryPages] = await Promise.all([
     getPublishedPackageSlugs(),
     getPublishedPosts(),
     getDestinationSlugs(),
@@ -26,6 +27,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     getPublishedPageCopyPaths().catch(() => null),
     getAllPublishedPackages().catch(() => []),
     getPublishedAgents().catch(() => []),
+    // Travel advisory pages: [] unless app_settings.country_advisories_mode is 'on'; only published pages with data.
+    loadAdvisorySitemap(),
   ])
   // The /from/<city> pages are listed only while there is an upcoming trip to put on them (otherwise they are noindex).
   const fromCityPages = upcomingTrips(publishedRows).length > 0 ? FROM_CITIES.filter((c) => INDEXABLE_FROM_SLUGS.includes(c.slug)) : []
@@ -102,6 +105,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       ...lastModField(maxIso([destGuideDates.get(c.destinationA), destGuideDates.get(c.destinationB)]) ?? packagesMax),
       changeFrequency: 'weekly' as const,
       priority: 0.6,
+    })),
+    ...advisoryPages.map((e) => ({
+      url: absoluteUrl(e.path),
+      ...lastModField(lastModOrUndefined(e.lastModified)),
+      changeFrequency: 'weekly' as const,
+      priority: 0.5,
     })),
     { url: absoluteUrl('/blog'), ...lastModField(maxIso(posts.map((p) => p.updated_at))), changeFrequency: 'weekly' as const, priority: 0.6 },
     ...posts.map((post) => ({

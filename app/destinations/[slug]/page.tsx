@@ -31,6 +31,7 @@ import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, formatDate }
 import { ogImageEntry, structuredImages } from "@/lib/og-path"
 import { heroAlt } from "@/lib/image-quality"
 import { jsonLdHtml } from "@/lib/jsonld"
+import { loadAdvisoryLinkForGuide } from "@/lib/country-advisory-public"
 
 export const revalidate = 300
 
@@ -92,6 +93,8 @@ export default async function DestinationPage({ params }: Props) {
   const bestTimeToVisit = await getBestTimeToVisitPage(params.slug)
   // Every published hotel and resort guide under this destination (published rows only; empty means no section).
   const propertyGuides = await listPropertyGuidesForDestination(params.slug)
+  // Link to the travel advisory page for this country (null unless country_advisories_mode is 'on' and the page has data).
+  const advisoryLink = guide ? await loadAdvisoryLinkForGuide(params.slug) : null
   // The cities, ports and other pages that sit under this one (WP16), and the trail of parents above it. Hotels and
   // resorts are already listed in their own section, so they are left out of the groups.
   const allGuides = guide ? await listPublishedGuideLinks() : []
@@ -244,6 +247,13 @@ export default async function DestinationPage({ params }: Props) {
                 ))}
               </div>
             </section>
+          )}
+
+          {/* Travel advisories: a link only while the advisory pages are on and a real page with data exists for this destination. */}
+          {advisoryLink && (
+            <p className="mx-auto max-w-3xl text-sm text-muted-foreground">
+              Planning to go? Read the <Link href={advisoryLink.path} className="font-medium text-primary hover:underline">{advisoryLink.label}</Link>.
+            </p>
           )}
 
           {propertyGuides.length > 0 && (

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Loader2 } from "lucide-react"
 import { DISTRIBUTION_MODE_TEXT } from "@/lib/posts-page-summary"
+import TravelAdvisoriesCard from "@/components/admin/travel-advisories-card"
 
 function authHeaders(): HeadersInit {
   return { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}` }
@@ -156,6 +157,7 @@ export default function PostsAutomationCard({ type, refreshKey = 0 }: Props) {
                 </button>
               </div>
             )}
+            {type === "news" && <TravelAdvisoriesCard />}
             <p className="text-xs text-muted-foreground">
               Social posting: {DISTRIBUTION_MODE_TEXT[data.distributionMode]}
               {data.tailoredCaptions ? " · tailored captions on" : " · one shared caption"}

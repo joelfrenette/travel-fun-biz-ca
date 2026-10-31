@@ -26,6 +26,7 @@ import { makeHookSteer } from '@/lib/optimizer'
 import { commentPromptLine } from '@/lib/reel-questions'
 import { getNewsSocialEnabled, NEWS_SOCIAL_SKIP_NOTE } from '@/lib/news-settings'
 import { isRecapSlug, baseSlugOfRecap, recapFacts } from '@/lib/fanout-plan'
+import { countryOfAdvisoryPath } from '@/lib/country-advisory'
 import { baseSlugOfEvergreen, freshNetworks, hookIsFresh, rotateList } from '@/lib/evergreen-reshare'
 import { loadEvergreenHistory, recordEvergreenHooks, evergreenSendBlocker } from '@/lib/evergreen-history'
 
@@ -335,6 +336,9 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // hook rotation, UTM, tagging, the send) is the same code for both. A guide that is no longer published
       // sends nothing.
       const isGuideRow = typeof row.path === 'string'
+      // A country travel advisory row (path /travel-advisories/<country>): sent like a guide row, but with the typed news card as its image,
+      // the news UTM surface, and ONLY the plain-code caption (a government's level wording is never handed to a model to rewrite).
+      const isAdvisoryRow = isGuideRow && countryOfAdvisoryPath(row.path as string) !== null
       // A travel news post (slug "news-...", WP20) never gets AI-written tailored captions: its facts are checked word by
       // word against the feed item, so only the deterministic caption built from the saved hook is ever sent.
       const isNewsRow = !isGuideRow && row.slug.startsWith('news-')
@@ -373,7 +377,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const pageUrl = isGuideRow ? absoluteUrl(row.path as string) : `${SITE_URL}/blog/${postSlug}`
       // Each network gets its own link: utm_source is that network's canonical name (twitter is x).
       // utm_content is "<surface>-<variant>" (post, guide, trip or news; fallback or the hook style), so no two surfaces share one value.
-      const surface: SocialSurface = isNewsRow ? 'news' : isRecapRow ? 'recap' : isEvergreenRow ? 'evergreen' : isGuideRow ? ((row.path as string).startsWith('/packages/') ? 'trip' : 'guide') : 'post'
+      const surface: SocialSurface = isNewsRow ? 'news' : isRecapRow ? 'recap' : isEvergreenRow ? 'evergreen' : isGuideRow ? (isAdvisoryRow ? 'news' : (row.path as string).startsWith('/packages/') ? 'trip' : 'guide') : 'post'
       const networkLink = (p: string) => socialLink(pageUrl, p, postSlug, surface, 'fallback')
       const title = post?.title || row.title
       // Only networks that accept this kind of post, and never ones this post already reached.
@@ -382,7 +386,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // going out as text only (Instagram cannot take text). The composed URL is fetched and pixel-checked first
       // (lib/visual-gate.ts); the raw photo is never the fallback.
       // A recap card shows one of the post's own FAQ questions over the post's cover photo (kind 'recap'), its slug is the blog post's slug.
-      const coverKind: SocialCoverKind = isNewsRow ? 'news' : isRecapRow ? 'recap' : !isGuideRow ? 'blog' : packageSlugFromPath(row.path as string) ? 'trip' : 'guide'
+      const coverKind: SocialCoverKind = isNewsRow || isAdvisoryRow ? 'news' : isRecapRow ? 'recap' : !isGuideRow ? 'blog' : packageSlugFromPath(row.path as string) ? 'trip' : 'guide'
       const coverSlug = coverKind === 'trip' ? (packageSlugFromPath(row.path as string) as string) : isRecapRow ? postSlug : baseSlug
       // The FAQ, tags and takeaways as stored. A recap needs a usable FAQ answer before anything else is done for it.
       const faqRaw: unknown = (post as { faq?: unknown } | null)?.faq
@@ -514,7 +518,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // only changes the TEXT handed to the same single send per network below.
       let tailored: PlatformCaptions | null = null
       let hookStylesUsed: Record<string, HookStyle> = {}
-      if (tailoredCaptionsOn && !isNewsRow && !isRecapRow) {
+      if (tailoredCaptionsOn && !isNewsRow && !isRecapRow && !isAdvisoryRow) {
         const hookStyles: Record<string, HookStyle> = {}
         const ctaStyles: Record<string, CtaStyle> = {}
         const links: Record<string, string> = {}
