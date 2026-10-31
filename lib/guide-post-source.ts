@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { GUIDE_KINDS, guideKinds, guidePath, type GuideKind } from '@/lib/guides'
 import { isPastTrip } from '@/lib/past-trip'
 import { lookbackSource } from '@/lib/trip-lookback'
+import { countryOfAdvisoryPath } from '@/lib/country-advisory'
+import { loadAdvisoryPostSource } from '@/lib/country-advisory-store'
 
 // What the social-posting pass needs to know about a guide row in post_distribution (migration 0030: a row
 // whose `path` is set refers to a guide page, not a blog post). Kept in its own file with no import of
@@ -91,6 +93,9 @@ export interface GuidePostSource {
 export async function loadGuidePostSource(admin: SupabaseClient, path: string): Promise<GuidePostSource | null> {
   const pkgSlug = packageSlugFromPath(path)
   if (pkgSlug) return loadPackagePostSource(admin, pkgSlug)
+  // A travel advisory page (/travel-advisories/<country>): only a published page with a Canadian level, only while the mode is on.
+  const advisoryCountry = countryOfAdvisoryPath(path)
+  if (advisoryCountry) return loadAdvisoryPostSource(admin, advisoryCountry)
   const ref = guideFromPath(path)
   if (!ref) return null
   const { data, error } = await admin

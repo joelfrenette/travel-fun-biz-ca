@@ -18,6 +18,9 @@ import {
   type RawFeedItem,
 } from '@/lib/news-feed'
 import { classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
+import { getAdvisoryMode } from '@/lib/country-advisory-store'
+import { dualWriteCanada, dualWriteUk, emptyAdvisoryNote, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
+import { UK_ADVISORY_SOURCE_KEY } from '@/lib/country-advisory'
 import { NEWS_MAX_AGE_DAYS, parseSourcesOff, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
 
 // Growth loop WP20: step one of the news pipeline. Read the allowlisted feeds (each at most once in 30 minutes), keep
@@ -69,6 +72,8 @@ export interface IngestResult {
   skippedForTime: string[]
   /** The table could not be read or written (migration 0047 not applied, or a database error). */
   tableProblem?: string
+  /** Travel advisories dual write (lib/country-advisory-ingest.ts). Present only when app_settings.country_advisories_mode is log or on. */
+  advisories?: AdvisoryIngestNote
 }
 
 export const emptyIngest = (): IngestResult => ({ fetched: [], waiting: [], stored: 0, rejected: 0, duplicates: 0, covered: 0, notRelevant: 0, tooOld: 0, offSite: 0, failed: [], skippedForTime: [] })
@@ -220,6 +225,10 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
   const nowMs = now.getTime()
   // Official feeds first (tier 1), so a deadline that cuts the pass short never costs the storm and advisory notices.
   const sources = [...(deps.sources ?? (await activeSources(admin)))].sort((a, b) => a.tier - b.tier)
+  // Travel advisories: with the mode off (the default, and anything unreadable) nothing below is touched and the result has no `advisories`.
+  const advisoryMode = await getAdvisoryMode(admin)
+  const adv = advisoryMode === 'off' ? null : emptyAdvisoryNote(advisoryMode)
+  if (adv) result.advisories = adv
   try {
     const recentSince = new Date(nowMs - NEWS_MAX_AGE_DAYS * DAY_MS).toISOString()
     const recent = await admin.from('news_items').select('title, summary_raw, category, source_key, status, published_at, fetched_at, reject_reason').gte('created_at', recentSince).limit(1000)
@@ -298,6 +307,8 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
           continue
         }
         readItems = sel.items
+        // Also record the changed countries on their advisory pages (log or on mode only; never throws, never changes the posts).
+        if (adv) await dualWriteCanada(admin, adv, sel.items, parsed.items, saved.state?.levels, now)
       }
       // The etag is saved only AFTER the items are stored (below): a failed store must not make the next pass answer "not modified".
       await writeFeedState(admin, source.key, { ...next, fails: 0, lastError: undefined, lastOkAt: now.toISOString() })
@@ -361,6 +372,8 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
           result.tooOld++
           continue
         }
+        // UK travel advice: also record the update on the country's advisory page (log or on mode only). The post logic below is unchanged.
+        if (adv && source.key === UK_ADVISORY_SOURCE_KEY) await dualWriteUk(admin, adv, item, now)
         // One post per storm per 12 hours: a later bulletin inside that window is stored as rejected ("covered by an earlier post",
         // no decided_at, so it does not count as a write attempt) so its guid is remembered and it is not re-judged every run.
         // Past 12 hours a new bulletin is a candidate again and follows the normal update logic below and in lib/news-run.ts.
