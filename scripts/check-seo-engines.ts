@@ -20,7 +20,7 @@ import {
   type QueryPageRow,
   type QueryRow,
 } from '../lib/gsc-mining'
-import { bestPageFor, loadSeoPages, matchScore, TYPE_PRIORITY, type SeoPage } from '../lib/seo-pages'
+import { bestPageFor, isNewsBriefPage, loadSeoPages, matchScore, TYPE_PRIORITY, type SeoPage } from '../lib/seo-pages'
 import { cannibalWishes, comparePrimary, groupCannibalised, pickPrimary, MIN_IMPRESSIONS_EACH } from '../lib/cannibalization'
 import { applyLinkAdds, cleanAnchor, insertContextLink, LINKS_PER_DAY, planLinkAdds, type LinkWish } from '../lib/seo-links'
 import { buildHubSpokeMap, clustersFromQueries, hubSpokeWishes, pickHub } from '../lib/hub-spoke'
@@ -341,6 +341,10 @@ async function main() {
     check('spokes: the other pages on the topic; a page of another topic is not a spoke; a topic with one page is not mapped', e.spokes.length === 4 && !e.spokes.some((s) => s.path === other.path) && map.length === 1)
     check('missing links: hub to spoke (hub text known) and spoke to hub (spoke text known) are reported', e.missingHubToSpoke.sort().join() === '/blog/alaska-bears,/blog/alaska-glaciers,/blog/alaska-weather' && e.missingSpokeToHub.sort().join() === '/blog/alaska-bears,/blog/alaska-packing')
     check('hub: with three or more spokes under a post hub a guide is proposed (not here: the hub is a destination page)', e.proposedHub === null && buildHubSpokeMap(clusters, [s1, s2, s3, s4], new Map())[0]?.proposedHub?.pageType === 'guide')
+    const newsA: SeoPage = { ...s1, path: '/blog/news-canada-travel-advisory-update-for-france-aaa111', title: 'Canada travel advisory update for France', h1: 'Canada travel advisory update for France', keywords: [] }
+    const newsB: SeoPage = { ...s1, path: '/blog/news-canada-travel-advisory-update-for-tanzania-bbb222', title: 'Canada travel advisory update for Tanzania', h1: 'Canada travel advisory update for Tanzania', keywords: [] }
+    const newsClusters = clustersFromQueries([{ query: 'travel advisory canada', clicks: 0, impressions: 200, position: 9 }])
+    check('news briefs: country news posts are never a topic hub or spoke (France must not link up to the El Salvador brief)', buildHubSpokeMap(newsClusters, [newsA, newsB], new Map()).length === 0 && isNewsBriefPage(newsA) && !isNewsBriefPage(s1))
     const hw = hubSpokeWishes(map)
     check('wishes: spoke to hub first, then hub to spoke, with the cluster search as anchor for the hub link', hw[0].kind === 'spoke-to-hub' && hw[0].toPath === '/destinations/alaska' && hw[0].anchor === 'alaska cruise' && hw.findIndex((x) => x.kind === 'hub-to-spoke') > hw.reduce((a, x, i) => (x.kind === 'spoke-to-hub' ? i : a), -1))
     const plan = planLinkAdds(hw, pgs, 3)

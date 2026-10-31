@@ -4,7 +4,7 @@ import { MIN_OPPORTUNITY_IMPRESSIONS, type QueryRow } from '@/lib/gsc-mining'
 import { groupBySimilarity } from '@/lib/keyword-score'
 import { cleanAnchor, type LinkWish } from '@/lib/seo-links'
 import { internalLinkPathsOf } from '@/lib/seo-score'
-import { MATCH_THRESHOLD, matchScore, TYPE_PRIORITY, type SeoPage, type SeoPageType } from '@/lib/seo-pages'
+import { isNewsBriefPage, MATCH_THRESHOLD, matchScore, TYPE_PRIORITY, type SeoPage, type SeoPageType } from '@/lib/seo-pages'
 
 // HUB AND SPOKE (SEO engine 2, second half). Searches that mean the same thing are one topic (the same near-duplicate grouping the keyword
 // engine uses). For each topic with two or more pages of ours: ONE page is the HUB (the strongest by clicks, then impressions, then guide
@@ -79,7 +79,7 @@ const mapPage = (p: SeoPage): MapPage => ({ path: p.path, title: p.title, type: 
  * with fewer than two pages is not mapped. Missing links are only reported for pages whose text is loaded. Pure. */
 export function buildHubSpokeMap(clusters: readonly TopicCluster[], pages: readonly SeoPage[], metrics: Map<string, PageMetric>, opts: { threshold?: number } = {}): HubSpokeEntry[] {
   const threshold = opts.threshold ?? MATCH_THRESHOLD
-  const live = pages.filter((p) => !p.thin)
+  const live = pages.filter((p) => !p.thin && !isNewsBriefPage(p))
   const owner = new Map<string, { cluster: TopicCluster; score: number }>()
   for (const c of clusters) {
     for (const p of live) {

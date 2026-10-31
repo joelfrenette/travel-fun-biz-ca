@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import type { QueryPageRow } from '@/lib/gsc-mining'
 import { cleanAnchor, type LinkWish } from '@/lib/seo-links'
-import { TYPE_PRIORITY, type SeoPage, type SeoPageType } from '@/lib/seo-pages'
+import { isNewsBriefPage, TYPE_PRIORITY, type SeoPage, type SeoPageType } from '@/lib/seo-pages'
 
 // CANNIBALISATION (SEO engine 2). Two of our own pages competing for the same search split their strength, so neither ranks as well as one
 // strong page would. This finds the searches where that happens, picks ONE primary page per search, and acts in order of safety:
@@ -50,7 +50,7 @@ const label = (t: SeoPageType) => (t === 'blog' ? 'post' : t === 'package' ? 'tr
  * Only pages that exist (published, indexable) count; the home page never does. Pure. */
 export function groupCannibalised(rows: readonly QueryPageRow[], pages: readonly SeoPage[], opts: { minImpressions?: number } = {}): CannibalFinding[] {
   const min = opts.minImpressions ?? MIN_IMPRESSIONS_EACH
-  const known = new Map(pages.filter((p) => !p.thin).map((p) => [p.path, p]))
+  const known = new Map(pages.filter((p) => !p.thin && !isNewsBriefPage(p)).map((p) => [p.path, p]))
   const byQuery = new Map<string, Map<string, { clicks: number; imp: number; weighted: number }>>()
   for (const r of rows) {
     const page = known.get(r.path)

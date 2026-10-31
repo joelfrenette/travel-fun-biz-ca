@@ -22,6 +22,12 @@ export interface SeoPage {
   thin: boolean
 }
 
+/**
+ * A travel news brief ("news-" posts). Each is about one country on one day, so it is never a topic page, a topic hub or a spoke:
+ * left in, the topic maps pointed France, Tanzania and Saudi Arabia at the El Salvador brief as their "main page".
+ */
+export const isNewsBriefPage = (p: Pick<SeoPage, 'path'>): boolean => p.path.startsWith('/blog/news-')
+
 /** Which page wins a tie: a guide, a trip or a destination page over a blog post. */
 export const TYPE_PRIORITY: Record<SeoPageType, number> = { guide: 3, destination: 3, package: 3, blog: 1 }
 
