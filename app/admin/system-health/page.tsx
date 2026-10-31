@@ -61,6 +61,10 @@ export default function SystemHealthPage() {
   const [ackOn, setAckOn] = useState(false)
   const [ackConfigured, setAckConfigured] = useState(false)
   const [ackBusy, setAckBusy] = useState(false)
+  const [itOn, setItOn] = useState(false)
+  const [itReady, setItReady] = useState(false)
+  const [itTrips, setItTrips] = useState<{ slug: string; count: number }[]>([])
+  const [itBusy, setItBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -71,8 +75,14 @@ export default function SystemHealthPage() {
       fetch("/api/admin/automation-kill-switch", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
       fetch("/api/admin/visit-tracking", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
       fetch("/api/admin/lead-ack", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
+      fetch("/api/admin/itinerary-magnet", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
     ])
-      .then(([cronRes, pauseRes, visitsRes, ackRes]) => {
+      .then(([cronRes, pauseRes, visitsRes, ackRes, itRes]) => {
+        if (itRes.ok) {
+          setItOn(!!itRes.data.on)
+          setItReady(!!itRes.data.secretReady)
+          setItTrips(Array.isArray(itRes.data.trips) ? itRes.data.trips : [])
+        }
         if (ackRes.ok) {
           setAckOn(!!ackRes.data.on)
           setAckConfigured(!!ackRes.data.configured)
@@ -147,6 +157,22 @@ export default function SystemHealthPage() {
     }
   }
 
+  async function toggleItinerary() {
+    const next = !itOn
+    if (next && !confirm("Turn on Send me the itinerary and dates on trip pages? Migration 0062 must be applied first. The email part only goes out if the instant lead reply is also on.")) return
+    setItBusy(true)
+    try {
+      const res = await fetch("/api/admin/itinerary-magnet", { method: "POST", headers: authHeaders(), body: JSON.stringify({ on: next }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Could not update")
+      setItOn(next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update")
+    } finally {
+      setItBusy(false)
+    }
+  }
+
   return (
     <div>
       <div className="border-b bg-card/30">
@@ -204,6 +230,31 @@ export default function SystemHealthPage() {
               {ackBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               {ackOn ? "Turn instant reply off" : "Turn instant reply on"}
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-[220px] flex-1">
+                <p className="font-medium">{itOn ? "Send me the itinerary and dates is ON" : "Send me the itinerary and dates is OFF"}</p>
+                <p className="text-sm text-muted-foreground">
+                  When on, upcoming trip pages offer a form (name, email, optional phone, unticked consent box). The visitor gets a private, printable itinerary built only from what is stored for the trip, and a link by email through the instant lead reply (so that switch, its daily limit and its sender settings decide whether the email goes). Each request is a lead marked as an itinerary request. Trip pages refresh every 5 minutes, so it can take that long to show or hide.
+                  {!itReady && " Not ready yet: set ITINERARY_TOKEN_SECRET (or SESSION_SECRET), or the form will say it is not available."}
+                </p>
+              </div>
+              <Button variant={itOn ? "outline" : "default"} onClick={toggleItinerary} disabled={loading || itBusy}>
+                {itBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                {itOn ? "Turn itinerary requests off" : "Turn itinerary requests on"}
+              </Button>
+            </div>
+            {itTrips.length > 0 ? (
+              <ul className="text-sm text-muted-foreground">
+                {itTrips.map((t) => <li key={t.slug}><code>{t.slug}</code>: {t.count} request{t.count === 1 ? "" : "s"}</li>)}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No itinerary requests yet.</p>
+            )}
           </CardContent>
         </Card>
 

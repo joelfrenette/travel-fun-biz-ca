@@ -10,6 +10,7 @@ import {
 import { listTopicQueue } from '@/lib/blog-topics'
 import { listUnassignedHot } from '@/lib/lead-desk-store'
 import { whatTheyAsked } from '@/lib/lead-desk'
+import { itineraryEmailStatus } from '@/lib/itinerary-magnet'
 import { CAPTION_FAILED_PREFIX } from '@/lib/guide-release'
 import { guidePublishBlock } from '@/lib/posts-menu-2'
 import { isNewsSlug } from '@/lib/news-post'
@@ -205,7 +206,7 @@ async function blogDraftCards(admin: SupabaseClient): Promise<TodayCard[]> {
 
 async function leadCards(admin: SupabaseClient): Promise<TodayCard[]> {
   const since = new Date(Date.now() - 3 * DAY_MS).toISOString()
-  const { data, error } = await admin.from('leads').select('id, name, email, phone, package, forwarded_to_ghl, created_at').eq('is_test', false).gte('created_at', since).order('created_at', { ascending: false }).limit(40)
+  const { data, error } = await admin.from('leads').select('id, name, email, phone, package, message, forwarded_to_ghl, created_at').eq('is_test', false).gte('created_at', since).order('created_at', { ascending: false }).limit(40)
   if (error) throw new Error(error.message)
   const done = new Set(parseIdList(await getSetting(admin, TODAY_LEADS_DONE_KEY).catch(() => null)))
   const out: TodayCard[] = []
@@ -213,7 +214,7 @@ async function leadCards(admin: SupabaseClient): Promise<TodayCard[]> {
     const id = str(l.id)
     if (!id || done.has(id)) continue
     const sent = l.forwarded_to_ghl === true
-    out.push(card('lead-reply', id, `New lead: ${str(l.name) || 'no name given'}`, facts(fact('Email', str(l.email)), fact('Phone', str(l.phone)), fact('Interested in', str(l.package)), fact('Came in', when(l.created_at)), fact('Sent to GoHighLevel', sent ? 'Yes' : 'No, it is only saved here')), (sent ? 0 : -1e13) - ms(l.created_at), { link: { label: 'Open Leads', href: '/admin/leads' } }))
+    out.push(card('lead-reply', id, `New lead: ${str(l.name) || 'no name given'}`, facts(fact('Email', str(l.email)), fact('Phone', str(l.phone)), fact('Interested in', str(l.package)), fact('Came in', when(l.created_at)), fact('Itinerary email', itineraryEmailStatus(str(l.message))), fact('Sent to GoHighLevel', sent ? 'Yes' : 'No, it is only saved here')), (sent ? 0 : -1e13) - ms(l.created_at), { link: { label: 'Open Leads', href: '/admin/leads' } }))
   }
   return out
 }
@@ -229,6 +230,7 @@ async function hotLeadCards(admin: SupabaseClient): Promise<TodayCard[]> {
       fact('Trip or page', trip),
       fact('Came from', r.utm_source || 'not recorded'),
       fact('What they asked', asked),
+      fact('Itinerary email', itineraryEmailStatus(r.message)),
       // Phone, email and the live waiting time are shown by the card's own panel (components/admin/hot-lead-panel.tsx), from card.hot.
     ), ms(r.created_at), { link: { label: 'Open Leads', href: '/admin/leads' } })
     return { ...base, hot: { leadId: r.id, createdAt: r.created_at, name: plain(r.name || ''), email: r.email, phone: r.phone, package: r.package, pagePath: r.page_path, source: r.utm_source, asked } }
