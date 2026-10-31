@@ -6,6 +6,26 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Loader2, Activity, Pause, Play } from "lucide-react"
 
+// The trip quiz funnel (lib/trip-quiz.ts QuizDayCounts), as /api/admin/trip-quiz sends it.
+interface QuizFunnel {
+  started: number
+  q1: number
+  q2: number
+  q3: number
+  q4: number
+  result: number
+  email: number
+}
+const QUIZ_FUNNEL_COLUMNS: { key: keyof QuizFunnel; label: string }[] = [
+  { key: "started", label: "Started" },
+  { key: "q1", label: "Answered Q1" },
+  { key: "q2", label: "Answered Q2" },
+  { key: "q3", label: "Answered Q3" },
+  { key: "q4", label: "Answered Q4" },
+  { key: "result", label: "Saw result" },
+  { key: "email", label: "Gave email" },
+]
+
 interface CronStatus {
   name: string
   light: "green" | "amber" | "gray"
@@ -65,6 +85,12 @@ export default function SystemHealthPage() {
   const [itReady, setItReady] = useState(false)
   const [itTrips, setItTrips] = useState<{ slug: string; count: number }[]>([])
   const [itBusy, setItBusy] = useState(false)
+  const [quizOn, setQuizOn] = useState(false)
+  const [quizReady, setQuizReady] = useState(false)
+  const [quizAckOn, setQuizAckOn] = useState(false)
+  const [quizToday, setQuizToday] = useState<QuizFunnel | null>(null)
+  const [quizWeek, setQuizWeek] = useState<QuizFunnel | null>(null)
+  const [quizBusy, setQuizBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -76,8 +102,16 @@ export default function SystemHealthPage() {
       fetch("/api/admin/visit-tracking", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
       fetch("/api/admin/lead-ack", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
       fetch("/api/admin/itinerary-magnet", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
+      fetch("/api/admin/trip-quiz", { headers: authHeaders() }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })),
     ])
-      .then(([cronRes, pauseRes, visitsRes, ackRes, itRes]) => {
+      .then(([cronRes, pauseRes, visitsRes, ackRes, itRes, quizRes]) => {
+        if (quizRes.ok) {
+          setQuizOn(!!quizRes.data.on)
+          setQuizReady(!!quizRes.data.secretReady)
+          setQuizAckOn(!!quizRes.data.ackOn)
+          setQuizToday(quizRes.data.today ?? null)
+          setQuizWeek(quizRes.data.week ?? null)
+        }
         if (itRes.ok) {
           setItOn(!!itRes.data.on)
           setItReady(!!itRes.data.secretReady)
@@ -154,6 +188,22 @@ export default function SystemHealthPage() {
       setError(e instanceof Error ? e.message : "Could not update")
     } finally {
       setAckBusy(false)
+    }
+  }
+
+  async function toggleQuiz() {
+    const next = !quizOn
+    if (next && !confirm("Turn on the Find your trip in 60 seconds quiz? The quiz page and its cards go live on the site. The emails only go out if the instant lead reply is also on.")) return
+    setQuizBusy(true)
+    try {
+      const res = await fetch("/api/admin/trip-quiz", { method: "POST", headers: authHeaders(), body: JSON.stringify({ on: next }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Could not update")
+      setQuizOn(next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update")
+    } finally {
+      setQuizBusy(false)
     }
   }
 
@@ -255,6 +305,44 @@ export default function SystemHealthPage() {
             ) : (
               <p className="text-sm text-muted-foreground">No itinerary requests yet.</p>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-[220px] flex-1">
+                <p className="font-medium">{quizOn ? "Find your trip in 60 seconds is ON" : "Find your trip in 60 seconds is OFF"}</p>
+                <p className="text-sm text-muted-foreground">
+                  When on, the page /trip-quiz asks four questions (who, trip style, when, how long) and shows up to three published trips picked by plain rules from the stored trip fields, with dates and with a price only where an agent confirmed one. A small card links to it from the home page, guide pages and blog posts. The last screen collects name, email and the unticked consent box, and the lead lands on the Lead desk as an itinerary request with the answers and matched trips in its message. The itinerary email goes through the instant lead reply (so that switch, its daily limit and its sender settings decide whether it goes); one follow-up email goes on day 3 to a lead who ticked the box and has not been contacted. Pages refresh every 5 minutes, so it can take that long to show or hide the cards.
+                  {!quizReady && " Not ready yet: set ITINERARY_TOKEN_SECRET (or SESSION_SECRET), or the last screen will say it is not available."}
+                  {!quizAckOn && " The instant lead reply is off, so no itinerary or follow-up emails will go out (the on-screen itinerary still works)."}
+                </p>
+              </div>
+              <Button variant={quizOn ? "outline" : "default"} onClick={toggleQuiz} disabled={loading || quizBusy}>
+                {quizBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                {quizOn ? "Turn the trip quiz off" : "Turn the trip quiz on"}
+              </Button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="text-muted-foreground">
+                    <th className="py-1 pr-3 font-medium">Funnel</th>
+                    {QUIZ_FUNNEL_COLUMNS.map((c) => <th key={c.key} className="py-1 pr-3 font-medium">{c.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {([["Today (UTC)", quizToday], ["Last 7 days", quizWeek]] as const).map(([label, row]) => (
+                    <tr key={label}>
+                      <td className="py-1 pr-3">{label}</td>
+                      {QUIZ_FUNNEL_COLUMNS.map((c) => <td key={c.key} className="py-1 pr-3">{row ? row[c.key] : 0}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-muted-foreground">Counted on the server as screens are served (no cookies or scripts). A page refresh counts again, so treat the numbers as close, not exact.</p>
           </CardContent>
         </Card>
 

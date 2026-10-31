@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { parseDayCount, notifyTo } from '@/lib/alerts'
-import { LEAD_ACK_SUBJECT, LEAD_ACK_PARAGRAPHS, LEAD_ACK_SIGNOFF, LEAD_ACK_ITINERARY_SUBJECT, leadAckFooterLines, leadAckItineraryParagraphs } from '@/lib/lead-ack-copy'
+import { LEAD_ACK_SUBJECT, LEAD_ACK_PARAGRAPHS, LEAD_ACK_SIGNOFF, LEAD_ACK_ITINERARY_SUBJECT, LEAD_ACK_NUDGE_SUBJECT, leadAckFooterLines, leadAckItineraryParagraphs, leadAckNudgeFooterLines, leadAckNudgeParagraphs } from '@/lib/lead-ack-copy'
 
 // Instant lead reply: a short "we got your message" email to the lead, sent through Resend right after the lead
 // is saved. OFF by default (setting `lead_ack_email` must be exactly 'true'). The wording lives in
@@ -27,6 +27,8 @@ export interface LeadAckInput {
   name?: string | null
   isTest?: boolean
   itinerary?: LeadAckItinerary
+  /** The one day 3 follow-up for a trip quiz lead (lib/flywheel/steps/quiz-nudge.ts). Goes through every guard below like any other reply. */
+  nudge?: LeadAckItinerary
 }
 
 export interface LeadAckDeps {
@@ -62,11 +64,11 @@ export function isRateLimited(lastSentIso: string | null, now: Date): boolean {
 }
 
 /** Pure: subject and plain text body built from the copy file. */
-export function buildLeadAckEmail(name: string | null | undefined, itinerary?: LeadAckItinerary): { subject: string; text: string } {
-  const source = itinerary ? leadAckItineraryParagraphs(itinerary.tripName, itinerary.url) : LEAD_ACK_PARAGRAPHS
+export function buildLeadAckEmail(name: string | null | undefined, itinerary?: LeadAckItinerary, nudge?: LeadAckItinerary): { subject: string; text: string } {
+  const source = nudge ? leadAckNudgeParagraphs(nudge.tripName, nudge.url) : itinerary ? leadAckItineraryParagraphs(itinerary.tripName, itinerary.url) : LEAD_ACK_PARAGRAPHS
   const paragraphs = source.map((p) => p.replace('{firstName}', ackFirstName(name)))
-  const text = [...paragraphs.flatMap((p) => [p, '']), LEAD_ACK_SIGNOFF, '', '--', ...leadAckFooterLines()].join('\n')
-  return { subject: itinerary ? LEAD_ACK_ITINERARY_SUBJECT : LEAD_ACK_SUBJECT, text }
+  const text = [...paragraphs.flatMap((p) => [p, '']), LEAD_ACK_SIGNOFF, '', '--', ...(nudge ? leadAckNudgeFooterLines() : leadAckFooterLines())].join('\n')
+  return { subject: nudge ? LEAD_ACK_NUDGE_SUBJECT : itinerary ? LEAD_ACK_ITINERARY_SUBJECT : LEAD_ACK_SUBJECT, text }
 }
 
 export async function isLeadAckOn(admin: SupabaseClient): Promise<boolean> {
@@ -102,7 +104,7 @@ export async function sendLeadAck(input: LeadAckInput, deps: LeadAckDeps = {}): 
     await set(sentKey, now.toISOString())
     await set(LEAD_ACK_DAY_KEY, `${today}:${sentToday + 1}`)
     const replyTo = process.env.LEAD_ACK_REPLY_TO?.trim() || notifyTo()
-    const mail = buildLeadAckEmail(input.name, input.itinerary)
+    const mail = buildLeadAckEmail(input.name, input.itinerary, input.nudge)
     const res = await (deps.fetchImpl ?? fetch)('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },

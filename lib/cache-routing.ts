@@ -51,6 +51,7 @@ export const EXCLUDED_ROUTES: ReadonlyArray<{ folder: string; reason: string }> 
   { folder: 'agents', reason: 'directory; the specialty filter chips read ?specialty= (searchParams), so it is per request by design' },
   { folder: 'agents/[slug]', reason: 'agent profile page, per request until it gets a mirror' },
   { folder: 'agent-profile/[token]', reason: 'private agent self-service link, token in the path, noindex' },
+  { folder: 'trip-quiz', reason: 'reads ?q1= to ?q4= (searchParams), so it is per request by design; off by default (404)' },
   { folder: 'recap/[token]', reason: 'private one-trip recap link for an agent or traveller, token in the path, noindex' },
 ]
 

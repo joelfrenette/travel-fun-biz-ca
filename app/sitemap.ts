@@ -13,11 +13,12 @@ import { absoluteUrl } from '@/lib/site'
 import { getPublishedAgents } from '@/lib/agents-store'
 import { maxIso, lastModOrUndefined, lastModField } from '@/lib/sitemap-dates'
 import { loadAdvisorySitemap } from '@/lib/country-advisory-public'
+import { getTripQuizMode } from '@/lib/trip-quiz-store'
 
 export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths, publishedRows, agents, advisoryPages] = await Promise.all([
+  const [packages, posts, destinations, allBestTime, allCompare, guides, copyPaths, publishedRows, agents, advisoryPages, quizMode] = await Promise.all([
     getPublishedPackageSlugs(),
     getPublishedPosts(),
     getDestinationSlugs(),
@@ -29,7 +30,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     getPublishedAgents().catch(() => []),
     // Travel advisory pages: [] unless app_settings.country_advisories_mode is 'on'; only published pages with data.
     loadAdvisorySitemap(),
+    getTripQuizMode(),
   ])
+  const quizOn = quizMode === 'on'
   // The /from/<city> pages are listed only while there is an upcoming trip to put on them (otherwise they are noindex).
   const fromCityPages = upcomingTrips(publishedRows).length > 0 ? FROM_CITIES.filter((c) => INDEXABLE_FROM_SLUGS.includes(c.slug)) : []
   // Compare and best-time pages are listed only when published copy exists for the path (one query for all);
@@ -112,6 +115,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority: 0.5,
     })),
+    // The trip quiz page is listed only while app_settings trip_quiz_mode is on (off: the sitemap is unchanged).
+    ...(quizOn ? [{ url: absoluteUrl('/trip-quiz'), changeFrequency: 'monthly' as const, priority: 0.5 }] : []),
     { url: absoluteUrl('/blog'), ...lastModField(maxIso(posts.map((p) => p.updated_at))), changeFrequency: 'weekly' as const, priority: 0.6 },
     ...posts.map((post) => ({
       url: absoluteUrl(`/blog/${post.slug}`),

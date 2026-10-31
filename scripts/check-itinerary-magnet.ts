@@ -102,7 +102,8 @@ async function main() {
     const store = readFileSync('lib/itinerary-magnet-store.ts', 'utf8')
     expect('off: a failed settings read fails closed to off', /catch \{\s*return 'off'/.test(store))
     const page = readFileSync('app/itinerary/[token]/page.tsx', 'utf8')
-    expect('off: the itinerary page is not found unless the mode is on', /getItineraryMagnetMode\(\)\) !== "on"\) notFound\(\)/.test(page))
+    // Contract widened by the trip quiz (scripts/check-trip-quiz.ts): the page opens while the itinerary switch OR the quiz switch is on, and a plain itinerary lead still needs the itinerary switch.
+    expect('off: the itinerary page is not found unless the mode is on', /getItineraryMagnetMode\(\)\.then\(\(m\) => m === "on"\)/.test(page) && /if \(!itineraryOn && !quizOn\) notFound\(\)/.test(page) && /isQuizLeadMessage\(lead\.message\) \? !quizOn : !itineraryOn/.test(page))
   }
 
   // ── consent ──────────────────────────────────────────────────────────────────────

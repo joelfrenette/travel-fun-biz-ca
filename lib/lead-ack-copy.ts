@@ -36,6 +36,25 @@ export function leadAckItineraryParagraphs(tripName: string, url: string): strin
   ]
 }
 
+/**
+ * The ONE follow-up a trip quiz lead can get, 3 days after asking for their itinerary (lib/flywheel/steps/quiz-nudge.ts). Only for
+ * people who ticked the consent box and have not been contacted yet. Same sender, same switch, same caps and the same identity,
+ * address, phone and stop line as the acknowledgement; only the subject, the middle paragraphs and the first footer line change.
+ * DRAFT with the rest. {url} is the visitor's private itinerary link.
+ */
+export const LEAD_ACK_NUDGE_SUBJECT = 'Your trip itinerary is still here'
+
+export function leadAckNudgeParagraphs(tripName: string, url: string): string[] {
+  const trip = tripName.replace(/[\r\n]+/g, ' ').trim().slice(0, 120)
+  return [
+    'Hi {firstName},',
+    `A few days ago you asked us for the itinerary and dates for ${trip || 'a trip'}. Your private link is still open if you would like another look:`,
+    url,
+    'If you have questions, or would like help choosing dates, a travel advisor is happy to talk it through with you. There is no pressure.',
+    `You can call or text us at ${site.phone}, or just reply to this email.`,
+  ]
+}
+
 /** Sign-off line. */
 export const LEAD_ACK_SIGNOFF = `The ${site.name} team`
 
@@ -49,5 +68,13 @@ export function leadAckFooterLines(): string[] {
     `You are receiving this one-time confirmation because you sent a message through the ${site.name} website. It is not an advertisement.`,
     `Sent by ${site.name}${address ? `, ${address}` : ''}${site.phone ? `, ${site.phone}` : ''}.`,
     'If you do not want to hear from us, reply to this email and say so, and we will stop.',
+  ]
+}
+
+/** The footer of the one quiz follow-up: the same identity, address, phone and stop line, with a first line that tells the truth about this email. */
+export function leadAckNudgeFooterLines(): string[] {
+  return [
+    `You are receiving this one follow-up because you asked ${site.name} for a trip itinerary through our trip quiz and ticked the box agreeing to hear from us. We will not send another one unless you ask.`,
+    ...leadAckFooterLines().slice(1),
   ]
 }

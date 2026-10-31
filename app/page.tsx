@@ -7,6 +7,7 @@ import { ContactForm } from "@/components/contact-form"
 import { Footer } from "@/components/footer"
 import { TestimonialsSection } from "@/components/testimonials-section"
 import { TopDestinations } from "@/components/top-destinations"
+import { TripQuizCard } from "@/components/trip-quiz-card"
 import { AgentsStrip } from "@/components/agents-strip"
 import { getAgentsStrip } from "@/lib/agents-store"
 import { listTopDestinationGuides } from "@/lib/guides"
@@ -54,6 +55,8 @@ export default async function HomePage() {
           currency={currency}
           usdToTargetRate={usdToTargetRate}
         />
+        {/* The trip quiz card: renders nothing unless app_settings trip_quiz_mode is on (lib/trip-quiz.ts). */}
+        <TripQuizCard className="mx-4 my-8 sm:mx-auto sm:max-w-3xl" />
         <TopDestinations items={topDestinations} />
         <FeaturesSection language={language} introParts={linked.parts(copy.featuresIntro)} featureParts={copy.features.map((f) => linked.parts(f))} />
 

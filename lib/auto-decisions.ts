@@ -46,9 +46,10 @@ export type FlywheelPolicyName =
   | 'recap_auto'
   | 'autonomy_ladder'
   | 'learn_loop'
+  | 'quiz_nudge'
 export type PolicyName = AutopilotPolicyName | SeoPolicyName | SystemCheckPolicyName | EvergreenPolicyName | TopicMeaningPolicyName | FlywheelPolicyName
 
-export const FLYWHEEL_POLICIES: readonly FlywheelPolicyName[] = ['booked_sync', 'lead_retry', 'ai_heal', 'dead_letter', 'verify_fix', 'network_recover', 'promote_pick', 'keyword_assign', 'recap_auto', 'autonomy_ladder', 'learn_loop']
+export const FLYWHEEL_POLICIES: readonly FlywheelPolicyName[] = ['booked_sync', 'lead_retry', 'ai_heal', 'dead_letter', 'verify_fix', 'network_recover', 'promote_pick', 'keyword_assign', 'recap_auto', 'autonomy_ladder', 'learn_loop', 'quiz_nudge']
 
 /** The four decisions the owner approved. They default to ON. */
 export const APPROVED_POLICIES: readonly PolicyName[] = ['retry_failed_posts', 'approve_safe_topics', 'publish_passing_news', 'release_held_posts']
@@ -68,6 +69,7 @@ export const POLICY_LABELS: Record<PolicyName, string> = {
   recap_auto: 'Draft a private recap and testimonial after a trip ends',
   autonomy_ladder: 'Move a mode up a rung after a clean track record (off until you switch it on)',
   learn_loop: 'Learn from repeated content failures: trial a fix, keep it if it works, flag the code cause if not',
+  quiz_nudge: 'Send the one day 3 follow-up email to a trip quiz lead who agreed to emails and has not been contacted',
   evergreen_reshare: 'Re-share one older evergreen page on social (off until you switch it on)',
   system_check_ai: 'AI fix started from the System check (Auto-heal)',
   seo_topics: 'Suggest blog topics from Google searches (SEO engines)',
@@ -93,6 +95,7 @@ export const POLICY_CAPS: Record<PolicyName, number> = {
   recap_auto: 2,
   autonomy_ladder: 1,
   learn_loop: 6,
+  quiz_nudge: 5,
   evergreen_reshare: 1,
   system_check_ai: 12,
   seo_topics: 3,

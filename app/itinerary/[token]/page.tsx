@@ -8,6 +8,8 @@ import { priceOnRequestLine, SITE_NAME } from "@/lib/site"
 import { ackFirstName } from "@/lib/lead-ack"
 import { buildItinerary, isItineraryLeadMessage, itineraryEmailStatus, itinerarySecret, verifyItineraryToken } from "@/lib/itinerary-magnet"
 import { getItineraryMagnetMode } from "@/lib/itinerary-magnet-store"
+import { getTripQuizMode } from "@/lib/trip-quiz-store"
+import { isQuizLeadMessage } from "@/lib/trip-quiz"
 import { ItineraryPrintButton } from "@/components/itinerary-print-button"
 
 // The private, printable itinerary a visitor gets after "Send me the itinerary and dates" (lib/itinerary-magnet.ts).
@@ -23,7 +25,9 @@ export const metadata: Metadata = {
 }
 
 export default async function ItineraryPage({ params }: { params: { token: string } }) {
-  if ((await getItineraryMagnetMode()) !== "on") notFound()
+  // Open while either switch is on: a quiz lead needs the trip quiz switch, every other itinerary request needs the itinerary switch.
+  const [itineraryOn, quizOn] = await Promise.all([getItineraryMagnetMode().then((m) => m === "on"), getTripQuizMode().then((m) => m === "on")])
+  if (!itineraryOn && !quizOn) notFound()
   const claim = verifyItineraryToken(params.token, itinerarySecret())
   if (!claim) notFound()
 
@@ -36,6 +40,7 @@ export default async function ItineraryPage({ params }: { params: { token: strin
     lead = null
   }
   if (!lead || !isItineraryLeadMessage(lead.message, claim.slug)) notFound()
+  if (isQuizLeadMessage(lead.message) ? !quizOn : !itineraryOn) notFound()
 
   const pkg = await getPublishedPackageBySlug(claim.slug)
   if (!pkg) notFound()

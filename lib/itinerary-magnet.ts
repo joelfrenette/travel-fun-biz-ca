@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import { attributionSchema } from '@/lib/attribution'
 import { ITINERARY_MARKER } from '@/lib/lead-desk'
+import { LENGTH_VALUES, quizLeadLines, STYLE_VALUES, WHEN_VALUES, WHO_VALUES } from '@/lib/trip-quiz'
 import { tripItinerary } from '@/lib/affiliate-text-sources'
 import { dateRangeText, inclusionBlocks, isPriceText, priceConfirmedLine, withoutPriceSentences, type PriceConfirmed, type TripKit } from '@/lib/trip-kit-facts'
 
@@ -32,6 +33,16 @@ export const itineraryRequestSchema = z.object({
   // Honeypot (lib/abuse-guard.ts): real visitors never see or fill this field.
   company_website: z.string().optional(),
   attribution: attributionSchema.optional(),
+  // Set only by the "Find your trip" quiz (lib/trip-quiz.ts): the four answers and the matched trip slugs (the first is `slug`).
+  quiz: z
+    .object({
+      who: z.enum(WHO_VALUES),
+      style: z.enum(STYLE_VALUES),
+      when: z.enum(WHEN_VALUES),
+      length: z.enum(LENGTH_VALUES),
+      slugs: z.array(z.string().trim().min(1).max(200).regex(/^[a-z0-9][a-z0-9-]*$/i)).min(1).max(3),
+    })
+    .optional(),
 })
 
 export type ItineraryRequest = z.infer<typeof itineraryRequestSchema>
@@ -94,13 +105,15 @@ export interface ItineraryLeadInput {
 }
 
 /** The lead exactly as the existing lead path takes it (lib/leads.ts saveLeadFirst). The slug is in the message and the page path. */
-export function buildItineraryLead(req: Pick<ItineraryRequest, 'name' | 'email' | 'phone' | 'attribution'>, trip: { name: string; slug: string }): ItineraryLeadInput {
+export function buildItineraryLead(req: Pick<ItineraryRequest, 'name' | 'email' | 'phone' | 'attribution' | 'quiz'>, trip: { name: string; slug: string }): ItineraryLeadInput {
   const attribution = { ...req.attribution, page_path: req.attribution?.page_path || `/packages/${trip.slug}` }
+  // A quiz request is the same lead with the four answers and every matched trip slug added as two more lines (nothing else changes).
+  const quizLines = req.quiz ? `\n${quizLeadLines(req.quiz, req.quiz.slugs).join('\n')}` : ''
   const lead: ItineraryLeadInput = {
     name: req.name.trim(),
     email: req.email.trim(),
     package: trip.name,
-    message: `${ITINERARY_MARKER} Trip: ${trip.name} (/packages/${trip.slug})\nConsent to emails: yes (checkbox ticked on the itinerary form)`,
+    message: `${ITINERARY_MARKER} Trip: ${trip.name} (/packages/${trip.slug})\nConsent to emails: yes (checkbox ticked on the ${req.quiz ? 'trip quiz' : 'itinerary'} form)${quizLines}`,
     intent: 'itinerary',
     attribution,
   }

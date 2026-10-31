@@ -8,6 +8,7 @@ import { SITE_URL } from "@/lib/site"
 import { itinerarySecret } from "@/lib/itinerary-magnet"
 import { handleItineraryRequest } from "@/lib/itinerary-magnet-run"
 import { getItineraryMagnetMode, recordItineraryRequest, writeLeadMessage } from "@/lib/itinerary-magnet-store"
+import { getTripQuizMode, recordQuizEvent } from "@/lib/trip-quiz-store"
 import type { ContactSubmission } from "@/lib/schemas/contact"
 
 // Public: "Send me the itinerary and dates" on a trip page. All of the logic is in lib/itinerary-magnet-run.ts (checked offline
@@ -28,6 +29,9 @@ export async function POST(request: Request) {
       sendAck: (input) => sendLeadAck(input),
       noteEmail: (id, message) => writeLeadMessage(id, message),
       bumpCount: (slug) => recordItineraryRequest(slug),
+      // The trip quiz (lib/trip-quiz.ts) sends its lead through this same route with a `quiz` field and follows its own switch.
+      getQuizMode: () => getTripQuizMode(),
+      bumpQuiz: () => recordQuizEvent("email"),
       secret: itinerarySecret,
       now: () => new Date(),
       origin: SITE_URL,

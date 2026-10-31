@@ -1,5 +1,6 @@
 import { isHoneypotFilled } from '@/lib/abuse-guard'
 import { isPastTrip } from '@/lib/past-trip'
+import type { TripQuizMode } from '@/lib/trip-quiz'
 import { isTestPerson } from '@/lib/test-data'
 import type { LeadAckInput } from '@/lib/lead-ack'
 import { buildItineraryLead, itineraryEmailNote, itineraryPath, itineraryRequestSchema, signItineraryToken, type ItineraryLeadInput, type ItineraryMode } from '@/lib/itinerary-magnet'
@@ -36,6 +37,10 @@ export interface ItineraryRunDeps {
   /** Writes the email result onto the lead (its message), best effort. */
   noteEmail: (id: string, message: string) => Promise<void>
   bumpCount: (slug: string) => Promise<void>
+  /** Quiz requests only (lib/trip-quiz.ts): the quiz switch. Not given, or anything but "on", means a quiz request is "not found". */
+  getQuizMode?: () => Promise<TripQuizMode>
+  /** Quiz requests only: counts the "gave email" step of the funnel. */
+  bumpQuiz?: () => Promise<void>
   secret: () => string
   now: () => Date
   /** Site origin, no trailing slash, for the link in the email. */
@@ -50,12 +55,17 @@ export interface ItineraryRunResult {
 export async function handleItineraryRequest(json: unknown, deps: ItineraryRunDeps): Promise<ItineraryRunResult> {
   if (isHoneypotFilled(json)) return { status: 200, body: { success: true } }
 
+  // A request that carries quiz answers belongs to the trip quiz and follows ITS switch; every other request follows the itinerary switch.
+  const isQuiz = !!json && typeof json === 'object' && (json as { quiz?: unknown }).quiz != null
   // Off (the default): the feature does not exist. Nothing below this line runs.
-  if ((await deps.getMode()) !== 'on') return { status: 404, body: { error: 'Not found' } }
+  const mode = isQuiz ? (deps.getQuizMode ? await deps.getQuizMode() : 'off') : await deps.getMode()
+  if (mode !== 'on') return { status: 404, body: { error: 'Not found' } }
 
   const parsed = itineraryRequestSchema.safeParse(json)
   if (!parsed.success) return { status: 400, body: { error: 'Invalid data', message: parsed.error.issues[0]?.message ?? 'Please check your details and tick the box.' } }
   const req = parsed.data
+  // The first matched trip is the one the lead is about.
+  if (req.quiz && req.quiz.slugs[0] !== req.slug) return { status: 400, body: { error: 'Invalid data', message: 'Please check your details and tick the box.' } }
 
   if (!(await deps.allow())) return { status: 429, body: { error: 'Too many submissions - please try again shortly' } }
 
@@ -78,7 +88,8 @@ export async function handleItineraryRequest(json: unknown, deps: ItineraryRunDe
   // The existing lead reply path decides everything: its switch, daily cap, once per address per day, sender settings, test rows.
   const ack = await deps.sendAck({ email: lead.email, name: lead.name, isTest: isTestPerson(lead), itinerary: { url: `${deps.origin}${path}`, tripName: trip.name } }).catch(() => 'failed')
   await deps.noteEmail(leadId, `${lead.message}\n${itineraryEmailNote(ack)}`).catch(() => undefined)
-  await deps.bumpCount(trip.slug).catch(() => undefined)
+  if (req.quiz) await deps.bumpQuiz?.().catch(() => undefined)
+  else await deps.bumpCount(trip.slug).catch(() => undefined)
 
   return { status: 200, body: { success: true, url: path, emailed: ack === 'sent' } }
 }

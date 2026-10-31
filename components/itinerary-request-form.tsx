@@ -14,7 +14,9 @@ import { itineraryFormProblem } from "@/lib/itinerary-form"
 // "Send me the itinerary and dates" on an upcoming trip's page (lib/itinerary-magnet.ts). Only drawn when app_settings
 // itinerary_magnet_mode is "on". Name, email, optional phone, the UNTICKED CASL consent box (same wording as
 // components/trip-alert-form.tsx) and the hidden honeypot. Posts to /api/itinerary-request, then opens the private itinerary page.
-export function ItineraryRequestForm({ slug, language }: { slug: string; language: Language }) {
+// The trip quiz (components/trip-quiz-result.tsx, lib/trip-quiz.ts) reuses this form as is: it passes `quiz` (the four answers and the
+// matched trip slugs, the first being `slug`) and its own button words, and the request goes through the same route and lead path.
+export function ItineraryRequestForm({ slug, language, quiz, submitLabel }: { slug: string; language: Language; quiz?: { who: string; style: string; when: string; length: string; slugs: string[] }; submitLabel?: string }) {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
@@ -35,7 +37,7 @@ export function ItineraryRequestForm({ slug, language }: { slug: string; languag
       const res = await fetch("/api/itinerary-request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, consent, company_website: honeypot, attribution: getAttribution() }),
+        body: JSON.stringify({ slug, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, consent, company_website: honeypot, attribution: getAttribution(), ...(quiz ? { quiz } : {}) }),
       })
       if (res.status === 429) return setError(translate(language, "Too many requests from your connection just now. Please wait a few minutes and try again."))
       if (res.status === 400) {
@@ -83,7 +85,7 @@ export function ItineraryRequestForm({ slug, language }: { slug: string; languag
       </label>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <Button type="submit" className="w-full bg-primary font-bold uppercase text-primary-foreground hover:bg-primary/90" disabled={submitting}>
-        {submitting ? translate(language, "Submitting...") : translate(language, "Send me the itinerary and dates")}
+        {submitting ? translate(language, "Submitting...") : translate(language, submitLabel ?? "Send me the itinerary and dates")}
       </Button>
     </form>
   )
