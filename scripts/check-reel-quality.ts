@@ -171,6 +171,21 @@ async function main() {
   check('a clean end card (red block with the site name and the call to action strip) passes', endGood.ok, endGood.reasons.join(' | '))
   check('an end card without the call to action strip fails', !analyseReelEndCard(endCard({ noStrip: true }), W, H, 3).ok)
   check('an end card that is only footage fails (no red block)', !analyseReelEndCard(frame(), W, H, 3).ok)
+  // The live template since 22 Oct 2026: end card block at x 34 to 327 of a 360 wide still (32 px right margin). A 9% margin rejected every one.
+  const liveEnd = frame()
+  rect(liveEnd, 34, 118, 328, 228, RED)
+  for (const y of [150, 185]) letters(liveEnd, 90, y, 18, false)
+  rect(liveEnd, 70, 350, 290, 382, BLACK)
+  letters(liveEnd, 85, 361, 20, false)
+  const liveEndRes = analyseReelEndCard(liveEnd, W, H, 3)
+  check('the live end card (block x 34 to 327 of 360) passes the side margin check', liveEndRes.ok, liveEndRes.reasons.join(' | '))
+  const edgeEnd = frame()
+  rect(edgeEnd, 3, 118, 357, 228, RED)
+  for (const y of [150, 185]) letters(edgeEnd, 90, y, 18, false)
+  rect(edgeEnd, 70, 350, 290, 382, BLACK)
+  letters(edgeEnd, 85, 361, 20, false)
+  const edgeEndRes = analyseReelEndCard(edgeEnd, W, H, 3)
+  check('a block that touches the frame edge still fails the side margin check', !edgeEndRes.ok && edgeEndRes.reasons.some((r) => /side margins/.test(r)), edgeEndRes.reasons.join(' | '))
 
   // gateReelFrames with fake fetch and decode: pass, fail (never post), unknown (no still / fetch fails), retry once.
   const images = new Map<string, Uint8Array>([['good-cover', cover()], ['bad-cover', cover({ caption: true })], ['good-end', endCard()], ['bad-end', endCard({ noStrip: true })]])

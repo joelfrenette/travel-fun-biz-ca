@@ -30,9 +30,12 @@ const lumaOf = (r: number, g: number, b: number) => (0.2126 * r + 0.7152 * g + 0
 const REEL_ASPECT = 1280 / 720
 const ASPECT_TOLERANCE = 0.03
 const MIN_WIDTH = 240
-/** The headline block is at least this share of the frame width (560 of 720 wide is 78%), and at least this far from each side (80 of 720 is 11%). */
+/** The headline block is at least this share of the frame width (560 of 720 wide is 78%), and at least this far from each side. The side margin was 9%,
+ * but the live template draws a headline block up to 646 of 720 wide (left edge 21 to 55) and an end card block at x 34 to 327 of a 360 wide still (32 px
+ * on the right), so every reel since 22 Oct 2026 failed this check after its render credit was spent (8 skips, 0 posted). 2.5% still catches a block
+ * that touches the frame edge and is cut off; the centre check below still catches a lopsided one. */
 export const REEL_BLOCK_MIN_WIDTH_SHARE = 0.45
-export const REEL_BLOCK_SIDE_MARGIN_SHARE = 0.09
+export const REEL_BLOCK_SIDE_MARGIN_SHARE = 0.025
 export const REEL_BLOCK_TOP_MIN_SHARE = 0.12
 export const REEL_BLOCK_AREA_MIN = 0.04
 export const REEL_BLOCK_AREA_MAX = 0.35
