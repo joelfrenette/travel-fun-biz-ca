@@ -22,7 +22,11 @@ check('Upload-Post sends tiktok_title for photos and videos', (src.match(/form\.
 
 // Upload-Post refuses every Pinterest pin without a board id ("Pinterest Board ID is required", 2026-10-26), so photos and videos send one when it is set.
 check('Upload-Post sends pinterest_board_id for photos and videos', (src.match(/form\.set\('pinterest_board_id', pinterestBoardId\(\) as string\)/g) ?? []).length === 2)
-import('../lib/upload-post').then(({ pinterestBoardId }) => {
+// Pinterest refuses a pin title over 100 characters (real failures 2026-10-31: 494 and 495), so it gets its own short title.
+check('Upload-Post sends pinterest_title for photos and videos', (src.match(/form\.set\('pinterest_title', fitTikTokTitle\(input\.text, PINTEREST_TITLE_MAX\)\)/g) ?? []).length === 2)
+check('a 495-character caption becomes a Pinterest title of 100 or less', weight(fitTikTokTitle(long.repeat(2), 100)) <= 100 && fitTikTokTitle(long.repeat(2), 100).length > 20)
+import('../lib/upload-post').then(({ pinterestBoardId, PINTEREST_TITLE_MAX }) => {
+  check('the Pinterest limit is 100', PINTEREST_TITLE_MAX === 100)
   const keep = process.env.UPLOAD_POST_PINTEREST_BOARD_ID
   process.env.UPLOAD_POST_PINTEREST_BOARD_ID = ' 987654321098765432 '
   check('pinterestBoardId reads a numeric board id and trims it', pinterestBoardId() === '987654321098765432')

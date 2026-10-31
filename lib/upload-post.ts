@@ -13,6 +13,9 @@ export function uploadPostConfigured(): boolean {
   return !!process.env.UPLOAD_POST_API_KEY?.trim()
 }
 
+/** Pinterest's pin title limit, in characters. The TikTok shortener counts an emoji as 2, which only makes the title a little shorter. */
+export const PINTEREST_TITLE_MAX = 100
+
 /** The Pinterest board every pin is published to (Upload-Post refuses a Pinterest post without one). Digits only; anything else is ignored. */
 export function pinterestBoardId(): string | null {
   const raw = process.env.UPLOAD_POST_PINTEREST_BOARD_ID?.trim() ?? ''
@@ -228,6 +231,8 @@ export async function uploadPostSendPhotos(input: {
   // TikTok refuses a title over 90 and would otherwise take the whole caption; its own field keeps the other networks' caption intact.
   if (input.text.trim() && input.platforms.includes('tiktok')) form.set('tiktok_title', fitTikTokTitle(input.text))
   if (input.platforms.includes('pinterest') && pinterestBoardId()) form.set('pinterest_board_id', pinterestBoardId() as string)
+  // Pinterest refuses a pin title over 100 (real failures 2026-10-31: 494 and 495 characters), so it gets its own short title too.
+  if (input.text.trim() && input.platforms.includes('pinterest')) form.set('pinterest_title', fitTikTokTitle(input.text, PINTEREST_TITLE_MAX))
   if (input.scheduleDate) form.set('scheduled_date', input.scheduleDate)
   let n = 0
   for (const url of urls) {
@@ -359,6 +364,7 @@ export async function uploadPostSendVideo(input: {
   if (input.text.trim()) form.set('title', input.text)
   if (input.text.trim() && input.platforms.includes('tiktok')) form.set('tiktok_title', fitTikTokTitle(input.text))
   if (input.platforms.includes('pinterest') && pinterestBoardId()) form.set('pinterest_board_id', pinterestBoardId() as string)
+  if (input.text.trim() && input.platforms.includes('pinterest')) form.set('pinterest_title', fitTikTokTitle(input.text, PINTEREST_TITLE_MAX))
   try {
     const src = await fetch(input.videoUrl, { cache: 'no-store', signal: AbortSignal.timeout(30_000) })
     const type = (src.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()

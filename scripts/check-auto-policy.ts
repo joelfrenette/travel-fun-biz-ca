@@ -174,6 +174,10 @@ async function main() {
     const bareTikTok = 'TikTok title is too long (473 characters, counted the way TikTok does: an emoji counts as 2). Maximum allowed is 90. Please shorten it.'
     check('classify: the bare TikTok title message (carousel step, no network prefix) is self-fixable', cls(bareTikTok) === 'self-fixable')
     check('classify: a bare TikTok title message next to a real refusal still needs a person', cls(`${bareTikTok}; instagram: 403 forbidden`) === 'needs-person')
+    // Real failure text 2026-10-31: the Pinterest board was set, and the pin title (the whole caption) was over Pinterest's 100.
+    const pinLong = 'pinterest: Pinterest title is too long (495 characters). Maximum allowed is 100.'
+    check('classify: a Pinterest title that is too long is self-fixable (the send path shortens it)', cls(pinLong) === 'self-fixable')
+    check('classify: a Pinterest title error next to a real refusal still needs a person', cls(`${pinLong}; instagram: 403 forbidden`) === 'needs-person')
     check('classify: an Instagram caption that is too long still needs a person', cls('instagram: caption is too long') === 'needs-person')
     check('classify: a TikTok title error next to a real refusal still needs a person', cls(tiktokLong + '; instagram: 403 forbidden') === 'needs-person')
     const setupErr = tiktokLong + '; pinterest: Pinterest Board ID is required when uploading to Pinterest.'
