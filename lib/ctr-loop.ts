@@ -513,12 +513,12 @@ async function slotsLeftToday(admin: SupabaseClient, day: string): Promise<numbe
 }
 
 /** The newest content_performance snapshot, or a reason it cannot be used. One day's rows only: the numbers are rolling 28 day totals. */
-async function readLatestPerformance(admin: SupabaseClient, now: Date): Promise<{ day: string; rows: PerfRow[] } | { skip: string; problem?: string }> {
+export async function readLatestPerformance(admin: SupabaseClient, now: Date, maxAgeDays: number = CTR_MAX_SNAPSHOT_AGE_DAYS): Promise<{ day: string; rows: PerfRow[] } | { skip: string; problem?: string }> {
   const latest = await admin.from('content_performance').select('day').order('day', { ascending: false }).limit(1)
   if (latest.error) return isMissingTable(latest.error.message) ? { skip: 'the performance table is not set up' } : { skip: 'unreadable', problem: `could not read the Search Console numbers (${latest.error.message})` }
   const day = (latest.data?.[0] as { day?: string } | undefined)?.day
   if (!day) return { skip: 'no Search Console numbers yet' }
-  if (now.getTime() - Date.parse(day) > CTR_MAX_SNAPSHOT_AGE_DAYS * DAY_MS) return { skip: `the newest Search Console numbers are from ${day}, too old to use` }
+  if (now.getTime() - Date.parse(day) > maxAgeDays * DAY_MS) return { skip: `the newest Search Console numbers are from ${day}, too old to use` }
   const rows: PerfRow[] = []
   for (let page = 0; page < 10; page++) {
     const { data, error } = await admin.from('content_performance').select('path, clicks, impressions, position').eq('day', day).range(page * 1000, page * 1000 + 999)

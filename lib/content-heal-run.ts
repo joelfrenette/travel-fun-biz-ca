@@ -51,6 +51,7 @@ import { runSafeEnrichment } from '@/lib/safe-enrich'
 import { runGuidePhotoHealDaily } from '@/lib/guide-photo-run'
 import { healLoopCard, type HealLoopCard } from '@/lib/heal-loop'
 import { runCtrLoop } from '@/lib/ctr-loop'
+import { runRefreshLoop } from '@/lib/refresh-loop'
 import {
   additionKey,
   ADDITION_FIELDS,
@@ -816,6 +817,17 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
   calls += ctr.calls
   problems.push(...ctr.problems)
   changedPaths.push(...ctr.changedPaths)
+  // 2f. The near page 1 refresh loop (lib/refresh-loop.ts): switched by app_settings.refresh_loop_mode, OFF unless it is "on". At most 2 pages
+  // a day that rank 8 to 20 get up to 2 real internal links (logged first, Undo works), a missing FAQ or takeaways list is written by the
+  // heal's own generator and held for review, and tests that are 30 days old are compared and undone if the position got 3+ places worse.
+  // Every model call comes out of the same heal budget. Never throws.
+  const refresh = await runRefreshLoop(admin, {
+    deadlineMs: opts.deadlineMs,
+    index: { existing: idx.existing, targets: idx.targets, itemFor: (type, row) => itemFromRow(type, row, idx) },
+  })
+  calls += refresh.calls
+  problems.push(...refresh.problems)
+  changedPaths.push(...refresh.changedPaths)
   if (changedPaths.length) await pingIndexNow(changedPaths).catch(() => undefined)
 
   // 3. The numbers for the card, the brief and Needs attention (pages and trips together).
@@ -830,7 +842,7 @@ export async function runHealContent(admin: SupabaseClient, opts: { deadlineMs?:
   const hardWaiting = await countHardWaiting(admin)
   const additionsWaiting = openAdditionCount(await readAdditionsQueue(admin))
   const additionsNote = additionsQueued > 0 || additionsWaiting > 0 || modelSkippedFull ? `; ${additionsQueued} AI addition${additionsQueued === 1 ? '' : 's'} held for review today, ${additionsWaiting} waiting for a person in all${modelSkippedFull ? ' (the review list is full, so no more AI additions were written)' : ''}` : ''
-  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${additionsNote}${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${enrich.tried ? `; ${enrich.note}` : ''}${photos.tried && photos.note ? `; ${photos.note}` : ''}${ctr.active ? `; ${ctr.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
+  const note = `scored ${everyone.length} page${everyone.length === 1 ? '' : 's'} (${trips.scored.length} trip page${trips.scored.length === 1 ? '' : 's'})${avg !== null ? ` (average ${avg})` : ''}, ${belowAll} under ${HEAL_BELOW}; fixed ${healedPages} (${editCount} edit${editCount === 1 ? '' : 's'}, ${trips.fixed} trip page${trips.fixed === 1 ? '' : 's'}); ${hardWaiting} waiting on a person${additionsNote}${idx.ok ? '' : '; the page list was incomplete this run, so no broken link was removed'}${reheal.tried || reheal.published ? `; ${reheal.note}` : ''}${heldGuides.tried ? `; ${heldGuides.note}` : ''}${heldCopy.tried ? `; ${heldCopy.note}` : ''}${enrich.tried ? `; ${enrich.note}` : ''}${photos.tried && photos.note ? `; ${photos.note}` : ''}${ctr.active ? `; ${ctr.note}` : ''}${refresh.active ? `; ${refresh.note}` : ''}${problems.length ? `; ${problems.join('; ')}` : ''}`
   const summary: HealSummary = { at: new Date().toISOString(), scored: everyone.length, avg, below: belowAll, lowest, healedPages, edits: editCount, hardWaiting, calls, trips: trips.scored.length, tripsFixed: trips.fixed, additionsQueued, additionsWaiting, note }
   await setSetting(admin, HEAL_LAST_KEY, JSON.stringify(summary)).catch(() => undefined)
   return { ok: problems.length === 0, note }
