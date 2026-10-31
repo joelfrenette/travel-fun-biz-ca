@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { parseDayCount, notifyTo } from '@/lib/alerts'
-import { LEAD_ACK_SUBJECT, LEAD_ACK_PARAGRAPHS, LEAD_ACK_SIGNOFF, leadAckFooterLines } from '@/lib/lead-ack-copy'
+import { LEAD_ACK_SUBJECT, LEAD_ACK_PARAGRAPHS, LEAD_ACK_SIGNOFF, LEAD_ACK_ITINERARY_SUBJECT, leadAckFooterLines, leadAckItineraryParagraphs } from '@/lib/lead-ack-copy'
 
 // Instant lead reply: a short "we got your message" email to the lead, sent through Resend right after the lead
 // is saved. OFF by default (setting `lead_ack_email` must be exactly 'true'). The wording lives in
@@ -16,10 +16,17 @@ const LEAD_ACK_DAY_KEY = 'lead_ack_day'
 
 export type LeadAckResult = 'cap' | 'sent' | 'off' | 'test' | 'invalid-email' | 'rate-limited' | 'not-configured' | 'failed'
 
+/** Set by the trip page "Send me the itinerary and dates" request: the same email, with the visitor's private itinerary link. */
+export interface LeadAckItinerary {
+  url: string
+  tripName: string
+}
+
 export interface LeadAckInput {
   email: string
   name?: string | null
   isTest?: boolean
+  itinerary?: LeadAckItinerary
 }
 
 export interface LeadAckDeps {
@@ -55,10 +62,11 @@ export function isRateLimited(lastSentIso: string | null, now: Date): boolean {
 }
 
 /** Pure: subject and plain text body built from the copy file. */
-export function buildLeadAckEmail(name: string | null | undefined): { subject: string; text: string } {
-  const paragraphs = LEAD_ACK_PARAGRAPHS.map((p) => p.replace('{firstName}', ackFirstName(name)))
+export function buildLeadAckEmail(name: string | null | undefined, itinerary?: LeadAckItinerary): { subject: string; text: string } {
+  const source = itinerary ? leadAckItineraryParagraphs(itinerary.tripName, itinerary.url) : LEAD_ACK_PARAGRAPHS
+  const paragraphs = source.map((p) => p.replace('{firstName}', ackFirstName(name)))
   const text = [...paragraphs.flatMap((p) => [p, '']), LEAD_ACK_SIGNOFF, '', '--', ...leadAckFooterLines()].join('\n')
-  return { subject: LEAD_ACK_SUBJECT, text }
+  return { subject: itinerary ? LEAD_ACK_ITINERARY_SUBJECT : LEAD_ACK_SUBJECT, text }
 }
 
 export async function isLeadAckOn(admin: SupabaseClient): Promise<boolean> {
@@ -94,7 +102,7 @@ export async function sendLeadAck(input: LeadAckInput, deps: LeadAckDeps = {}): 
     await set(sentKey, now.toISOString())
     await set(LEAD_ACK_DAY_KEY, `${today}:${sentToday + 1}`)
     const replyTo = process.env.LEAD_ACK_REPLY_TO?.trim() || notifyTo()
-    const mail = buildLeadAckEmail(input.name)
+    const mail = buildLeadAckEmail(input.name, input.itinerary)
     const res = await (deps.fetchImpl ?? fetch)('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },

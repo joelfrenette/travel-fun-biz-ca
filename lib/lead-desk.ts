@@ -11,7 +11,7 @@
 
 import { OFFICE_ROLES, OFFICE_ROLE_LABEL, parseOfficeRole, type OfficeRole } from '@/lib/agents'
 
-export const LEAD_INTENTS = ['callback', 'quote', 'info'] as const
+export const LEAD_INTENTS = ['callback', 'quote', 'info', 'itinerary'] as const
 export type LeadIntent = (typeof LEAD_INTENTS)[number]
 
 export function normalizeIntent(v: unknown): LeadIntent | null {
@@ -21,6 +21,13 @@ export function normalizeIntent(v: unknown): LeadIntent | null {
 
 /** The older trip page kit wrote this at the start of the message instead of sending an intent. Still counts as a callback. */
 export const CALLBACK_PREFIX = '[Callback requested]'
+/** "Send me the itinerary and dates" on a trip page (lib/itinerary-magnet.ts) starts its message with this. Needs migration 0062 for the intent value. */
+export const ITINERARY_MARKER = '[Itinerary requested]'
+
+/** True for an itinerary request: the intent, or the marker the message starts with (so it still reads right before migration 0062). */
+export function isItineraryRequest(i: { intent?: unknown; message?: string | null }): boolean {
+  return normalizeIntent(i.intent) === 'itinerary' || (i.message ?? '').trimStart().startsWith(ITINERARY_MARKER)
+}
 /** A newsletter signup always has a phone number (the form asks for it, for texts the person agreed to). It is a sign-up, not a request to be called. */
 export const NEWSLETTER_PACKAGE = 'Newsletter signup'
 
@@ -379,6 +386,7 @@ export const safeText = safeField
 
 export function whatTheyAsked(i: Pick<HotLeadInfo, 'intent' | 'message'>): string {
   if (isCallbackRequest({ intent: i.intent, message: i.message })) return 'Asked for a call back from a live agent'
+  if (isItineraryRequest(i)) return 'Asked for the itinerary and dates'
   return 'Sent the form with a phone number'
 }
 
@@ -428,7 +436,7 @@ export function buildAgentEmail(lead: AgentLeadMail, agentName: string): { subje
     `Email: ${clip(lead.email, 200)}`,
     `Phone: ${clip(lead.phone ?? 'not given', 60)}`,
     `Trip or page: ${clip(lead.package || lead.pagePath || 'not recorded', 160)}`,
-    `What they asked: ${isCallbackRequest({ intent: lead.intent, message: lead.message }) ? 'a call back from a live agent' : 'to be contacted'}`,
+    `What they asked: ${isCallbackRequest({ intent: lead.intent, message: lead.message }) ? 'a call back from a live agent' : isItineraryRequest(lead) ? 'the itinerary and dates for this trip' : 'to be contacted'}`,
     ...(asked ? [`Their message: ${asked}`] : []),
     `Source: ${clip(lead.utmSource ?? 'not recorded', 80)}`,
     '',

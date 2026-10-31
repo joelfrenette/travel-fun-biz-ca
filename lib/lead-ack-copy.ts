@@ -18,6 +18,24 @@ export const LEAD_ACK_PARAGRAPHS: string[] = [
   `If you would like to talk sooner, you can call or text us at ${site.phone}.`,
 ]
 
+/**
+ * The itinerary version (trip page "Send me the itinerary and dates", lib/itinerary-magnet.ts). Same sender, same switch, same
+ * caps and the same footer as the acknowledgement above; only the subject and the middle paragraphs change. DRAFT with the rest.
+ * {url} is the visitor's private link. It shows only what we have confirmed.
+ */
+export const LEAD_ACK_ITINERARY_SUBJECT = 'Your itinerary and dates'
+
+export function leadAckItineraryParagraphs(tripName: string, url: string): string[] {
+  const trip = tripName.replace(/[\r\n]+/g, ' ').trim().slice(0, 120)
+  return [
+    'Hi {firstName},',
+    `You asked us to send the itinerary and dates for ${trip || 'the trip'}. Here is your private link. It opens on any phone and you can print it:`,
+    url,
+    'It shows only what we have confirmed. Anything we have not confirmed yet says so, and a travel advisor will confirm it with you.',
+    `If you would like to talk sooner, you can call or text us at ${site.phone}.`,
+  ]
+}
+
 /** Sign-off line. */
 export const LEAD_ACK_SIGNOFF = `The ${site.name} team`
 

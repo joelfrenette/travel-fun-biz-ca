@@ -31,6 +31,8 @@ import { loadTripKit } from "@/lib/trip-kit-store"
 import { TripKitPage } from "@/components/trip/trip-kit-page"
 import { PastTripPage } from "@/components/trip/past-trip-page"
 import { getAllPublishedPackages } from "@/lib/package-grouping"
+import { getItineraryMagnetMode } from "@/lib/itinerary-magnet-store"
+import { ItineraryRequestForm } from "@/components/itinerary-request-form"
 import { getBestTimeToVisitPage } from "@/lib/best-time-to-visit"
 import { buildPastTripJsonLd, cleanKitForPast, pastSafeFieldSet, pastSafeText, pastTripDescription, pastTripFaqs, pastTripTitle, pickSimilarTrips, splitGallery } from "@/lib/past-trip-kit"
 
@@ -74,7 +76,7 @@ export default async function PackagePage({ params }: Props) {
   // One rule for "past trip" (lib/past-trip.ts): recap_mode auto / recap / live. A past trip is never unpublished: it becomes a recap.
   const isPastTrip = isPastTripRow(pkg)
   const destSlug = generateSlug(pkg.destination)
-  const [allPackages, tripTestimonials, tripGuides, tripExtras, affiliateRules, recapBundle, tripKitRecords, publishedRows, bestTime] = await Promise.all([
+  const [allPackages, tripTestimonials, tripGuides, tripExtras, affiliateRules, recapBundle, tripKitRecords, publishedRows, bestTime, itineraryMode] = await Promise.all([
     getPackages(),
     getPublishedTestimonialsForPackage(pkg.id),
     listGuidesForPackage({ id: pkg.id, destination: pkg.destination }),
@@ -88,6 +90,8 @@ export default async function PackagePage({ params }: Props) {
     // Past trip: the candidates for "Similar trips coming up" and whether a best-time page exists for the destination.
     isPastTrip ? getAllPublishedPackages().catch(() => []) : Promise.resolve([]),
     isPastTrip ? getBestTimeToVisitPage(destSlug).catch(() => null) : Promise.resolve(null),
+    // "Send me the itinerary and dates" (lib/itinerary-magnet.ts). Off unless app_settings itinerary_magnet_mode is "on"; fails closed.
+    isPastTrip ? Promise.resolve("off" as const) : getItineraryMagnetMode(),
   ])
   const { kit: storedKit, price: confirmedPrice } = tripKitRecords
   // Every linkable text of the page in reading order (lib/affiliate-text-sources.ts). A past trip's text is first cleaned of
@@ -209,6 +213,15 @@ export default async function PackagePage({ params }: Props) {
         ) : (
           <>
             <TripKitPage pkg={pkg} heading={heading} image={image} kit={storedKit} price={confirmedPrice} fieldSet={fieldSet} linked={linked} language={language} phone={request.phone} telHref={request.telHref} />
+            {itineraryMode === "on" && (
+              <section id="itinerary" className="container mx-auto scroll-mt-24 px-4 py-10" aria-labelledby="itinerary-heading">
+                <div className="mx-auto max-w-xl rounded-2xl border bg-card p-5 text-center sm:p-6">
+                  <h2 id="itinerary-heading" className="text-xl font-bold">{translate(language, "Send me the itinerary and dates")}</h2>
+                  <p className="mb-4 mt-1 text-sm text-muted-foreground">{translate(language, "Get a printable page with the day by day plan, what is included and the next confirmed dates. Anything not confirmed yet says so.")}</p>
+                  <ItineraryRequestForm slug={pkg.slug} language={language} />
+                </div>
+              </section>
+            )}
             {/* Lead form */}
             <section id="enquire" className="bg-muted/30 py-16">
               <div className="container mx-auto px-4">
