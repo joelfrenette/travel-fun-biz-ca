@@ -30,6 +30,7 @@ import { GuideTakeaways, GuideArticle, GuideFaqList, RelatedGuidesSection, BlogS
 import { AffiliateAutoDisclosure, AffiliateParts } from "@/components/affiliate-text"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { jsonLdHtml } from "@/lib/jsonld"
+import { ORG_ID } from "@/lib/org-jsonld"
 import { site, SITE_NAME, SITE_LOCALE, DEFAULT_OG_IMAGE, absoluteUrl, formatDate, pageAlternates } from "@/lib/site"
 import { ogImageEntry, structuredImages, type OgPrefix } from "@/lib/og-path"
 import { heroAlt } from "@/lib/image-quality"
@@ -56,7 +57,7 @@ export function guideJsonLd(guide: PublicGuide, trail?: TrailStep[]): object[] {
   // A destination page IS the destination. A page about a named hotel, resort, ship or line is an article ABOUT
   // it: it must not claim to be the business itself (that would read as the business's own listing).
   // One organization object for author and publisher. Dates come only from stored columns and are left out when empty.
-  const organization = { "@type": "Organization", name: SITE_NAME, url: absoluteUrl("/"), logo: { "@type": "ImageObject", url: absoluteUrl("/logo.png") } }
+  const organization = { "@type": "Organization", "@id": ORG_ID, name: SITE_NAME, url: absoluteUrl("/"), logo: { "@type": "ImageObject", url: absoluteUrl("/logo.png") } }
   const dates = {
     ...(guide.created_at ? { datePublished: guide.created_at } : {}),
     ...(guide.updated_at ? { dateModified: guide.updated_at } : {}),
