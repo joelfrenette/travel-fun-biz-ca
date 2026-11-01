@@ -536,7 +536,7 @@ export async function runPublishPassingNews(admin: SupabaseClient, now: Date = n
       const live = await publishQueuedDraft(admin, slug, 0, now)
       if (!live.ok) continue
       await admin.from('news_items').update({ status: 'published', decided_at: now.toISOString(), reject_reason: null }).eq('id', item.id)
-      if (await getNewsSocialEnabled(admin)) await enrollNewsIfDue(admin, { slug, title: p.title, status: 'published' }, perDay).catch(() => undefined)
+      if (await getNewsSocialEnabled(admin)) await enrollNewsIfDue(admin, { slug, title: p.title, status: 'published', sourceKey: item.source_key }, perDay).catch(() => undefined)
       await Promise.resolve(ping([`/blog/${slug}`, '/blog', '/'])).catch(() => undefined)
       published++
       room--

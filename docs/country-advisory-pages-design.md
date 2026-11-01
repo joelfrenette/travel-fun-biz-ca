@@ -237,3 +237,23 @@ What the backfill does (`backfillAdvisories` in `lib/country-advisory-ingest.ts`
 - Saved in one upsert per 100 rows (not one request per country), so a 230-country snapshot costs a handful of requests.
 - Pages: nothing else was needed. `loadAdvisoryIndex` and `loadAdvisorySitemap` list every published row that has data (with the mode `on`), and the sitemap date is the newest official date on the row. The index page copy no longer says only changed countries are listed. The public routes still import nothing from `next/headers`.
 - Before migration 0064 the US backfill does nothing and says so in one note; Canada and UK backfills work without it.
+
+## 10. Natural-hazard news sources and the fourth voice (2026-11-01)
+
+Two NEWS-ONLY hazard feeds were added next to the advisory feeds (`lib/news-sources.ts`, flag `hazard: true`). They are not advisory voices: nothing in `country_advisories` or `country_advisory_log` is read or written for them, and a quake, flood or cyclone item is a news brief, never an advisory level change.
+
+| key | feed | format found 2026-11-01 | kept |
+|---|---|---|---|
+| `gdacs-alerts` | `https://www.gdacs.org/xml/rss_24h.xml` (UN/EU GDACS) | RSS 2.0, 117 items, 360 KB, `gdacs:` namespace (`eventtype`, `alertlevel`, population), links are `http://` (302 to https) | Orange and Red alerts of type EQ, TC, FL, VO, WF; at most 3 new items per read. Pacific and Indian Ocean cyclones arrive as type TC. Drought (DR) is left out on purpose: one item names up to 30 countries for weeks. |
+| `usgs-quakes` | `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_day.atom` | Atom, USGS "significant" only; EMPTY on most days (559 bytes, no `<entry>`), which `parseFeed` now reads as zero items, not an error | every entry, at most 3 new items per read |
+
+Rules that apply to both (all in code, all with checks in `scripts/check-news-hazard.ts`):
+- Switch off without a deploy: add the key to `app_settings.news_sources_off` (the admin News screen toggles it).
+- Never social: `enrollNewsIfDue` refuses a post whose news item came from a hazard source (`isHazardPost`; it fails closed when the item cannot be looked up). Both callers pass the source key.
+- Same quality gates as every tier 1 notice: the writer model gets only the feed title, description and date, the plain-code gate requires every content word to be in the notice, and the independent judge must pass it. No template, no invented detail.
+- Fresh for 36 hours (like a storm), not 7 days: `maxAgeMs(category, breaking, sourceKey)`.
+- GDACS visit window: its robots.txt carries the non-standard `Visit-time: 0400-0645` (UTC) and `Request-rate: 1/60`. The feed is read only inside 04:00 to 06:45 UTC (`visitWindowUtc`, `inVisitWindow`) and at most once in 30 minutes, so a GDACS brief can lag the event by up to about 21 hours. USGS has no such limit and carries the real-time quake coverage. If GDACS confirms in writing that any hour is fine, delete `visitWindowUtc` from the source.
+
+Refused, with the reason:
+- **Joint Typhoon Warning Center** (`metoc.navy.mil`): its `robots.txt` answers HTTP 403 to our reader (the same pattern that made us leave travel.state.gov), so `fetchFeed` would fail closed on every pass; the pages answer 403 too. GDACS type TC is the Pacific and Indian Ocean cyclone coverage instead.
+- **Smartraveller** (Australia) as the fourth advisory voice: NOT added. The Smartraveller host did not answer our honest-user-agent reader at all from this machine (robots.txt, home page and `/destinations-export` all timed out at 60 seconds, repeated), so the real format could not be confirmed with a fetch of our own and no parser was written from a description. Its terms look permissive (its Resources page publishes RSS feeds and a free `destinations-export` API; its robots.txt, read through a third party, allows everything except `/core/`, `/files/`, search and admin paths), but that is unconfirmed first-hand. No migration `0065_country_advisories_au.sql` was written. To resume: from a machine that can reach it, save the response of `https://www.smartraveller.gov.au/destinations-export` and `https://www.smartraveller.gov.au/robots.txt`, and check the licence page; then the work is the same shape as section 7 (US): `au_*` columns in a new additive migration, a source key `smartraveller-au`, a `parse...` function, `dualWriteAu` gated on the columns existing.

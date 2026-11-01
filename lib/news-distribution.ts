@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getDistributionMode } from '@/lib/distribution'
 import { isAutomationPaused } from '@/lib/automation-kill-switch'
 import { isNewsSlug } from '@/lib/news-post'
+import { isHazardSource } from '@/lib/news-sources'
 
 // Social posts for travel news (growth loop WP20). A published news post is enrolled into the SAME post_distribution ledger
 // as every blog post (content_type 'post', slug = the post slug, which starts "news-"), and the same posting pass in
@@ -39,6 +40,22 @@ export interface NewsToEnrol {
   slug: string
   title: string
   status: string
+  /** The news item's source key. A natural-hazard source (GDACS, USGS) is NEVER enrolled. When it is not given, the news item is found by its post slug. */
+  sourceKey?: string
+}
+
+/** True when this post came from a natural-hazard feed (or when that cannot be established: fail closed). Hazard briefs are news only;
+ * a quake or a flood must never cause a social post by itself. A slug with no news item row at all is not a hazard brief. */
+export async function isHazardPost(admin: SupabaseClient, post: Pick<NewsToEnrol, 'slug' | 'sourceKey'>): Promise<boolean> {
+  // Belt and braces: a hazard source key settles it at once; a key that says "not hazard" is still checked against the news item row.
+  if (post.sourceKey && isHazardSource(post.sourceKey)) return true
+  try {
+    const { data, error } = await admin.from('news_items').select('source_key').eq('post_slug', post.slug).limit(5)
+    if (error) return true
+    return ((data ?? []) as { source_key: string | null }[]).some((r) => isHazardSource(r.source_key))
+  } catch {
+    return true
+  }
 }
 
 /** Enrols a just-published news post for social posting, ONCE. A no-op (never an error) when the post is not a published
@@ -48,6 +65,7 @@ export interface NewsToEnrol {
 export async function enrollNewsIfDue(admin: SupabaseClient, post: NewsToEnrol, perDay: number): Promise<'enrolled' | 'skipped' | 'ceiling'> {
   try {
     if (post.status !== 'published' || !isNewsSlug(post.slug)) return 'skipped'
+    if (await isHazardPost(admin, post)) return 'skipped'
     const mode = await getDistributionMode(admin)
     if (mode === 'off') return 'skipped'
     if (await isAutomationPaused(admin)) return 'skipped'

@@ -40,6 +40,9 @@ export interface RawFeedItem {
   /** JSON advisory snapshots only: the country name and its advisory LEVEL text (eng.advisory-text, e.g. "Avoid all travel"). */
   stateName?: string
   stateLevel?: string
+  /** GDACS only: the feed's own alert level ("green", "orange", "red") and event type code ("EQ", "TC", "FL", "VO", "WF", "DR"). */
+  alertLevel?: string
+  eventType?: string
 }
 
 /** UK FCDO Atom entries are titled with the bare country name ("Belgium"); the item title says what the item is. */
@@ -49,6 +52,9 @@ export const UK_FCDO_TITLE_PREFIX = 'UK travel advice update for '
  * update for Belgium". A title that is not a bare country name (long, or with punctuation that a country name never has) is left
  * alone so nothing odd is ever wrapped. Other sources are returned unchanged. */
 export function shapeFeedItem(sourceKey: string, item: RawFeedItem): RawFeedItem {
+  // GDACS: one event keeps one guid for its whole life. The alert level is added to it, so an event that is raised from Orange to Red is
+  // a NEW item (and the same event at the same level is the same item), exactly as an advisory level change is.
+  if (sourceKey === 'gdacs-alerts') return item.alertLevel && !item.guid.endsWith(`:${item.alertLevel}`) ? { ...item, guid: `${item.guid}:${item.alertLevel}`.slice(0, 400) } : item
   if (sourceKey !== 'uk-fcdo' || item.title.startsWith(UK_FCDO_TITLE_PREFIX)) return item
   if (!/^[A-Za-z][A-Za-z .,'()&-]{1,70}$/.test(item.title)) return item
   return { ...item, title: `${UK_FCDO_TITLE_PREFIX}${item.title.trim()}` }
@@ -250,16 +256,18 @@ function toIso(raw: string, now: number): string | null {
 }
 
 /** Parses one feed document. Never throws. Items without a usable title and https link are skipped. */
-export function parseFeed(xmlRaw: string, opts: { maxItems?: number; maxBytes?: number; now?: number } = {}): ParsedFeed {
+export function parseFeed(xmlRaw: string, opts: { maxItems?: number; maxBytes?: number; now?: number; upgradeHttpHosts?: readonly string[] } = {}): ParsedFeed {
   const maxItems = opts.maxItems ?? MAX_ITEMS_PER_FEED
   const now = opts.now ?? Date.now()
   if (typeof xmlRaw !== 'string' || xmlRaw.length === 0) return { format: 'unknown', items: [], skipped: 0, error: 'the feed was empty' }
   if (xmlRaw.length > (opts.maxBytes ?? MAX_FEED_BYTES)) return { format: 'unknown', items: [], skipped: 0, error: 'the feed was larger than the size limit' }
   try {
     const xml = stripPrologue(xmlRaw)
-    const isAtom = /<feed[\s>]/i.test(xml) && /<entry[\s>]/i.test(xml)
     const isRdf = /<(?:[a-z0-9]+:)?RDF[\s>]/i.test(xml)
     const isRss = /<rss[\s>]/i.test(xml) || /<channel[\s>]/i.test(xml)
+    // An Atom feed with no <entry> yet is a valid answer (the USGS "significant earthquakes, past day" feed is empty most days):
+    // zero items, not an error. A document that is RSS or RDF is never read as Atom.
+    const isAtom = /<feed[\s>]/i.test(xml) && (/<entry[\s>]/i.test(xml) || (!isRss && !isRdf))
     const format: ParsedFeed['format'] = isAtom ? 'atom' : isRdf ? 'rdf' : isRss ? 'rss' : 'unknown'
     if (format === 'unknown') return { format, items: [], skipped: 0, error: 'this is not an RSS or Atom feed' }
     // At most 3 x maxItems blocks are looked at, each at most 60 KB, so even a hostile 1 MB feed costs a bounded amount of work.
@@ -270,7 +278,21 @@ export function parseFeed(xmlRaw: string, opts: { maxItems?: number; maxBytes?: 
       if (items.length >= maxItems) break
       const lower = block.toLowerCase()
       const title = cleanFeedText(firstTag(block, 'title', lower), TITLE_MAX_CHARS)
-      const link = (isAtom ? atomLink(block) : cleanFeedText(firstTag(block, 'link', lower), 600)).trim()
+      let link = (isAtom ? atomLink(block) : cleanFeedText(firstTag(block, 'link', lower), 600)).trim()
+      // GDACS links are http:// and the same address answers 302 to https: upgraded, but only for the hosts the caller names.
+      if (opts.upgradeHttpHosts && /^http:\/\//i.test(link)) {
+        try {
+          const u = new URL(link)
+          const h = u.hostname.toLowerCase()
+          if (!u.username && !u.password && opts.upgradeHttpHosts.some((x) => h === x || h.endsWith(`.${x}`))) link = `https://${u.host}${u.pathname}${u.search}`
+        } catch {
+          /* left as it is: skipped below */
+        }
+      }
+      // Hazard feeds (GDACS): the feed's own event type and alert level, read as plain short codes. Absent in every other feed.
+      const hazardFields = lower.includes('alertlevel')
+        ? { alertLevel: cleanFeedText(firstTag(block, 'alertlevel', lower), 20).toLowerCase(), eventType: cleanFeedText(firstTag(block, 'eventtype', lower), 8).toUpperCase() }
+        : {}
       // Only the short summary. content:encoded and atom <content> are the article body and are never read.
       const summary = cleanFeedText(firstTag(block, isAtom ? 'summary' : 'description', lower), SUMMARY_MAX_CHARS)
       const dateRaw = isAtom ? firstTag(block, 'published', lower) || firstTag(block, 'updated', lower) : firstTag(block, 'pubDate', lower) || firstTag(block, 'date', lower)
@@ -279,7 +301,7 @@ export function parseFeed(xmlRaw: string, opts: { maxItems?: number; maxBytes?: 
         skipped++
         continue
       }
-      items.push({ guid: guidRaw || link, url: link.slice(0, 600), title, summary, publishedAt: toIso(dateRaw, now) })
+      items.push({ guid: guidRaw || link, url: link.slice(0, 600), title, summary, publishedAt: toIso(dateRaw, now), ...hazardFields })
     }
     return { format, items, skipped }
   } catch {
