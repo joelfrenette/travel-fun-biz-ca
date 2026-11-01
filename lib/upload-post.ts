@@ -7,6 +7,7 @@
  */
 import { blockIfDry } from '@/lib/dry-run'
 import { fitTikTokTitle } from '@/lib/ghl-social'
+import { youtubeShortsFields, instagramReelsFields } from '@/lib/video-extra-platforms'
 const BASE = 'https://api.upload-post.com'
 
 export function uploadPostConfigured(): boolean {
@@ -365,6 +366,10 @@ export async function uploadPostSendVideo(input: {
   if (input.text.trim() && input.platforms.includes('tiktok')) form.set('tiktok_title', fitTikTokTitle(input.text))
   if (input.platforms.includes('pinterest') && pinterestBoardId()) form.set('pinterest_board_id', pinterestBoardId() as string)
   if (input.text.trim() && input.platforms.includes('pinterest')) form.set('pinterest_title', fitTikTokTitle(input.text, PINTEREST_TITLE_MAX))
+  // YouTube Shorts and Instagram Reels have their own fields (lib/video-extra-platforms.ts). The caller only lists these
+  // networks here when their app_settings switch is "on"; "log" and "off" never reach this function.
+  if (input.text.trim() && input.platforms.includes('youtube')) for (const [k, v] of Object.entries(youtubeShortsFields(input.text))) form.set(k, v)
+  if (input.text.trim() && input.platforms.includes('instagram')) for (const [k, v] of Object.entries(instagramReelsFields(input.text))) form.set(k, v)
   try {
     const src = await fetch(input.videoUrl, { cache: 'no-store', signal: AbortSignal.timeout(30_000) })
     const type = (src.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()

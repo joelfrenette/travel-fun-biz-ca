@@ -22,6 +22,7 @@ interface Posting {
   mode: "review" | "auto" | "off"
   tailoredCaptions: boolean
   tripSocialPosts: boolean
+  videoExtras?: { modes: { youtube: "off" | "log" | "on"; instagram: "off" | "log" | "on" }; recent: { at: string; slug: string; networks: string[] }[] }
   aiConfigured: boolean
   dashboardUrl: string
 }
@@ -237,6 +238,26 @@ export function PostingCard({ onChanged }: { onChanged?: () => void }) {
           <input type="checkbox" className="mt-1" checked={data.tripSocialPosts} disabled={busy} onChange={(e) => save({ tripSocialPosts: e.target.checked }, "Saved")} />
           <span><span className="font-medium">Post about our trips</span><span className="block text-xs text-muted-foreground">Off by default. When on, at most one live trip is posted about once every 30 days, after a 24 hour wait. A trip with no price or no dates is never posted. It follows the posting mode above and the daily and weekly limits.</span></span>
         </label>
+
+        {data.videoExtras && (
+          <div className="space-y-2 border-t pt-4 text-sm">
+            <p className="font-medium">Send the short video to YouTube Shorts and Instagram Reels</p>
+            <p className="text-xs text-muted-foreground">Off by default. Log writes down what would be sent and posts nothing. On posts the same video too (needs the account connected in Upload-Post; Instagram must be a Business or Creator account).</p>
+            {([["youtube", "YouTube Shorts"], ["instagram", "Instagram Reels"]] as const).map(([net, label]) => (
+              <label key={net} className="flex items-center gap-2">
+                <span className="w-32">{label}</span>
+                <select className="rounded border bg-background px-2 py-1 text-sm" value={data.videoExtras!.modes[net]} disabled={busy} onChange={(e) => save({ videoExtra: net, mode: e.target.value }, "Saved")}>
+                  <option value="off">Off</option>
+                  <option value="log">Log only</option>
+                  <option value="on">On</option>
+                </select>
+              </label>
+            ))}
+            {data.videoExtras.recent.length > 0 && (
+              <p className="text-xs text-muted-foreground">Recently logged: {data.videoExtras.recent.map((e) => `${e.slug} (${e.networks.join(", ")})`).join("; ")}</p>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

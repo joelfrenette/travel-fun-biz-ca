@@ -25,6 +25,7 @@ import { resolvePostingTarget, getProvider, platformsFor, sentPlatformsOf, type 
 import { ghlSocialMissing } from '@/lib/ghl-social'
 import { fitCaptionWithLink, tightestLimit, buildFallbackCaption, buildVideoCaption, repairCaptionCta, networkSupportsLinks } from '@/lib/social-captions'
 import { socialLink } from '@/lib/utm'
+import { getVideoExtraModes, splitVideoPlatforms, recordVideoExtraLog, buildLogEntry } from '@/lib/video-extra-platforms'
 import { SITE_URL, SITE_NAME, absoluteUrl } from '@/lib/site'
 import { isAiConfigured } from '@/lib/ai-verify'
 import { isImageAiConfigured } from '@/lib/image-ai-gen'
@@ -215,6 +216,8 @@ interface AutopilotTarget {
   target: PostingTarget
   carouselPlatforms: string[]
   videoPlatforms: string[]
+  /** YouTube / Instagram when their switch is "log": recorded, never sent. */
+  videoLogOnly: string[]
 }
 
 /** Posting only happens in distribution mode "auto" with a provider fully set up - the same gate
@@ -223,10 +226,13 @@ async function postingTarget(admin: SupabaseClient): Promise<AutopilotTarget | n
   if ((await getDistributionMode(admin)) !== 'auto') return null
   const { target } = await resolvePostingTarget(admin)
   if (!target) return null
+  // YouTube Shorts and Instagram Reels only receive the video when their own switch is "on" (default off); "log" records it instead.
+  const video = splitVideoPlatforms(platformsFor('video', target.platforms, target.provider).filter((p) => VIDEO_PLATFORMS.includes(p)), await getVideoExtraModes(admin))
   return {
     target,
     carouselPlatforms: platformsFor('photo', target.platforms, target.provider).filter((p) => CAROUSEL_PLATFORMS.includes(p)),
-    videoPlatforms: platformsFor('video', target.platforms, target.provider).filter((p) => VIDEO_PLATFORMS.includes(p)),
+    videoPlatforms: video.send,
+    videoLogOnly: video.logOnly,
   }
 }
 
@@ -461,6 +467,10 @@ async function runAutopilotMain(admin: SupabaseClient): Promise<{ note: string; 
       } else if (Date.now() - Date.parse(row.updated_at) > RENDER_TIMEOUT_MS) {
         await fail(row, 'video', 'render did not finish within 30 minutes', true)
       }
+    }
+    // "log" mode for YouTube Shorts / Instagram Reels: record what would be sent, once per video, post nothing.
+    if (target && target.videoLogOnly.length && row.video_stage === 'rendered' && row.video_url) {
+      await recordVideoExtraLog(admin, buildLogEntry(row.slug, target.videoLogOnly, row.video_caption ?? row.slug))
     }
     const videoTargets = target ? target.videoPlatforms.filter((p) => !(row.video_sent ?? []).includes(p)) : []
     if (row.video_stage === 'rendered' && row.video_url && target && target.videoPlatforms.length && videoTargets.length === 0) {
