@@ -5,7 +5,11 @@ import {
   CTR_EVAL_AFTER_DAYS,
   CTR_PAGES_PER_DAY,
   CANNIBAL_KEY,
+  CTR_TRIP_PROPOSALS_MAX,
+  addTripProposal,
   ctrGate,
+  tripGate,
+  tripsModeOn,
   ctrRatio,
   decideExperiment,
   evalDayOf,
@@ -340,6 +344,121 @@ async function main() {
     const none = baseDb(1, [])
     await runCtrLoop(fakeAdmin(none), { now: NOW, model: stubModel().model, getPairs: async () => [] })
     check('cannibalisation: when Search Console cannot be read the old list is left alone, nothing is overwritten', !none.tables.app_settings.some((x) => x.key === CANNIBAL_KEY))
+  }
+
+  // ---- trip pages: log-only proposals ----
+  const tripRow = (extra: Record<string, unknown> = {}) => ({ id: 'trip-1', slug: 'rhine-trip', status: 'published', name: 'Rhine river cruise', destination: 'Germany', country: 'Germany', region: null, duration: '7 nights', available_from: '2027-05-03', available_to: '2027-05-10', short_description: postBody, full_description: null, highlights: ['Rhine Gorge'], price_display: '$4,321', price_value: 4321, meta_title: 'Rhine cruise', meta_description: '', keywords: [], ...extra })
+  const tripDb = (mode?: string | null, n = 1): Db => {
+    const db = baseDb(0, Array.from({ length: n }, (_, i) => ({ day: '2026-10-16', path: i === 0 ? '/packages/rhine-trip' : `/packages/rhine-trip-${i + 1}`, clicks: 20, impressions: 1000 - i * 10, position: 3 })))
+    db.tables.travel_packages = Array.from({ length: n }, (_, i) => tripRow(i === 0 ? {} : { id: `trip-${i + 1}`, slug: `rhine-trip-${i + 1}` }))
+    if (mode !== undefined && mode !== null) db.tables.app_settings.push({ key: 'ctr_loop_trips_mode', value: mode })
+    return db
+  }
+  // A client that records every write call, so "never writes travel_packages" is proven rather than assumed.
+  const recording = (db: Db) => {
+    const writes: { table: string; op: string }[] = []
+    const inner = fakeAdmin(db) as unknown as { from: (t: string) => Record<string, unknown>; rpc: unknown }
+    const wrap = (table: string, q: Record<string, unknown>): Record<string, unknown> =>
+      new Proxy(q, {
+        get(target, prop) {
+          const v = target[prop as string]
+          if (typeof v !== 'function') return v
+          return (...args: unknown[]) => {
+            if (['insert', 'update', 'upsert', 'delete'].includes(String(prop))) writes.push({ table, op: String(prop) })
+            const res = (v as (...a: unknown[]) => unknown).apply(target, args)
+            return res === target ? wrap(table, target) : res
+          }
+        },
+      })
+    const client = { from: (t: string) => wrap(t, inner.from(t)), rpc: inner.rpc } as unknown as Parameters<typeof runCtrLoop>[0]
+    return { client, writes }
+  }
+  const proposalsOf = (db: Db) => JSON.parse(String(db.tables.app_settings.find((r) => r.key === 'ctr_trip_proposals')?.value ?? '[]')) as { path: string; newTitle: string; newDescription: string; status: string }[]
+  check('trip mode: only the exact text "log" enables it', tripsModeOn('log') && !tripsModeOn(null) && !tripsModeOn(undefined) && !tripsModeOn('') && !tripsModeOn('on') && !tripsModeOn('apply') && !tripsModeOn('LOG') && !tripsModeOn(' log') && !tripsModeOn('true'))
+  for (const mode of [undefined, 'on', 'apply', 'off', 'LOG', '']) {
+    const db = tripDb(mode as string | undefined)
+    const s = stubModel()
+    const rec = recording(db)
+    const r = await runCtrLoop(rec.client, { now: NOW, model: s.model, getPairs: async () => [] })
+    check(`trip mode off (${mode === undefined ? 'missing' : JSON.stringify(mode)}): no model call, no proposal, no trip write`, r.proposed === 0 && r.calls === 0 && s.prompts.length === 0 && proposalsOf(db).length === 0 && !rec.writes.some((x) => x.table === 'travel_packages') && slotsOf(db) === 0, JSON.stringify({ r: r.proposed, calls: r.calls, writes: rec.writes }))
+  }
+  {
+    const db = tripDb('log')
+    const s = stubModel()
+    const rec = recording(db)
+    const r = await runCtrLoop(rec.client, { now: NOW, model: s.model, getPairs: async () => [] })
+    const list = proposalsOf(db)
+    check('trip log mode: a proposal is stored for review after the suggester and the judge', r.proposed === 1 && r.calls === 2 && list.length === 1 && list[0].path === '/packages/rhine-trip' && list[0].newTitle === goodTitle && list[0].newDescription === goodDesc && list[0].status === 'proposed', JSON.stringify({ r, list }))
+    check('trip log mode: travel_packages is NEVER written (recording client)', !rec.writes.some((x) => x.table === 'travel_packages') && db.tables.travel_packages[0].meta_title === 'Rhine cruise' && db.tables.travel_packages[0].meta_description === '', JSON.stringify(rec.writes))
+    check('trip log mode: no content_edits row and no experiment (nothing is applied)', db.tables.content_edits.length === 0 && expsOf(db).length === 0 && r.started === 0 && r.changedPaths.length === 0)
+    check('trip log mode: the only writes are app_settings rows', rec.writes.length > 0 && rec.writes.every((x) => x.table === 'app_settings'), JSON.stringify(rec.writes))
+    check('trip log mode: the note says nothing changed on the trip pages', /logged 1 trip title proposal/.test(r.note) && r.active, r.note)
+    const again = await runCtrLoop(fakeAdmin(db), { now: new Date(NOW.getTime() + 86_400_000), model: stubModel().model, getPairs: async () => [] })
+    check('trip log mode: the same trip is not proposed again the next day', again.proposed === 0 && proposalsOf(db).length === 1)
+  }
+  {
+    const db = tripDb('log')
+    const rec = recording(db)
+    await runCtrLoop(rec.client, { now: NOW, model: stubModel({ suggest: JSON.stringify({ meta_title: 'Rhine river cruise from Cologne to Basel, 12 days', meta_description: goodDesc }) }).model, getPairs: async () => [] })
+    check('trip proposal with a number that is not in the trip text is rejected and never stored', proposalsOf(db).length === 0 && !rec.writes.some((x) => x.table === 'travel_packages'))
+    const price = tripDb('log')
+    await runCtrLoop(fakeAdmin(price), { now: NOW, model: stubModel({ suggest: JSON.stringify({ meta_title: goodTitle, meta_description: 'A Rhine river cruise from Cologne to Basel for 4321 dollars, with our advisors to help you plan the trip.' }) }).model, getPairs: async () => [] })
+    check('trip proposal: the price number is not treated as "on the page" (price fields are not a source)', proposalsOf(price).length === 0)
+    const sign = tripDb('log')
+    await runCtrLoop(fakeAdmin(sign), { now: NOW, model: stubModel({ suggest: JSON.stringify({ meta_title: goodTitle, meta_description: `${goodDesc.slice(0, 100)} from $4,321 per person.` }) }).model, getPairs: async () => [] })
+    check('trip proposal: a price sign or price wording is rejected', proposalsOf(sign).length === 0)
+    const month = tripDb('log')
+    await runCtrLoop(fakeAdmin(month), { now: NOW, model: stubModel({ suggest: JSON.stringify({ meta_title: goodTitle, meta_description: 'See the Rhine river cruise from Cologne to Basel departing in October, and let our advisors help you plan it.' }) }).model, getPairs: async () => [] })
+    check('trip proposal: a month that is not in the trip text is rejected', proposalsOf(month).length === 0)
+    const okMonth = tripDb('log')
+    await runCtrLoop(fakeAdmin(okMonth), { now: NOW, model: stubModel({ suggest: JSON.stringify({ meta_title: goodTitle, meta_description: 'See the Rhine river cruise from Cologne to Basel over 7 nights, and let our advisors help you plan the trip with you.' }) }).model, getPairs: async () => [] })
+    check('trip proposal: a number that IS in the trip text (7 nights) is allowed', proposalsOf(okMonth).length === 1, JSON.stringify(proposalsOf(okMonth)))
+    check('tripGate: month names must already be in the trip text', tripGate({ title: goodTitle, description: goodDesc }, facts).length === 0 && tripGate({ title: goodTitle, description: `${goodDesc.slice(0, 120)} in March.` }, facts).some((x) => /date not on the page/.test(x)))
+    const qa = tripDb('log')
+    await runCtrLoop(fakeAdmin(qa), { now: NOW, model: stubModel({ judge: '{"pass":false,"failures":[{"quote":"x","rule":1,"reason":"claim"}]}' }).model, getPairs: async () => [] })
+    check('trip proposal: a failed QA review is never stored', proposalsOf(qa).length === 0)
+  }
+  {
+    const past = tripDb('log')
+    past.tables.travel_packages[0].available_to = '2026-01-01'
+    const sp = stubModel()
+    await runCtrLoop(fakeAdmin(past), { now: NOW, model: sp.model, getPairs: async () => [] })
+    check('a past trip (frozen recap text) is skipped', sp.prompts.length === 0 && proposalsOf(past).length === 0)
+    const draft = tripDb('log')
+    draft.tables.travel_packages[0].status = 'draft'
+    const sd = stubModel()
+    await runCtrLoop(fakeAdmin(draft), { now: NOW, model: sd.model, getPairs: async () => [] })
+    check('an unpublished trip is skipped', sd.prompts.length === 0 && proposalsOf(draft).length === 0)
+  }
+  {
+    // The list is newest first and capped: 32 existing entries plus a new one stay at 30.
+    const db = tripDb('log')
+    const old = Array.from({ length: 35 }, (_, i) => ({ id: `old-${i}`, at: '2026-09-01T00:00:00.000Z', path: `/packages/old-${i}`, slug: `old-${i}`, tripId: `t${i}`, oldTitle: 'a', oldDescription: '', newTitle: `old title ${i}`, newDescription: 'd', position: 3, impressions: 500, clicks: 1, ctr: 0.002, expected: 0.11, status: 'proposed' }))
+    db.tables.app_settings.push({ key: 'ctr_trip_proposals', value: JSON.stringify(old) })
+    await runCtrLoop(fakeAdmin(db), { now: NOW, model: stubModel().model, getPairs: async () => [] })
+    const list = proposalsOf(db)
+    check(`trip proposals: capped at ${CTR_TRIP_PROPOSALS_MAX}, newest first`, list.length === CTR_TRIP_PROPOSALS_MAX && list[0].path === '/packages/rhine-trip' && list[1].path === '/packages/old-0', JSON.stringify(list.map((x) => x.path).slice(0, 3)) + list.length)
+    const rec = { id: 'x', at: 'x', path: 'p', slug: 's', tripId: 't', oldTitle: '', oldDescription: '', newTitle: 'n', newDescription: 'n', position: 1, impressions: 1, clicks: 0, ctr: 0, expected: 0, status: 'proposed' as const }
+    check('addTripProposal: puts the newest first and drops the oldest past the cap', addTripProposal(Array.from({ length: CTR_TRIP_PROPOSALS_MAX }, () => ({ ...rec, id: 'o' })), rec)[0].id === 'x' && addTripProposal(Array.from({ length: CTR_TRIP_PROPOSALS_MAX }, () => ({ ...rec, id: 'o' })), rec).length === CTR_TRIP_PROPOSALS_MAX)
+  }
+  {
+    // Two weak trips: the daily slot cap still applies, and a post still takes the normal (applied) path beside them.
+    const db = tripDb('log', 3)
+    const rec = recording(db)
+    const r = await runCtrLoop(rec.client, { now: NOW, model: stubModel().model, getPairs: async () => [] })
+    check(`trip log mode: still at most ${CTR_PAGES_PER_DAY} pages a day`, r.proposed === CTR_PAGES_PER_DAY && slotsOf(db) === CTR_PAGES_PER_DAY && !rec.writes.some((x) => x.table === 'travel_packages'), JSON.stringify({ p: r.proposed, slots: slotsOf(db) }))
+    const posts = baseDb(1)
+    posts.tables.app_settings.push({ key: 'ctr_loop_trips_mode', value: 'log' })
+    const rp = await runCtrLoop(fakeAdmin(posts), { now: NOW, model: stubModel().model, getPairs: async () => [] })
+    check('trip log mode does not change how posts are handled', rp.started === 1 && rp.proposed === 0 && posts.tables.posts[0].meta_title === goodTitle)
+  }
+  {
+    const route = src('app/api/admin/ctr-trip-proposals/route.ts')
+    check('admin read endpoint checks isAuthorized first and only reads', /export async function GET[\s\S]{0,120}isAuthorized\(request\)/.test(route) && !/export async function (POST|PUT|PATCH|DELETE)/.test(route) && !/setSetting|\.insert\(|\.update\(|\.upsert\(|\.delete\(/.test(route))
+    const loop = src('lib/ctr-loop.ts')
+    check('the loop source never updates travel_packages and has no apply path for trips', !/from\('travel_packages'\)\s*\.update/.test(loop) && !/from\(['"]travel_packages['"]\)[\s\S]{0,40}\.(update|insert|upsert|delete)\(/.test(loop))
+    check('the switch is documented in .env.example', /ctr_loop_trips_mode/.test(src('.env.example')))
+    check('no em or en dashes in the route', !LONG_DASH.test(route))
   }
 
   // ---- wiring ----

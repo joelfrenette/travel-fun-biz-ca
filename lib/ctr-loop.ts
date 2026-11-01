@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isAiConfigured, parseModelJson } from '@/lib/ai-verify'
-import { getSetting, setSetting } from '@/lib/app-settings'
+import { getSetting, getSettingStrict, setSetting } from '@/lib/app-settings'
 import { POST_EXPERIENCE_CLAIM_PATTERNS } from '@/lib/blog-composer'
 import { modelCallFor, EST_COST_USD_PER_CALL, MIN_MS_PER_CALL, type ContentEdit, type ContentType, type ModelCall } from '@/lib/content-repair'
 import { deleteEdits, editsLoggable, insertEdits, recordRepairSpend, repairDay, revertEdit } from '@/lib/content-edits'
@@ -306,6 +306,113 @@ export async function resolveEditablePage(admin: SupabaseClient, path: string): 
 }
 
 // ---------------------------------------------------------------------------------------------------
+// Trip pages: LOG-ONLY proposals. A trip's facts are the product, so this loop never edits travel_packages. With the switch
+// app_settings ctr_loop_trips_mode set to exactly "log" it may PROPOSE a new search title and description for a trip, and the
+// proposal is only stored for a person to read (app_settings ctr_trip_proposals). There is no apply mode in this change.
+// ---------------------------------------------------------------------------------------------------
+
+export const CTR_TRIPS_MODE_KEY = 'ctr_loop_trips_mode'
+export const CTR_TRIP_PROPOSALS_KEY = 'ctr_trip_proposals'
+export const CTR_TRIP_PROPOSALS_MAX = 30
+
+/** Only the exact text "log" turns trip proposals on. Missing, "on", "apply", "LOG" or anything else is off. Pure. */
+export function tripsModeOn(value: string | null | undefined): boolean {
+  return value === 'log'
+}
+
+export interface TripProposalRecord {
+  id: string
+  at: string
+  path: string
+  slug: string
+  tripId: string
+  oldTitle: string
+  oldDescription: string
+  newTitle: string
+  newDescription: string
+  position: number
+  impressions: number
+  clicks: number
+  ctr: number
+  expected: number
+  /** Always "proposed": nothing here is ever applied. */
+  status: 'proposed'
+}
+
+export interface TripPage {
+  id: string
+  slug: string
+  path: string
+  storedTitle: string
+  storedDescription: string
+  facts: PageFacts
+}
+
+const MONTH_NAME = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|june?|july?|aug(ust)?|sep(t(ember)?)?|oct(ober)?|nov(ember)?|dec(ember)?)\b/gi
+const TRIP_MONEY_WORDS = /\b(price[sd]?|pricing|per person|per couple|fares?|costs?|from only)\b/i
+
+/** The extra checks a trip proposal must pass on top of ctrGate (which already refuses any price sign and any number or name
+ * not on the page): no price wording, and no month that the trip's own text does not already name. Pure. */
+export function tripGate(p: Proposal, page: PageFacts): string[] {
+  const out = ctrGate(p, page)
+  const both = `${p.title}\n${p.description}`
+  if (TRIP_MONEY_WORDS.test(both)) out.push('price wording')
+  const known = `${page.source}\n${page.oldTitle}\n${page.oldDescription}`.toLowerCase()
+  const months = [...new Set((both.match(MONTH_NAME) ?? []).map((m) => m.toLowerCase().slice(0, 3)))]
+  const strangers = months.filter((m) => !new RegExp(`\\b${m}`, 'i').test(known))
+  if (strangers.length) out.push(`date not on the page: ${strangers.slice(0, 3).join(', ')}`)
+  return out
+}
+
+/** The live trip behind /packages/<slug>, shaped as page facts. Price fields are left OUT of the source on purpose, so a price
+ * number can never count as "already on the page". Null for a trip that is not published or already in the past (a past trip's
+ * text is a frozen recap), or when the table cannot be read. */
+export async function resolveTripPage(admin: SupabaseClient, path: string, today: string): Promise<TripPage | null> {
+  const clean = path.split(/[?#]/)[0].replace(/\/+$/, '')
+  const slug = /^\/packages\/([^/]+)$/.exec(clean)?.[1]
+  if (!slug) return null
+  try {
+    const { data } = await admin.from('travel_packages').select('*').eq('slug', slug).eq('status', 'published').maybeSingle()
+    const r = data as Row | null
+    if (!r) return null
+    const to = str(r.available_to)
+    if (to && to < today) return null
+    const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').join('\n') : '')
+    const source = plainText([str(r.name), str(r.destination), str(r.country), str(r.region), str(r.duration), str(r.available_from), str(r.available_to), str(r.short_description), str(r.full_description), list(r.highlights), str(r.price_includes), str(r.not_included)].filter(Boolean).join('\n\n'))
+    const keyword = Array.isArray(r.keywords) ? ((r.keywords as unknown[]).find((k): k is string => typeof k === 'string') ?? null) : null
+    return { id: str(r.id), slug, path: clean, storedTitle: str(r.meta_title), storedDescription: str(r.meta_description), facts: { oldTitle: str(r.meta_title) || str(r.name), oldDescription: str(r.meta_description) || str(r.short_description), source, keyword } }
+  } catch {
+    return null
+  }
+}
+
+export async function readTripProposals(admin: SupabaseClient): Promise<{ proposals: TripProposalRecord[]; error?: string }> {
+  const r = await getSettingStrict(admin, CTR_TRIP_PROPOSALS_KEY)
+  if (r.error) return { proposals: [], error: r.error }
+  try {
+    const v = JSON.parse(r.value ?? '[]') as unknown
+    return { proposals: Array.isArray(v) ? (v as TripProposalRecord[]).filter((x) => x && typeof x.path === 'string' && typeof x.newTitle === 'string') : [] }
+  } catch {
+    return { proposals: [] }
+  }
+}
+
+/** Newest first, capped at CTR_TRIP_PROPOSALS_MAX. Writes ONLY app_settings. Pure helper for the list. */
+export function addTripProposal(list: TripProposalRecord[], rec: TripProposalRecord): TripProposalRecord[] {
+  return [rec, ...list].slice(0, CTR_TRIP_PROPOSALS_MAX)
+}
+
+/** Reads the switch. A failed read is "off". */
+export async function readTripsMode(admin: SupabaseClient): Promise<boolean> {
+  try {
+    const r = await getSettingStrict(admin, CTR_TRIPS_MODE_KEY)
+    return !r.error && tripsModeOn(r.value)
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
 // The experiment record (one app_settings row per test, so two overlapping runs cannot overwrite each other)
 // ---------------------------------------------------------------------------------------------------
 
@@ -444,6 +551,8 @@ export interface CtrLoopResult {
   started: number
   checked: number
   reverted: number
+  /** Trip proposals stored for review (log-only; no page was changed). */
+  proposed: number
   /** True when anything happened worth a line in the heal note. */
   active: boolean
 }
@@ -615,10 +724,83 @@ async function evaluateExperiments(admin: SupabaseClient, now: Date, out: CtrLoo
   }
 }
 
+/** One trip, log-only: suggest, gate (ctrGate plus the trip checks), judge, then store the proposal. Writes app_settings only. */
+async function proposeForTrip(
+  admin: SupabaseClient,
+  w: Underperformer,
+  pairs: QueryPagePair[],
+  now: Date,
+  day: string,
+  call: (prompt: string, maxTokens: number) => Promise<string | null>,
+  out: CtrLoopResult,
+  notes: string[],
+  st: { stop: 'budget' | 'time' | null },
+): Promise<void> {
+  const trip = await resolveTripPage(admin, w.path, now.toISOString().slice(0, 10))
+  if (!trip) return
+  const slot = await claimSlot(admin, w.path, day)
+  if (!slot.ok) {
+    if (slot.problem) out.problems.push(`click-rate test: ${slot.problem}`)
+    return
+  }
+  const queries = pairs.filter((p) => p.path.replace(/\/+$/, '') === w.path).sort((a, b) => b.impressions - a.impressions).slice(0, 3).map((p) => p.query)
+  const suggested = parseProposal(await call(suggestPrompt(trip.facts, w, queries), SUGGEST_TOKENS))
+  if (!suggested) {
+    if (!st.stop) {
+      await markTried(admin, w.path, 'rejected', now)
+      notes.push(`${w.path}: the suggestion could not be read`)
+    }
+    return
+  }
+  const blockers = tripGate(suggested, trip.facts)
+  if (blockers.length) {
+    await markTried(admin, w.path, 'rejected', now)
+    notes.push(`${w.path}: turned down by the checks (${blockers.slice(0, 2).join('; ')})`)
+    return
+  }
+  const judged = parseJudge(await call(judgePrompt(trip.facts.source, `SEARCH AND SHARE TEXT:\n- ${suggested.title}\n- ${suggested.description}`), JUDGE_TOKENS))
+  if (!judged.pass) {
+    if (judged.answered) {
+      await markTried(admin, w.path, 'rejected', now)
+      notes.push(`${w.path}: turned down by the QA review (${judged.reasons[0] ?? 'it failed'})`)
+    }
+    return
+  }
+  const current = await readTripProposals(admin)
+  if (current.error) {
+    out.problems.push(`click-rate test: could not read the trip proposals (${current.error}), so none was saved`)
+    return
+  }
+  const rec: TripProposalRecord = {
+    id: `${now.toISOString()}:${trip.slug}`,
+    at: now.toISOString(),
+    path: trip.path,
+    slug: trip.slug,
+    tripId: trip.id,
+    oldTitle: trip.facts.oldTitle,
+    oldDescription: trip.facts.oldDescription,
+    newTitle: suggested.title,
+    newDescription: suggested.description,
+    position: w.position,
+    impressions: w.impressions,
+    clicks: w.clicks,
+    ctr: w.ctr,
+    expected: w.expected,
+    status: 'proposed',
+  }
+  const saved = await setSetting(admin, CTR_TRIP_PROPOSALS_KEY, JSON.stringify(addTripProposal(current.proposals, rec)))
+  if (saved.error) {
+    out.problems.push(`click-rate test: could not save the trip proposal for ${trip.path} (${saved.error})`)
+    return
+  }
+  await markTried(admin, trip.path, 'proposed', now)
+  out.proposed++
+}
+
 /** The whole loop for one daily heal run. Never throws; every problem is returned as plain text for Needs attention. */
 export async function runCtrLoop(admin: SupabaseClient, opts: CtrLoopOpts = {}): Promise<CtrLoopResult> {
   const now = opts.now ?? new Date()
-  const out: CtrLoopResult = { calls: 0, changedPaths: [], problems: [], note: '', started: 0, checked: 0, reverted: 0, active: false }
+  const out: CtrLoopResult = { calls: 0, changedPaths: [], problems: [], note: '', started: 0, checked: 0, reverted: 0, proposed: 0, active: false }
   const lines: string[] = []
   try {
     if (!(await editsLoggable(admin))) return { ...out, note: 'click-rate test: waiting for the change log (migration 0033)' }
@@ -706,12 +888,20 @@ export async function runCtrLoop(admin: SupabaseClient, opts: CtrLoopOpts = {}):
     }
 
     const notes: string[] = []
+    let tripsOn: boolean | null = null
     for (const w of weak) {
-      if (out.started + notes.length >= left || st.stop) break
+      if (out.started + out.proposed + notes.length >= left || st.stop) break
       if (busy.has(w.path) || isResting(tried.get(w.path), now.getTime())) continue
       if (budget.remaining() < 2) break
       const page = await resolveEditablePage(admin, w.path)
-      if (!page) continue
+      if (!page) {
+        // Trip pages: log-only, and only when the switch is exactly "log". Nothing below this line ever writes travel_packages.
+        if (/^\/packages\/[^/?#]+\/?$/.test(w.path)) {
+          if (tripsOn === null) tripsOn = await readTripsMode(admin)
+          if (tripsOn) await proposeForTrip(admin, w, pairs, now, day, call, out, notes, st)
+        }
+        continue
+      }
 
       const slot = await claimSlot(admin, w.path, day)
       if (!slot.ok) {
@@ -802,6 +992,7 @@ export async function runCtrLoop(admin: SupabaseClient, opts: CtrLoopOpts = {}):
     // The day's estimated spend (a display number) counts every call made, kept or turned down.
     if (out.calls) await recordRepairSpend(admin, out.calls)
     if (out.started) lines.push(`started ${out.started} title test${out.started === 1 ? '' : 's'} (${out.changedPaths.join(', ')})`)
+    if (out.proposed) lines.push(`logged ${out.proposed} trip title proposal${out.proposed === 1 ? '' : 's'} for review (nothing changed on the trip pages)`)
     if (notes.length) lines.push(notes.join('; '))
     if (st.stop === 'budget') lines.push("stopped at today's heal limit")
     return finish(out, lines)
