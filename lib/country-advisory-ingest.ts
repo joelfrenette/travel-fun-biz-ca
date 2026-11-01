@@ -5,6 +5,7 @@ import { CA_ADVISORY_SOURCE_KEY, advisoryTitle, planBackfill, type AdvisoryMode,
 import { applyUsFeed, listAllAdvisories, markBackfillDone, markCanadaChecked, readBackfillDone, saveBackfillRows, writeCanadaEvent, writeUkEvent } from '@/lib/country-advisory-store'
 import { parseUsAdvisoryFeed } from '@/lib/country-advisory'
 import { enrollAdvisoryIfDue } from '@/lib/country-advisory-social'
+import { pingIndexNow } from '@/lib/indexnow'
 
 // Travel advisories: the DUAL WRITE called from the news ingest (lib/news-ingest.ts). The news posts are created exactly as before;
 // this only also records the same advisory in country_advisories and country_advisory_log. Nothing here ever throws into the ingest,
@@ -142,6 +143,11 @@ export async function backfillAdvisories(admin: SupabaseClient, note: AdvisoryIn
     if (saved.error) {
       addNote(note, `travel advisories (${input.source} backfill): ${saved.error}`)
       return
+    }
+    // New country pages are announced to IndexNow (Bing and others) the moment they exist; a failed ping never blocks the backfill.
+    if (plan.created > 0) {
+      const paths = plan.rows.slice(0, 99).map((r) => `/travel-advisories/${r.slug}`)
+      await pingIndexNow(['/travel-advisories', ...paths]).catch(() => undefined)
     }
     const marked = await markBackfillDone(admin, input.source, now)
     if (marked.error) addNote(note, `travel advisories (${input.source} backfill): saved the countries but could not save the guard (${marked.error.slice(0, 80)}); a re-run changes nothing.`)
