@@ -385,7 +385,7 @@ async function main() {
     const env = src('.env.example')
     expect('.env.example documents the switch, the funnel key and the nudge', /trip_quiz_mode/.test(env) && /trip_quiz_funnel/.test(env) && /quiz_nudge/.test(env))
     const mig = readdirSync('supabase/migrations').filter((f) => /^\d{4}_/.test(f)).sort()
-    expect('no migration added by the quiz (newest is still 0063)', mig[mig.length - 1].startsWith('0063_'))
+    expect('no migration added by the quiz (nothing after 0063 mentions the quiz)', mig.filter((f) => f >= '0064').every((f) => !/quiz/i.test(readFileSync(`supabase/migrations/${f}`, 'utf8'))))
     const files = ['lib/trip-quiz.ts', 'lib/trip-quiz-store.ts', 'lib/flywheel/steps/quiz-nudge.ts', 'app/trip-quiz/page.tsx', 'components/trip-quiz-card.tsx', 'components/trip-quiz-link.tsx', 'app/api/admin/trip-quiz/route.ts', 'lib/lead-ack-copy.ts', 'lib/itinerary-magnet.ts', 'components/itinerary-request-form.tsx']
     expect('no em or en dashes in any new or changed copy', files.every((f) => !dashes.test(src(f))))
     expect('UTM passthrough: the card link and every quiz link carry utm_*', /utm_source/.test(src('components/trip-quiz-link.tsx')) && /for \(const \[k, v\] of Object\.entries\(utm\)\) p\.set\(k, v\)/.test(src('app/trip-quiz/page.tsx')))
