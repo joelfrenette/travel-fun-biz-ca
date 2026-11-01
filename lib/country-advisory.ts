@@ -627,6 +627,8 @@ export interface UkBlock {
   updateLine: string | null
   sourceUrl: string | null
   publishedLabel: string | null
+  /** When we last read the UK feed for this country (uk_checked_at), as a date. */
+  checkedLabel: string | null
 }
 export interface LogEntry {
   dateLabel: string | null
@@ -678,7 +680,11 @@ export function advisoryTitle(row: Pick<CountryAdvisoryRow, 'name' | 'ca_level' 
   return `UK travel advice for ${row.name}`
 }
 
-export const STALE_NOTE = 'We could not confirm this today. Check the official source.'
+/** One honest line for the top of the advisory pages. No claim of real time or of accuracy. */
+export const FRESHNESS_NOTE =
+  'This page is built from official government feeds that we read about every 30 minutes. Please confirm with the official source before you travel.'
+
+export const STALE_NOTE ='We could not confirm this today. Check the official source.'
 
 export function isStale(checkedAt: string | null | undefined, now: Date): boolean {
   const t = checkedAt ? Date.parse(checkedAt) : NaN
@@ -717,7 +723,7 @@ export function buildAdvisoryView(row: CountryAdvisoryRow, log: AdvisoryLogRow[]
         }
       })()
     : null
-  const uk: UkBlock | null = ukHas ? { updateLine: row.uk_text, sourceUrl: row.uk_source_url, publishedLabel: dateLabel(row.uk_source_published_at) } : null
+  const uk: UkBlock | null = ukHas ? { updateLine: row.uk_text, sourceUrl: row.uk_source_url, publishedLabel: dateLabel(row.uk_source_published_at), checkedLabel: dateLabel(row.uk_checked_at) } : null
   const usHas = !!(row.us_level || row.us_text)
   const us: UsBlock | null = usHas
     ? (() => {

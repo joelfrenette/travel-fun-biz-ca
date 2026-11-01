@@ -5,7 +5,7 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { buildBreadcrumbJsonLd, jsonLdHtml } from "@/lib/jsonld"
 import { getVisitorPreferences } from "@/lib/preferences"
-import { ADVISORY_INDEX_PATH } from "@/lib/country-advisory"
+import { ADVISORY_INDEX_PATH, FRESHNESS_NOTE } from "@/lib/country-advisory"
 import { loadAdvisoryIndex } from "@/lib/country-advisory-public"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
@@ -46,6 +46,7 @@ export default async function TravelAdvisoriesIndex() {
             </nav>
             <h1 className="mt-3 text-balance text-3xl font-bold text-foreground sm:text-4xl">Travel advisories by country</h1>
             <p className="mt-3 text-pretty text-muted-foreground">{description} Every country we have read an official advisory for is listed, and each page shows the date and the link to the official source.</p>
+            <p className="mt-2 text-sm text-muted-foreground">{FRESHNESS_NOTE}</p>
           </div>
         </div>
         <div className="container mx-auto max-w-3xl px-4 py-10">

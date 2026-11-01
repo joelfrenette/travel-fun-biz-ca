@@ -6,7 +6,7 @@ import { Footer } from "@/components/footer"
 import { buildBreadcrumbJsonLd, jsonLdHtml } from "@/lib/jsonld"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getPublishedGuidePaths, guidePath } from "@/lib/guides"
-import { ADVISORY_INDEX_PATH, buildAdvisoryJsonLd } from "@/lib/country-advisory"
+import { ADVISORY_INDEX_PATH, FRESHNESS_NOTE, buildAdvisoryJsonLd } from "@/lib/country-advisory"
 import { loadAdvisoryPage } from "@/lib/country-advisory-public"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
@@ -64,6 +64,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
             <p className="mt-3 text-pretty text-muted-foreground">
               This page shows what {[view.canada && "Canada", view.us && "the US", view.uk && "the UK"].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1") || "the governments we follow"} currently say{[view.canada, view.us, view.uk].filter(Boolean).length === 1 ? "s" : ""} about travel to {view.name}, in their own words, with a link to each official page. We do not rate or rewrite their advice.
             </p>
+            <p className="mt-2 text-sm text-muted-foreground">{FRESHNESS_NOTE}</p>
           </div>
         </div>
 
@@ -81,7 +82,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
               {view.canada.quote && <p className="mt-2 text-muted-foreground">From the same advisory: {q(view.canada.quote)}</p>}
               <dl className="mt-3 space-y-1 text-sm text-muted-foreground">
                 {view.canada.publishedLabel && <div>Source published {view.canada.publishedLabel}</div>}
-                {view.canada.checkedLabel && <div>Last checked {view.canada.checkedLabel}</div>}
+                {view.canada.checkedLabel && <div>Checked {view.canada.checkedLabel}</div>}
               </dl>
               {view.canada.staleNote && <p role="status" className="mt-3 rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">{view.canada.staleNote}</p>}
               {view.canada.sourceUrl && (
@@ -99,7 +100,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
               {view.us.quote && <p className="mt-2 text-muted-foreground">From the same advisory: {q(view.us.quote)}</p>}
               <dl className="mt-3 space-y-1 text-sm text-muted-foreground">
                 {view.us.publishedLabel && <div>Source published {view.us.publishedLabel}</div>}
-                {view.us.checkedLabel && <div>Last checked {view.us.checkedLabel}</div>}
+                {view.us.checkedLabel && <div>Checked {view.us.checkedLabel}</div>}
               </dl>
               {view.us.staleNote && <p role="status" className="mt-3 rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">{view.us.staleNote}</p>}
               {view.us.sourceUrl && (
@@ -114,6 +115,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
               {view.uk.updateLine && <p className="mt-3 text-foreground">The UK FCDO&apos;s latest update line says: {q(view.uk.updateLine)}</p>}
               <dl className="mt-3 space-y-1 text-sm text-muted-foreground">
                 {view.uk.publishedLabel && <div>Source published {view.uk.publishedLabel}</div>}
+                {view.uk.checkedLabel && <div>Checked {view.uk.checkedLabel}</div>}
               </dl>
               {view.uk.sourceUrl && (
                 <p className="mt-3"><a href={view.uk.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">Read the official UK travel advice for {view.name}</a></p>

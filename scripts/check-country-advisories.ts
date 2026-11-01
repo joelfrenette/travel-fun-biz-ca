@@ -13,6 +13,8 @@ import {
   ADVISORY_MODE_KEY,
   BACKFILL_STATE_KEY,
   COUNTRY_ALIASES,
+  FRESHNESS_NOTE,
+  dateLabel,
   advisoryLinkForGuide,
   advisorySitemapEntries,
   buildAdvisoryJsonLd,
@@ -298,6 +300,13 @@ async function main() {
   check('stale guard: a Canada block that was never checked counts as stale', buildAdvisoryView({ ...(mkRow({ ca_checked_at: null }) as unknown as CountryAdvisoryRow) }, [], new Date(NOW)).canada?.stale === true)
   const peruPage = await loadAdvisoryPage('peru', new Date(NOW), on.admin)
   check('on: a UK-only country shows the update line and no level', !!peruPage && peruPage.canada === null && peruPage.uk?.updateLine === 'Entry requirements updated.' && peruPage.title === 'UK travel advice for Peru')
+  check('freshness: every source block carries a checked date from its *_checked_at, next to the official published date', page?.canada?.checkedLabel === dateLabel(iso(NOW - DAY)) && page?.canada?.publishedLabel === dateLabel(iso(NOW - 6 * DAY)))
+  const ukChecked = buildAdvisoryView(mkRow({ uk_text: 'Entry updated.', uk_source_url: 'https://www.gov.uk/foreign-travel-advice/mexico', uk_source_published_at: iso(NOW - 2 * DAY), uk_checked_at: iso(NOW - 3600000) }) as unknown as CountryAdvisoryRow, [], new Date(NOW))
+  check('freshness: the UK block shows its checked date too, and none when never checked', ukChecked.uk?.checkedLabel === dateLabel(iso(NOW - 3600000)) && buildAdvisoryView(mkRow({ uk_text: 'x', uk_checked_at: null }) as unknown as CountryAdvisoryRow, [], new Date(NOW)).uk?.checkedLabel === null)
+  check('freshness: the top line is honest (about 30 minutes, confirm with the official source) and claims no real time or guarantee', /about every 30 minutes/.test(FRESHNESS_NOTE) && /confirm with the official source/i.test(FRESHNESS_NOTE) && !/real[- ]?time|live|guarantee|accurate|up[- ]to[- ]date/i.test(FRESHNESS_NOTE) && !/[–—]/.test(FRESHNESS_NOTE))
+  const pageSrc = readFileSync('app/travel-advisories/[country]/page.tsx', 'utf8')
+  const indexSrc = readFileSync('app/travel-advisories/page.tsx', 'utf8')
+  check('freshness: both public pages print the note and neither imports next/headers or reads the database live', pageSrc.includes('{FRESHNESS_NOTE}') && indexSrc.includes('{FRESHNESS_NOTE}') && !/next\/headers/.test(pageSrc + indexSrc) && !/no-store|force-dynamic/.test(pageSrc + indexSrc))
   const index = await loadAdvisoryIndex(on.admin)
   check('index: lists only published countries that have data, A to Z', !!index && index.map((r) => r.slug).join() === 'mexico,peru', JSON.stringify(index?.map((r) => r.slug)))
   const map = await loadAdvisorySitemap(on.admin)
