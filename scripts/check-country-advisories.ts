@@ -305,6 +305,11 @@ async function main() {
   const ukChecked = buildAdvisoryView(mkRow({ uk_text: 'Entry updated.', uk_source_url: 'https://www.gov.uk/foreign-travel-advice/mexico', uk_source_published_at: iso(NOW - 2 * DAY), uk_checked_at: iso(NOW - 3600000) }) as unknown as CountryAdvisoryRow, [], new Date(NOW))
   check('freshness: the UK block shows its checked date too, and none when never checked', ukChecked.uk?.checkedLabel === dateLabel(iso(NOW - 3600000)) && buildAdvisoryView(mkRow({ uk_text: 'x', uk_checked_at: null }) as unknown as CountryAdvisoryRow, [], new Date(NOW)).uk?.checkedLabel === null)
   check('freshness: the top line is honest (about 30 minutes, confirm with the official source) and claims no real time or guarantee', /about every 30 minutes/.test(FRESHNESS_NOTE) && /confirm with the official source/i.test(FRESHNESS_NOTE) && !/real[- ]?time|live|guarantee|accurate|up[- ]to[- ]date/i.test(FRESHNESS_NOTE) && !/[–—]/.test(FRESHNESS_NOTE))
+  // 2026-11-02: Canada and UK backfills never ran because their saved etag made the feed answer "not modified". A source whose
+  // backfill is not done must be read without the conditional headers; a finished backfill keeps them.
+  const ingestSrc = readFileSync('lib/news-ingest.ts', 'utf8')
+  check('backfill: a source with an unfinished backfill is read in full (no saved etag or last-modified sent)', /needsFullRead \? \{ \.\.\.state, etag: undefined, lastModified: undefined \} : state/.test(ingestSrc) && /guard\.done\[backfillSource\] === undefined/.test(ingestSrc))
+  check('backfill: an unreadable guard keeps the old conditional read', /!guard\.error && guard\.done/.test(ingestSrc))
   const pageSrc = readFileSync('app/travel-advisories/[country]/page.tsx', 'utf8')
   const indexSrc = readFileSync('app/travel-advisories/page.tsx', 'utf8')
   check('freshness: both public pages print the note and neither imports next/headers or reads the database live', pageSrc.includes('{FRESHNESS_NOTE}') && indexSrc.includes('{FRESHNESS_NOTE}') && !/next\/headers/.test(pageSrc + indexSrc) && !/no-store|force-dynamic/.test(pageSrc + indexSrc))

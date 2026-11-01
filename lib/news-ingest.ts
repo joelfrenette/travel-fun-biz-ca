@@ -19,7 +19,7 @@ import {
 } from '@/lib/news-feed'
 import { classifyItem, coveredByEarlierStormPost, hazardAdmits, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
 import { getAdvisoryMode } from '@/lib/country-advisory-store'
-import { markUsAllChecked } from '@/lib/country-advisory-store'
+import { markUsAllChecked, readBackfillDone } from '@/lib/country-advisory-store'
 import { backfillAdvisories, caBackfillEvents, dualWriteCanada, dualWriteUk, dualWriteUs, emptyAdvisoryNote, ukBackfillEvents, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
 import { CA_ADVISORY_SOURCE_KEY, UK_ADVISORY_SOURCE_KEY, US_ADVISORY_SOURCE_KEY, parseUsAdvisoryFeed } from '@/lib/country-advisory'
 import { NEWS_MAX_AGE_DAYS, inVisitWindow, parseSourcesOff, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
@@ -279,7 +279,13 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         continue
       }
       result.fetched.push(source.key)
-      const outcome = await fetchFeed(source, state, fetchDeps)
+      // A source whose one-time country backfill is not done yet must be read in full: a saved etag would make the publisher answer
+      // "not modified" and the backfill would wait for the next real change (days, for the Canada and UK lists). Only the CONDITIONAL
+      // headers are left out; robots.txt, the size caps and every other rule are unchanged. An unreadable guard keeps the etag (old behaviour).
+      const backfillSource = adv ? (source.key === CA_ADVISORY_SOURCE_KEY ? 'ca' : source.key === UK_ADVISORY_SOURCE_KEY ? 'uk' : null) : null
+      const guard = backfillSource ? await readBackfillDone(admin) : null
+      const needsFullRead = backfillSource !== null && guard !== null && !guard.error && guard.done[backfillSource] === undefined
+      const outcome = await fetchFeed(source, needsFullRead ? { ...state, etag: undefined, lastModified: undefined } : state, fetchDeps)
       const next = { ...state, lastFetchAt: now.toISOString() }
       if (outcome.robots) {
         next.robotsAt = outcome.robots.at
