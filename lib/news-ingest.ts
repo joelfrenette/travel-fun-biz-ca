@@ -19,8 +19,9 @@ import {
 } from '@/lib/news-feed'
 import { classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
 import { getAdvisoryMode } from '@/lib/country-advisory-store'
-import { dualWriteCanada, dualWriteUk, emptyAdvisoryNote, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
-import { UK_ADVISORY_SOURCE_KEY } from '@/lib/country-advisory'
+import { markUsAllChecked } from '@/lib/country-advisory-store'
+import { dualWriteCanada, dualWriteUk, dualWriteUs, emptyAdvisoryNote, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
+import { UK_ADVISORY_SOURCE_KEY, US_ADVISORY_SOURCE_KEY } from '@/lib/country-advisory'
 import { NEWS_MAX_AGE_DAYS, parseSourcesOff, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
 
 // Growth loop WP20: step one of the news pipeline. Read the allowlisted feeds (each at most once in 30 minutes), keep
@@ -273,6 +274,8 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         continue
       }
       if (outcome.kind === 'not-modified') {
+        // "Not modified" confirms the entries stored at the last good read, so the US pages' "last checked" moves.
+        if (adv && source.key === US_ADVISORY_SOURCE_KEY) adv.confirmed += await markUsAllChecked(admin, now)
         await writeFeedState(admin, source.key, { ...next, fails: 0, lastError: undefined, lastOkAt: now.toISOString() })
         continue
       }
@@ -309,6 +312,10 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         readItems = sel.items
         // Also record the changed countries on their advisory pages (log or on mode only; never throws, never changes the posts).
         if (adv) await dualWriteCanada(admin, adv, sel.items, parsed.items, saved.state?.levels, now)
+      } else if (adv && source.key === US_ADVISORY_SOURCE_KEY) {
+        // US Department of State: the whole feed text of this good read (robots.txt was already respected by fetchFeed) is also recorded
+        // on the country pages. The news-post logic below is unchanged.
+        await dualWriteUs(admin, adv, outcome.text, now, NEWS_MAX_AGE_DAYS)
       }
       // The etag is saved only AFTER the items are stored (below): a failed store must not make the next pass answer "not modified".
       await writeFeedState(admin, source.key, { ...next, fails: 0, lastError: undefined, lastOkAt: now.toISOString() })

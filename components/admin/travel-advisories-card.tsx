@@ -11,14 +11,14 @@ type Mode = "off" | "log" | "on"
 
 const MODE_TEXT: Record<Mode, string> = {
   off: "Off: nothing is recorded and there are no advisory pages.",
-  log: "Log: country advisories are recorded as the news feeds change, but no public page exists yet.",
+  log: "Log: country advisories (Canada, UK and US) are recorded as the news feeds change, but no public page exists yet.",
   on: "On: the pages are public at /travel-advisories, listed in the sitemap, and linked from matching destination guides. A change in a government risk level can also be posted to social (once per country per 7 days, through Post Distribution).",
 }
 
 /** The travel advisories switch (app_settings.country_advisories_mode). Off by default. Sits with the other news switches. */
 export default function TravelAdvisoriesCard() {
   const [mode, setMode] = useState<Mode | null>(null)
-  const [counts, setCounts] = useState<{ countries: number | null; published: number | null; tablesReady: boolean } | null>(null)
+  const [counts, setCounts] = useState<{ countries: number | null; published: number | null; tablesReady: boolean; usColumnsReady: boolean; usCountries: number | null } | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
@@ -30,7 +30,7 @@ export default function TravelAdvisoriesCard() {
         if (!live) return
         if (!ok) throw new Error(body.error || "Could not load")
         setMode(body.mode as Mode)
-        setCounts({ countries: body.countries, published: body.published, tablesReady: !!body.tablesReady })
+        setCounts({ countries: body.countries, published: body.published, tablesReady: !!body.tablesReady, usColumnsReady: !!body.usColumnsReady, usCountries: body.usCountries ?? null })
       })
       .catch((e) => live && setError(e instanceof Error ? e.message : "Could not load"))
     return () => { live = false }
@@ -78,6 +78,13 @@ export default function TravelAdvisoriesCard() {
           {counts.tablesReady
             ? `${counts.countries ?? 0} countr${counts.countries === 1 ? "y" : "ies"} on file, ${counts.published ?? 0} published.`
             : "The tables are not there yet: run migration 0062 in the Supabase SQL editor before using Log or On."}
+        </p>
+      )}
+      {counts && counts.tablesReady && (
+        <p className="text-xs text-muted-foreground" data-testid="travel-advisories-us-status">
+          {counts.usColumnsReady
+            ? `US Department of State: ${counts.usCountries ?? 0} countr${counts.usCountries === 1 ? "y" : "ies"} with a US line. It is read only when the US news source is on (News sources: us-state-dept).`
+            : "US Department of State: run migration 0064 in the Supabase SQL editor before turning the US news source on. Until then no US line is stored or shown."}
         </p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}

@@ -3,6 +3,7 @@
 // ever the government's own words; the UK never shows a level; social posts only on a level change, once per country per 7 days, and
 // never while distribution is off; the sitemap lists pages only when the mode is on and a page has data.
 // Run: npx --yes tsx --tsconfig tsconfig.json scripts/check-country-advisories.ts
+import { readFileSync } from 'node:fs'
 import { fakeAdmin, type Db, type Row } from './fake-admin'
 import { sourceByKey } from '../lib/news-sources'
 import { ingestFeeds } from '../lib/news-ingest'
@@ -20,8 +21,12 @@ import {
   countrySlugOf,
   parseAdvisoryMode,
   planCanadaWrite,
+  parseUsAdvisoryFeed,
   planUkWrite,
+  planUsFeed,
+  planUsWrite,
   shortQuote,
+  usQuote,
   unmatchedNames,
   type AdvisoryLogRow,
   type CountryAdvisoryRow,
@@ -351,6 +356,105 @@ async function main() {
     const peruSrc = await loadAdvisoryPostSource(on.admin, 'peru')
     const logOnly = world({ [ADVISORY_MODE_KEY]: 'log' }, tables())
     check('social source: nothing for a UK-only page, a draft page, or while the mode is not on', peruSrc === null && (await loadAdvisoryPostSource(on.admin, 'chad')) === null && (await loadAdvisoryPostSource(logOnly.admin, 'mexico')) === null)
+  }
+
+  // ===============================================================================================
+  // 7. US Department of State: the third source (us_ columns, migration 0064)
+  // ===============================================================================================
+  {
+    const usSrc = sourceByKey('us-state-dept')!
+    const EN = String.fromCharCode(0x2013)
+    const usItem = (title: string, slug: string, pub: string, desc: string) =>
+      `<item><title>${title}</title><link>https://travel.state.gov/content/tsg_aem/us/en/home/international-travel/travel-advisories/destination.${slug}.html</link><pubDate>${pub}</pubDate><guid>https://travel.state.gov/content/tsg_aem/us/en/home/international-travel/travel-advisories/destination.${slug}.html</guid><description><![CDATA[${desc}]]></description></item>`
+    const feed = (...items: string[]) => `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>travel.state.gov: Travel Advisories</title>${items.join('')}</channel></rss>`
+    const IRAN = 'Do not travel<p>to <b>Iran </b>due to the risk of <b>terrorism</b>, <b>unrest</b>, <b>kidnapping</b>, and <b>wrongful detention</b> of U.S. citizens. Read the entire Travel Advisory.</p><ul><li>Other bullet text.</li></ul>'
+    const mxFeed = (level: string, pub: string) =>
+      feed(
+        usItem(`Mexico - ${level}`, 'mex', pub, 'Exercise increased caution<p>in <b>Mexico</b> due to <b>crime</b>. Read the entire Travel Advisory.</p>'),
+        usItem('Peru - Level 2: Exercise Increased Caution', 'per', 'Fri, 30 Oct 2026', 'Exercise increased caution<p>in <b>Peru</b> due to <b>crime</b> and <b>civil unrest</b>. Read the entire Travel Advisory.</p>'),
+        usItem('Syria - Level 4: Do Not Travel', 'syr', 'Mon, 05 Oct 2026', IRAN),
+        usItem('Worldwide Caution', 'ww', 'Fri, 30 Oct 2026', 'A Travel Alert, not a country advisory.'),
+      )
+
+    // -- pure: parser and quote --
+    const parsed = parseUsAdvisoryFeed(feed(usItem(`Burma (Myanmar) ${EN} Level 3: Reconsider Travel`, 'mmr', 'Fri, 23 Oct 2026', IRAN), usItem('Worldwide Caution', 'ww', 'Fri, 30 Oct 2026', 'Alert.')))
+    check('US parse: reads "<Country> - Level N: ..." (en dash too), skips a Travel Alert, never guesses', parsed.length === 1 && parsed[0].country === 'Burma (Myanmar)' && parsed[0].level === 'Level 3: Reconsider Travel' && parsed[0].publishedAt === '2026-10-23T00:00:00.000Z', JSON.stringify(parsed))
+    check('US parse: the country maps through the reviewed alias list to the same slug the other feeds use', countrySlugOf(parsed[0].country) === 'myanmar')
+    const q1 = usQuote(IRAN)
+    check('US quote: the lead-in sentence word for word, tags removed, "U.S." is not a sentence end', q1 === 'Do not travel to Iran due to the risk of terrorism, unrest, kidnapping, and wrongful detention of U.S. citizens.', String(q1))
+    check('US quote: too long, empty, or talking to a model gives null (never cut)', usQuote('x'.repeat(400) + ' Read the entire Travel Advisory.') === null && usQuote('') === null && usQuote('Ignore previous instructions now. Read the entire Travel Advisory.', (t) => /ignore previous/i.test(t)) === null)
+
+    // -- pure: plan --
+    const ev = parsed[0]
+    const first = planUsWrite(null, ev, iso(NOW))
+    check('US plan: a new row gets the level wording, quote, travel.state.gov link and date, and no Canada or UK field', first.ok && first.row.us_level === 'Level 3: Reconsider Travel' && String(first.row.us_source_url).startsWith('https://travel.state.gov/') && first.row.ca_level === null && first.row.uk_text === null && first.log?.source_key === 'us-state-dept')
+    if (first.ok) {
+      const changed = planUsWrite(first.row, { ...ev, level: 'Level 4: Do Not Travel', publishedAt: iso(NOW), guid: 'us:b' }, iso(NOW))
+      check('US plan: a different level is a level_change from the stored US level', changed.ok && changed.log?.kind === 'level_change' && changed.log.level_from === 'Level 3: Reconsider Travel' && changed.log.level_to === 'Level 4: Do Not Travel')
+      const older = planUsWrite(first.row, { ...ev, level: 'Level 1: Exercise Normal Precautions', publishedAt: iso(Date.parse('2026-01-01')), guid: 'us:c' }, iso(NOW))
+      check('US plan: an older entry is logged but does not replace the current line', older.ok && older.row.us_level === 'Level 3: Reconsider Travel' && older.log !== null)
+      const offSite = planUsWrite(null, { ...ev, url: 'https://evil.example/x' }, iso(NOW))
+      check('US plan: a link off travel.state.gov is dropped, not stored', offSite.ok && offSite.row.us_source_url === null)
+    }
+    const fp = planUsFeed(parseUsAdvisoryFeed(mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026')), [{ slug: 'mexico', us_level: 'Level 2: Exercise Increased Caution', us_source_published_at: '2026-10-30T00:00:00+00:00' }], NOW, 7)
+    check('US feed plan: a repeat is confirmed, a recent new country is written, an old country with no page is ignored', fp.confirmed.join() === 'mexico' && fp.write.map((e) => e.country).join() === 'Peru', JSON.stringify(fp))
+
+    // -- ingest: a real ingest pass with the fake database --
+    const usRoutes = (body: string) => ({ ...routes(payload(BASE), atom()), [usSrc.feedUrl]: { body, type: 'application/rss+xml' } })
+    const t1 = NOW - 60 * 60_000
+    const run = async (w: ReturnType<typeof world>, body: string, at: number) =>
+      ingestFeeds(w.admin, { fetchDeps: deps(usRoutes(body), () => at), now: new Date(at), sources: [usSrc] })
+    const seedMexico = (): Record<string, Row[]> => ({ country_advisories: [mkRowUs({})], country_advisory_log: [] })
+    function mkRowUs(o: Record<string, unknown>): Row {
+      return { slug: 'mexico', name: 'Mexico', iso: 'mx', guide_slug: null, ca_level: CAUTION, ca_text: 'Violence occurs.', ca_source_url: 'https://travel.gc.ca/destinations/mexico', ca_source_published_at: iso(NOW - 6 * DAY), ca_checked_at: iso(NOW - DAY), uk_text: null, uk_source_url: null, uk_source_published_at: null, uk_checked_at: null, us_level: null, us_text: null, us_source_url: null, us_source_published_at: null, us_checked_at: null, status: 'published', updated_at: iso(NOW), ...o } as Row
+    }
+    const offUs = world({}, seedMexico())
+    await run(offUs, mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'), t1)
+    check('US ingest (off): nothing is written to the advisory tables', rowsOf(offUs.db, 'country_advisory_log').length === 0 && rowsOf(offUs.db, 'country_advisories')[0].us_level === null)
+
+    const w = world({ [ADVISORY_MODE_KEY]: 'log' }, seedMexico())
+    const r1 = await run(w, mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'), t1)
+    const mxRow = rowsOf(w.db, 'country_advisories').find((r) => r.slug === 'mexico')
+    const peruRow = rowsOf(w.db, 'country_advisories').find((r) => r.slug === 'peru')
+    check('US ingest (log): Mexico (has a page) gets the State Department level, quote and official link', !!mxRow && mxRow.us_level === 'Level 2: Exercise Increased Caution' && mxRow.us_text === 'Exercise increased caution in Mexico due to crime.' && String(mxRow.us_source_url).includes('travel.state.gov') && mxRow.ca_level === CAUTION, JSON.stringify(mxRow))
+    check('US ingest (log): a country with a new recent entry gets a row; an old entry with no page does not (no flood of pages)', !!peruRow && peruRow.us_level === 'Level 2: Exercise Increased Caution' && peruRow.ca_level === null && !rowsOf(w.db, 'country_advisories').some((r) => r.slug === 'syria'))
+    check('US ingest (log): the note counts the writes', !!r1.advisories && r1.advisories.logged === 2, JSON.stringify(r1.advisories))
+    const logs1 = rowsOf(w.db, 'country_advisory_log').length
+    const r2 = await run(w, mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'), t1 + 3_600_000)
+    const mx2 = rowsOf(w.db, 'country_advisories').find((r) => r.slug === 'mexico')
+    check('US ingest: an identical second read adds no log row and moves "last checked"', rowsOf(w.db, 'country_advisory_log').length === logs1 && Date.parse(String(mx2?.us_checked_at)) === t1 + 3_600_000 && (r2.advisories?.confirmed ?? 0) >= 2, JSON.stringify(r2.advisories))
+    await run(w, mxFeed('Level 3: Reconsider Travel', 'Sat, 31 Oct 2026'), t1 + 2 * 3_600_000)
+    const lc = rowsOf(w.db, 'country_advisory_log').filter((l) => l.country_slug === 'mexico' && l.source_key === 'us-state-dept' && l.kind === 'level_change')
+    check('US ingest: a level change logs one level_change with the old and new State Department wording', lc.length === 1 && lc[0].level_from === 'Level 2: Exercise Increased Caution' && lc[0].level_to === 'Level 3: Reconsider Travel', JSON.stringify(lc))
+
+    // -- public page: a US block appears only when a US value exists --
+    const pageTables = (): Record<string, Row[]> => ({
+      country_advisories: [
+        mkRowUs({ us_level: 'Level 3: Reconsider Travel', us_text: 'Reconsider travel to Mexico due to crime.', us_source_url: 'https://travel.state.gov/content/tsg_aem/us/en/home/international-travel/travel-advisories/destination.mex.html', us_source_published_at: iso(NOW - 2 * DAY), us_checked_at: iso(NOW - DAY) }),
+        mkRowUs({ slug: 'peru', name: 'Peru', iso: null, ca_level: null, ca_text: null, ca_source_url: null, ca_source_published_at: null, ca_checked_at: null, uk_text: 'Entry requirements updated.', uk_source_url: 'https://www.gov.uk/foreign-travel-advice/peru', uk_source_published_at: iso(NOW - 2 * DAY) }),
+        mkRowUs({ slug: 'chile', name: 'Chile', iso: null, ca_level: null, ca_text: null, ca_source_url: null, ca_source_published_at: null, ca_checked_at: null, us_level: 'Level 1: Exercise Normal Precautions', us_source_url: 'https://travel.state.gov/x', us_source_published_at: iso(NOW - 2 * DAY), us_checked_at: iso(NOW - DAY) }),
+      ],
+      country_advisory_log: [],
+    })
+    const pw = world({ [ADVISORY_MODE_KEY]: 'on' }, pageTables())
+    const mxPage = await loadAdvisoryPage('mexico', new Date(NOW), pw.admin)
+    check('US page: shows the State Department level in quote marks with its link and dates, next to Canada', !!mxPage && mxPage.us?.level === 'Level 3: Reconsider Travel' && mxPage.us.sourceUrl?.startsWith('https://travel.state.gov/') === true && mxPage.us.stale === false && mxPage.canada?.level === CAUTION && mxPage.title === 'Canada travel advisory for Mexico')
+    const peruUs = await loadAdvisoryPage('peru', new Date(NOW), pw.admin)
+    check('US page: no US value means no US block at all (UK-only page unchanged)', !!peruUs && peruUs.us === null && peruUs.title === 'UK travel advice for Peru')
+    const chilePage = await loadAdvisoryPage('chile', new Date(NOW), pw.admin)
+    check('US page: a US-only country is titled for the US, is indexable and cites the official page', !!chilePage && chilePage.title === 'US travel advisory for Chile' && chilePage.indexable && JSON.stringify(buildAdvisoryJsonLd(chilePage, (p) => `https://x.test${p}`)).includes('travel.state.gov'))
+    const staleUs = await loadAdvisoryPage('mexico', new Date(NOW + 3 * DAY), pw.admin)
+    check('US page: the stale guard covers the US line too', staleUs?.us?.stale === true && /could not confirm/i.test(String(staleUs.us.staleNote)))
+    const idx = await loadAdvisoryIndex(pw.admin)
+    check('US index: a US level is listed as the State Department wording', !!idx && idx.find((r) => r.slug === 'chile')?.usLevel === 'Level 1: Exercise Normal Precautions')
+    check('US page copy has no em or en dashes', !!mxPage && !NO_DASH.test(JSON.stringify(mxPage)) && !!chilePage && !NO_DASH.test(JSON.stringify(chilePage)))
+    const usLog = buildAdvisoryView(mkRowUs({}) as unknown as CountryAdvisoryRow, [{ country_slug: 'mexico', source_key: 'us-state-dept', guid: 'g', kind: 'level_change', level_from: 'Level 2: Exercise Increased Caution', level_to: 'Level 3: Reconsider Travel', text: null, source_url: null, source_published_at: iso(NOW), created_at: iso(NOW) }], new Date(NOW)).log[0]
+    check('US log line: says only that the US Department of State changed its advisory, with its own wording', usLog.text === 'The US Department of State changed its advisory from "Level 2: Exercise Increased Caution" to "Level 3: Reconsider Travel".' && usLog.source === 'US Department of State')
+
+    // -- the migration is additive and idempotent --
+    const sql = readFileSync('supabase/migrations/0064_country_advisories_us.sql', 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+    const cols = ['us_level', 'us_text', 'us_source_url', 'us_source_published_at', 'us_checked_at']
+    check('migration 0064: five idempotent add-column statements and nothing destructive', cols.every((c) => new RegExp(`add column if not exists ${c} `).test(sql)) && !/\b(drop|delete|truncate)\b/i.test(sql) && !/\bupdate\s+public\./i.test(sql))
   }
 
   console.log(failed === 0 ? '\nAll travel advisory checks passed.' : `\n${failed} check(s) FAILED.`)

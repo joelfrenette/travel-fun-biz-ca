@@ -173,3 +173,35 @@ Steps 1 to 5 (about 18 hours) are the useful core. Steps 6 to 9 are cleanup and 
 8. Applying migration 0062 in the Supabase editor, as with earlier migrations.
 
 Confidence: 80/100 on how the current code works (read directly, line numbers cited). 55/100 on effort and on any traffic benefit.
+
+## 8. US source (US Department of State), added 2026-11-01
+
+Third source next to Canada (ca_) and the UK (uk_). Migration `supabase/migrations/0064_country_advisories_us.sql` adds `us_level`, `us_text`, `us_source_url`, `us_source_published_at`, `us_checked_at` (idempotent, not applied by the code). Source key `us-state-dept` in `country_advisory_log`. The .com replica question in the open-questions list above is unchanged: this adds the US line to the .ca pages, it does not replace Canada.
+
+### What I checked (from a normal fetch, 2026-11-01)
+
+| Check | Result |
+|---|---|
+| `https://travel.state.gov/robots.txt` | HTTP 404 (an HTML "page not found" page), from both a plain `curl` with an honest bot User-Agent and the Firecrawl fetcher. Under RFC 9309 a 404 on robots.txt means no rules, so nothing is disallowed. Our fetcher (`lib/news-feed.ts` `fetchFeed`) already treats 404/410 as "no robots.txt, nothing disallowed". |
+| `https://travel.state.gov/_res/rss/TAsTWs.xml` | HTTP 200, `text/xml`, 218 items, each titled `<Country> - Level N: <wording>`, with link, pubDate (date only) and an HTML description whose lead-in sentence ends before "Read the entire Travel Advisory". The `guid` is the advisory page URL and does not change when the advisory does, so the log guid is built from url + date + level. |
+| Official API | `https://cadataapi.state.gov/` is the State Department's own "Travel Advisories api" page. `/api/TravelAdvisories` (JSON, 200) and `/api/XMLTravelAdvisories` (RSS XML, 200, about 600 KB) are listed there. Its robots.txt is also a 404. Same data, same wording, a different host. |
+| Terms | I found no terms page for the feed or the advisory pages that restricts reading it. The feed is linked from the department's own RSS page (state.gov/rss-feeds) for subscribers. Content on travel.state.gov is a US government work. I did not find a written licence statement for the feed itself, so this is "published for subscription, no restriction found", not "licensed". Joel should treat that as a judgement call. |
+
+### Why the fetcher got HTTP 403 on 18 October (cause, not fixed)
+
+Not a robots disallow: robots.txt has no rules. The 403 on `robots.txt` came from the production fetch (Vercel network). From a home or office network the same URL is a 404, so the likely cause is the site's CDN blocking cloud data-centre addresses. I cannot reproduce it from here, so this is a likely cause, not a confirmed one. The robots check stays exactly as it is (an unreadable robots.txt means "try next time", never "go"). Nothing here bypasses it.
+
+### What is built
+
+- Reading is unchanged: the existing news source `us-state-dept` (`lib/news-sources.ts`) is fetched by `fetchFeed`, robots-respecting. The advisory write is a second use of the same text (`dualWriteUs` in `lib/news-ingest.ts`), only when `country_advisories_mode` is `log` or `on`. No new fetch, no new env var, no cost.
+- `lib/country-advisory.ts`: `parseUsAdvisoryFeed` (all items, not only the first 40 the news parser keeps), `usQuote` (the lead-in sentence word for word, never cut, null if over 300 characters), `planUsWrite`, `planUsFeed`, the US block on the page view, the JSON-LD source and the log line.
+- Writes: a country that already has a page is updated when its US entry changed, and "last checked" moves when the feed repeats it (and on a 304). A country with no page gets one only for an entry newer than 7 days, so the first read does not create about 200 pages.
+- Page: a "US Department of State" block only when a US value exists, in the same wording discipline as Canada: the department's own level wording in quote marks (for example "Level 3: Reconsider Travel"), its lead-in sentence, source and last-checked dates, the stale guard, and a link to travel.state.gov. No score, colour, comparison between governments or advice. The page title keeps the Canada form, then the UK form; a page with only a US entry is titled "US travel advisory for <Country>".
+- Before migration 0064 is run the store falls back to the old columns, so Canada and UK pages keep working; US entries are skipped with one plain note ("run migration 0064"). The admin card shows whether the US columns exist and how many countries have a US line.
+- Not changed: social posting (it still reads only the Canadian level), the old Canada and UK news posts, any live data.
+
+### What Joel has to do (nothing is switched on)
+
+1. Run `0064_country_advisories_us.sql` in the Supabase SQL editor (before or at the same time as the deploy).
+2. The source `us-state-dept` is in `app_settings.news_sources_off`. Removing it re-enables it for news posts as well as the country pages (it is a tier 1 source and would start making news posts again). If you want US lines on the pages without US news posts, say so and a "pages only" flag should be added first.
+3. If the production fetch still gets 403 after the source is back on, options in order: (a) leave it, the source stays honestly "blocked" in the admin table; (b) point `feedUrl` at the official API host `https://cadataapi.state.gov/api/XMLTravelAdvisories` (same RSS shape, `linkHosts` stays `travel.state.gov`; I cannot test from here whether that host also blocks Vercel); (c) ask the Bureau of Consular Affairs web team for an allowlist or a key. Do not use a proxy or change the User-Agent to get past a block.
