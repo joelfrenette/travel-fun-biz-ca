@@ -1,11 +1,12 @@
-import { getTripQuizMode } from "@/lib/trip-quiz-store"
+import { getTripQuizModeForPage } from "@/lib/trip-quiz-store"
 import { TripQuizLink } from "@/components/trip-quiz-link"
 
 // The small "Find your trip in 60 seconds" card (lib/trip-quiz.ts). Server component: with app_settings trip_quiz_mode not "on"
 // (the default, and any read problem) it renders nothing at all, so a page that includes it is unchanged.
 // Placed on the home page, beside the signup box on guide, blog, compare and best-time pages.
 async function TripQuizCardImpl({ className = "" }: { className?: string }) {
-  if ((await getTripQuizMode()) !== "on") return null
+  // The page-safe read: a live (no-store) read here made the cached /compare and /blog copies fail with a 500.
+  if ((await getTripQuizModeForPage()) !== "on") return null
   return (
     <section aria-labelledby="trip-quiz-card-heading" className={`rounded-xl border bg-card p-6 text-center shadow-sm sm:p-8 ${className}`.trim()}>
       <h2 id="trip-quiz-card-heading" className="text-balance text-xl font-bold text-foreground">Find your trip in 60 seconds</h2>

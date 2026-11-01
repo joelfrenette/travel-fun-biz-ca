@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { headers } from 'next/headers'
 import { isBotUserAgent } from '@/lib/visit-tracking'
 import { supabase as anonClient } from '@/integrations/supabase/client'
-import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { getSupabaseAdmin, getSupabaseAdminForPageSwitch } from '@/lib/supabase-admin'
 import { getSetting, setSetting } from '@/lib/app-settings'
 import { bumpQuizCount, parseQuizCounts, parseTripQuizMode, TRIP_QUIZ_COUNTS_KEY, TRIP_QUIZ_MODE_KEY, type QuizCounts, type QuizEvent, type QuizTripInput, type TripQuizMode } from '@/lib/trip-quiz'
 
@@ -14,6 +14,15 @@ import { bumpQuizCount, parseQuizCounts, parseTripQuizMode, TRIP_QUIZ_COUNTS_KEY
 export async function getTripQuizMode(admin?: SupabaseClient): Promise<TripQuizMode> {
   try {
     return parseTripQuizMode(await getSetting(admin ?? getSupabaseAdmin(), TRIP_QUIZ_MODE_KEY))
+  } catch {
+    return 'off'
+  }
+}
+
+/** The same switch read for a public page (the quiz card). Cacheable for 5 minutes, so a cached page never turns dynamic. Fails closed. */
+export async function getTripQuizModeForPage(): Promise<TripQuizMode> {
+  try {
+    return parseTripQuizMode(await getSetting(getSupabaseAdminForPageSwitch(), TRIP_QUIZ_MODE_KEY))
   } catch {
     return 'off'
   }

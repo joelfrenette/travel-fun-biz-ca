@@ -136,7 +136,11 @@ async function main() {
     const store = src('lib/trip-quiz-store.ts')
     expect('off: an unreadable switch fails closed to off', /catch \{\s*return 'off'/.test(store))
     const card = src('components/trip-quiz-card.tsx')
-    expect('off: the card returns null (renders nothing) unless the mode is on', /if \(\(await getTripQuizMode\(\)\) !== "on"\) return null/.test(card))
+    expect('off: the card returns null (renders nothing) unless the mode is on', /if \(\(await getTripQuizModeForPage\(\)\) !== "on"\) return null/.test(card))
+    // 2026-11-01: the card used the live (no-store) read, which turned the cached /compare and /blog copies into a 500
+    // ("Page changed from static to dynamic"). The card must read the switch through the cacheable page-safe client.
+    expect('cached pages: the card never uses the live no-store switch read', !/getTripQuizMode\(/.test(card) && /getSupabaseAdminForPageSwitch\(\)/.test(store))
+    expect('cached pages: the page-safe client always lets Next cache the read (revalidate 300), never no-store', /getSupabaseAdminForPageSwitch[\s\S]*?revalidate: 300/.test(src('lib/supabase-admin.ts')))
     const box = src('components/page-signup-box.tsx')
     expect('off: the signup box is the same section; the card is the only addition, beside it', /<TripQuizCard className="mb-6" \/>/.test(box) && /<section id="page-signup"/.test(box))
     expect('off: the home page adds only the card', /<TripQuizCard className=/.test(src('app/page.tsx')) && (src('app/page.tsx').match(/TripQuizCard/g) ?? []).length === 2)

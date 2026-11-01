@@ -32,3 +32,22 @@ export function getSupabaseAdmin(): SupabaseClient {
   }
   return client
 }
+
+let pageSwitchClient: SupabaseClient | null = null
+
+/** Service-role client for reading ONE on/off switch while a public page renders. A server component nested inside a
+ * page renders after runStatic() has returned, so isStaticRender() is false there and the normal client's no-store fetch
+ * turned the cached copy into "changed from static to dynamic" (HTTP 500 on /compare and /blog, 2026-11-01). This client
+ * always lets Next cache the read for the same 5 minutes the pages declare. Use it only for a switch a visitor-facing
+ * component reads, never for a decision the pipeline makes. */
+export function getSupabaseAdminForPageSwitch(): SupabaseClient {
+  if (!pageSwitchClient) {
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set')
+    pageSwitchClient = createClient(SUPABASE_URL, key, {
+      auth: { persistSession: false },
+      global: { fetch: (input, init) => fetch(input, { ...init, next: { revalidate: 300 } }) },
+    })
+  }
+  return pageSwitchClient
+}
