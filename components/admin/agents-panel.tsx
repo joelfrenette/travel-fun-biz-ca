@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react"
 import { agentsCall, agentsHeaders, arr, s, type AgentsData, type Row } from "@/components/admin/agents-api"
 import { AgentsEditor } from "@/components/admin/agents-editor"
 import { AgentsImport } from "@/components/admin/agents-import"
+import { LeadAlertRecipientsCard } from "@/components/admin/lead-alert-recipients-card"
 import { AgentsReview, AgentsMonth, AgentsLeaderboard } from "@/components/admin/agents-extras"
 import { OFFICE_ROLES, OFFICE_ROLE_LABEL, officeHolders, parseOfficeRole, publishBlockers } from "@/lib/agents"
 type Tab = "roster" | "import" | "review" | "month" | "leaderboard"
@@ -101,6 +102,7 @@ export function AgentsPanel() {
             </label>
             {alertErr && <p role="alert" className="text-sm text-destructive">{alertErr}</p>}
           </section>
+          <LeadAlertRecipientsCard />
           <div className="flex flex-wrap items-center gap-2">
             <Input className="max-w-xs" placeholder="Search name, city, email" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search agents" />
             <select className="h-10 rounded-md border bg-background px-2 text-sm" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
