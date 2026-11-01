@@ -56,12 +56,29 @@ export function isBreaking(tier: number, title: string, summary: string): boolea
   return tier === 1 && BREAKING.test(`${title} ${summary}`)
 }
 
+/** Read-time filter for natural-hazard feeds (GDACS carries its own event type and alert level on every item; USGS has none and keeps
+ * everything its feed lists, because USGS already chose "significant"). Run by the ingest step only: a stored row has no alert level,
+ * so classifyItem (which re-checks stored rows) cannot repeat it and simply accepts a hazard item. Pure. */
+export function hazardAdmits(source: Pick<NewsSource, 'hazard' | 'hazardEventTypes' | 'hazardAlertLevels'>, item: { alertLevel?: string; eventType?: string }): { ok: boolean; reason: string } {
+  if (!source.hazard) return { ok: true, reason: '' }
+  if (source.hazardEventTypes && !(item.eventType && source.hazardEventTypes.includes(item.eventType.toUpperCase()))) return { ok: false, reason: 'not an event type this site reports (drought, tsunami and anything unknown are left out)' }
+  if (source.hazardAlertLevels && !(item.alertLevel && source.hazardAlertLevels.includes(item.alertLevel.toLowerCase()))) return { ok: false, reason: 'a Green alert is not a travel decision (only Orange and Red are kept)' }
+  return { ok: true, reason: '' }
+}
+
 /** Decides whether an item is travel-affecting. Order: drop rules, then source-specific rules, then keyword rules. */
-export function classifyItem(source: Pick<NewsSource, 'key' | 'tier' | 'defaultCategory'>, item: { title: string; summary: string }): Classification {
+export function classifyItem(source: Pick<NewsSource, 'key' | 'tier' | 'defaultCategory'> & { hazard?: boolean }, item: { title: string; summary: string }): Classification {
   const text = `${item.title} ${item.summary}`
   const breaking = source.tier === 1 && BREAKING.test(text)
   const none = (reason: string): Classification => ({ relevant: false, category: source.defaultCategory, reason, breaking: false })
   if (DROP.some((re) => re.test(item.title))) return none('not travel-affecting (a review, a list, an ad, or celebrity or business news)')
+
+  // Natural-hazard feeds (GDACS, USGS): every item that got past hazardAdmits is a hazard notice. A keyword may only pick between a
+  // cyclone (storm) and any other hazard (disaster); it can never turn the item into an advisory, entry or other category.
+  if (source.hazard) {
+    const storm = RULES.find((r) => r.category === 'storm')?.patterns.some((re) => re.test(text))
+    return { relevant: true, category: storm ? 'storm' : 'disaster', reason: 'a natural-hazard notice from an official monitoring centre', breaking }
+  }
 
   if (source.key.startsWith('nhc-')) {
     if (NHC_NOT_AN_EVENT.test(item.title)) return none('the hurricane centre posted an outlook or a no-storms notice, not an event')

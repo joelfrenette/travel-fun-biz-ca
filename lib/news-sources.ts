@@ -37,6 +37,22 @@ export interface NewsSource {
   maxBytes?: number
   /** A snapshot feed lists more entries than MAX_ITEMS_PER_FEED: read up to this many, newest first. Omit for the normal cap. */
   maxItems?: number
+  /** Natural-hazard feed (GDACS, USGS). Such an item is a NEWS BRIEF only: it is never a travel advisory level change, it never
+   * touches the country advisory pages, it can NEVER be enrolled for social posting (lib/news-distribution.ts refuses it), it goes
+   * stale after NEWS_FAST_MAX_AGE_HOURS like a storm, and it goes through the same brief gate as every tier 1 notice. */
+  hazard?: boolean
+  /** Hazard feeds only: the most new items one read may store (a burst of events cannot flood the table). Omit for MAX_NEW_PER_SOURCE. */
+  maxNew?: number
+  /** Hazard feeds only: GDACS event types kept (the feed's own gdacs:eventtype code), and the alert levels kept (gdacs:alertlevel).
+   * Applied at read time by hazardAdmits (lib/news-relevance.ts). */
+  hazardEventTypes?: readonly string[]
+  hazardAlertLevels?: readonly string[]
+  /** The publisher asks bots to visit only inside this window, in minutes after 00:00 UTC [from, to). The feed is not fetched outside
+   * it (lib/news-sources.ts inVisitWindow). Omit for no window. */
+  visitWindowUtc?: readonly [number, number]
+  /** Item links arrive as http:// but the same address answers over https (a 302 to https). Link hosts listed here are upgraded to
+   * https when the feed is parsed; nothing else is ever upgraded. */
+  upgradeHttpLinks?: boolean
 }
 
 export const NEWS_SOURCES: readonly NewsSource[] = [
@@ -104,6 +120,50 @@ export const NEWS_SOURCES: readonly NewsSource[] = [
     confidence: 'documented',
     docs: 'Government of Canada open data, travel advisories (data.international.gc.ca/travel-voyage). Read only after the offline JSON checks (scripts/check-news-json.ts); an unknown shape is skipped with a Needs attention note.',
   },
+  // Natural-hazard feeds (added 2026-11-01). NEWS ONLY: see NewsSource.hazard. Both switch off without a deploy through the
+  // news_sources_off setting (the admin News screen toggles it per key). Format, robots and terms were checked by hand on 2026-11-01.
+  {
+    key: 'gdacs-alerts',
+    name: 'the Global Disaster Alert and Coordination System (GDACS)',
+    // RSS 2.0 of every GDACS event of the last 24 hours (about 120 items, 360 KB; the 7 day feed is 1.4 MB). The "gdacs:" namespace
+    // adds eventtype (EQ, TC, FL, VO, WF, DR), alertlevel (Green, Orange, Red) and a population estimate. Only Orange and Red events of
+    // type EQ, TC, FL, VO and WF are kept: a Green event is not a travel decision, and a drought item names up to 30 countries for
+    // weeks (it is left out on purpose). Tropical cyclones of the Pacific and Indian Ocean arrive here as type TC (GDACS builds them
+    // from the official warning centres), so this feed is also the Pacific and Indian Ocean cyclone coverage.
+    feedUrl: 'https://www.gdacs.org/xml/rss_24h.xml',
+    tier: 1,
+    defaultCategory: 'disaster',
+    linkHosts: ['gdacs.org'],
+    enabled: true,
+    confidence: 'verified',
+    docs: 'Checked with a plain fetch on 2026-11-01: valid RSS 2.0, 117 items, feed says "copyright public domain". robots.txt: "User-agent: *" with an empty Disallow, plus a non-standard "Request-rate: 1/60" and "Visit-time: 0400-0645" (UTC); we read at most once in 30 minutes and ONLY inside 04:00 to 06:45 UTC. Terms (gdacs.org/About/termofuse.aspx) forbid nothing and say the notifications are automatic, "as is", and not a substitute for official alerts: we quote the headline, the feed description and the link, nothing else. Item links are http:// and answer 302 to https.',
+    maxBytes: 1_500_000,
+    maxItems: 150,
+    hazard: true,
+    maxNew: 3,
+    hazardEventTypes: ['EQ', 'TC', 'FL', 'VO', 'WF'],
+    hazardAlertLevels: ['orange', 'red'],
+    visitWindowUtc: [4 * 60, 6 * 60 + 45],
+    upgradeHttpLinks: true,
+  },
+  {
+    key: 'usgs-quakes',
+    name: 'the US Geological Survey',
+    // Atom feed of USGS "significant" earthquakes of the past day (USGS decides which are significant). Empty most days: a feed with
+    // no <entry> is a valid answer, not an error (parseFeed). The past-week feed is not used: an old event updated by a reviewer would
+    // look new again, and a day is all a 36 hour brief can use.
+    feedUrl: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_day.atom',
+    tier: 1,
+    defaultCategory: 'disaster',
+    linkHosts: ['earthquake.usgs.gov', 'usgs.gov'],
+    enabled: true,
+    confidence: 'verified',
+    docs: 'Checked with a plain fetch on 2026-11-01: valid Atom (the day feed was empty, the week feed had 1 entry, the month feed 17). robots.txt is a 404 (no rules). USGS-authored information is in the US public domain (usgs.gov/information-policies-and-instructions/copyrights-and-credits). Feeds update every minute; we read at most once in 30 minutes.',
+    maxBytes: 200_000,
+    maxItems: 20,
+    hazard: true,
+    maxNew: 3,
+  },
   {
     key: 'skift',
     name: 'Skift',
@@ -158,9 +218,23 @@ export const NEWS_MAX_AGE_DAYS = 7
 /** Storms and breaking official notices go stale fast: past this many hours they are not stored, expired, and never published. */
 export const NEWS_FAST_MAX_AGE_HOURS = 36
 
-/** How old an item may be before it is no longer news: 36 hours for a storm or a breaking notice, 7 days for the rest. */
-export function maxAgeMs(category: string, breaking: boolean): number {
-  return category === 'storm' || breaking ? NEWS_FAST_MAX_AGE_HOURS * 3_600_000 : NEWS_MAX_AGE_DAYS * 86_400_000
+/** How old an item may be before it is no longer news: 36 hours for a storm, a breaking notice or any natural-hazard feed item
+ * (pass `sourceKey`), 7 days for the rest. */
+export function maxAgeMs(category: string, breaking: boolean, sourceKey?: string): number {
+  const fast = category === 'storm' || breaking || (!!sourceKey && !!sourceByKey(sourceKey)?.hazard)
+  return fast ? NEWS_FAST_MAX_AGE_HOURS * 3_600_000 : NEWS_MAX_AGE_DAYS * 86_400_000
+}
+
+/** True when the source is a natural-hazard feed: its items are news briefs only and are never enrolled for social posting. */
+export const isHazardSource = (key: string | null | undefined): boolean => !!key && !!sourceByKey(key)?.hazard
+
+/** True when `nowMs` is inside the source's visit window (UTC), or the source has none. Pure. */
+export function inVisitWindow(source: Pick<NewsSource, 'visitWindowUtc'>, nowMs: number): boolean {
+  if (!source.visitWindowUtc) return true
+  const d = new Date(nowMs)
+  const minute = d.getUTCHours() * 60 + d.getUTCMinutes()
+  const [from, to] = source.visitWindowUtc
+  return minute >= from && minute < to
 }
 
 export const enabledSources = (): NewsSource[] => NEWS_SOURCES.filter((s) => s.enabled)

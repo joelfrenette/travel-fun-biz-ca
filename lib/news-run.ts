@@ -68,7 +68,7 @@ const itemMs = (i: Pick<NewsItemRow, 'published_at' | 'fetched_at'>) => Date.par
 /** True when an item is past its news life (36 hours for a storm or a breaking notice, 7 days for the rest). */
 export const itemStale = (i: NewsItemRow, nowMs: number): boolean => {
   const t = itemMs(i)
-  return !Number.isFinite(t) || nowMs - t > maxAgeMs(i.category, isBreaking(i.tier, i.title, i.summary_raw))
+  return !Number.isFinite(t) || nowMs - t > maxAgeMs(i.category, isBreaking(i.tier, i.title, i.summary_raw), i.source_key)
 }
 const rank = (i: NewsItemRow) => priorityOf({ ...i, breaking: isBreaking(i.tier, i.title, i.summary_raw) })
 
@@ -190,7 +190,7 @@ export async function runNewsStep(admin: SupabaseClient, deps: NewsRunDeps = {})
 
     const goLive = async (item: NewsItemRow, slug: string, title: string) => {
       // With news-on-social OFF (the default) a news brief never takes one of the shared daily social slots from blog posts and guides.
-      const enrolled = (await getNewsSocialEnabled(admin)) ? await enrollNewsIfDue(admin, { slug, title, status: 'published' }, perDay) : 'skipped'
+      const enrolled = (await getNewsSocialEnabled(admin)) ? await enrollNewsIfDue(admin, { slug, title, status: 'published', sourceKey: item.source_key }, perDay) : 'skipped'
       if (enrolled === 'ceiling') notes.push(`no social post for ${slug}: the shared daily limit of ${SOCIAL_ENROLMENTS_PER_DAY_CEILING} social posts (blog posts, guides and news together) is used up`)
       // A later bulletin of the same storm replaces the earlier live brief: mark the older ones "Update: superseded".
       for (const old of await olderStormItems(admin, item)) {

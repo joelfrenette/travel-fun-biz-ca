@@ -17,12 +17,12 @@ import {
   type FetchDeps,
   type RawFeedItem,
 } from '@/lib/news-feed'
-import { classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
+import { classifyItem, coveredByEarlierStormPost, hazardAdmits, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
 import { getAdvisoryMode } from '@/lib/country-advisory-store'
 import { markUsAllChecked } from '@/lib/country-advisory-store'
 import { backfillAdvisories, caBackfillEvents, dualWriteCanada, dualWriteUk, dualWriteUs, emptyAdvisoryNote, ukBackfillEvents, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
 import { CA_ADVISORY_SOURCE_KEY, UK_ADVISORY_SOURCE_KEY, US_ADVISORY_SOURCE_KEY, parseUsAdvisoryFeed } from '@/lib/country-advisory'
-import { NEWS_MAX_AGE_DAYS, parseSourcesOff, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
+import { NEWS_MAX_AGE_DAYS, inVisitWindow, parseSourcesOff, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
 
 // Growth loop WP20: step one of the news pipeline. Read the allowlisted feeds (each at most once in 30 minutes), keep
 // only the items that change a traveller's plans, drop repeats, store what is left in news_items, and expire what has
@@ -267,7 +267,9 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         continue
       }
       const state = await readFeedState(admin, source.key)
-      if (!fetchDue(state, nowMs)) {
+      // A publisher's own visit window (GDACS robots.txt: Visit-time 0400-0645 UTC): outside it the feed is not touched at all, and no
+      // attempt is recorded, so it is neither a failure nor a retry.
+      if (!fetchDue(state, nowMs) || !inVisitWindow(source, nowMs)) {
         result.waiting.push(source.key)
         continue
       }
@@ -296,7 +298,7 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         continue
       }
       const isJson = source.kind === 'json'
-      const parsed = isJson ? parseAdvisoryJson(outcome.text, { now: nowMs }) : parseFeed(outcome.text, { now: nowMs, maxBytes: source.maxBytes, maxItems: source.maxItems })
+      const parsed = isJson ? parseAdvisoryJson(outcome.text, { now: nowMs }) : parseFeed(outcome.text, { now: nowMs, maxBytes: source.maxBytes, maxItems: source.maxItems, upgradeHttpHosts: source.upgradeHttpLinks ? source.linkHosts : undefined })
       // A snapshot feed of every country is not in date order: look at the newest entries first (the per-source limits below then keep the newest).
       if (!parsed.error && source.maxItems) parsed.items = [...parsed.items].sort((a, b) => (Date.parse(b.publishedAt ?? '') || 0) - (Date.parse(a.publishedAt ?? '') || 0))
       if (parsed.error) {
@@ -363,7 +365,7 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
       for (const rawItem of readItems) {
         // The UK feed titles each entry with the bare country name; the stored title says what the item is.
         const item = shapeFeedItem(source.key, rawItem)
-        if (storedHere >= MAX_NEW_PER_SOURCE) break
+        if (storedHere >= (source.maxNew ?? MAX_NEW_PER_SOURCE)) break
         if (seen.has(item.guid)) {
           result.duplicates++
           continue
@@ -394,6 +396,11 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
           else if (r === 'duplicate') result.duplicates++
           continue
         }
+        // Natural-hazard feeds: only the event types and alert levels the source names (GDACS Orange and Red) are kept.
+        if (source.hazard && !hazardAdmits(source, item).ok) {
+          result.notRelevant++
+          continue
+        }
         const classified = classifyItem(source, item)
         // Canadian advisories are always category 'advisory' (a keyword in the advisory text must not re-file them).
         const verdict = isJson ? { ...classified, category: source.defaultCategory } : classified
@@ -402,7 +409,7 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
           continue
         }
         // A storm or a breaking official notice is only news for 36 hours; everything else for 7 days.
-        if (nowMs - when > maxAgeMs(verdict.category, verdict.breaking)) {
+        if (nowMs - when > maxAgeMs(verdict.category, verdict.breaking, source.key)) {
           result.tooOld++
           continue
         }
@@ -450,11 +457,11 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
 /** Marks items older than NEWS_MAX_AGE_DAYS that are still 'new' or 'queued' as expired. A queued item's draft post is left
  * exactly as it is (never deleted). Returns how many were expired, or null when the table could not be read. */
 export async function expireOldItems(admin: SupabaseClient, now: Date = new Date()): Promise<number | null> {
-  const { data, error } = await admin.from('news_items').select('id, published_at, fetched_at, category, tier, title, summary_raw').in('status', ['new', 'queued']).limit(500)
+  const { data, error } = await admin.from('news_items').select('id, published_at, fetched_at, category, tier, title, summary_raw, source_key').in('status', ['new', 'queued']).limit(500)
   if (error) return null
-  const stale = ((data ?? []) as { id: string; published_at: string | null; fetched_at: string; category?: string | null; tier?: number | null; title?: string | null; summary_raw?: string | null }[]).filter((r) => {
+  const stale = ((data ?? []) as { id: string; published_at: string | null; fetched_at: string; category?: string | null; tier?: number | null; title?: string | null; summary_raw?: string | null; source_key?: string | null }[]).filter((r) => {
     const t = Date.parse(r.published_at ?? r.fetched_at)
-    const limit = maxAgeMs(r.category ?? '', isBreaking(r.tier ?? 2, r.title ?? '', r.summary_raw ?? ''))
+    const limit = maxAgeMs(r.category ?? '', isBreaking(r.tier ?? 2, r.title ?? '', r.summary_raw ?? ''), r.source_key ?? undefined)
     return Number.isFinite(t) && now.getTime() - t > limit
   })
   if (stale.length === 0) return 0

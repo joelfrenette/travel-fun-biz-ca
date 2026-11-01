@@ -3,9 +3,10 @@
 // ever the government's own words; the UK never shows a level; social posts only on a level change, once per country per 7 days, and
 // never while distribution is off; the sitemap lists pages only when the mode is on and a page has data.
 // Run: npx --yes tsx --tsconfig tsconfig.json scripts/check-country-advisories.ts
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fakeAdmin, type Db, type Row } from './fake-admin'
-import { MAX_FEED_BYTES, isAllowedFeedUrl, linkAllowedFor, redirectAllowedFor, sourceByKey } from '../lib/news-sources'
+import { MAX_FEED_BYTES, NEWS_SOURCES, isAllowedFeedUrl, linkAllowedFor, redirectAllowedFor, sourceByKey } from '../lib/news-sources'
 import { ingestFeeds } from '../lib/news-ingest'
 import { GAC_STATE_KEY } from '../lib/news-ingest'
 import { fetchFeed, parseFeed, type FetchDeps } from '../lib/news-feed'
@@ -604,6 +605,36 @@ async function main() {
       const haiti = await loadAdvisoryPage('haiti', new Date(NOW), live.admin)
       check('backfill pages: a backfilled page renders with the official level, is indexable and has no invented log', !!haiti && haiti.indexable && haiti.canada?.level === 'Avoid all travel' && haiti.log.length === 0 && haiti.title === 'Canada travel advisory for Haiti')
     }
+  }
+
+  // ===============================================================================================
+  // Natural-hazard news sources (GDACS, USGS) are NOT advisory voices (2026-11-01)
+  // ===============================================================================================
+  {
+    const gdacsSrc = sourceByKey('gdacs-alerts')!
+    const usgsSrc = sourceByKey('usgs-quakes')!
+    const t = Date.parse('2026-11-01T05:00:00Z')
+    const gd = `<?xml version="1.0"?><rss version="2.0" xmlns:gdacs="http://www.gdacs.org"><channel><title>GDACS</title><item><title>Orange earthquake (Magnitude 6M, Depth:10km) in Vanuatu</title><description>An earthquake occurred in Vanuatu.</description><link>http://www.gdacs.org/report.aspx?eventtype=EQ&amp;eventid=1</link><pubDate>${new Date(t - 3_600_000).toUTCString()}</pubDate><guid>EQ1</guid><gdacs:eventtype>EQ</gdacs:eventtype><gdacs:alertlevel>Orange</gdacs:alertlevel></item></channel></rss>`
+    const us = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>USGS</title><entry><id>urn:earthquake-usgs-gov:us:1</id><title>M 6.4 - near Peru</title><updated>${iso(t - 3_600_000)}</updated><link rel="alternate" href="https://earthquake.usgs.gov/earthquakes/eventpage/us1"/><summary>Depth 10 km</summary></entry></feed>`
+    const hd: FetchDeps = {
+      now: () => t,
+      fetch: (async (url: string) => {
+        if (String(url).endsWith('/robots.txt')) return new Response('', { status: 404 })
+        if (String(url) === gdacsSrc.feedUrl) return new Response(gd, { status: 200, headers: { 'content-type': 'application/xml' } })
+        if (String(url) === usgsSrc.feedUrl) return new Response(us, { status: 200, headers: { 'content-type': 'application/atom+xml' } })
+        return new Response('', { status: 404 })
+      }) as unknown as typeof fetch,
+    }
+    for (const mode of ['log', 'on'] as const) {
+      const w = world({ [ADVISORY_MODE_KEY]: mode }, { country_advisories: [], country_advisory_log: [] })
+      const r = await ingestFeeds(w.admin, { fetchDeps: hd, now: new Date(t), sources: [gdacsSrc, usgsSrc] })
+      check(`hazard sources (mode ${mode}): a quake or flood item is a news item only; no country advisory row, no log row, no advisory backfill is made`, r.stored === 2 && rowsOf(w.db, 'news_items').length === 2 && rowsOf(w.db, 'country_advisories').length === 0 && rowsOf(w.db, 'country_advisory_log').length === 0 && (r.advisories?.backfill ?? []).length === 0, JSON.stringify(r.advisories))
+      check(`hazard sources (mode ${mode}): no social enrolment came out of reading them`, rowsOf(w.db, 'post_distribution').length === 0)
+    }
+    // The fourth voice (Smartraveller, Australia) was refused for lack of a first-hand fetch: nothing for it exists yet.
+    const root = join(__dirname, '..')
+    const src = ['lib/country-advisory.ts', 'lib/country-advisory-store.ts', 'lib/country-advisory-ingest.ts'].map((f) => readFileSync(join(root, f), 'utf8')).join('\n')
+    check('fourth voice: no au_ columns, no Smartraveller source and no 0065 migration exist (Smartraveller was not added; see docs section 10)', !/\bau_(level|text)\b|smartraveller/i.test(src) && !existsSync(join(root, 'supabase/migrations/0065_country_advisories_au.sql')) && !NEWS_SOURCES.some((s) => /smartraveller/i.test(s.feedUrl)))
   }
 
   console.log(failed === 0 ? '\nAll travel advisory checks passed.' : `\n${failed} check(s) FAILED.`)

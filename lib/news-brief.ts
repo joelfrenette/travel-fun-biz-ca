@@ -189,7 +189,8 @@ const RELAY_WORDS = new Set(
   'reported report reports says said according official officials source notice notices advisory advisories issued issue issues update updated updates level levels travellers travelers traveller traveler countries country region regions area areas government agency centre center information latest published website page details current status stated states state warns warning warnings watch watches'.split(' '),
 )
 
-const contentWords = (s: string): string[] => (s.toLowerCase().match(/[a-z][a-z'-]{3,}/g) ?? []).filter((w) => !STOP_WORDS.has(w))
+// A storm name carries its season number after a hyphen ("MURASU-26" in the GDACS feed): kept whole, so it is checked as the name it is.
+const contentWords = (s: string): string[] => (s.toLowerCase().match(/[a-z][a-z'-]{3,}(?:(?<=-)\d+)?/g) ?? []).filter((w) => !STOP_WORDS.has(w))
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -221,7 +222,7 @@ function nameSupported(source: string, run: string[]): boolean {
 
 /** Capitalised words in a row, outside the plain words that open a sentence. Pure. */
 function nameRuns(t: string): string[][] {
-  const toks = [...t.matchAll(/\b[A-Z][A-Za-z'-]*\b/g)]
+  const toks = [...t.matchAll(/\b[A-Z][A-Za-z'-]*(?:(?<=-)\d+)?\b/g)]
     .map((m) => ({ w: m[0].replace(/'s$/, ''), idx: m.index ?? 0, end: (m.index ?? 0) + m[0].length }))
     .filter((k) => k.w !== 'LEVELTEXT' && k.w.length >= 2)
     .filter((k) => !((k.idx === 0 || /[.!?]\s+$/.test(t.slice(0, k.idx))) && COMMON_STARTERS.has(k.w.toLowerCase())))

@@ -2,7 +2,7 @@
 // feeds are stubbed strings, "fetch" is a stub, the model is a stub, and the database is scripts/fake-admin.ts.
 // Run: pnpm dlx tsx scripts/check-news.ts
 import { fakeAdmin, type Db } from './fake-admin'
-import { NEWS_SOURCES, enabledSources, isAllowedFeedUrl, linkAllowedFor, NEWS_USER_AGENT, MAX_FEED_BYTES, sourceByKey } from '../lib/news-sources'
+import { NEWS_SOURCES, enabledSources, inVisitWindow, isAllowedFeedUrl, linkAllowedFor, NEWS_USER_AGENT, MAX_FEED_BYTES, sourceByKey } from '../lib/news-sources'
 import { parseFeed, cleanFeedText, looksLikeInjection, robotsAllows, fetchFeed, fetchDue, readFeedState, shapeFeedItem, type FetchDeps } from '../lib/news-feed'
 import { classifyItem, isNearDuplicate, titleKey, isBreaking } from '../lib/news-relevance'
 import { briefProblems, lexicalProblems, normalizeBrief, writeNewsBrief, wordRange, type NewsFacts, type NewsBrief } from '../lib/news-brief'
@@ -602,7 +602,8 @@ async function part2() {
     const { admin } = world({ travel_news_mode: 'draft' })
     let t = NOW
     // The RSS and Atom official feeds only: the JSON advisory source has its own checks in check-news-json.ts.
-    const official = enabledSources().filter((x) => x.tier === 1 && x.kind !== 'json')
+    // The natural-hazard feeds (GDACS, USGS) have their own checks in check-news-hazard.ts.
+    const official = enabledSources().filter((x) => x.tier === 1 && x.kind !== 'json' && !x.hazard)
     for (let i = 0; i < 3; i++) {
       t += 31 * 60_000
       await ingestFeeds(admin, { fetchDeps: feedDeps(s, { [NHC_URL]: NHC_FEED, [STATE_URL]: 503, [NHC_EP_URL]: NHC_FEED, [UK_URL]: STATE_FEED }, () => t), now: new Date(t), sources: official })
@@ -848,7 +849,8 @@ async function part3() {
     await ingestFeeds(world().admin, { fetchDeps: feedDeps(s2, routes, () => NOW), now: new Date(NOW), deadlineMs: Date.now() + 120_000 })
     const feedOrder = s2.fetchLog.filter((u) => !u.endsWith('/robots.txt'))
     const tierOf = (u: string) => enabledSources().find((x) => x.feedUrl === u)?.tier ?? 9
-    check('m4: official (tier 1) feeds are read before trade feeds', feedOrder.length === enabledSources().length && feedOrder.every((u, i) => i === 0 || tierOf(feedOrder[i - 1]) <= tierOf(u)), feedOrder.join(' '))
+    // A source with a publisher visit window (GDACS, 04:00 to 06:45 UTC) is not read outside it; NOW is 15:00 UTC.
+    check('m4: official (tier 1) feeds are read before trade feeds', feedOrder.length === enabledSources().filter((x) => inVisitWindow(x, NOW)).length &&feedOrder.every((u, i) => i === 0 || tierOf(feedOrder[i - 1]) <= tierOf(u)), feedOrder.join(' '))
   }
 
   // ---- m5: hostile feeds stay fast ----
