@@ -63,6 +63,13 @@ check('title: name inside a meta title gets it', tripTitle(anz, 'Australia and N
 check('title: meta title without the name is not rewritten', tripTitle(anz, 'Best Down Under Trip | TravelFunBiz.ca', false) === 'Best Down Under Trip | TravelFunBiz.ca')
 check('title: no double from Canada', !/from Canada.*from Canada/i.test(tripTitle(anz, tripTitle(anz, 'Australia and New Zealand Tour', false), false)))
 
+// The live row: upper case name, title-case meta title with an ampersand (Search Console: "australia and new zealand tours from canada").
+const anzLive = { name: 'AUSTRALIA & NEW ZEALAND', short_description: 'Travel through Australia and New Zealand.', full_description: null, meta_title: 'Australia & New Zealand | 22-Day Group Tour' }
+check('title: upper case name, title case meta title still gets from Canada', tripTitle(anzLive, anzLive.meta_title, false) === 'Australia & New Zealand from Canada | 22-Day Group Tour', tripTitle(anzLive, anzLive.meta_title, false))
+check('title: case-insensitive match is idempotent', tripTitle(anzLive, tripTitle(anzLive, anzLive.meta_title, false), false) === 'Australia & New Zealand from Canada | 22-Day Group Tour')
+check('title: past ANZ trip title unchanged', tripTitle(anzLive, anzLive.meta_title, true) === anzLive.meta_title)
+check('title: case-insensitive match stays within 60 characters', tripTitle(anzLive, anzLive.meta_title, false).length <= 60)
+
 // 5. hreflang
 const base = { origin: 'https://www.example.ca', here: 'en-CA', siblingOrigin: 'https://example.com', siblingLocale: 'en-US' }
 const off = buildHreflang('/packages/x', { ...base, siblingEnabled: false })

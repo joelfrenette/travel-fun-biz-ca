@@ -41,11 +41,16 @@ export function tripHeading(pkg: FromCanadaInput, isPast: boolean): string {
 }
 
 /** The page title: `base` is the title the page already builds (the stored meta title or the default pattern). When the trip
- * qualifies, the trip name inside it gets "from Canada" after it. A title that does not contain the name is left alone
- * (a hand-written meta title is never rewritten blindly). */
+ * qualifies, the trip name inside it (or the same "Australia and New Zealand" wording in another letter case) gets "from Canada"
+ * after it. A title that contains neither is left alone (a hand-written meta title is never rewritten blindly). */
 export function tripTitle(pkg: FromCanadaInput, base: string, isPast: boolean): string {
   if (isPast || !wantsFromCanada(pkg) || ALREADY.test(base)) return base
   const i = base.indexOf(pkg.name)
-  if (i < 0) return base
-  return `${base.slice(0, i)}${insertFromCanada(pkg.name)}${base.slice(i + pkg.name.length)}`
+  if (i >= 0) return `${base.slice(0, i)}${insertFromCanada(pkg.name)}${base.slice(i + pkg.name.length)}`
+  // The stored name is often upper case ("AUSTRALIA & NEW ZEALAND") while the stored meta title is written in title case, so an
+  // exact match misses it. Fall back to the trip's own "Australia and New Zealand" wording inside the title, any case.
+  const m = ANZ.exec(base)
+  if (!m) return base
+  const end = m.index + m[0].length
+  return `${base.slice(0, end)} from Canada${base.slice(end)}`
 }
