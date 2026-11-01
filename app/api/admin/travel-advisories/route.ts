@@ -15,8 +15,17 @@ export async function GET(request: Request) {
     const mode = await getAdvisoryMode(admin)
     const total = await admin.from('country_advisories').select('slug', { count: 'exact', head: true })
     const published = await admin.from('country_advisories').select('slug', { count: 'exact', head: true }).eq('status', 'published')
+    // The US Department of State columns exist only after migration 0064: a failed probe means "not run yet", never a made-up zero.
+    const us = await admin.from('country_advisories').select('slug', { count: 'exact', head: true }).not('us_level', 'is', null)
     // A count that cannot be read (for example migration 0062 not applied yet) is null, never a made-up zero.
-    return NextResponse.json({ mode, countries: total.error ? null : total.count ?? 0, published: published.error ? null : published.count ?? 0, tablesReady: !total.error })
+    return NextResponse.json({
+      mode,
+      countries: total.error ? null : total.count ?? 0,
+      published: published.error ? null : published.count ?? 0,
+      tablesReady: !total.error,
+      usColumnsReady: !us.error,
+      usCountries: us.error ? null : us.count ?? 0,
+    })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }

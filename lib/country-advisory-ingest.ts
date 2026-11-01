@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { looksLikeInjection, type RawFeedItem } from '@/lib/news-feed'
 import { ukCountryOf } from '@/lib/news-uk'
 import { CA_ADVISORY_SOURCE_KEY, advisoryTitle, type AdvisoryMode } from '@/lib/country-advisory'
-import { markCanadaChecked, writeCanadaEvent, writeUkEvent } from '@/lib/country-advisory-store'
+import { applyUsFeed, markCanadaChecked, writeCanadaEvent, writeUkEvent } from '@/lib/country-advisory-store'
+import { parseUsAdvisoryFeed } from '@/lib/country-advisory'
 import { enrollAdvisoryIfDue } from '@/lib/country-advisory-social'
 
 // Travel advisories: the DUAL WRITE called from the news ingest (lib/news-ingest.ts). The news posts are created exactly as before;
@@ -68,6 +69,26 @@ export async function dualWriteCanada(
     note.confirmed = await markCanadaChecked(admin, snapshot, now)
   } catch (e) {
     addNote(note, `travel advisories (Canada): ${e instanceof Error ? e.message.slice(0, 120) : 'unexpected error'}`)
+  }
+}
+
+/** US Department of State: the WHOLE feed text of one good read. A country with a page is updated when its entry changed and confirmed
+ * when the feed repeats it; a country without a page gets one only for an entry newer than `maxAgeDays`. Never throws. The text is the
+ * feed exactly as fetched (by lib/news-feed.ts fetchFeed, which respects robots.txt): nothing here fetches anything. */
+export async function dualWriteUs(admin: SupabaseClient, note: AdvisoryIngestNote, feedText: string, now: Date, maxAgeDays: number): Promise<void> {
+  try {
+    const events = parseUsAdvisoryFeed(feedText)
+    if (events.length === 0) {
+      addNote(note, 'US travel advisories: the feed had no "Country - Level N" entries, so nothing was stored.')
+      return
+    }
+    const r = await applyUsFeed(admin, events, now, maxAgeDays, looksLikeInjection)
+    note.logged += r.logged
+    note.levelChanges += r.levelChanges
+    note.confirmed += r.confirmed
+    for (const n of r.notes) addNote(note, n)
+  } catch (e) {
+    addNote(note, `travel advisories (US): ${e instanceof Error ? e.message.slice(0, 120) : 'unexpected error'}`)
   }
 }
 

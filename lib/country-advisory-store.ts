@@ -2,7 +2,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSettingStrict } from '@/lib/app-settings'
 import {
   ADVISORY_COLUMNS,
+  ADVISORY_COLUMNS_LEGACY,
   ADVISORY_MODE_KEY,
+  US_ADVISORY_SOURCE_KEY,
+  US_COLUMN_NAMES,
+  withNoUs,
+  planUsFeed,
+  planUsWrite,
+  type UsEvent,
   advisoryTitle,
   CA_ADVISORY_SOURCE_KEY,
   UK_ADVISORY_SOURCE_KEY,
@@ -38,17 +45,25 @@ export async function setAdvisoryMode(admin: SupabaseClient, mode: AdvisoryMode)
   return error ? { error: error.message } : {}
 }
 
+/** True when a database error is "a column does not exist" (migration 0064 not run yet). */
+const missingColumn = (e: { code?: string; message?: string } | null): boolean => !!e && (e.code === '42703' || /column .*does not exist|could not find the .* column/i.test(e.message ?? ''))
+
 export async function readAdvisoryRow(admin: SupabaseClient, slug: string): Promise<CountryAdvisoryRow | null> {
-  const { data, error } = await admin.from('country_advisories').select(ADVISORY_COLUMNS).eq('slug', slug).maybeSingle()
-  if (error) throw new Error(`country_advisories: ${error.message}`)
-  return (data as CountryAdvisoryRow | null) ?? null
+  type Res = { data: unknown; error: { code?: string; message?: string } | null }
+  let res = (await admin.from('country_advisories').select(ADVISORY_COLUMNS).eq('slug', slug).maybeSingle()) as Res
+  // Before migration 0064 the us_ columns do not exist: read the old columns so the Canada and UK pages keep working.
+  if (res.error && missingColumn(res.error)) res = (await admin.from('country_advisories').select(ADVISORY_COLUMNS_LEGACY).eq('slug', slug).maybeSingle()) as Res
+  if (res.error) throw new Error(`country_advisories: ${res.error.message}`)
+  return res.data ? withNoUs(res.data as Record<string, unknown>) : null
 }
 
 /** Published rows (any data state), or [] when the table cannot be read. */
 export async function listPublishedAdvisories(admin: SupabaseClient): Promise<CountryAdvisoryRow[]> {
   try {
-    const { data, error } = await admin.from('country_advisories').select(ADVISORY_COLUMNS).eq('status', 'published').limit(1000)
-    return error ? [] : ((data ?? []) as CountryAdvisoryRow[])
+    type Res = { data: unknown; error: { code?: string; message?: string } | null }
+    let res = (await admin.from('country_advisories').select(ADVISORY_COLUMNS).eq('status', 'published').limit(1000)) as Res
+    if (res.error && missingColumn(res.error)) res = (await admin.from('country_advisories').select(ADVISORY_COLUMNS_LEGACY).eq('status', 'published').limit(1000)) as Res
+    return res.error ? [] : ((res.data ?? []) as Record<string, unknown>[]).map(withNoUs)
   } catch {
     return []
   }
@@ -97,7 +112,10 @@ export interface WriteOutcome {
 async function applyPlan(admin: SupabaseClient, plan: WritePlan): Promise<WriteOutcome> {
   if (!plan.ok) return { ok: false, logged: false, levelChange: null, note: plan.note }
   const nowIso = new Date().toISOString()
-  const { row } = plan
+  const { row: fullRow } = plan
+  // A write with no US value leaves the us_ keys out, so Canada and UK writes keep working before migration 0064 is run.
+  const row: Record<string, unknown> & { slug: string; name: string } = { ...fullRow }
+  if (US_COLUMN_NAMES.every((c) => row[c] === null || row[c] === undefined) && plan.log?.source_key !== US_ADVISORY_SOURCE_KEY) for (const c of US_COLUMN_NAMES) delete row[c]
   if (plan.created) {
     const { error } = await admin.from('country_advisories').insert({ ...row, updated_at: nowIso })
     if (error) return { ok: false, logged: false, levelChange: null, note: `country_advisories: ${error.message}`.slice(0, 200) }
@@ -139,6 +157,58 @@ export async function writeUkEvent(admin: SupabaseClient, ev: UkEvent, now: Date
   }
 }
 
+export async function writeUsEvent(admin: SupabaseClient, ev: UsEvent, now: Date, unsafe?: (t: string) => boolean): Promise<WriteOutcome> {
+  try {
+    const slug = countrySlugOf(ev.country)
+    const existing = slug ? await readAdvisoryRow(admin, slug) : null
+    return await applyPlan(admin, planUsWrite(existing, ev, now.toISOString(), unsafe))
+  } catch (e) {
+    return { ok: false, logged: false, levelChange: null, note: e instanceof Error ? e.message.slice(0, 200) : 'unexpected error' }
+  }
+}
+
+/** One full read of the US feed: writes what is new or changed, then moves "last checked" for the countries whose stored entry the
+ * feed repeats. Returns the counts. A database problem becomes a note; a missing us_ column (migration 0064 not run) is one plain note. */
+export async function applyUsFeed(
+  admin: SupabaseClient,
+  events: UsEvent[],
+  now: Date,
+  maxAgeDays: number,
+  unsafe?: (t: string) => boolean,
+): Promise<{ logged: number; levelChanges: number; confirmed: number; notes: string[] }> {
+  const out = { logged: 0, levelChanges: 0, confirmed: 0, notes: [] as string[] }
+  const { data, error } = await admin.from('country_advisories').select('slug, us_level, us_source_published_at').limit(2000)
+  if (error) {
+    out.notes.push(missingColumn(error) ? 'US travel advisories: run migration 0064_country_advisories_us.sql, then the US entries will be stored.' : `country_advisories: ${error.message}`.slice(0, 200))
+    return out
+  }
+  const plan = planUsFeed(events, (data ?? []) as { slug: string; us_level: string | null; us_source_published_at: string | null }[], now.getTime(), maxAgeDays)
+  for (const ev of plan.write) {
+    const w = await writeUsEvent(admin, ev, now, unsafe)
+    if (!w.ok) {
+      if (w.note && out.notes.length < 5 && !out.notes.includes(w.note)) out.notes.push(w.note)
+      continue
+    }
+    if (w.logged) out.logged++
+    if (w.levelChange) out.levelChanges++
+  }
+  if (plan.confirmed.length) {
+    const { error: upErr } = await admin.from('country_advisories').update({ us_checked_at: now.toISOString() }).in('slug', plan.confirmed)
+    if (!upErr) out.confirmed = plan.confirmed.length
+  }
+  return out
+}
+
+/** A "not modified" answer from the US feed: every stored US entry is confirmed as still current. Returns how many. Never throws. */
+export async function markUsAllChecked(admin: SupabaseClient, now: Date): Promise<number> {
+  try {
+    const { data, error } = await admin.from('country_advisories').update({ us_checked_at: now.toISOString() }).not('us_level', 'is', null).select('slug')
+    return error ? 0 : (data ?? []).length
+  } catch {
+    return 0
+  }
+}
+
 /** After a good read of the Canada snapshot: the countries whose stored level it CONFIRMS get a fresh ca_checked_at. Returns how many. */
 export async function markCanadaChecked(admin: SupabaseClient, snapshot: { stateKey?: string; stateLevel?: string }[], now: Date): Promise<number> {
   try {
@@ -153,7 +223,7 @@ export async function markCanadaChecked(admin: SupabaseClient, snapshot: { state
   }
 }
 
-export { CA_ADVISORY_SOURCE_KEY, UK_ADVISORY_SOURCE_KEY }
+export { CA_ADVISORY_SOURCE_KEY, UK_ADVISORY_SOURCE_KEY, US_ADVISORY_SOURCE_KEY }
 
 /** What the posting pass reads for a country advisory ledger row (path /travel-advisories/<country>): only a published page with a
  * Canadian level, only while the mode is 'on'. The caption text is the government's own level wording in quote marks, attributed,

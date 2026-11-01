@@ -6,6 +6,8 @@
 //   - A government level is shown only as the government's own words, in quote marks, with the source named. It is never
 //     turned into a score, a colour or a stronger phrase.
 //   - The UK feed has no level. The UK block shows the update line, its date and the link, never a level.
+//   - The US block shows the State Department's own level wording from its feed title ("Level 3: Reconsider Travel"), its lead-in
+//     sentence, the date and the link. The number is never turned into a colour, a score or a comparison with another government.
 //   - Two feeds are merged into one country only when both names reduce to the same slug through the explicit alias list
 //     below. A name that does not match stays a separate country (and is reported, not merged).
 
@@ -20,8 +22,10 @@ export function parseAdvisoryMode(raw: string | null | undefined): AdvisoryMode 
 
 export const CA_ADVISORY_SOURCE_KEY = 'gac-advisories'
 export const UK_ADVISORY_SOURCE_KEY = 'uk-fcdo'
+export const US_ADVISORY_SOURCE_KEY = 'us-state-dept'
 export const CA_ADVISORY_HOSTS = ['travel.gc.ca']
 export const UK_ADVISORY_HOSTS = ['gov.uk']
+export const US_ADVISORY_HOSTS = ['travel.state.gov']
 
 /** The Canadian block says it could not be confirmed once the last successful read of the Canada feed is older than this. */
 export const STALE_AFTER_DAYS = 3
@@ -152,6 +156,11 @@ export interface CountryAdvisoryRow {
   uk_source_url: string | null
   uk_source_published_at: string | null
   uk_checked_at: string | null
+  us_level: string | null
+  us_text: string | null
+  us_source_url: string | null
+  us_source_published_at: string | null
+  us_checked_at: string | null
   status: 'draft' | 'published'
   updated_at?: string | null
 }
@@ -172,8 +181,15 @@ export interface AdvisoryLogRow {
   created_at?: string | null
 }
 
-export const ADVISORY_COLUMNS =
+/** The columns that exist before migration 0064. The store falls back to these while the us_ columns are missing. */
+export const ADVISORY_COLUMNS_LEGACY =
   'slug, name, iso, guide_slug, ca_level, ca_text, ca_source_url, ca_source_published_at, ca_checked_at, uk_text, uk_source_url, uk_source_published_at, uk_checked_at, status, updated_at'
+export const US_COLUMN_NAMES = ['us_level', 'us_text', 'us_source_url', 'us_source_published_at', 'us_checked_at'] as const
+export const ADVISORY_COLUMNS = `${ADVISORY_COLUMNS_LEGACY}, ${US_COLUMN_NAMES.join(', ')}`
+
+/** A row read before migration 0064 has every us_ field empty. */
+export const withNoUs = (row: Record<string, unknown>): CountryAdvisoryRow =>
+  ({ us_level: null, us_text: null, us_source_url: null, us_source_published_at: null, us_checked_at: null, ...row }) as unknown as CountryAdvisoryRow
 
 // ---------------------------------------------------------------------------------------------------
 // Cleaning feed text
@@ -216,7 +232,8 @@ export function urlOnHosts(url: string | null | undefined, hosts: readonly strin
 }
 
 const validIso = (v: string | null | undefined): string | null => (v && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null)
-const hasData = (r: Pick<CountryAdvisoryRow, 'ca_level' | 'ca_text' | 'uk_text'>): boolean => !!(r.ca_level || r.ca_text || r.uk_text)
+const hasData = (r: Pick<CountryAdvisoryRow, 'ca_level' | 'ca_text' | 'uk_text'> & Partial<Pick<CountryAdvisoryRow, 'us_level' | 'us_text'>>): boolean =>
+  !!(r.ca_level || r.ca_text || r.uk_text || r.us_level || r.us_text)
 export { hasData as rowHasData }
 
 // ---------------------------------------------------------------------------------------------------
@@ -251,6 +268,7 @@ const blankRow = (slug: string, name: string): CountryAdvisoryRow => ({
   slug, name, iso: null, guide_slug: null,
   ca_level: null, ca_text: null, ca_source_url: null, ca_source_published_at: null, ca_checked_at: null,
   uk_text: null, uk_source_url: null, uk_source_published_at: null, uk_checked_at: null,
+  us_level: null, us_text: null, us_source_url: null, us_source_published_at: null, us_checked_at: null,
   status: 'published',
 })
 
@@ -323,6 +341,152 @@ export function planUkWrite(existing: CountryAdvisoryRow | null, ev: UkEvent, no
   return { ok: true, row, log, created: !existing }
 }
 
+// ---------------------------------------------------------------------------------------------------
+// US Department of State
+// ---------------------------------------------------------------------------------------------------
+
+export interface UsEvent {
+  /** The country as the feed titles it ("Mexico", "Burma (Myanmar)"). */
+  country: string
+  /** The State Department's own level wording from the feed title, for example "Level 3: Reconsider Travel". */
+  level: string
+  /** The description HTML or text as the feed gave it; only the lead-in sentence is ever used. */
+  description: string
+  url: string
+  publishedAt: string | null
+  guid: string
+  newsItemId?: string | null
+}
+
+const US_QUOTE_MAX = 300
+const US_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', rsquo: "'", lsquo: "'", ldquo: '"', rdquo: '"' }
+const decodeEntities = (t: string): string =>
+  t.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, e: string) => {
+    if (e[0] === '#') {
+      const code = e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)
+      return Number.isFinite(code) && code > 0 && code < 0x110000 ? String.fromCodePoint(code) : m
+    }
+    return US_ENTITIES[e.toLowerCase()] ?? m
+  })
+
+/** The State Department's lead-in sentence, word for word: the text in front of "Read the entire Travel Advisory" (or, when that
+ * marker is missing, the first paragraph). Tags are removed without adding words; only spacing around commas is tidied. Null when
+ * it is missing, shorter than QUOTE_MIN, or longer than US_QUOTE_MAX (it is never cut: a cut quote can say what the government did
+ * not). Pass `unsafe` (looksLikeInjection) to refuse text that talks to a model. */
+export function usQuote(description: string | null | undefined, unsafe?: (t: string) => boolean): string | null {
+  const html = description ?? ''
+  if (!html.trim()) return null
+  const marker = /Read the entire Travel Advisory/i
+  const lead = marker.test(html) ? html.split(marker)[0] : html.split(/<\/p>|<ul|<h\d/i)[0]
+  const text = plain(decodeEntities(lead.replace(/<\/?(?:p|br|li|ul|div|h\d)\b[^>]*>/gi, ' ').replace(/<[^>]*>/g, '')))
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .trim()
+  if (text.length < QUOTE_MIN || text.length > US_QUOTE_MAX) return null
+  if (unsafe && unsafe(text)) return null
+  return text.replace(/"/g, "'")
+}
+
+const US_TITLE = new RegExp(`^(.{2,80}?)\\s+[-\\u2013\\u2014]\\s+(Level\\s+[1-4]\\b.*)$`)
+
+/** Reads the State Department travel advisories RSS text (every item, not only the first few). Items that are not a "<Country> -
+ * Level N: ..." advisory (a Travel Alert, for example) are skipped, never guessed. Pure. */
+export function parseUsAdvisoryFeed(xml: string): UsEvent[] {
+  const out: UsEvent[] = []
+  const tag = (block: string, name: string): string => {
+    const m = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`, 'i').exec(block)
+    if (!m) return ''
+    const cdata = /^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/.exec(m[1])
+    return cdata ? cdata[1] : decodeEntities(m[1])
+  }
+  for (const m of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+    const block = m[1]
+    const title = plain(decodeEntities(tag(block, 'title')).replace(new RegExp(`[${EN_DASH}${EM_DASH}]`, 'g'), '-'))
+    const t = US_TITLE.exec(title)
+    if (!t) continue
+    const url = tag(block, 'link').trim()
+    const pub = tag(block, 'pubDate').trim()
+    const parsed = pub ? Date.parse(/GMT|UTC|[+-]\d{4}$/.test(pub) ? pub : `${pub} 00:00:00 GMT`) : NaN
+    const publishedAt = Number.isFinite(parsed) ? new Date(parsed).toISOString() : null
+    out.push({
+      country: t[1].trim(),
+      level: t[2].trim(),
+      description: tag(block, 'description'),
+      url,
+      publishedAt,
+      guid: `${tag(block, 'guid').trim() || url}|${publishedAt ?? ''}|${t[2].trim()}`.slice(0, 400),
+    })
+  }
+  return out
+}
+
+/** What a State Department advisory writes. Same rules as the Canada and UK plans: an older entry than the one on the row is logged
+ * but does not replace it; a level that differs from the stored one is a level_change; nothing is guessed. */
+export function planUsWrite(existing: CountryAdvisoryRow | null, ev: UsEvent, nowIso: string, unsafe?: (t: string) => boolean): WritePlan {
+  const slug = countrySlugOf(ev.country)
+  if (!slug) return { ok: false, reason: 'unmatched-name', note: `US country name "${ev.country.slice(0, 60)}" does not make a safe page address, so it was not stored.` }
+  const level = cleanLevel(ev.level)
+  const quote = usQuote(ev.description, unsafe)
+  const url = urlOnHosts(ev.url, US_ADVISORY_HOSTS) ? ev.url : null
+  const published = validIso(ev.publishedAt)
+  const from = existing?.us_level ?? null
+  const kind: AdvisoryLogKind = from && level && !sameLevel(from, level) ? 'level_change' : 'text_update'
+  const base = existing ?? blankRow(slug, plain(ev.country).slice(0, 80))
+  const older = !!(existing?.us_source_published_at && published && Date.parse(published) < Date.parse(existing.us_source_published_at))
+  const row: CountryAdvisoryRow = older
+    ? base
+    : { ...base, us_level: level, us_text: quote, us_source_url: url, us_source_published_at: published, us_checked_at: nowIso }
+  const log: AdvisoryLogRow = {
+    country_slug: slug,
+    source_key: US_ADVISORY_SOURCE_KEY,
+    guid: ev.guid.slice(0, 400),
+    kind,
+    level_from: kind === 'level_change' ? from : null,
+    level_to: level,
+    text: quote,
+    source_url: url,
+    source_published_at: published,
+    news_item_id: ev.newsItemId ?? null,
+  }
+  return { ok: true, row, log, created: !existing }
+}
+
+export interface UsFeedPlan {
+  /** Entries to write (new, changed, or the first US entry on a country that already has a page). */
+  write: UsEvent[]
+  /** Slugs whose stored US level and date the feed repeats, so their "last checked" moves. */
+  confirmed: string[]
+}
+
+/** Decides what a full read of the US feed does. A country WITHOUT a page gets one only when its entry is newer than `maxAgeDays`
+ * (so the first read does not create a page for every country in the feed); a country with a page is updated, or confirmed when the
+ * feed repeats what is stored. Pure. */
+export function planUsFeed(
+  events: UsEvent[],
+  rows: Pick<CountryAdvisoryRow, 'slug' | 'us_level' | 'us_source_published_at'>[],
+  nowMs: number,
+  maxAgeDays: number,
+): UsFeedPlan {
+  const bySlug = new Map(rows.map((r) => [r.slug, r]))
+  const write: UsEvent[] = []
+  const confirmed: string[] = []
+  const seen = new Set<string>()
+  for (const ev of events) {
+    const slug = countrySlugOf(ev.country)
+    if (!slug || seen.has(slug)) continue
+    seen.add(slug)
+    const row = bySlug.get(slug)
+    const pub = validIso(ev.publishedAt)
+    if (!row) {
+      if (pub && nowMs - Date.parse(pub) <= maxAgeDays * DAY_MS) write.push(ev)
+      continue
+    }
+    const same = !!row.us_level && sameLevel(row.us_level, cleanLevel(ev.level)) && (row.us_source_published_at ? Date.parse(row.us_source_published_at) : null) === (pub ? Date.parse(pub) : null)
+    if (same) confirmed.push(slug)
+    else write.push(ev)
+  }
+  return { write, confirmed }
+}
+
 /** Rows whose Canadian level the latest snapshot CONFIRMS (same country code, same level wording as stored). Only these get a
  * fresh ca_checked_at, so a country that changed but was held back is never marked as checked. */
 export function confirmedSlugs(snapshot: { stateKey?: string; stateLevel?: string }[], rows: Pick<CountryAdvisoryRow, 'slug' | 'iso' | 'ca_level'>[]): string[] {
@@ -345,7 +509,13 @@ export function dateLabel(iso: string | null | undefined): string | null {
 }
 
 export const sourceLabel = (sourceKey: string): string | null =>
-  sourceKey === CA_ADVISORY_SOURCE_KEY ? 'Government of Canada' : sourceKey === UK_ADVISORY_SOURCE_KEY ? 'UK Foreign, Commonwealth and Development Office' : null
+  sourceKey === CA_ADVISORY_SOURCE_KEY
+    ? 'Government of Canada'
+    : sourceKey === UK_ADVISORY_SOURCE_KEY
+      ? 'UK Foreign, Commonwealth and Development Office'
+      : sourceKey === US_ADVISORY_SOURCE_KEY
+        ? 'US Department of State'
+        : null
 
 export interface CanadaBlock {
   level: string | null
@@ -356,6 +526,7 @@ export interface CanadaBlock {
   stale: boolean
   staleNote: string | null
 }
+export type UsBlock = CanadaBlock
 export interface UkBlock {
   updateLine: string | null
   sourceUrl: string | null
@@ -380,6 +551,8 @@ export interface AdvisoryView {
   indexable: boolean
   canada: CanadaBlock | null
   uk: UkBlock | null
+  /** The US Department of State block; null (not shown) unless the row has a US value. */
+  us: UsBlock | null
   log: LogEntry[]
   dateModified: string | null
   guideSlug: string | null
@@ -401,9 +574,12 @@ export function countryOfAdvisoryPath(path: string): string | null {
 }
 
 /** The wording a Canadian types. Canada first when it has data, otherwise the UK form. */
-export function advisoryTitle(row: Pick<CountryAdvisoryRow, 'name' | 'ca_level' | 'ca_text' | 'uk_text'>): string {
+export function advisoryTitle(row: Pick<CountryAdvisoryRow, 'name' | 'ca_level' | 'ca_text' | 'uk_text'> & Partial<Pick<CountryAdvisoryRow, 'us_level' | 'us_text'>>): string {
   const canada = !!(row.ca_level || row.ca_text)
-  return canada ? `Canada travel advisory for ${row.name}` : `UK travel advice for ${row.name}`
+  if (canada) return `Canada travel advisory for ${row.name}`
+  // A page that has only a US entry is titled for it; a page with a UK line keeps the UK form (the title never changes when a US line is added).
+  if (!row.uk_text && (row.us_level || row.us_text)) return `US travel advisory for ${row.name}`
+  return `UK travel advice for ${row.name}`
 }
 
 export const STALE_NOTE = 'We could not confirm this today. Check the official source.'
@@ -424,7 +600,7 @@ function maxIsoOf(values: (string | null | undefined)[]): string | null {
 
 /** The newest real change on a page: official publish dates and log entries. Never "now", never a check time. */
 export function latestChange(row: CountryAdvisoryRow, log: AdvisoryLogRow[]): string | null {
-  return maxIsoOf([row.ca_source_published_at, row.uk_source_published_at, ...log.map((l) => l.source_published_at ?? l.created_at)])
+  return maxIsoOf([row.ca_source_published_at, row.uk_source_published_at, row.us_source_published_at, ...log.map((l) => l.source_published_at ?? l.created_at)])
 }
 
 /** Builds everything the page prints from one row and its log. Pure. Only fields the row has are filled in. */
@@ -446,12 +622,34 @@ export function buildAdvisoryView(row: CountryAdvisoryRow, log: AdvisoryLogRow[]
       })()
     : null
   const uk: UkBlock | null = ukHas ? { updateLine: row.uk_text, sourceUrl: row.uk_source_url, publishedLabel: dateLabel(row.uk_source_published_at) } : null
+  const usHas = !!(row.us_level || row.us_text)
+  const us: UsBlock | null = usHas
+    ? (() => {
+        const stale = isStale(row.us_checked_at, now)
+        return {
+          level: row.us_level,
+          quote: row.us_text,
+          sourceUrl: row.us_source_url,
+          publishedLabel: dateLabel(row.us_source_published_at),
+          checkedLabel: dateLabel(row.us_checked_at),
+          stale,
+          staleNote: stale ? STALE_NOTE : null,
+        }
+      })()
+    : null
   const entries: LogEntry[] = [...log]
     .sort((a, b) => (Date.parse(b.source_published_at ?? b.created_at ?? '') || 0) - (Date.parse(a.source_published_at ?? a.created_at ?? '') || 0))
     .map((l) => {
       const source = sourceLabel(l.source_key) ?? 'Official source'
+      const q = (v: string) => v.replace(/"/g, "'")
       const text =
-        l.kind === 'level_change' && l.level_to
+        l.source_key === US_ADVISORY_SOURCE_KEY
+          ? l.kind === 'level_change' && l.level_to
+            ? l.level_from
+              ? `The US Department of State changed its advisory from "${q(l.level_from)}" to "${q(l.level_to)}".`
+              : `The US Department of State set its advisory to "${q(l.level_to)}".`
+            : 'The US Department of State updated its advisory.'
+          : l.kind === 'level_change' && l.level_to
           ? l.level_from
             ? `The Government of Canada changed its advisory from "${l.level_from.replace(/"/g, "'")}" to "${l.level_to.replace(/"/g, "'")}".`
             : `The Government of Canada set its advisory to "${l.level_to.replace(/"/g, "'")}".`
@@ -460,10 +658,11 @@ export function buildAdvisoryView(row: CountryAdvisoryRow, log: AdvisoryLogRow[]
             : 'The Government of Canada updated its advisory.'
       return { dateLabel: dateLabel(l.source_published_at ?? l.created_at), source, text, quote: l.text, sourceUrl: l.source_url }
     })
-  const data = caHas || ukHas
+  const data = caHas || ukHas || usHas
   const modified = latestChange(row, log)
   const parts: string[] = []
   if (canada?.level) parts.push(`The Government of Canada's advisory for ${row.name} reads: "${canada.level.replace(/"/g, "'")}".`)
+  if (us?.level) parts.push(`The US Department of State's advisory reads: "${us.level.replace(/"/g, "'")}".`)
   if (uk?.updateLine) parts.push(`The UK FCDO's latest update line is shown with its link.`)
   const description = data
     ? `${parts.join(' ')} Official sources, dates and links on one page. Always check the government page before you travel.`.slice(0, 300)
@@ -479,6 +678,7 @@ export function buildAdvisoryView(row: CountryAdvisoryRow, log: AdvisoryLogRow[]
     indexable: data && row.status === 'published',
     canada,
     uk,
+    us,
     log: entries,
     dateModified: modified,
     guideSlug: row.guide_slug,
@@ -491,6 +691,7 @@ export function buildAdvisoryJsonLd(view: AdvisoryView, absoluteUrl: (p: string)
   const sources: { '@type': 'WebPage'; url: string; name: string; publisher: { '@type': 'GovernmentOrganization'; name: string } }[] = []
   if (view.canada?.sourceUrl) sources.push({ '@type': 'WebPage', url: view.canada.sourceUrl, name: `Government of Canada travel advice for ${view.name}`, publisher: { '@type': 'GovernmentOrganization', name: 'Government of Canada' } })
   if (view.uk?.sourceUrl) sources.push({ '@type': 'WebPage', url: view.uk.sourceUrl, name: `UK FCDO travel advice for ${view.name}`, publisher: { '@type': 'GovernmentOrganization', name: 'UK Foreign, Commonwealth and Development Office' } })
+  if (view.us?.sourceUrl) sources.push({ '@type': 'WebPage', url: view.us.sourceUrl, name: `US Department of State travel advisory for ${view.name}`, publisher: { '@type': 'GovernmentOrganization', name: 'US Department of State' } })
   return {
     '@context': 'https://schema.org',
     '@type': 'WebPage',
@@ -514,6 +715,8 @@ export interface IndexRow {
   title: string
   level: string | null
   ukLine: boolean
+  /** The US Department of State's own level wording, or null. */
+  usLevel: string | null
   updatedLabel: string | null
 }
 
@@ -528,6 +731,7 @@ export function buildIndexRows(rows: CountryAdvisoryRow[], logsBySlug: Record<st
       title: advisoryTitle(r),
       level: r.ca_level,
       ukLine: !!r.uk_text,
+      usLevel: r.us_level,
       updatedLabel: dateLabel(latestChange(r, logsBySlug[r.slug] ?? [])),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))

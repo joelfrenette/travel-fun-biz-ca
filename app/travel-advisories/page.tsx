@@ -57,7 +57,11 @@ export default async function TravelAdvisoriesIndex() {
                 <li key={r.slug} className="p-4">
                   <Link href={r.path} className="font-semibold text-primary hover:underline">{r.title}</Link>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {r.level ? `The Government of Canada says: "${r.level}".` : "See the page for the UK update line."}
+                    {[
+                      r.level ? `The Government of Canada says: "${r.level}".` : "",
+                      r.usLevel ? `The US Department of State says: "${r.usLevel}".` : "",
+                      !r.level && !r.usLevel ? "See the page for the UK update line." : "",
+                    ].filter(Boolean).join(" ")}
                     {r.updatedLabel ? ` Updated ${r.updatedLabel}.` : ""}
                   </p>
                 </li>

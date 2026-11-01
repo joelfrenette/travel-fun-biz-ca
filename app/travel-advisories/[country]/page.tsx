@@ -62,7 +62,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
             </nav>
             <h1 className="mt-3 text-balance text-3xl font-bold text-foreground sm:text-4xl">{view.h1}</h1>
             <p className="mt-3 text-pretty text-muted-foreground">
-              This page shows what the governments of Canada and the UK currently say about travel to {view.name}, in their own words, with a link to each official page. We do not rate or rewrite their advice.
+              This page shows what {[view.canada && "Canada", view.us && "the US", view.uk && "the UK"].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1") || "the governments we follow"} currently say{[view.canada, view.us, view.uk].filter(Boolean).length === 1 ? "s" : ""} about travel to {view.name}, in their own words, with a link to each official page. We do not rate or rewrite their advice.
             </p>
           </div>
         </div>
@@ -86,6 +86,24 @@ export default async function CountryAdvisoryPage({ params }: Props) {
               {view.canada.staleNote && <p role="status" className="mt-3 rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">{view.canada.staleNote}</p>}
               {view.canada.sourceUrl && (
                 <p className="mt-3"><a href={view.canada.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">Read the official Government of Canada advisory for {view.name}</a></p>
+              )}
+            </section>
+          )}
+
+          {view.us && (
+            <section aria-labelledby="us-h" className="rounded-xl border bg-card p-5">
+              <h2 id="us-h" className="text-xl font-bold text-foreground">US Department of State</h2>
+              {view.us.level && (
+                <p className="mt-3 text-foreground">The US Department of State says: <strong>{q(view.us.level)}</strong></p>
+              )}
+              {view.us.quote && <p className="mt-2 text-muted-foreground">From the same advisory: {q(view.us.quote)}</p>}
+              <dl className="mt-3 space-y-1 text-sm text-muted-foreground">
+                {view.us.publishedLabel && <div>Source published {view.us.publishedLabel}</div>}
+                {view.us.checkedLabel && <div>Last checked {view.us.checkedLabel}</div>}
+              </dl>
+              {view.us.staleNote && <p role="status" className="mt-3 rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">{view.us.staleNote}</p>}
+              {view.us.sourceUrl && (
+                <p className="mt-3"><a href={view.us.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">Read the official US Department of State advisory for {view.name}</a></p>
               )}
             </section>
           )}
