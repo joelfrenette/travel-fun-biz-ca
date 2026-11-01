@@ -18,6 +18,8 @@ import { getTripSocialEnabled, setTripSocialEnabled } from '@/lib/trip-social'
 import { getProvider, setProvider, getGhlAccounts, setGhlAccounts, type Provider, type GhlAccountRef } from '@/lib/social-provider'
 import { ghlSocialConfigured, ghlSocialMissing, ghlListAccounts } from '@/lib/ghl-social'
 import { effectiveNetworks, describeEffective } from '@/lib/effective-networks'
+import { getVideoExtraModes, readVideoExtraLog, parseVideoExtraMode, YOUTUBE_SHORTS_MODE_KEY, INSTAGRAM_REELS_MODE_KEY } from '@/lib/video-extra-platforms'
+import { setSetting } from '@/lib/app-settings'
 
 // The one place to set up where content gets posted: provider, which profile, which connected
 // accounts, and whether posts need your OK first. Replaces typing a profile name and a platform list
@@ -50,7 +52,9 @@ export async function GET(request: Request) {
       ghl: ghlInfo,
       upload: { configured: uploadPostConfigured(), profilesError: listed.error ?? null, profiles: listed.profiles ?? [], selectedProfile: accounts[0] ?? '', selectedPlatforms: platforms },
     })
+    const [videoExtraModes, videoExtraLog] = await Promise.all([getVideoExtraModes(admin), readVideoExtraLog(admin)])
     return NextResponse.json({
+      videoExtras: { modes: videoExtraModes, recent: videoExtraLog.slice(0, 5).map((e) => ({ at: e.at, slug: e.slug, networks: e.networks })) },
       provider,
       effective: { ...effective, summary: describeEffective(effective) },
       ghl: ghlInfo,
@@ -99,6 +103,13 @@ export async function POST(request: Request) {
     }
     if (Array.isArray(body.platforms)) {
       const { error } = await setDistributionPlatforms(admin, body.platforms.filter((p: unknown): p is string => typeof p === 'string'))
+      if (error) throw new Error(error)
+      return NextResponse.json({ ok: true })
+    }
+    // Must come before the posting-mode branch below, which also reads body.mode.
+    if (body.videoExtra === 'youtube' || body.videoExtra === 'instagram') {
+      if (body.mode !== 'off' && body.mode !== 'log' && body.mode !== 'on') return NextResponse.json({ error: 'mode must be off, log or on' }, { status: 400 })
+      const { error } = await setSetting(admin, body.videoExtra === 'youtube' ? YOUTUBE_SHORTS_MODE_KEY : INSTAGRAM_REELS_MODE_KEY, parseVideoExtraMode(body.mode))
       if (error) throw new Error(error)
       return NextResponse.json({ ok: true })
     }
