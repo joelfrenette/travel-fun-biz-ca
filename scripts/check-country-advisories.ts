@@ -5,12 +5,13 @@
 // Run: npx --yes tsx --tsconfig tsconfig.json scripts/check-country-advisories.ts
 import { readFileSync } from 'node:fs'
 import { fakeAdmin, type Db, type Row } from './fake-admin'
-import { sourceByKey } from '../lib/news-sources'
+import { MAX_FEED_BYTES, isAllowedFeedUrl, linkAllowedFor, redirectAllowedFor, sourceByKey } from '../lib/news-sources'
 import { ingestFeeds } from '../lib/news-ingest'
 import { GAC_STATE_KEY } from '../lib/news-ingest'
-import type { FetchDeps } from '../lib/news-feed'
+import { fetchFeed, parseFeed, type FetchDeps } from '../lib/news-feed'
 import {
   ADVISORY_MODE_KEY,
+  BACKFILL_STATE_KEY,
   COUNTRY_ALIASES,
   advisoryLinkForGuide,
   advisorySitemapEntries,
@@ -20,6 +21,8 @@ import {
   confirmedSlugs,
   countrySlugOf,
   parseAdvisoryMode,
+  parseBackfillState,
+  planBackfill,
   planCanadaWrite,
   parseUsAdvisoryFeed,
   planUkWrite,
@@ -29,6 +32,7 @@ import {
   usQuote,
   unmatchedNames,
   type AdvisoryLogRow,
+  type CaEvent,
   type CountryAdvisoryRow,
 } from '../lib/country-advisory'
 import { getAdvisoryMode, writeCanadaEvent, writeUkEvent, loadAdvisoryPostSource } from '../lib/country-advisory-store'
@@ -215,7 +219,9 @@ async function main() {
   }
   const off = await runIngest({})
   const offBogus = await runIngest({ [ADVISORY_MODE_KEY]: 'ON' })
-  const logRun = await runIngest({ [ADVISORY_MODE_KEY]: 'log' })
+  // The checks in this section are about the normal change flow, so the one-time backfill is marked done for them (section 8 covers it).
+  const GUARDED = { [BACKFILL_STATE_KEY]: JSON.stringify({ v: 1, done: { ca: 'x', uk: 'x', us: 'x' } }) }
+  const logRun = await runIngest({ [ADVISORY_MODE_KEY]: 'log', ...GUARDED })
   check('off: the ingest result carries no advisories note', off.res.advisories === undefined && offBogus.res.advisories === undefined)
   check('off: neither advisory table exists or has a row', rowsOf(off.db, 'country_advisories').length === 0 && rowsOf(off.db, 'country_advisory_log').length === 0 && rowsOf(offBogus.db, 'country_advisories').length === 0)
   const sig = (db: Db) => JSON.stringify(rowsOf(db, 'news_items').map((r) => [r.source_key, r.guid, r.title, r.status, r.category]).sort())
@@ -368,12 +374,20 @@ async function main() {
       `<item><title>${title}</title><link>https://travel.state.gov/content/tsg_aem/us/en/home/international-travel/travel-advisories/destination.${slug}.html</link><pubDate>${pub}</pubDate><guid>https://travel.state.gov/content/tsg_aem/us/en/home/international-travel/travel-advisories/destination.${slug}.html</guid><description><![CDATA[${desc}]]></description></item>`
     const feed = (...items: string[]) => `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>travel.state.gov: Travel Advisories</title>${items.join('')}</channel></rss>`
     const IRAN = 'Do not travel<p>to <b>Iran </b>due to the risk of <b>terrorism</b>, <b>unrest</b>, <b>kidnapping</b>, and <b>wrongful detention</b> of U.S. citizens. Read the entire Travel Advisory.</p><ul><li>Other bullet text.</li></ul>'
+    // The real shape of https://cadataapi.state.gov/api/XMLTravelAdvisories (checked 2026-11-01): an Atom <feed>, one <entry> per
+    // country with <link href rel="alternate" type="" />, category tags, an HTML-escaped <summary type="html">, <id> (the page URL),
+    // <published> and <updated> as midnight UTC.
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const usPage = (slug: string) => `https://travel.state.gov/content/tsg_aem/us/en/home/international-travel/travel-advisories/destination.${slug}.html`
+    const usAtomEntry = (title: string, slug: string, pubIso: string, desc: string) =>
+      `<entry><title>${title}</title><link href="${usPage(slug)}" rel="alternate" type="" /><category label="Threat-Level" term="x" /><category label="Country-Tag" term="XX" /><category label="Keyword" term="advisory" /><summary type="html">${esc(desc)}</summary><id>${usPage(slug)}</id><published>${pubIso}</published><updated>${pubIso}</updated></entry>`
+    const usAtomFeed = (...entries: string[]) => `<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/"><id>https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.feed</id><updated>2026-10-31T09:00:00Z</updated><title>Travel Advisories</title>${entries.join('')}</feed>`
     const mxFeed = (level: string, pub: string) =>
-      feed(
-        usItem(`Mexico - ${level}`, 'mex', pub, 'Exercise increased caution<p>in <b>Mexico</b> due to <b>crime</b>. Read the entire Travel Advisory.</p>'),
-        usItem('Peru - Level 2: Exercise Increased Caution', 'per', 'Fri, 30 Oct 2026', 'Exercise increased caution<p>in <b>Peru</b> due to <b>crime</b> and <b>civil unrest</b>. Read the entire Travel Advisory.</p>'),
-        usItem('Syria - Level 4: Do Not Travel', 'syr', 'Mon, 05 Oct 2026', IRAN),
-        usItem('Worldwide Caution', 'ww', 'Fri, 30 Oct 2026', 'A Travel Alert, not a country advisory.'),
+      usAtomFeed(
+        usAtomEntry(`Mexico - ${level}`, 'mex', new Date(Date.parse(pub + ' 00:00:00 GMT')).toISOString().replace('.000Z', 'Z'), 'Exercise increased caution<p>in <b>Mexico</b> due to <b>crime</b>. Read the entire Travel Advisory.</p>'),
+        usAtomEntry('Peru - Level 2: Exercise Increased Caution', 'per', '2026-10-30T00:00:00Z', 'Exercise increased caution<p>in <b>Peru</b> due to <b>crime</b> and <b>civil unrest</b>. Read the entire Travel Advisory.</p>'),
+        usAtomEntry('Syria - Level 4: Do Not Travel', 'syr', '2026-10-05T00:00:00Z', IRAN),
+        usAtomEntry('Worldwide Caution', 'ww', '2026-10-30T00:00:00Z', 'A Travel Alert, not a country advisory.'),
       )
 
     // -- pure: parser and quote --
@@ -400,7 +414,7 @@ async function main() {
     check('US feed plan: a repeat is confirmed, a recent new country is written, an old country with no page is ignored', fp.confirmed.join() === 'mexico' && fp.write.map((e) => e.country).join() === 'Peru', JSON.stringify(fp))
 
     // -- ingest: a real ingest pass with the fake database --
-    const usRoutes = (body: string) => ({ ...routes(payload(BASE), atom()), [usSrc.feedUrl]: { body, type: 'application/rss+xml' } })
+    const usRoutes = (body: string) => ({ ...routes(payload(BASE), atom()), [usSrc.feedUrl]: { body, type: 'application/xml' } })
     const t1 = NOW - 60 * 60_000
     const run = async (w: ReturnType<typeof world>, body: string, at: number) =>
       ingestFeeds(w.admin, { fetchDeps: deps(usRoutes(body), () => at), now: new Date(at), sources: [usSrc] })
@@ -412,8 +426,8 @@ async function main() {
     await run(offUs, mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'), t1)
     check('US ingest (off): nothing is written to the advisory tables', rowsOf(offUs.db, 'country_advisory_log').length === 0 && rowsOf(offUs.db, 'country_advisories')[0].us_level === null)
 
-    const w = world({ [ADVISORY_MODE_KEY]: 'log' }, seedMexico())
-    const r1 = await run(w, mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'), t1)
+    const w = world({ [ADVISORY_MODE_KEY]: 'log', ...GUARDED }, seedMexico())
+    const r1 = await run(w,mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'), t1)
     const mxRow = rowsOf(w.db, 'country_advisories').find((r) => r.slug === 'mexico')
     const peruRow = rowsOf(w.db, 'country_advisories').find((r) => r.slug === 'peru')
     check('US ingest (log): Mexico (has a page) gets the State Department level, quote and official link', !!mxRow && mxRow.us_level === 'Level 2: Exercise Increased Caution' && mxRow.us_text === 'Exercise increased caution in Mexico due to crime.' && String(mxRow.us_source_url).includes('travel.state.gov') && mxRow.ca_level === CAUTION, JSON.stringify(mxRow))
@@ -465,6 +479,131 @@ async function main() {
     const sql = readFileSync('supabase/migrations/0064_country_advisories_us.sql', 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
     const cols = ['us_level', 'us_text', 'us_source_url', 'us_source_published_at', 'us_checked_at']
     check('migration 0064: five idempotent add-column statements and nothing destructive', cols.every((c) => new RegExp(`add column if not exists ${c} `).test(sql)) && !/\b(drop|delete|truncate)\b/i.test(sql) && !/\bupdate\s+public\./i.test(sql))
+
+    // ===============================================================================================
+    // 7b. The source is the State Department's official API host (Atom), not the blocked travel.state.gov RSS
+    // ===============================================================================================
+    check('US source: the feed is the official API host, the item links still need travel.state.gov', usSrc.feedUrl === 'https://cadataapi.state.gov/api/XMLTravelAdvisories' && usSrc.linkHosts.join() === 'travel.state.gov' && isAllowedFeedUrl(usSrc.feedUrl) && !isAllowedFeedUrl('https://travel.state.gov/_res/rss/TAsTWs.xml'))
+    check('US source: an item link on travel.state.gov passes, one anywhere else is dropped', linkAllowedFor(usSrc, usPage('mex')) && !linkAllowedFor(usSrc, 'https://evil.example/x') && !linkAllowedFor(usSrc, 'http://travel.state.gov/x'))
+    check('US source: a redirect may stay on the API host or travel.state.gov, nowhere else', redirectAllowedFor(usSrc, 'https://cadataapi.state.gov/api/x') && redirectAllowedFor(usSrc, 'https://travel.state.gov/x') && !redirectAllowedFor(usSrc, 'https://example.com/x'))
+    const atomParsed = parseUsAdvisoryFeed(mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'))
+    check('US Atom parse: country, level wording, official link (href), id and full-ISO date are read; the Travel Alert entry is skipped', atomParsed.length === 3 && atomParsed[0].country === 'Mexico' && atomParsed[0].level === 'Level 2: Exercise Increased Caution' && atomParsed[0].url === usPage('mex') && atomParsed[0].publishedAt === '2026-10-30T00:00:00.000Z' && atomParsed[0].guid.startsWith(usPage('mex') + '|2026-10-30'), JSON.stringify(atomParsed[0]))
+    check('US Atom parse: the escaped summary gives the same lead-in sentence word for word', usQuote(atomParsed[0].description) === 'Exercise increased caution in Mexico due to crime.', String(usQuote(atomParsed[0].description)))
+    {
+      // A feed the size of the real one (218 entries, about 600 KB) is bigger than most feeds but inside the source's own cap; the news parser keeps the newest first.
+      const big = usAtomFeed(...Array.from({ length: 218 }, (_v, i) => usAtomEntry(`Country${i} - Level 1: Exercise Normal Precautions`, `c${i}`, `2026-${i % 2 ? '09' : '10'}-${String(1 + (i % 28)).padStart(2, '0')}T00:00:00Z`, `Exercise normal precautions<p>in <b>Country${i}</b>. Read the entire Travel Advisory.</p>${'<ul><li>filler text for the size of the real advisory body</li></ul>'.repeat(60)}`)))
+      check('US size: a real-sized feed is over the normal cap and under the source cap', big.length > 600_000 && big.length < (usSrc.maxBytes ?? 0) && (usSrc.maxBytes ?? 0) > MAX_FEED_BYTES, String(big.length))
+      check('US size: with the normal cap the news parser refuses it, with the source cap it reads past the first 40 items', !!parseFeed(big, { now: NOW }).error && parseFeed(big, { now: NOW, maxBytes: usSrc.maxBytes, maxItems: usSrc.maxItems }).items.length === 218)
+      check('US size: the advisory parser reads every entry of it', parseUsAdvisoryFeed(big).length === 218)
+      const calls: string[] = []
+      const rec: FetchDeps = { now: () => NOW, fetch: (async (url: string) => { calls.push(String(url)); return String(url).endsWith('/robots.txt') ? new Response('', { status: 404 }) : new Response(big, { status: 200, headers: { 'content-type': 'application/xml' } }) }) as unknown as typeof fetch }
+      const got = await fetchFeed(usSrc, { fails: 0 }, rec)
+      check('US fetch: robots.txt is read on the API host first (not skipped), then the feed; the big body is accepted', got.kind === 'ok' && calls.join() === 'https://cadataapi.state.gov/robots.txt,https://cadataapi.state.gov/api/XMLTravelAdvisories' && got.robots?.host === 'cadataapi.state.gov', calls.join())
+      const over = await fetchFeed(usSrc, { fails: 0 }, { ...rec, fetch: (async (url: string) => (String(url).endsWith('/robots.txt') ? new Response('', { status: 404 }) : new Response('y'.repeat((usSrc.maxBytes ?? 0) + 10), { status: 200, headers: { 'content-type': 'application/xml' } }))) as unknown as typeof fetch })
+      check('US fetch: a body over the source cap is still refused', over.kind === 'error' && /size limit/.test(over.error), JSON.stringify(over))
+      const denied = await fetchFeed(usSrc, { fails: 0 }, { ...rec, fetch: (async (url: string) => (String(url).endsWith('/robots.txt') ? new Response('User-agent: *\nDisallow: /api/\n', { status: 200 }) : new Response(big, { status: 200 }))) as unknown as typeof fetch })
+      check('US fetch: a robots.txt that disallows the API path stops the fetch (the check is honest)', denied.kind === 'error' && /robots/.test(denied.error))
+      const blocked = await fetchFeed(usSrc, { fails: 0 }, { ...rec, fetch: (async (url: string) => (String(url).endsWith('/robots.txt') ? new Response('', { status: 403 }) : new Response(big, { status: 200 }))) as unknown as typeof fetch })
+      check('US fetch: an unreadable robots.txt (403) still stops the fetch, no workaround', blocked.kind === 'error' && /robots\.txt \(HTTP 403\)/.test(blocked.error))
+      calls.length = 0
+      const staleHost = await fetchFeed(usSrc, { fails: 0, robotsAt: new Date(NOW - 60_000).toISOString(), robotsAllowed: true, robotsHost: 'travel.state.gov' }, rec)
+      check('US fetch: a robots answer cached for the OLD host is not reused for the new host', staleHost.kind === 'ok' && calls[0] === 'https://cadataapi.state.gov/robots.txt', calls.join())
+    }
+
+    // ===============================================================================================
+    // 8. The one-time backfill: every country in a full snapshot gets a row, quietly, once
+    // ===============================================================================================
+    {
+      const rowsNow = (db: Db) => rowsOf(db, 'country_advisories') as unknown as CountryAdvisoryRow[]
+      const guard = (db: Db) => parseBackfillState(rowsOf(db, 'app_settings').find((r) => r.key === BACKFILL_STATE_KEY)?.value as string | undefined)
+      // ---- pure planner ----
+      const caEv = (iso2: string, name: string, level: string, desc = ''): CaEvent => ({ iso: iso2, name, level, description: desc, url: `https://travel.gc.ca/destinations/${name.toLowerCase()}`, publishedAt: iso(NOW - 2 * DAY), guid: `gac:${iso2}:h` })
+      const p1 = planBackfill({ source: 'ca', events: [caEv('mx', 'Mexico', CAUTION, 'Violence occurs in parts of the country.'), caEv('fr', 'France', CAUTION), caEv('xx', '***', CAUTION)] }, [], iso(NOW))
+      check('backfill plan: every usable country gets a row with the official level, link and date; an unusable name is skipped with a note', p1.created === 2 && p1.rows.map((r) => r.slug).sort().join() === 'france,mexico' && p1.rows.every((r) => r.ca_level === CAUTION && String(r.ca_source_url).startsWith('https://travel.gc.ca/') && r.ca_source_published_at === iso(NOW - 2 * DAY) && r.status === 'published') && p1.notes.length === 1, JSON.stringify(p1))
+      check('backfill plan: it makes no log row (the plan carries only rows)', !('log' in p1) && p1.rows.every((r) => !('guid' in r)))
+      const p2 = planBackfill({ source: 'ca', events: [caEv('mx', 'Mexico', 'Avoid all travel', 'New wording.'), caEv('fr', 'France', CAUTION)] }, p1.rows, iso(NOW))
+      check('backfill plan: a country that already has Canadian data is left exactly as it is (additive, never overwritten)', p2.rows.length === 0 && p2.skipped === 2)
+      const peruRow = tables().country_advisories.find((r) => r.slug === 'peru') as unknown as CountryAdvisoryRow
+      const p3 = planBackfill({ source: 'ca', events: [{ iso: 'pe', name: 'Peru', level: CAUTION, description: '', url: 'https://travel.gc.ca/destinations/peru', publishedAt: iso(NOW), guid: 'g' }] }, [peruRow], iso(NOW))
+      check('backfill plan: an existing UK-only page gets the Canadian fields and keeps its UK line, id and status', p3.filled === 1 && p3.rows[0].ca_level === CAUTION && p3.rows[0].uk_text === peruRow.uk_text && p3.rows[0].uk_source_url === peruRow.uk_source_url && p3.rows[0].status === peruRow.status)
+      const p4 = planBackfill({ source: 'ca', events: [caEv('mx', 'Mexico', CAUTION), caEv('mx', 'Mexico', 'Avoid all travel')] }, [], iso(NOW))
+      check('backfill plan: two entries for one page make one row (the first wins)', p4.rows.length === 1 && p4.rows[0].ca_level === CAUTION)
+      const usAll = parseUsAdvisoryFeed(mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'))
+      const pu = planBackfill({ source: 'us', events: usAll }, [], iso(NOW))
+      check('backfill plan (US): an OLD entry (Syria, 26 days) still gets its row, with its official date; the Travel Alert is not a row', pu.rows.map((r) => r.slug).sort().join() === 'mexico,peru,syria' && pu.rows.find((r) => r.slug === 'syria')?.us_source_published_at === '2026-10-05T00:00:00.000Z' && pu.rows.every((r) => r.ca_level === null && r.uk_text === null))
+      const pe = planBackfill({ source: 'uk', events: [{ country: 'Belgium', summary: 'x', url: 'https://www.gov.uk/foreign-travel-advice/belgium', publishedAt: iso(NOW), guid: 'u' }] }, [], iso(NOW))
+      check('backfill plan (UK): a line too short to quote makes no row (no empty page)', pe.rows.length === 0 && pe.skipped === 1)
+      check('backfill guard: parse is strict and fails to "nothing done"', parseBackfillState('{"v":1,"done":{"ca":"2026-11-01T00:00:00Z","zz":"x"}}').ca === '2026-11-01T00:00:00Z' && Object.keys(parseBackfillState('{"v":1,"done":{"zz":"x"}}')).length === 0 && Object.keys(parseBackfillState('junk')).length === 0 && Object.keys(parseBackfillState(null)).length === 0)
+
+      // ---- through the ingest, with the fake database ----
+      const UKFEED = atom(ukEntry('Belgium', 'belgium', ukLine, NOW - 2 * DAY), ukEntry('Colombia', 'colombia', 'Updated information on entry requirements for British passport holders (Entry requirements).', NOW - DAY))
+      const allRoutes = (usBody: string) => ({ ...routes(payload(BASE), UKFEED), [usSrc.feedUrl]: { body: usBody, type: 'application/xml' } })
+      const tFirst = NOW - 3 * 3_600_000
+      const pass = (w: ReturnType<typeof world>, at: number, usBody = mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026')) =>
+        ingestFeeds(w.admin, { fetchDeps: deps(allRoutes(usBody), () => at), now: new Date(at), sources: [gac, ukSrc, usSrc] })
+      const postRows = (db: Db) => rowsOf(db, 'post_distribution').length
+
+      const offW = world({}, { country_advisories: [], country_advisory_log: [] })
+      await pass(offW, tFirst)
+      check('backfill (mode off): nothing is written and no guard is set', rowsOf(offW.db, 'country_advisories').length === 0 && !rowsOf(offW.db, 'app_settings').some((r) => r.key === BACKFILL_STATE_KEY))
+
+      const newsOff = world({ distribution_mode: 'auto', travel_news_per_day: '3' })
+      await pass(newsOff, tFirst)
+      const w = world({ [ADVISORY_MODE_KEY]: 'log', distribution_mode: 'auto', travel_news_per_day: '3' })
+      const r1 = await pass(w, tFirst)
+      const rows1 = rowsNow(w.db)
+      const bySlug = (s: string) => rows1.find((r) => r.slug === s)
+      check('backfill (log): the first read gives EVERY country in the Canada snapshot a row, not only the ones that changed', ['mexico', 'france', 'japan', 'haiti', 'egypt'].every((s) => bySlug(s)?.ca_level && bySlug(s)?.ca_checked_at), rows1.map((r) => r.slug).join())
+      check('backfill (log): Canada rows carry the official level, link and publish date, and nothing the feed did not say', bySlug('haiti')?.ca_level === 'Avoid all travel' && String(bySlug('haiti')?.ca_source_url).startsWith('https://travel.gc.ca/') && bySlug('mexico')?.ca_text === 'Violence linked to organized crime occurs in parts of the country.' && bySlug('france')?.ca_text === null && bySlug('france')?.uk_text === null && bySlug('france')?.us_level === null)
+      check('backfill (log): the US feed gives Syria (an old entry the normal flow ignores), Peru and Mexico their State Department line', bySlug('syria')?.us_level === 'Level 4: Do Not Travel' && bySlug('syria')?.us_text !== null && bySlug('peru')?.us_level === 'Level 2: Exercise Increased Caution' && bySlug('mexico')?.us_level === 'Level 2: Exercise Increased Caution' && bySlug('mexico')?.ca_level === CAUTION)
+      check('backfill (log): the UK feed gives its countries the update line and no level', bySlug('belgium')?.uk_text !== null && bySlug('belgium')?.ca_level === null && bySlug('colombia')?.uk_text !== null)
+      check('backfill (log): all three sources are marked done', Object.keys(guard(w.db)).sort().join() === 'ca,uk,us', JSON.stringify(guard(w.db)))
+      const bf = r1.advisories?.backfill ?? []
+      check('backfill (log): the note says what each source created', bf.length === 3 && bf.find((b) => b.source === 'ca')?.created === 5, JSON.stringify(bf))
+      const bfLogs = rowsOf(w.db, 'country_advisory_log').filter((l) => l.guid !== undefined)
+      check('backfill: the backfill itself wrote no update-log row (only the normal flow may log a recent change)', bfLogs.every((l) => l.country_slug !== 'haiti' && l.country_slug !== 'france' && l.country_slug !== 'japan' && l.country_slug !== 'egypt' && l.country_slug !== 'syria'), JSON.stringify(bfLogs.map((l) => l.country_slug)))
+      check('backfill: no social enrolment and the news items are identical with or without the advisory mode', postRows(w.db) === 0 && sig(w.db) === sig(newsOff.db), `${postRows(w.db)} ledger rows`)
+      const snapshot = JSON.stringify(rows1)
+      // Guard gone (lost setting) and a later read: the re-run changes nothing that was saved.
+      w.db.tables.app_settings = rowsOf(w.db, 'app_settings').filter((r) => r.key !== BACKFILL_STATE_KEY)
+      const logCount = rowsOf(w.db, 'country_advisory_log').length
+      const r2 = await pass(w, NOW - 3_600_000)
+      const rows2 = rowsNow(w.db)
+      const same = rows1.every((a) => { const b = rows2.find((x) => x.slug === a.slug); return !!b && ['ca_level', 'ca_text', 'ca_source_url', 'ca_source_published_at', 'uk_text', 'uk_source_url', 'uk_source_published_at', 'us_level', 'us_text', 'us_source_url', 'us_source_published_at', 'status', 'guide_slug', 'name', 'iso'].every((c) => (a as unknown as Record<string, unknown>)[c] === (b as unknown as Record<string, unknown>)[c]) })
+      void snapshot
+      check('backfill (re-run with the guard lost): no row changes, none is added, and the guard is set again', same && rows2.length === rows1.length && Object.keys(guard(w.db)).length === 3 && (r2.advisories?.backfill ?? []).every((b) => b.created === 0 && b.filled === 0), JSON.stringify(r2.advisories?.backfill))
+      check('backfill (re-run): no new log rows', rowsOf(w.db, 'country_advisory_log').length === logCount)
+      const r3 = await pass(w, NOW - 1_800_000)
+      check('backfill (guard set): a later read does not run it again', (r3.advisories?.backfill ?? []).length === 0)
+
+      // A real change AFTER the backfill is a proper level change from the backfilled level.
+      const changed = BASE.map((c) => (c.iso === 'MX' ? { ...c, text: 'Avoid non-essential travel', description: 'Cartel violence has increased in several states.', date: '2026-10-31T10:00:00Z' } : c))
+      await ingestFeeds(w.admin, { fetchDeps: deps({ ...allRoutes(mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026')), [gac.feedUrl]: { body: payload(changed), type: 'application/json' } }, () => NOW), now: new Date(NOW), sources: [gac] })
+      const lcs = rowsOf(w.db, 'country_advisory_log').filter((l) => l.country_slug === 'mexico' && l.source_key === 'gac-advisories')
+      check('backfill: a real change after it logs a level_change from the backfilled level', lcs.length === 1 && lcs[0].kind === 'level_change' && lcs[0].level_from === CAUTION && lcs[0].level_to === 'Avoid non-essential travel', JSON.stringify(lcs))
+
+      // Additive against rows that already exist: a hand-set guide link and a draft status survive, and an existing level is never overwritten.
+      const pre = world({ [ADVISORY_MODE_KEY]: 'log' }, { country_advisories: [mkRow({ slug: 'haiti', name: 'Haiti', iso: 'ht', ca_level: 'Avoid non-essential travel', guide_slug: 'haiti-guide', status: 'draft' }), mkRow({ slug: 'egypt', name: 'Egypt', iso: 'eg', ca_level: null, ca_text: null, ca_source_url: null, ca_source_published_at: null, ca_checked_at: null, guide_slug: 'egypt-guide', status: 'draft' })], country_advisory_log: [] })
+      await pass(pre, tFirst)
+      const ht = rowsNow(pre.db).find((r) => r.slug === 'haiti')
+      const eg = rowsNow(pre.db).find((r) => r.slug === 'egypt')
+      check('backfill: a row that already has a Canadian level keeps it (the snapshot wording is not written over it)', ht?.ca_level === 'Avoid non-essential travel' && ht.guide_slug === 'haiti-guide' && ht.status === 'draft')
+      check('backfill: an empty existing row is filled and keeps its hand-set guide link and draft status', eg?.ca_level === CAUTION && eg.guide_slug === 'egypt-guide' && eg.status === 'draft')
+
+      // A failing write is a note, not a crash, and the guard is NOT set (so the next read tries again).
+      const bad = world({ [ADVISORY_MODE_KEY]: 'log' }, { country_advisories: [], country_advisory_log: [] })
+      bad.db.failWrites = { country_advisories: 'boom' }
+      const rb = await pass(bad, tFirst)
+      check('backfill (write fails): a note, no guard set, no exception', (rb.advisories?.notes ?? []).some((n) => /backfill/.test(n)) && !guard(bad.db).ca)
+
+      // Pages and sitemap: once the mode is on, the backfilled countries appear (only those with data), with real dates.
+      const live = world({ [ADVISORY_MODE_KEY]: 'on' }, { country_advisories: rows1 as unknown as Row[], country_advisory_log: [] })
+      const lm = await loadAdvisorySitemap(live.admin)
+      const ix = await loadAdvisoryIndex(live.admin)
+      check('backfill pages: the index and the sitemap list every backfilled country, sitemap dates are official dates (never now)', !!ix && ix.length === rows1.length && lm.length === rows1.length + 1 && lm.every((e) => e.lastModified !== null && Date.parse(e.lastModified) < NOW), `${ix?.length} / ${lm.length} / ${rows1.length}`)
+      const haiti = await loadAdvisoryPage('haiti', new Date(NOW), live.admin)
+      check('backfill pages: a backfilled page renders with the official level, is indexable and has no invented log', !!haiti && haiti.indexable && haiti.canada?.level === 'Avoid all travel' && haiti.log.length === 0 && haiti.title === 'Canada travel advisory for Haiti')
+    }
   }
 
   console.log(failed === 0 ? '\nAll travel advisory checks passed.' : `\n${failed} check(s) FAILED.`)

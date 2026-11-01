@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { looksLikeInjection, type RawFeedItem } from '@/lib/news-feed'
 import { ukCountryOf } from '@/lib/news-uk'
-import { CA_ADVISORY_SOURCE_KEY, advisoryTitle, type AdvisoryMode } from '@/lib/country-advisory'
-import { applyUsFeed, markCanadaChecked, writeCanadaEvent, writeUkEvent } from '@/lib/country-advisory-store'
+import { CA_ADVISORY_SOURCE_KEY, advisoryTitle, planBackfill, type AdvisoryMode, type BackfillInput, type BackfillSource, type CaEvent, type UkEvent } from '@/lib/country-advisory'
+import { applyUsFeed, listAllAdvisories, markBackfillDone, markCanadaChecked, readBackfillDone, saveBackfillRows, writeCanadaEvent, writeUkEvent } from '@/lib/country-advisory-store'
 import { parseUsAdvisoryFeed } from '@/lib/country-advisory'
 import { enrollAdvisoryIfDue } from '@/lib/country-advisory-social'
 
@@ -19,6 +19,8 @@ export interface AdvisoryIngestNote {
   /** Countries whose stored Canadian level the snapshot confirmed (their "last checked" moved). */
   confirmed: number
   social: { enrolled: number; skipped: number; ceiling: number }
+  /** One-time backfill results of THIS read (only a source that actually ran appears here). */
+  backfill?: { source: BackfillSource; created: number; filled: number; skipped: number }[]
   /** Plain notes for Needs attention: a name that could not be matched, a write that failed. */
   notes: string[]
 }
@@ -89,6 +91,63 @@ export async function dualWriteUs(admin: SupabaseClient, note: AdvisoryIngestNot
     for (const n of r.notes) addNote(note, n)
   } catch (e) {
     addNote(note, `travel advisories (US): ${e instanceof Error ? e.message.slice(0, 120) : 'unexpected error'}`)
+  }
+}
+
+/** The Canadian snapshot items as backfill events. An entry without a name or a level is left out (nothing is guessed). */
+export function caBackfillEvents(snapshot: RawFeedItem[]): CaEvent[] {
+  return snapshot
+    .filter((i) => i.stateKey && i.stateName && i.stateLevel)
+    .map((i) => ({ iso: i.stateKey as string, name: i.stateName as string, level: i.stateLevel as string, description: i.summary, url: i.url, publishedAt: i.publishedAt, guid: i.guid }))
+}
+
+/** The UK feed entries (already shaped: "UK travel advice update for X") as backfill events. A title with no country is left out. */
+export function ukBackfillEvents(items: RawFeedItem[]): UkEvent[] {
+  const out: UkEvent[] = []
+  for (const i of items) {
+    const country = ukCountryOf(i.title)
+    if (country) out.push({ country, summary: i.summary, url: i.url, publishedAt: i.publishedAt, guid: i.guid })
+  }
+  return out
+}
+
+/** The ONE-TIME backfill: the first good read of a source's full list gives every country in it a row, not only the ones that
+ * changed. Called from the news ingest after a good read, only while the advisory mode is log or on (the caller passes `note` only then).
+ *
+ * Safe by construction:
+ *  - guarded: app_settings.country_advisories_backfill remembers each source once it has fully run; a source that is done is not read
+ *    again, and an unreadable guard means "do nothing" (never "run");
+ *  - additive: planBackfill leaves a country that already has data from this source exactly as it is, and creates nothing empty;
+ *  - official wording only: the same level, quote, link and date the live dual write stores, never a made-up value;
+ *  - quiet: no update-log row, no social enrolment, no news item (this function does not touch news_items or the posting ledger);
+ *  - re-runnable: if it fails half way the guard is not set, and the next read does the rest without touching what is already saved.
+ * Never throws. */
+export async function backfillAdvisories(admin: SupabaseClient, note: AdvisoryIngestNote, input: BackfillInput, now: Date): Promise<void> {
+  try {
+    const guard = await readBackfillDone(admin)
+    if (guard.error) {
+      addNote(note, `travel advisories (${input.source} backfill): could not read the backfill guard, so nothing was backfilled.`)
+      return
+    }
+    if (guard.done[input.source]) return
+    if (input.events.length === 0) return
+    const { rows: existing, hasUsColumns } = await listAllAdvisories(admin)
+    if (input.source === 'us' && !hasUsColumns) {
+      addNote(note, 'US travel advisories: run migration 0064_country_advisories_us.sql, then the US entries will be backfilled.')
+      return
+    }
+    const plan = planBackfill(input, existing, now.toISOString(), looksLikeInjection)
+    for (const n of plan.notes) addNote(note, n)
+    const saved = await saveBackfillRows(admin, plan.rows, hasUsColumns, now)
+    if (saved.error) {
+      addNote(note, `travel advisories (${input.source} backfill): ${saved.error}`)
+      return
+    }
+    const marked = await markBackfillDone(admin, input.source, now)
+    if (marked.error) addNote(note, `travel advisories (${input.source} backfill): saved the countries but could not save the guard (${marked.error.slice(0, 80)}); a re-run changes nothing.`)
+    ;(note.backfill ??= []).push({ source: input.source, created: plan.created, filled: plan.filled, skipped: plan.skipped })
+  } catch (e) {
+    addNote(note, `travel advisories (${input.source} backfill): ${e instanceof Error ? e.message.slice(0, 120) : 'unexpected error'}`)
   }
 }
 

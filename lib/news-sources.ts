@@ -32,6 +32,11 @@ export interface NewsSource {
   enabled: boolean
   confidence: 'verified' | 'documented' | 'convention' | 'unverified'
   docs: string
+  /** A feed that is a snapshot of EVERY country can be bigger than MAX_FEED_BYTES. Its own size cap (bytes), used for both the
+   * download and the parse. Omit for the normal cap. */
+  maxBytes?: number
+  /** A snapshot feed lists more entries than MAX_ITEMS_PER_FEED: read up to this many, newest first. Omit for the normal cap. */
+  maxItems?: number
 }
 
 export const NEWS_SOURCES: readonly NewsSource[] = [
@@ -60,13 +65,19 @@ export const NEWS_SOURCES: readonly NewsSource[] = [
   {
     key: 'us-state-dept',
     name: 'the US Department of State',
-    feedUrl: 'https://travel.state.gov/_res/rss/TAsTWs.xml',
+    // The State Department's own Travel Advisories API host (an Atom document of all ~218 advisories, about 600 KB, checked 2026-11-01).
+    // The old feed on travel.state.gov answered HTTP 403 to our robots.txt request from production, so it was never read. This host's
+    // robots.txt is a 404 (no rules), and the robots check below still runs for it like for every source. The ITEM links stay on
+    // travel.state.gov, which is why linkHosts is unchanged.
+    feedUrl: 'https://cadataapi.state.gov/api/XMLTravelAdvisories',
     tier: 1,
     defaultCategory: 'advisory',
     linkHosts: ['travel.state.gov'],
     enabled: true,
-    confidence: 'documented',
-    docs: 'https://travel.state.gov (RSS page lists Travel Advisories and Alerts)',
+    confidence: 'verified',
+    docs: 'https://cadataapi.state.gov/ (the State Department Travel Advisories API page; /api/XMLTravelAdvisories is the Atom feed). Checked with a plain fetch on 2026-11-01: valid Atom, 218 entries, robots.txt 404.',
+    maxBytes: 3_000_000,
+    maxItems: 400,
   },
   {
     key: 'uk-fcdo',

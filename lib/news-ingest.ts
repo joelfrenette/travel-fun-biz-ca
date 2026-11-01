@@ -20,8 +20,8 @@ import {
 import { classifyItem, coveredByEarlierStormPost, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
 import { getAdvisoryMode } from '@/lib/country-advisory-store'
 import { markUsAllChecked } from '@/lib/country-advisory-store'
-import { dualWriteCanada, dualWriteUk, dualWriteUs, emptyAdvisoryNote, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
-import { UK_ADVISORY_SOURCE_KEY, US_ADVISORY_SOURCE_KEY } from '@/lib/country-advisory'
+import { backfillAdvisories, caBackfillEvents, dualWriteCanada, dualWriteUk, dualWriteUs, emptyAdvisoryNote, ukBackfillEvents, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
+import { CA_ADVISORY_SOURCE_KEY, UK_ADVISORY_SOURCE_KEY, US_ADVISORY_SOURCE_KEY, parseUsAdvisoryFeed } from '@/lib/country-advisory'
 import { NEWS_MAX_AGE_DAYS, parseSourcesOff, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
 
 // Growth loop WP20: step one of the news pipeline. Read the allowlisted feeds (each at most once in 30 minutes), keep
@@ -282,6 +282,7 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
       if (outcome.robots) {
         next.robotsAt = outcome.robots.at
         next.robotsAllowed = outcome.robots.allowed
+        next.robotsHost = outcome.robots.host
       }
       if (outcome.kind === 'error') {
         await writeFeedState(admin, source.key, { ...next, fails: state.fails + 1, lastError: outcome.error.slice(0, 200) })
@@ -295,7 +296,9 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         continue
       }
       const isJson = source.kind === 'json'
-      const parsed = isJson ? parseAdvisoryJson(outcome.text, { now: nowMs }) : parseFeed(outcome.text, { now: nowMs })
+      const parsed = isJson ? parseAdvisoryJson(outcome.text, { now: nowMs }) : parseFeed(outcome.text, { now: nowMs, maxBytes: source.maxBytes, maxItems: source.maxItems })
+      // A snapshot feed of every country is not in date order: look at the newest entries first (the per-source limits below then keep the newest).
+      if (!parsed.error && source.maxItems) parsed.items = [...parsed.items].sort((a, b) => (Date.parse(b.publishedAt ?? '') || 0) - (Date.parse(a.publishedAt ?? '') || 0))
       if (parsed.error) {
         await writeFeedState(admin, source.key, { ...next, fails: state.fails + 1, lastError: parsed.error.slice(0, 200) })
         result.failed.push({ key: source.key, error: parsed.error })
@@ -331,6 +334,13 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
         // US Department of State: the whole feed text of this good read (robots.txt was already respected by fetchFeed) is also recorded
         // on the country pages. The news-post logic below is unchanged.
         await dualWriteUs(admin, adv, outcome.text, now, NEWS_MAX_AGE_DAYS)
+      }
+      // One-time backfill (guarded, additive, quiet: see backfillAdvisories): the first good read of a full list gives EVERY country in
+      // it a page row, not only the ones that changed. It writes no log row, no news item and no social post.
+      if (adv) {
+        if (isJson && source.key === CA_ADVISORY_SOURCE_KEY) await backfillAdvisories(admin, adv, { source: 'ca', events: caBackfillEvents(parsed.items) }, now)
+        else if (source.key === UK_ADVISORY_SOURCE_KEY) await backfillAdvisories(admin, adv, { source: 'uk', events: ukBackfillEvents(parsed.items.map((i) => shapeFeedItem(source.key, i))) }, now)
+        else if (source.key === US_ADVISORY_SOURCE_KEY) await backfillAdvisories(admin, adv, { source: 'us', events: parseUsAdvisoryFeed(outcome.text) }, now)
       }
       // The etag is saved only AFTER the items are stored (below): a failed store must not make the next pass answer "not modified".
       await writeFeedState(admin, source.key, { ...next, fails: 0, lastError: undefined, lastOkAt: now.toISOString() })

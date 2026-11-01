@@ -250,11 +250,11 @@ function toIso(raw: string, now: number): string | null {
 }
 
 /** Parses one feed document. Never throws. Items without a usable title and https link are skipped. */
-export function parseFeed(xmlRaw: string, opts: { maxItems?: number; now?: number } = {}): ParsedFeed {
+export function parseFeed(xmlRaw: string, opts: { maxItems?: number; maxBytes?: number; now?: number } = {}): ParsedFeed {
   const maxItems = opts.maxItems ?? MAX_ITEMS_PER_FEED
   const now = opts.now ?? Date.now()
   if (typeof xmlRaw !== 'string' || xmlRaw.length === 0) return { format: 'unknown', items: [], skipped: 0, error: 'the feed was empty' }
-  if (xmlRaw.length > MAX_FEED_BYTES) return { format: 'unknown', items: [], skipped: 0, error: 'the feed was larger than the size limit' }
+  if (xmlRaw.length > (opts.maxBytes ?? MAX_FEED_BYTES)) return { format: 'unknown', items: [], skipped: 0, error: 'the feed was larger than the size limit' }
   try {
     const xml = stripPrologue(xmlRaw)
     const isAtom = /<feed[\s>]/i.test(xml) && /<entry[\s>]/i.test(xml)
@@ -472,6 +472,8 @@ export interface FeedState {
   lastError?: string
   robotsAt?: string
   robotsAllowed?: boolean
+  /** The host the cached robots answer belongs to. A feed that moves to another host must not reuse the old host's answer. */
+  robotsHost?: string
 }
 
 export const FEED_STATE_PREFIX = 'news_feed_state:'
@@ -575,12 +577,14 @@ async function guardedGet(source: NewsSource, startUrl: string, headers: Record<
 
 /** Fetches one source's feed text. Checks, in order: the allowlist, https, robots.txt (cached a day), then a conditional
  * GET. Never fetches anything but the feed (and robots.txt on the same host). */
-export async function fetchFeed(source: NewsSource, state: FeedState, deps: FetchDeps): Promise<FetchOutcome & { robots?: { at: string; allowed: boolean } }> {
+export async function fetchFeed(source: NewsSource, state: FeedState, deps: FetchDeps): Promise<FetchOutcome & { robots?: { at: string; allowed: boolean; host: string } }> {
   if (!source.enabled || !isAllowedFeedUrl(source.feedUrl)) return { kind: 'error', error: 'this feed is not on the allowlist' }
 
   // robots.txt: respected for the feed path. Cached for a day; an unreadable robots.txt means "try next time", not "go".
-  let robots: { at: string; allowed: boolean } | undefined
-  const robotsFresh = state.robotsAt && deps.now() - Date.parse(state.robotsAt) < ROBOTS_TTL_MS && typeof state.robotsAllowed === 'boolean'
+  // The cached answer counts only for the host it was read from (a state saved before the host was recorded is trusted as before).
+  let robots: { at: string; allowed: boolean; host: string } | undefined
+  const feedHost = new URL(source.feedUrl).host
+  const robotsFresh = state.robotsAt && deps.now() - Date.parse(state.robotsAt) < ROBOTS_TTL_MS && typeof state.robotsAllowed === 'boolean' && (!state.robotsHost || state.robotsHost === feedHost)
   if (robotsFresh) {
     if (!state.robotsAllowed) return { kind: 'error', error: 'the publisher robots.txt does not allow this feed to be read' }
   } else {
@@ -592,14 +596,14 @@ export async function fetchFeed(source: NewsSource, state: FeedState, deps: Fetc
       if (/^HTTP (404|410)$/.test(r.error)) allowed = true
       else return { kind: 'error', error: `could not read robots.txt (${r.error}), so the feed was not fetched` }
     } else allowed = robotsAllows(r.text ?? '', `${feed.pathname}${feed.search}`)
-    robots = { at: new Date(deps.now()).toISOString(), allowed }
+    robots = { at: new Date(deps.now()).toISOString(), allowed, host: feedHost }
     if (!allowed) return { kind: 'error', error: 'the publisher robots.txt does not allow this feed to be read', robots }
   }
 
   const headers: Record<string, string> = { Accept: source.kind === 'json' ? 'application/json, text/json;q=0.9' : 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8' }
   if (state.etag) headers['If-None-Match'] = state.etag
   if (state.lastModified) headers['If-Modified-Since'] = state.lastModified
-  const r = await guardedGet(source, source.feedUrl, headers, deps, MAX_FEED_BYTES)
+  const r = await guardedGet(source, source.feedUrl, headers, deps, source.maxBytes ?? MAX_FEED_BYTES)
   if ('error' in r) return { kind: 'error', error: r.error, robots }
   if (r.res.status === 304) return { kind: 'not-modified', robots }
   const type = (r.res.headers.get('content-type') ?? '').toLowerCase()

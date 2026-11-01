@@ -11,7 +11,7 @@ import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
 export const revalidate = 300
 
-const title = "Canada and UK travel advisories by country"
+const title = "Canada, UK and US travel advisories by country"
 const description = "Current government travel advisories by country, in the governments' own words, with the date and a link to each official page."
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -45,7 +45,7 @@ export default async function TravelAdvisoriesIndex() {
               <Link href="/" className="hover:underline">Home</Link> <span aria-hidden="true">/</span> <span>Travel advisories</span>
             </nav>
             <h1 className="mt-3 text-balance text-3xl font-bold text-foreground sm:text-4xl">Travel advisories by country</h1>
-            <p className="mt-3 text-pretty text-muted-foreground">{description} Only countries whose advisory has changed since we started tracking are listed, so this list grows over time.</p>
+            <p className="mt-3 text-pretty text-muted-foreground">{description} Every country we have read an official advisory for is listed, and each page shows the date and the link to the official source.</p>
           </div>
         </div>
         <div className="container mx-auto max-w-3xl px-4 py-10">

@@ -324,7 +324,7 @@ const STATE_FEED = `<?xml version="1.0"?><rss version="2.0"><channel><title>Stat
 
 const NHC_URL = 'https://www.nhc.noaa.gov/index-at.xml'
 const NHC_EP_URL = 'https://www.nhc.noaa.gov/index-ep.xml'
-const STATE_URL = 'https://travel.state.gov/_res/rss/TAsTWs.xml'
+const STATE_URL = 'https://cadataapi.state.gov/api/XMLTravelAdvisories'
 const UK_URL = 'https://www.gov.uk/foreign-travel-advice.atom'
 
 const MILTON_BRIEF: NewsBrief = {
@@ -822,7 +822,7 @@ async function part3() {
     // heal-relax: the code default for the cap is now 40, so this fixture sets the 20 it describes instead of relying on the default.
     const { db, admin } = world({ travel_news_mode: 'draft', travel_news_per_day: '3', heal_loop_calls_per_day: '20' })
     const failJudge = '{"pass":false,"failures":[{"quote":"zzzzzzzzzzzzzz","reason":"no"}]}'
-    await runNewsStep(admin, { fetchDeps: feedDeps(s, { 'https://www.nhc.noaa.gov/index-at.xml': NHC_FEED, 'https://travel.state.gov/_res/rss/TAsTWs.xml': STATE_FEED }, () => NOW), model: modelFor(s, { judge: failJudge }), now: new Date(NOW) })
+    await runNewsStep(admin, { fetchDeps: feedDeps(s, { 'https://www.nhc.noaa.gov/index-at.xml': NHC_FEED, [STATE_URL]: STATE_FEED }, () => NOW), model: modelFor(s, { judge: failJudge }), now: new Date(NOW) })
     const callRows = rowsOf(db, 'app_settings').filter((r) => String(r.key).startsWith('news_slot:') && String(r.key).includes(':call:')).length
     check('m2: with a heal cap of 20, news makes at most 10 model calls in a day even when every judge fails', s.modelCalls <= 10 && s.modelCalls === callRows, `${s.modelCalls} calls, ${callRows} slots`)
   }

@@ -388,8 +388,10 @@ export function usQuote(description: string | null | undefined, unsafe?: (t: str
 
 const US_TITLE = new RegExp(`^(.{2,80}?)\\s+[-\\u2013\\u2014]\\s+(Level\\s+[1-4]\\b.*)$`)
 
-/** Reads the State Department travel advisories RSS text (every item, not only the first few). Items that are not a "<Country> -
- * Level N: ..." advisory (a Travel Alert, for example) are skipped, never guessed. Pure. */
+/** Reads the State Department travel advisories text (every entry, not only the first few). Two shapes are read: the Atom document of
+ * the official API (cadataapi.state.gov /api/XMLTravelAdvisories: <entry> with a <link href>, <id>, <published> and an HTML-escaped
+ * <summary>; the one the source uses) and the older RSS (<item> with <link>, <pubDate>, <description>). Entries that are not a
+ * "<Country> - Level N: ..." advisory (a Travel Alert, for example) are skipped, never guessed. Pure. */
 export function parseUsAdvisoryFeed(xml: string): UsEvent[] {
   const out: UsEvent[] = []
   const tag = (block: string, name: string): string => {
@@ -398,22 +400,33 @@ export function parseUsAdvisoryFeed(xml: string): UsEvent[] {
     const cdata = /^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/.exec(m[1])
     return cdata ? cdata[1] : decodeEntities(m[1])
   }
-  for (const m of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+  // An Atom <link> has its address in href (rel="alternate" or no rel preferred), never as text.
+  const atomHref = (block: string): string => {
+    const links = [...block.matchAll(/<link\b([^>]*)>/gi)].map((l) => l[1])
+    const attr = (s: string, a: string) => new RegExp(`\\b${a}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i').exec(s)
+    const pick = links.find((l) => !attr(l, 'rel') || (attr(l, 'rel')?.[1] ?? attr(l, 'rel')?.[2]) === 'alternate') ?? links[0]
+    const h = pick ? attr(pick, 'href') : null
+    return h ? decodeEntities(h[1] ?? h[2] ?? '').trim() : ''
+  }
+  const isAtom = /<entry\b/i.test(xml)
+  const blocks = isAtom ? xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi) : xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)
+  for (const m of blocks) {
     const block = m[1]
     const title = plain(decodeEntities(tag(block, 'title')).replace(new RegExp(`[${EN_DASH}${EM_DASH}]`, 'g'), '-'))
     const t = US_TITLE.exec(title)
     if (!t) continue
-    const url = tag(block, 'link').trim()
-    const pub = tag(block, 'pubDate').trim()
-    const parsed = pub ? Date.parse(/GMT|UTC|[+-]\d{4}$/.test(pub) ? pub : `${pub} 00:00:00 GMT`) : NaN
+    const url = (isAtom ? atomHref(block) : tag(block, 'link')).trim()
+    const pub = (isAtom ? tag(block, 'published').trim() || tag(block, 'updated').trim() : tag(block, 'pubDate').trim())
+    // A date with a zone (GMT, UTC, Z or an offset) is read as given; a bare date is read as midnight GMT.
+    const parsed = pub ? Date.parse(/GMT|UTC|Z$|[+-]\d{2}:?\d{2}$/.test(pub) ? pub : `${pub} 00:00:00 GMT`) : NaN
     const publishedAt = Number.isFinite(parsed) ? new Date(parsed).toISOString() : null
     out.push({
       country: t[1].trim(),
       level: t[2].trim(),
-      description: tag(block, 'description'),
+      description: tag(block, isAtom ? 'summary' : 'description'),
       url,
       publishedAt,
-      guid: `${tag(block, 'guid').trim() || url}|${publishedAt ?? ''}|${t[2].trim()}`.slice(0, 400),
+      guid: `${tag(block, isAtom ? 'id' : 'guid').trim() || url}|${publishedAt ?? ''}|${t[2].trim()}`.slice(0, 400),
     })
   }
   return out
@@ -485,6 +498,89 @@ export function planUsFeed(
     else write.push(ev)
   }
   return { write, confirmed }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// One-time backfill: every country in a full snapshot gets its row, not only the ones that changed
+// ---------------------------------------------------------------------------------------------------
+
+export type BackfillSource = 'ca' | 'uk' | 'us'
+export const BACKFILL_SOURCES: readonly BackfillSource[] = ['ca', 'uk', 'us']
+/** app_settings key of the guard: JSON {"v":1,"done":{"ca":"<iso>","uk":"<iso>","us":"<iso>"}}. A source in `done` is never backfilled again. */
+export const BACKFILL_STATE_KEY = 'country_advisories_backfill'
+export const backfillSourceOfKey = (sourceKey: string): BackfillSource | null =>
+  sourceKey === CA_ADVISORY_SOURCE_KEY ? 'ca' : sourceKey === UK_ADVISORY_SOURCE_KEY ? 'uk' : sourceKey === US_ADVISORY_SOURCE_KEY ? 'us' : null
+
+/** Pure. Reads the guard text; anything unreadable is "nothing done yet" (a re-run is harmless: see planBackfill). */
+export function parseBackfillState(raw: string | null | undefined): Partial<Record<BackfillSource, string>> {
+  try {
+    const p = JSON.parse(raw ?? 'null') as { v?: number; done?: Record<string, unknown> } | null
+    if (!p || p.v !== 1 || typeof p.done !== 'object' || p.done === null) return {}
+    const out: Partial<Record<BackfillSource, string>> = {}
+    for (const s of BACKFILL_SOURCES) if (typeof p.done[s] === 'string' && p.done[s]) out[s] = p.done[s] as string
+    return out
+  } catch {
+    return {}
+  }
+}
+
+const hasSourceData = (src: BackfillSource, r: CountryAdvisoryRow): boolean => (src === 'ca' ? !!(r.ca_level || r.ca_text) : src === 'uk' ? !!r.uk_text : !!(r.us_level || r.us_text))
+
+export type BackfillInput = { source: 'ca'; events: CaEvent[] } | { source: 'uk'; events: UkEvent[] } | { source: 'us'; events: UsEvent[] }
+
+export interface BackfillPlan {
+  /** The full rows to save: new rows, and existing rows that had nothing yet from this source (all their other fields kept as read). */
+  rows: CountryAdvisoryRow[]
+  created: number
+  filled: number
+  /** Countries left alone: the row already has data from this source (it is never overwritten), or the entry had nothing to show. */
+  skipped: number
+  notes: string[]
+}
+
+/** Pure. What the one-time backfill saves for a full snapshot of one source. ADDITIVE ONLY: a row that already has data from this
+ * source is left exactly as it is, an entry that would leave the source's fields empty is skipped (no empty pages), and nothing is
+ * written to the update log (the backfill is "what the government says now", not a claim that anything just changed). The text,
+ * level, link and date are the same ones the live dual write stores, built by the same plan functions. Running it again on the saved
+ * rows changes nothing (every country then already has data). */
+export function planBackfill(input: BackfillInput, existing: CountryAdvisoryRow[], nowIso: string, unsafe?: (t: string) => boolean): BackfillPlan {
+  const bySlug = new Map(existing.map((r) => [r.slug, r]))
+  const touched = new Map<string, { row: CountryAdvisoryRow; created: boolean }>()
+  const out: BackfillPlan = { rows: [], created: 0, filled: 0, skipped: 0, notes: [] }
+  const note = (n: string) => {
+    if (out.notes.length < 5 && !out.notes.includes(n)) out.notes.push(n)
+  }
+  const each = <T>(events: T[], nameOf: (e: T) => string, plan: (cur: CountryAdvisoryRow | null, e: T) => WritePlan) => {
+    for (const ev of events) {
+      const slug = countrySlugOf(nameOf(ev))
+      const cur = slug ? (bySlug.get(slug) ?? null) : null
+      if (cur && hasSourceData(input.source, cur)) {
+        out.skipped++
+        continue
+      }
+      const p = plan(cur, ev)
+      if (!p.ok) {
+        note(p.note)
+        continue
+      }
+      if (!hasSourceData(input.source, p.row)) {
+        out.skipped++
+        continue
+      }
+      bySlug.set(p.row.slug, p.row)
+      // A slug is touched at most once: the second entry for it finds the data the first one just put on the row and is skipped.
+      touched.set(p.row.slug, { row: p.row, created: !cur })
+    }
+  }
+  if (input.source === 'ca') each(input.events, (e) => e.name, (cur, e) => planCanadaWrite(cur, e, null, nowIso, unsafe))
+  else if (input.source === 'uk') each(input.events, (e) => e.country, (cur, e) => planUkWrite(cur, e, nowIso, unsafe))
+  else each(input.events, (e) => e.country, (cur, e) => planUsWrite(cur, e, nowIso, unsafe))
+  for (const t of touched.values()) {
+    out.rows.push(t.row)
+    if (t.created) out.created++
+    else out.filled++
+  }
+  return out
 }
 
 /** Rows whose Canadian level the latest snapshot CONFIRMS (same country code, same level wording as stored). Only these get a

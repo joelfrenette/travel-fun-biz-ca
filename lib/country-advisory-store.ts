@@ -1,9 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getSettingStrict } from '@/lib/app-settings'
+import { getSettingStrict, setSetting } from '@/lib/app-settings'
 import {
   ADVISORY_COLUMNS,
   ADVISORY_COLUMNS_LEGACY,
   ADVISORY_MODE_KEY,
+  BACKFILL_STATE_KEY,
+  parseBackfillState,
+  type BackfillSource,
   US_ADVISORY_SOURCE_KEY,
   US_COLUMN_NAMES,
   withNoUs,
@@ -221,6 +224,53 @@ export async function markCanadaChecked(admin: SupabaseClient, snapshot: { state
   } catch {
     return 0
   }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// One-time backfill (lib/country-advisory-backfill.ts decides when; planBackfill decides what)
+// ---------------------------------------------------------------------------------------------------
+
+/** EVERY row (drafts included, so a draft is never duplicated), and whether the us_ columns exist. Throws on a database error. */
+export async function listAllAdvisories(admin: SupabaseClient): Promise<{ rows: CountryAdvisoryRow[]; hasUsColumns: boolean }> {
+  type Res = { data: unknown; error: { code?: string; message?: string } | null }
+  let hasUsColumns = true
+  let res = (await admin.from('country_advisories').select(ADVISORY_COLUMNS).limit(2000)) as Res
+  if (res.error && missingColumn(res.error)) {
+    hasUsColumns = false
+    res = (await admin.from('country_advisories').select(ADVISORY_COLUMNS_LEGACY).limit(2000)) as Res
+  }
+  if (res.error) throw new Error(`country_advisories: ${res.error.message}`)
+  return { rows: ((res.data ?? []) as Record<string, unknown>[]).map(withNoUs), hasUsColumns }
+}
+
+/** Saves backfill rows (new rows and existing rows being filled) in chunks, one request per chunk. The rows carry every column that
+ * was read, so a hand-set guide_slug or status is written back unchanged. Never touches the update log. */
+export async function saveBackfillRows(admin: SupabaseClient, rows: CountryAdvisoryRow[], hasUsColumns: boolean, now: Date): Promise<{ saved: number; error?: string }> {
+  let saved = 0
+  const nowIso = now.toISOString()
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100).map((r) => {
+      const row: Record<string, unknown> = { ...r, updated_at: nowIso }
+      if (!hasUsColumns) for (const c of US_COLUMN_NAMES) delete row[c]
+      return row
+    })
+    const { error } = await admin.from('country_advisories').upsert(chunk, { onConflict: 'slug' })
+    if (error) return { saved, error: `country_advisories: ${error.message}`.slice(0, 200) }
+    saved += chunk.length
+  }
+  return { saved }
+}
+
+/** The backfill guard. An unreadable guard is an error (the caller then does nothing), never "not done". */
+export async function readBackfillDone(admin: SupabaseClient): Promise<{ done: Partial<Record<BackfillSource, string>>; error?: string }> {
+  const r = await getSettingStrict(admin, BACKFILL_STATE_KEY)
+  return r.error ? { done: {}, error: r.error } : { done: parseBackfillState(r.value) }
+}
+
+export async function markBackfillDone(admin: SupabaseClient, source: BackfillSource, now: Date): Promise<{ error?: string }> {
+  const cur = await readBackfillDone(admin)
+  if (cur.error) return { error: cur.error }
+  return setSetting(admin, BACKFILL_STATE_KEY, JSON.stringify({ v: 1, done: { ...cur.done, [source]: now.toISOString() } }))
 }
 
 export { CA_ADVISORY_SOURCE_KEY, UK_ADVISORY_SOURCE_KEY, US_ADVISORY_SOURCE_KEY }
