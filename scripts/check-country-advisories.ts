@@ -427,6 +427,16 @@ async function main() {
     const lc = rowsOf(w.db, 'country_advisory_log').filter((l) => l.country_slug === 'mexico' && l.source_key === 'us-state-dept' && l.kind === 'level_change')
     check('US ingest: a level change logs one level_change with the old and new State Department wording', lc.length === 1 && lc[0].level_from === 'Level 2: Exercise Increased Caution' && lc[0].level_to === 'Level 3: Reconsider Travel', JSON.stringify(lc))
 
+    // -- pages only: the source feeds the country pages and makes no news items --
+    const normalNews = rowsOf(w.db, 'news_items').length
+    const po = world({ [ADVISORY_MODE_KEY]: 'log', news_sources_pages_only: 'us-state-dept' }, seedMexico())
+    await run(po, mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'), t1)
+    const poMx = rowsOf(po.db, 'country_advisories').find((r) => r.slug === 'mexico')
+    check('US pages-only: the country page gets the State Department line and no news item is made', poMx?.us_level === 'Level 2: Exercise Increased Caution' && rowsOf(po.db, 'news_items').length === 0, `normal run made ${normalNews} items`)
+    const poOff = world({ news_sources_pages_only: 'us-state-dept' }, seedMexico())
+    await run(poOff, mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026'), t1)
+    check('US pages-only: with the advisory mode off the setting has no effect (news items behave as before)', rowsOf(poOff.db, 'news_items').length === normalNews)
+
     // -- public page: a US block appears only when a US value exists --
     const pageTables = (): Record<string, Row[]> => ({
       country_advisories: [

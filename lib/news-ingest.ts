@@ -206,6 +206,19 @@ export const NEWS_SOURCES_OFF_KEY = 'news_sources_off'
 
 export { parseSourcesOff }
 
+/** Setting: a comma list of source keys (for example "us-state-dept") that are read only for the country advisory pages and
+ * never make news items or posts. It only has an effect while country_advisories_mode is log or on. */
+export const NEWS_SOURCES_PAGES_ONLY_KEY = 'news_sources_pages_only'
+
+export async function getPagesOnlySources(admin: SupabaseClient): Promise<Set<string>> {
+  try {
+    const r = await getSettingStrict(admin, NEWS_SOURCES_PAGES_ONLY_KEY)
+    return r.error ? new Set<string>() : parseSourcesOff(r.value)
+  } catch {
+    return new Set<string>()
+  }
+}
+
 /** The enabled sources minus the ones switched off in settings. An unreadable setting turns nothing off (the per-source
  * failure counter and the 30-minute limit still apply), so a settings glitch never silences the official feeds. */
 export async function activeSources(admin: SupabaseClient): Promise<NewsSource[]> {
@@ -230,6 +243,8 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
   const advisoryMode = await getAdvisoryMode(admin)
   const adv = advisoryMode === 'off' ? null : emptyAdvisoryNote(advisoryMode)
   if (adv) result.advisories = adv
+  // Sources that only feed the country advisory pages. An unreadable setting means none (the old behaviour).
+  const pagesOnly = adv ? await getPagesOnlySources(admin) : new Set<string>()
   try {
     const recentSince = new Date(nowMs - NEWS_MAX_AGE_DAYS * DAY_MS).toISOString()
     const recent = await admin.from('news_items').select('title, summary_raw, category, source_key, status, published_at, fetched_at, reject_reason').gte('created_at', recentSince).limit(1000)
@@ -319,6 +334,8 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
       }
       // The etag is saved only AFTER the items are stored (below): a failed store must not make the next pass answer "not modified".
       await writeFeedState(admin, source.key, { ...next, fails: 0, lastError: undefined, lastOkAt: now.toISOString() })
+      // A pages-only source feeds the country advisory pages above and makes no news item or post.
+      if (pagesOnly.has(source.key)) continue
 
       // Which of these guids are already stored for this source?
       const guids = readItems.map((i) => i.guid)
