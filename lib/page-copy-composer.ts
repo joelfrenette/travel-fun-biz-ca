@@ -215,10 +215,21 @@ export function normalizePageCopy(raw: CopyJson, brief: PageCopyBrief): Composed
 
 /** Writes the copy for one page. Returns it, or the plain-English reason it could not be written. A returned
  * copy has NOT passed the quality gate yet: call pageCopyBlockers() on it. */
-export async function composePageCopy(brief: PageCopyBrief): Promise<{ copy: ComposedPageCopy } | { error: string }> {
-  if (!isAiConfigured()) return { error: 'AI writing is not configured (ANTHROPIC_API_KEY is not set)' }
+// The model reasons before it answers and that reasoning spends the same max_tokens budget. A page with many listed trips (the
+// Dominican Republic compare pages, 2026-10-31) used up 4000 tokens before the JSON was done, so the reply was cut off twice and
+// the page was parked. Only generated tokens are billed, so a larger budget costs nothing on a short answer; the second try
+// runs only after a cut-off.
+export const COPY_MAX_TOKENS = 8000
+export const COPY_RETRY_MAX_TOKENS = 16000
+export const CUT_OFF_ERROR = 'the AI reply was cut off'
+
+export async function composePageCopy(brief: PageCopyBrief, deps: { callText?: typeof callText } = {}): Promise<{ copy: ComposedPageCopy } | { error: string }> {
+  if (!isAiConfigured() && !deps.callText) return { error: 'AI writing is not configured (ANTHROPIC_API_KEY is not set)' }
   if (brief.destinations.length === 0 || brief.destinations.every((d) => d.packages.length === 0)) return { error: 'the page lists no trips to write about' }
-  const answer = await callText(copyPrompt(brief), 4000, 80_000)
+  const call = deps.callText ?? callText
+  const prompt = copyPrompt(brief)
+  let answer = await call(prompt, COPY_MAX_TOKENS, 80_000)
+  if (!answer.ok && answer.error === CUT_OFF_ERROR) answer = await call(prompt, COPY_RETRY_MAX_TOKENS, 120_000)
   if (!answer.ok) return { error: `writing the copy failed: ${answer.error}` }
   const json = parseModelJson<CopyJson>(answer.text)
   if (!json || typeof json !== 'object') return { error: 'the copy was not valid JSON' }

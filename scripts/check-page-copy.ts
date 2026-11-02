@@ -1,6 +1,6 @@
 // Quick self-check for the compare and best-time page copy gate and the candidate rotation (no network, no database).
 // Run: pnpm dlx tsx scripts/check-page-copy.ts
-import { copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, normalizePageCopy, pageCopyBlockers, ungroundedWordCounts, type ComposedPageCopy, type PageCopyBrief, type CopyGateContext } from '../lib/page-copy-composer'
+import { composePageCopy, COPY_MAX_TOKENS, COPY_RETRY_MAX_TOKENS, CUT_OFF_ERROR, copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, normalizePageCopy, pageCopyBlockers, ungroundedWordCounts, type ComposedPageCopy, type PageCopyBrief, type CopyGateContext } from '../lib/page-copy-composer'
 import { pickRowsToCheck, parseStaleState, STALE_CHECK_MAX_ROWS } from '../lib/page-copy-run'
 import { pickNextCopyCandidate, pageTypeOfPath, staleLinkedSlugs, type PageCopyCandidate } from '../lib/page-copy'
 
@@ -198,5 +198,31 @@ check('one failure still gets another try', pickNextCopyCandidate(list, {}, { '/
 check('when one type is exhausted the other is used', pickNextCopyCandidate([cand('/compare/a-vs-b', 'compare', true), cand('/best-time-to-visit/italy', 'best-time')], { 'best-time': '2026-10-09T10:00:00Z' }, {}, 2)?.path === '/best-time-to-visit/italy')
 check('nothing left returns null', pickNextCopyCandidate([cand('/compare/a-vs-b', 'compare', true)], {}, {}, 2) === null)
 
-console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) FAILED.`)
-process.exit(failed === 0 ? 0 : 1)
+// --- a cut-off AI reply gets one second try with a larger budget (2026-10-31: two Dominican Republic compare pages were parked) ---
+async function cutOffChecks() {
+  const goodJson = JSON.stringify({ intro: good.intro, faq: good.faq, key_takeaways: good.key_takeaways, meta_title: good.meta_title, meta_description: good.meta_description, og_title: good.og_title, og_description: good.og_description, primary_keyword: good.primary_keyword })
+  const budgets: number[] = []
+  const cutThenOk = async (_p: string, max: number) => {
+    budgets.push(max)
+    return budgets.length === 1 ? ({ ok: false, error: CUT_OFF_ERROR } as const) : ({ ok: true, text: goodJson } as const)
+  }
+  const r1 = await composePageCopy(brief, { callText: cutOffThenOkFix(cutThenOk) })
+  check('cut off once: the copy is written on the second try', 'copy' in r1 && budgets.length === 2)
+  check('the second try uses a larger budget than the first', budgets[0] === COPY_MAX_TOKENS && budgets[1] === COPY_RETRY_MAX_TOKENS && COPY_RETRY_MAX_TOKENS > COPY_MAX_TOKENS && COPY_MAX_TOKENS > 4000)
+  let calls = 0
+  const r2 = await composePageCopy(brief, { callText: async () => { calls++; return { ok: false, error: CUT_OFF_ERROR } } })
+  check('cut off twice: it gives up after exactly two calls, with the plain reason', 'error' in r2 && calls === 2 && /cut off/.test(r2.error))
+  calls = 0
+  const r3 = await composePageCopy(brief, { callText: async () => { calls++; return { ok: false, error: 'the AI request failed (HTTP 529)' } } })
+  check('any other failure is not retried (no extra credit spend)', 'error' in r3 && calls === 1)
+  calls = 0
+  const r4 = await composePageCopy(brief, { callText: async () => { calls++; return { ok: true, text: goodJson } } })
+  check('a normal answer uses one call', 'copy' in r4 && calls === 1)
+}
+// the stub signature matches callText(prompt, maxTokens, timeoutMs)
+const cutOffThenOkFix = (f: (p: string, m: number) => Promise<{ ok: false; error: string } | { ok: true; text: string }>) => (p: string, m: number, _t: number) => f(p, m)
+
+cutOffChecks().then(() => {
+  console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) FAILED.`)
+  process.exit(failed === 0 ? 0 : 1)
+})
