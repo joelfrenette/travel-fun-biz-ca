@@ -60,7 +60,8 @@ export const HASHTAG_CAPS: Record<string, number> = {
   tiktok: 3,
   x: 2,
   twitter: 2,
-  linkedin: 3,
+  // HASHTAG_RULES says LinkedIn gets no hashtags; the no-AI fallback used to add 3 anyway.
+  linkedin: 0,
   pinterest: 3,
   bluesky: 2,
   facebook: 2,
@@ -68,6 +69,46 @@ export const HASHTAG_CAPS: Record<string, number> = {
   youtube: 3,
 }
 const DEFAULT_HASHTAG_CAP = 3
+
+/** The most hashtags a caption may carry per network (the top of each HASHTAG_RULES range). A caption above this fails the gate. */
+export const HASHTAG_MAX: Record<string, number> = {
+  instagram: 8,
+  tiktok: 3,
+  x: 2,
+  twitter: 2,
+  linkedin: 0,
+  pinterest: 3,
+  bluesky: 2,
+  facebook: 2,
+  threads: 2,
+  youtube: 3,
+}
+
+export function hashtagMaxFor(network: string): number {
+  return HASHTAG_MAX[network.toLowerCase()] ?? DEFAULT_HASHTAG_CAP
+}
+
+const HASHTAG_TOKEN = /(^|\s)#[\p{L}\p{N}_]+/gu
+
+export function countHashtags(text: string): number {
+  return (text.match(HASHTAG_TOKEN) ?? []).length
+}
+
+/** Drops hashtags above `max` from the END of the caption (the last tags first), keeping every other word. Idempotent. */
+export function trimHashtagsToMax(text: string, max: number): string {
+  let excess = countHashtags(text) - Math.max(0, max)
+  if (excess <= 0) return text
+  const matches = [...text.matchAll(HASHTAG_TOKEN)]
+  let out = text
+  for (let i = matches.length - 1; i >= 0 && excess > 0; i--, excess--) {
+    const m = matches[i]
+    const start = (m.index ?? 0) + m[1].length
+    const end = (m.index ?? 0) + m[0].length
+    out = out.slice(0, start) + out.slice(end)
+  }
+  // Tidy the blanks the removal left: trailing spaces on lines, and 3+ newlines.
+  return out.replace(/[ \t]+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trimEnd()
+}
 
 export function hashtagCapFor(network: string): number {
   return HASHTAG_CAPS[network.toLowerCase()] ?? DEFAULT_HASHTAG_CAP

@@ -518,6 +518,8 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       // only changes the TEXT handed to the same single send per network below.
       let tailored: PlatformCaptions | null = null
       let hookStylesUsed: Record<string, HookStyle> = {}
+      // Why a written caption was rejected after its retry, per network, for the caption log (so a "fallback" line says why).
+      const droppedReasons: Record<string, string[]> = {}
       if (tailoredCaptionsOn && !isNewsRow && !isRecapRow && !isAdvisoryRow) {
         const hookStyles: Record<string, HookStyle> = {}
         const ctaStyles: Record<string, CtaStyle> = {}
@@ -550,7 +552,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
           if (promptLine && wantsCommentPrompt(p)) commentPrompts[p] = promptLine
         }
         hookStylesUsed = hookStyles
-        tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding, questionFirstLine, commentPrompts, keyword: primaryKeyword })
+        tailored = await generatePlatformCaptions(title, post?.meta_description ?? null, link, platforms, { hookStyles, ctaStyles, links, grounding, questionFirstLine, commentPrompts, keyword: primaryKeyword, dropped: droppedReasons })
         // Record only the styles that actually reached a caption (a dropped caption used none).
         const patch: Record<string, string> = {}
         for (const p of platforms) {
@@ -588,7 +590,7 @@ async function runDistributionLocked(admin: SupabaseClient, target: PostingTarge
       const result = await sendTailored(send, sendPlatforms, tailored, baseCaptions, sharedCaption, target.provider)
       const sentPlatforms = [...new Set([...already, ...result.sent])]
       // The caption text each reached network really got, with the style it used ("fallback" when it was built without one), for the admin list and the loop.
-      await recordCaptions(admin, result.sent.map((p) => ({ slug: isEvergreenRow ? baseSlug : row.slug, network: p, format: isRecapRow ? ('recap' as const) : isEvergreenRow ? ('evergreen' as const) : ('post' as const), style: tailored?.[p] ? (hookStylesUsed[p] ?? 'fallback') : 'fallback', text: result.texts[p] ?? '' })))
+      await recordCaptions(admin, result.sent.map((p) => ({ slug: isEvergreenRow ? baseSlug : row.slug, network: p, format: isRecapRow ? ('recap' as const) : isEvergreenRow ? ('evergreen' as const) : ('post' as const), style: tailored?.[p] ? (hookStylesUsed[p] ?? 'fallback') : 'fallback', text: result.texts[p] ?? '', note: droppedReasons[p]?.join('; ') })))
       if (isEvergreenRow) await recordEvergreenHooks(admin, baseSlug, result.sent.map((p) => result.texts[p] ?? ''))
 
       if (result.ok && result.confirmed === false) {
