@@ -312,7 +312,13 @@ export function cutFirstSentence(body: string, maxWords: number, accept: (next: 
   const positions = new Set<number>()
   for (const x of core.matchAll(new RegExp(`,|;|:|\\s[-${LONG_DASHES}]\\s`, 'g'))) positions.add(x.index as number)
   for (const x of core.matchAll(/\s(?:and|which|while|so|but|because|although)\s/gi)) positions.add(x.index as number)
-  for (const pos of [...positions].sort((a, b) => b - a)) {
+  // Second-pass boundaries, used only when the first kind gives no safe cut: the long openings the heal rejected (35 to 48 words) often
+  // have no comma or conjunction inside the allowed length, only a trailing "with / for / who / where ..." phrase. Cutting before it still
+  // removes words only; DANGLING_END, the link checks and the caller's own gate decide whether what is left stands on its own.
+  const loose = new Set<number>()
+  for (const x of core.matchAll(/\s(?:with|for|who|whom|whose|where|when|that|if|whether|from|through|before|after|without|including|especially|rather|instead|during|across)\s/gi)) loose.add(x.index as number)
+  const tryCuts = (set: Set<number>): string | null => {
+  for (const pos of [...set].sort((a, b) => b - a)) {
     const prefix = core.slice(0, pos).replace(new RegExp(`[\\s,;:\\-${LONG_DASHES}]+$`), '')
     const dropped = core.slice(pos)
     const words = prefix.split(/\s+/).filter(Boolean)
@@ -327,6 +333,8 @@ export function cutFirstSentence(body: string, maxWords: number, accept: (next: 
     if (accept(out)) return out
   }
   return null
+  }
+  return tryCuts(positions) ?? tryCuts(loose)
 }
 
 // ---------------------------------------------------------------------------------------------------

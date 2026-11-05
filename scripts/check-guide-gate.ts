@@ -1,5 +1,6 @@
 // Quick self-check for the guide quality gate and the candidate helpers (no network, no database).
 // Run: pnpm dlx tsx scripts/check-guide-gate.ts
+import { readFileSync } from 'node:fs'
 import { guideBlockers, parseArticle, removeDashes, internalLinksIn, type ComposedGuide } from '../lib/guide-composer'
 import { publishDecision } from '../lib/guide-run'
 import { kindFromPackageName, cleanPropertyName } from '../lib/guides'
@@ -143,6 +144,8 @@ check('a different unit is not excused ("four-day" vs 4-night)', guideBlockers(w
 check('a stray digit elsewhere does not excuse it', guideBlockers(withBody('A four-night stay.'), { ...ctx, grounding: `${ctx.grounding}\n- 4 ports of call` }).length > 0)
 check('amenity counts stay blocked even with a grounded count', guideBlockers(withBody('There are four restaurants on board.'), { ...ctx, grounding: `${ctx.grounding}\n- 4 restaurants` }).length > 0)
 check('hundreds is still blocked', guideBlockers(withBody('Hundreds of guests visit.'), montego).length > 0)
+
+check('the guide prompt requires the exact subject name in the opening paragraph', /exact words "\$\{brief\.name\}".*must appear in that opening paragraph/.test(readFileSync('lib/guide-composer.ts', 'utf8')))
 
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`)
 process.exit(failed === 0 ? 0 : 1)

@@ -136,7 +136,12 @@ function linksBlock(brief: PageCopyBrief): string {
   return brief.links.map((l) => `- ${l.path}  (${l.label})`).join('\n')
 }
 
-function copyPrompt(brief: PageCopyBrief): string {
+/** The writer is told 30 words; the gate allows 45, so a small overshoot is still a clean pass. */
+export const FIRST_SENTENCE_PROMPT_WORDS = 30
+export const COPY_MAX_TOKENS = 4000
+export const COPY_RETRY_MAX_TOKENS = 7000
+
+export function copyPrompt(brief: PageCopyBrief): string {
   const names = brief.destinations.map((d) => d.name).join(' and ')
   return `You are writing the opening copy for a page on a Canadian travel agency's website (TravelFunBiz.ca: hosted group trips, river and ocean cruises, singles getaways). Page: "${brief.title}".
 
@@ -151,7 +156,7 @@ ${typeGuidance(brief)}
 
 Return ONLY minified JSON with exactly these keys:
 {"intro":"...","faq":[{"q":"...","a":"..."}],"key_takeaways":["..."],"meta_title":"...","meta_description":"...","og_title":"...","og_description":"...","primary_keyword":"..."}
-- intro: markdown, 190 to 260 words (never below 160, never above 290), plain paragraphs, NO headings, NO lists, NO FAQ. Name ${names} in it. Include 1 to 3 internal links written as markdown links like [anchor text](/path), using ONLY these paths (never invent a path, never use a full web address):
+- intro: markdown, 190 to 260 words (never below 160, never above 290), plain paragraphs, NO headings, NO lists, NO FAQ. The FIRST sentence is ONE sentence of at most ${FIRST_SENTENCE_PROMPT_WORDS} words that ends at its first full stop, so a search engine can quote it on its own; put every extra clause in the sentences after it. Name ${names} in it. Include 1 to 3 internal links written as markdown links like [anchor text](/path), using ONLY these paths (never invent a path, never use a full web address):
 ${linksBlock(brief)}
 - faq: 3 to 5 real questions a searcher would ask about this page's topic. Each answer is 1 to 3 plain sentences, the first words answer the question directly, and it only repeats what the GROUNDING supports. No links in answers.
 - key_takeaways: 3 to 5 one-line takeaways (each under 140 characters), no links.
@@ -215,10 +220,15 @@ export function normalizePageCopy(raw: CopyJson, brief: PageCopyBrief): Composed
 
 /** Writes the copy for one page. Returns it, or the plain-English reason it could not be written. A returned
  * copy has NOT passed the quality gate yet: call pageCopyBlockers() on it. */
-export async function composePageCopy(brief: PageCopyBrief): Promise<{ copy: ComposedPageCopy } | { error: string }> {
+export async function composePageCopy(brief: PageCopyBrief, call: typeof callText = callText): Promise<{ copy: ComposedPageCopy } | { error: string }> {
   if (!isAiConfigured()) return { error: 'AI writing is not configured (ANTHROPIC_API_KEY is not set)' }
   if (brief.destinations.length === 0 || brief.destinations.every((d) => d.packages.length === 0)) return { error: 'the page lists no trips to write about' }
-  const answer = await callText(copyPrompt(brief), 4000, 80_000)
+  let answer = await call(copyPrompt(brief), COPY_MAX_TOKENS, 80_000)
+  // "the AI reply was cut off" was the only compose failure left in the failure log (2 pages, 2 tries each): the JSON ran past the token
+  // limit. One bounded retry with a larger limit and a brevity nudge; any other error, or a second cut-off, is reported as before.
+  if (!answer.ok && /cut off/.test(answer.error)) {
+    answer = await call(`${copyPrompt(brief)}\n\nYour last reply was cut off before it finished. Keep every FAQ answer to 2 sentences and the intro near 200 words so the whole JSON fits.`, COPY_RETRY_MAX_TOKENS, 100_000)
+  }
   if (!answer.ok) return { error: `writing the copy failed: ${answer.error}` }
   const json = parseModelJson<CopyJson>(answer.text)
   if (!json || typeof json !== 'object') return { error: 'the copy was not valid JSON' }
