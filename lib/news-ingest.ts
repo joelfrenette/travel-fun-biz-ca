@@ -20,7 +20,7 @@ import {
 import { classifyItem, coveredByEarlierStormPost, hazardAdmits, isBreaking, isNhcSource, isRepeatOf, nhcProductRank } from '@/lib/news-relevance'
 import { getAdvisoryMode } from '@/lib/country-advisory-store'
 import { markUsAllChecked, readBackfillDone } from '@/lib/country-advisory-store'
-import { backfillAdvisories, caBackfillEvents, dualWriteCanada, dualWriteUk, dualWriteUs, emptyAdvisoryNote, ukBackfillEvents, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
+import { backfillAdvisories, caBackfillEvents, ukFullBackfill, dualWriteCanada, dualWriteUk, dualWriteUs, emptyAdvisoryNote, ukBackfillEvents, type AdvisoryIngestNote } from '@/lib/country-advisory-ingest'
 import { CA_ADVISORY_SOURCE_KEY, UK_ADVISORY_SOURCE_KEY, US_ADVISORY_SOURCE_KEY, parseUsAdvisoryFeed } from '@/lib/country-advisory'
 import { NEWS_MAX_AGE_DAYS, inVisitWindow, parseSourcesOff, SUMMARY_MAX_CHARS, TITLE_MAX_CHARS, enabledSources, maxAgeMs, sourceByKey, type NewsCategory, type NewsSource, type NewsTier } from '@/lib/news-sources'
 
@@ -347,7 +347,11 @@ export async function ingestFeeds(admin: SupabaseClient, deps: IngestDeps = {}):
       // it a page row, not only the ones that changed. It writes no log row, no news item and no social post.
       if (adv) {
         if (isJson && source.key === CA_ADVISORY_SOURCE_KEY) await backfillAdvisories(admin, adv, { source: 'ca', events: caBackfillEvents(parsed.items) }, now)
-        else if (source.key === UK_ADVISORY_SOURCE_KEY) await backfillAdvisories(admin, adv, { source: 'uk', events: ukBackfillEvents(parsed.items.map((i) => shapeFeedItem(source.key, i))) }, now)
+        else if (source.key === UK_ADVISORY_SOURCE_KEY) {
+          await backfillAdvisories(admin, adv, { source: 'uk', events: ukBackfillEvents(parsed.items.map((i) => shapeFeedItem(source.key, i))) }, now)
+          // The Atom feed lists only the 20 newest countries: the rest come once from the GOV.UK Content API (guarded key uk-full-backfill).
+          await ukFullBackfill(admin, adv, fetchDeps, now)
+        }
         else if (source.key === US_ADVISORY_SOURCE_KEY) await backfillAdvisories(admin, adv, { source: 'us', events: parseUsAdvisoryFeed(outcome.text) }, now)
       }
       // The etag is saved only AFTER the items are stored (below): a failed store must not make the next pass answer "not modified".
