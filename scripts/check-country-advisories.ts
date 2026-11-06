@@ -21,6 +21,9 @@ import {
   advisorySitemapEntries,
   buildAdvisoryJsonLd,
   buildAdvisoryView,
+  buildAdvisoryFaqJsonLd,
+  tripsForCountry,
+  type AdvisoryView,
   buildIndexRows,
   confirmedSlugs,
   countrySlugOf,
@@ -323,7 +326,39 @@ async function main() {
   check('sitemap: a draft or empty row is never listed, and an empty table lists nothing', !map.some((e) => e.path.includes('chad') || e.path.includes('france')) && advisorySitemapEntries('on', [], {}).length === 0 && advisorySitemapEntries('log', tables().country_advisories as unknown as CountryAdvisoryRow[], {}).length === 0)
   check('index rows: pure builder skips drafts and empty rows', buildIndexRows(tables().country_advisories as unknown as CountryAdvisoryRow[]).length === 2)
   check('guide link: only the guide the row names or with the same slug, only when on', advisoryLinkForGuide('on', 'mexico', tables().country_advisories as unknown as CountryAdvisoryRow[])?.path === '/travel-advisories/mexico' && advisoryLinkForGuide('on', 'france', tables().country_advisories as unknown as CountryAdvisoryRow[]) === null && advisoryLinkForGuide('log', 'mexico', tables().country_advisories as unknown as CountryAdvisoryRow[]) === null && (await loadAdvisoryLinkForGuide('mexico', on.admin))?.label === 'Canada travel advisory for Mexico')
-  check('page copy has no em or en dashes', !!page && !NO_DASH.test(JSON.stringify(page)) && !!peruPage && !NO_DASH.test(JSON.stringify(peruPage)))
+  // ---- search-traffic pass (2026-11-06): query-shaped title and description, official-wording meaning line, grounded FAQ, links ----
+  {
+    const mx = page!
+    check('seo: Canada page title is the query a Canadian types, with current level and what it means', mx.seoTitle === 'Mexico travel advisory for Canadians: current level and what it means', mx.seoTitle)
+    check('seo: title says "current" only while fresh; a stale page says "official" instead', buildAdvisoryView(mkRow({}) as unknown as CountryAdvisoryRow, [], new Date(NOW + 3 * DAY)).seoTitle === 'Mexico travel advisory for Canadians: official level and what it means')
+    const longName = buildAdvisoryView(mkRow({ name: 'Saint Vincent and the Grenadines', slug: 'saint-vincent-and-the-grenadines' }) as unknown as CountryAdvisoryRow, [], new Date(NOW))
+    check('seo: a long country name drops the tail instead of passing 70 characters or cutting a word', longName.seoTitle.length <= 70 && longName.seoTitle.startsWith('Saint Vincent and the Grenadines travel advisory for Canadians'), longName.seoTitle)
+    check('seo: a Canada text with no level is titled without claiming a level', buildAdvisoryView(mkRow({ ca_level: null }) as unknown as CountryAdvisoryRow, [], new Date(NOW)).seoTitle === 'Mexico travel advisory for Canadians')
+    check('seo: UK-only and no-data pages never claim a Canada advisory in the title', peruPage!.seoTitle === 'UK travel advice for Peru' && !/Canadians/.test(noData!.seoTitle))
+    check('seo: description opens with the search phrase and the verbatim official level in quotes', mx.description.startsWith(`Mexico travel advisory for Canadians: the Government of Canada says "${CAUTION}".`) && mx.description.length <= 300, mx.description)
+    check('meaning: built only from the official level wording, quoted verbatim, no risk word of ours', mx.meaning === `For a Canadian traveller, the Government of Canada's own wording for Mexico is "${CAUTION}". That is the advice the Government of Canada gives Canadians about travel there. We do not add a risk rating of our own, so read the full official advisory, linked on this page, before you book.` && !/\b(safe|unsafe|dangerous|risky|fine to)\b/i.test(String(mx.meaning)))
+    check('meaning: none without a Canada level (UK-only, no-data, text-only)', peruPage!.meaning === null && noData!.meaning === null && buildAdvisoryView(mkRow({ ca_level: null }) as unknown as CountryAdvisoryRow, [], new Date(NOW)).meaning === null)
+    check('faq: Canada page has three grounded questions (advisory, meaning, source)', mx.faqs.length === 3 && mx.faqs[0].a.includes(`"${CAUTION}"`) && mx.faqs[0].a.includes('Violence occurs in parts of the country.') && mx.faqs[2].a.includes(dateLabel(iso(NOW - DAY))!), JSON.stringify(mx.faqs.map((f) => f.q)))
+    const allowedText = (v: AdvisoryView) => [v.canada?.level, v.canada?.quote, v.us?.level, v.us?.quote, v.uk?.updateLine].filter(Boolean) as string[]
+    check('faq: every quoted string inside an answer is stored official wording (nothing invented)', mx.faqs.every((f) => [...f.a.matchAll(/"([^"]+)"/g)].every((m) => allowedText(mx).some((t) => t.replace(/"/g, "'") === m[1]) || m[1] === CAUTION)))
+    check('faq: no FAQ for a no-data page, and one lone answer is not enough (UK-only has one question so none)', noData!.faqs.length === 0 && peruPage!.faqs.length === 0)
+    const ld = buildAdvisoryFaqJsonLd(mx) as { '@type': string; mainEntity: { name: string; acceptedAnswer: { text: string } }[] } | null
+    check('faq: FAQPage markup matches the printed questions and answers exactly, and is null with none', !!ld && ld['@type'] === 'FAQPage' && ld.mainEntity.length === mx.faqs.length && ld.mainEntity.every((e, i) => e.name === mx.faqs[i].q && e.acceptedAnswer.text === mx.faqs[i].a) && buildAdvisoryFaqJsonLd(noData!) === null)
+    check('faq and meaning copy has no em or en dashes', !NO_DASH.test(JSON.stringify([mx.faqs, mx.meaning, mx.seoTitle, mx.description])))
+    const mxUs = buildAdvisoryView(mkRow({ us_level: 'Level 3: Reconsider Travel', us_text: 'Reconsider travel.', us_source_url: 'https://travel.state.gov/x', us_source_published_at: iso(NOW - DAY), us_checked_at: iso(NOW - DAY), uk_text: 'Entry updated.', uk_source_url: 'https://www.gov.uk/foreign-travel-advice/mexico', uk_source_published_at: iso(NOW - DAY) }) as unknown as CountryAdvisoryRow, [], new Date(NOW))
+    check('faq: US and UK questions appear only when those sources have stored text, with their own wording', mxUs.faqs.some((f) => f.q.includes('US Department of State') && f.a.includes('"Level 3: Reconsider Travel"')) && mxUs.faqs.some((f) => f.q.includes('UK FCDO') && f.a.includes('"Entry updated."')) && !mx.faqs.some((f) => /US Department|UK FCDO/.test(f.q)))
+    const ldPage = JSON.stringify(buildAdvisoryJsonLd(mx, (p) => `https://x.test${p}`))
+    check('seo: WebPage markup uses the same search-shaped name as the title', ldPage.includes(`"name":"${mx.seoTitle}"`))
+    const pk = [{ slug: 'mexico-riviera', name: 'Riviera Maya Week', country: 'Mexico' }, { slug: 'cancun', name: 'Cancun', country: 'mexico' }, { slug: 'costa-rica-trip', name: 'Costa Rica', country: 'Costa Rica' }, { slug: null, name: 'No slug', country: 'Mexico' }, { slug: 'nocountry', name: 'None', country: null }]
+    const tr = tripsForCountry(pk, 'mexico')
+    check('links: trips match only by stored country, need a slug, and point at /packages/<slug>', tr.length === 2 && tr[0].path === '/packages/mexico-riviera' && tr[1].path === '/packages/cancun' && tripsForCountry(pk, 'peru').length === 0 && tripsForCountry(pk, 'mexico', 1).length === 1)
+    const src = readFileSync('app/travel-advisories/[country]/page.tsx', 'utf8')
+    check('page: title and social use seoTitle, FAQ markup and trips render only from data, the hub link stays, nothing becomes dynamic', src.includes('title: view.seoTitle') && src.includes('buildAdvisoryFaqJsonLd(view)') && src.includes('view.faqs.length > 0') && src.includes('tripsForCountry(') && src.includes('{view.meaning &&') && src.includes('All travel advisories') && !/next\/headers|no-store|force-dynamic/.test(src))
+    check('page: a country with no advisory data is noindex and gets no meaning, FAQ or trips block', noData!.indexable === false && src.includes('view.hasData ? tripsForCountry(') && src.includes('robots: view.indexable ? undefined'))
+    const idxSrc = readFileSync('app/travel-advisories/page.tsx', 'utf8')
+    check('index: title and description are the "for Canadians" search wording', /const title = "Travel advisories for Canadians by country/.test(idxSrc) && /Travel advisory levels by country for Canadians/.test(idxSrc) && !NO_DASH.test(idxSrc.match(/^const (title|description) = .*$/gm)!.join('')))
+  }
+  check('page copy has no em or en dashes', !!page &&!NO_DASH.test(JSON.stringify(page)) && !!peruPage && !NO_DASH.test(JSON.stringify(peruPage)))
 
   // ===============================================================================================
   // 6. Social: only on a level change, once per country per 7 days, through the existing ledger and caps
