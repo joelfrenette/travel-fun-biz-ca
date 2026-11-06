@@ -33,6 +33,8 @@ import { ogImageEntry, structuredImages } from "@/lib/og-path"
 import { heroAlt } from "@/lib/image-quality"
 import { jsonLdHtml } from "@/lib/jsonld"
 import { loadAdvisoryLinkForGuide } from "@/lib/country-advisory-public"
+import { getComparePairSlugs } from "@/lib/compare-destinations"
+import { compareLinksForDestination } from "@/lib/internal-links"
 
 export const revalidate = 300
 
@@ -96,6 +98,8 @@ export default async function DestinationPage({ params }: Props) {
   const propertyGuides = await listPropertyGuidesForDestination(params.slug)
   // Link to the travel advisory page for this country (null unless country_advisories_mode is 'on' and the page has data).
   const advisoryLink = guide ? await loadAdvisoryLinkForGuide(params.slug) : null
+  // Comparison pages that include this destination (real pairs only, exact slug match).
+  const compareLinks = compareLinksForDestination(params.slug, destination, await getComparePairSlugs().catch(() => []))
   // The cities, ports and other pages that sit under this one (WP16), and the trail of parents above it. Hotels and
   // resorts are already listed in their own section, so they are left out of the groups.
   const allGuides = guide ? await listPublishedGuideLinks() : []
@@ -293,6 +297,17 @@ export default async function DestinationPage({ params }: Props) {
                 See the best time to visit {destination}
               </Link>
             </p>
+          )}
+
+          {compareLinks.length > 0 && (
+            <section aria-labelledby="compare-links-heading">
+              <h2 id="compare-links-heading" className="mb-3 text-xl font-bold uppercase text-foreground">Compare {destination} with other destinations</h2>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                {compareLinks.map((l) => (
+                  <li key={l.path}><Link href={l.path} className="font-medium text-primary hover:underline">{l.label}</Link></li>
+                ))}
+              </ul>
+            </section>
           )}
 
           {recaps.length > 0 && (

@@ -9,6 +9,7 @@ import { getPublishedGuidePaths, guidePath } from "@/lib/guides"
 import { getPackagesForBrowse } from "@/lib/packages"
 import { ADVISORY_INDEX_PATH, FRESHNESS_NOTE, UK_OGL_ATTRIBUTION, UK_OGL_URL, buildAdvisoryFaqJsonLd, buildAdvisoryJsonLd, tripsForCountry } from "@/lib/country-advisory"
 import { loadAdvisoryPage } from "@/lib/country-advisory-public"
+import { destinationHubForCountry } from "@/lib/internal-links"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
 export const revalidate = 300
@@ -43,7 +44,10 @@ export default async function CountryAdvisoryPage({ params }: Props) {
   const guide = guides.find((g) => g.kind === "destinations" && g.slug === guideSlug)
 
   // Trips are linked only when a published trip's stored country is this country; no match means no block.
-  const trips = view.hasData ? tripsForCountry(await getPackagesForBrowse().catch(() => []), view.slug) : []
+  const browse = view.hasData ? await getPackagesForBrowse().catch(() => []) : []
+  const trips = view.hasData ? tripsForCountry(browse, view.slug) : []
+  // The destination trip page, only when a published trip's destination slugs to exactly this country (and no guide already sits at that URL).
+  const hub = view.hasData && !guide ? destinationHubForCountry(browse, view.slug) : null
 
   const page = buildAdvisoryJsonLd(view, absoluteUrl)
   const faqLd = buildAdvisoryFaqJsonLd(view)
@@ -166,6 +170,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
             <ul className="mt-3 list-disc space-y-1 pl-5 text-muted-foreground">
               {trips.map((t) => <li key={t.path}><Link href={t.path} className="font-medium text-primary hover:underline">{t.name}</Link></li>)}
               {guide && <li><Link href={guidePath(guide.kind, guide.slug)} className="font-medium text-primary hover:underline">Our {view.name} destination guide</Link></li>}
+              {hub && <li><Link href={hub.path} className="font-medium text-primary hover:underline">All our {hub.name} trips</Link></li>}
               <li><Link href={ADVISORY_INDEX_PATH} className="font-medium text-primary hover:underline">All travel advisories</Link></li>
               <li><Link href="/packages" className="font-medium text-primary hover:underline">Browse our group trips</Link></li>
             </ul>

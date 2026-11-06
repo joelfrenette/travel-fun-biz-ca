@@ -22,6 +22,8 @@ import { PageCopyIntro, PageCopyTakeaways, PageCopyFaq } from "@/components/page
 import { AffiliateAutoDisclosure } from "@/components/affiliate-text"
 import { loadAffiliateRules } from "@/lib/affiliate-rules"
 import { pageCopyFieldSet, linkPageFields } from "@/lib/affiliate-text-sources"
+import { loadAdvisoryLinkForGuide } from "@/lib/country-advisory-public"
+import { getSupabaseAdminForPageSwitch } from "@/lib/supabase-admin"
 
 export const revalidate = 300
 
@@ -75,6 +77,11 @@ export default async function ComparePage({ params }: Props) {
   const affiliateRules = await loadAffiliateRules()
   const copySet = pageCopyFieldSet(copy, "compare")
   const linked = linkPageFields(copySet.fields, affiliateRules, "pages")
+  // Advisory pages for either destination: a link only when the advisory mode is on and a published page with data has exactly this
+  // destination's slug (loadAdvisoryLinkForGuide returns null otherwise). The page-switch client keeps this read cacheable.
+  const advisoryLinks = (
+    await Promise.all([page.a.slug, page.b.slug].map((s) => loadAdvisoryLinkForGuide(s, getSupabaseAdminForPageSwitch()).catch(() => null)))
+  ).filter((l): l is { name: string; path: string; label: string } => !!l)
   const structuredData: object[] = [...jsonLd]
   if (copy) {
     // The BreadcrumbList is emitted by <Breadcrumbs> below (always, with or without copy), from the same list as the visible trail.
@@ -118,6 +125,21 @@ export default async function ComparePage({ params }: Props) {
         )}
 
         <AffiliateAutoDisclosure count={linked.count} language={language} wrapperClassName="container mx-auto px-4" />
+
+        {advisoryLinks.length > 0 && (
+          <div className="container mx-auto px-4 pb-10">
+            <p className="text-sm text-muted-foreground">
+              Planning to go? Read the{" "}
+              {advisoryLinks.map((l, i) => (
+                <span key={l.path}>
+                  {i > 0 && " and the "}
+                  <Link href={l.path} className="font-medium text-primary hover:underline">{l.label}</Link>
+                </span>
+              ))}
+              .
+            </p>
+          </div>
+        )}
 
         <div className="container mx-auto px-4 pb-10">
           <GuideCta name={`${page.a.destination} vs ${page.b.destination}`} packageName={page.a.packages[0]?.name ?? page.b.packages[0]?.name} />
