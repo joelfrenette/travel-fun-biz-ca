@@ -7,7 +7,7 @@ import { GUIDE_LIMITS, buildCopyItem, buildGuideItem, buildPostItem, copyFrom, g
 import { buildSafePage, guideOffenders, looseDelete, parentFromGrounding, repairGuideFields, type GuideRepairCfg } from '@/lib/guide-repairs'
 import type { GuideKind } from '@/lib/guides'
 import { deleteEdits } from '@/lib/content-edits'
-import { cutFirstSentence, shortenOpening } from '@/lib/blog-quality'
+import { cutFirstSentence, scrubFiller, shortenOpening } from '@/lib/blog-quality'
 import { parseArticle } from '@/lib/guide-composer'
 import { healItem, type HealBudget, type HealOutcome, type HealTarget } from '@/lib/heal-loop'
 
@@ -58,10 +58,19 @@ export async function healComposedPost(
     // Plain code first: an opening sentence over 25 words is cut at a clause boundary (removes words only, adds no fact). The gate and the
     // independent judge still decide afterwards; when no safe cut exists the model rounds run as before.
     repair: (f, _blockers, tracker) => {
+      let next = f
       const shorter = shortenOpening(f.body, post.primary_keyword)
-      if (!shorter || shorter === f.body) return f
-      tracker.touch('body', 'fixer', 'cut an opening sentence over 25 words at a clause boundary')
-      return { ...f, body: shorter }
+      if (shorter && shorter !== f.body) {
+        tracker.touch('body', 'fixer', 'cut an opening sentence over 25 words at a clause boundary')
+        next = { ...next, body: shorter }
+      }
+      // Then the filler words the model kept writing back in over 5 rounds ("perfect", "Before moving on,"): swapped in plain code.
+      const clean = scrubFiller(next.body)
+      if (clean) {
+        tracker.touch('body', 'fixer', 'replaced banned filler words (perfect, Before moving on)')
+        next = { ...next, body: clean }
+      }
+      return next
     },
     regenerateWhole: opts.regenerate
       ? async (reasons) => {
