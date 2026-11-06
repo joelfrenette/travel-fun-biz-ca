@@ -114,6 +114,24 @@ export const BANNED_PHRASES: BannedPhrase[] = [
   { id: 'our team is happy to help', re: /our team is happy to help/i },
 ]
 
+/**
+ * Plain-code repair for two of the banned filler phrases that the heal kept rejecting drafts on after 5 model rounds (3 Nov and 6 Nov):
+ * "Before moving on, ..." at the start of a sentence is dropped, and "perfect / perfectly" becomes a plain, non-superlative word. It only
+ * swaps a word or removes a lead-in; it adds no fact, number or claim. The other banned phrases are left for the model. Returns the new
+ * text, or null when nothing changed. Pure.
+ */
+export function scrubFiller(text: string): string | null {
+  const keepCase = (from: string, to: string) => (/^[A-Z]/.test(from) ? to.charAt(0).toUpperCase() + to.slice(1) : to)
+  let out = text.replace(/(^|[.!?]\s+|\n\s*)before moving on,?\s+(\w)/gi, (_m, lead: string, c: string) => `${lead}${c.toUpperCase()}`)
+  out = out
+    .replace(/\bperfectly\s+(suited|matched|set up|placed|sized)\b/gi, (m, w: string) => keepCase(m, `well ${w}`))
+    .replace(/\bperfectly\b/gi, (m) => keepCase(m, 'well'))
+    .replace(/\bperfect\s+for\b/gi, (m) => keepCase(m, 'well suited to'))
+    .replace(/\bthe\s+perfect\b/gi, (m) => keepCase(m, 'the right'))
+    .replace(/\bperfect\s+(?=[a-z])/gi, (m) => keepCase(m, 'good '))
+  return out === text ? null : out
+}
+
 /** Plain text with markdown link syntax reduced to the link words. */
 export const unlink = (s: string): string => s.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
 
