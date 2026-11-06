@@ -6,7 +6,8 @@ import { Footer } from "@/components/footer"
 import { buildBreadcrumbJsonLd, jsonLdHtml } from "@/lib/jsonld"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getPublishedGuidePaths, guidePath } from "@/lib/guides"
-import { ADVISORY_INDEX_PATH, FRESHNESS_NOTE, UK_OGL_ATTRIBUTION, UK_OGL_URL, buildAdvisoryJsonLd } from "@/lib/country-advisory"
+import { getPackagesForBrowse } from "@/lib/packages"
+import { ADVISORY_INDEX_PATH, FRESHNESS_NOTE, UK_OGL_ATTRIBUTION, UK_OGL_URL, buildAdvisoryFaqJsonLd, buildAdvisoryJsonLd, tripsForCountry } from "@/lib/country-advisory"
 import { loadAdvisoryPage } from "@/lib/country-advisory-public"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
@@ -20,13 +21,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!view) return { title: `Travel advisory not found | ${SITE_NAME}`, robots: { index: false } }
   const url = absoluteUrl(view.path)
   return {
-    title: view.title,
+    title: view.seoTitle,
     description: view.description,
     alternates: { canonical: url },
     // A page with no current advisory data is not indexed.
     robots: view.indexable ? undefined : { index: false, follow: true },
-    openGraph: { title: view.title, description: view.description, url, type: "website", images: [{ url: DEFAULT_OG_IMAGE, alt: SITE_NAME }] },
-    twitter: { card: "summary_large_image", title: view.title, description: view.description, images: [DEFAULT_OG_IMAGE] },
+    openGraph: { title: view.seoTitle, description: view.description, url, type: "website", images: [{ url: DEFAULT_OG_IMAGE, alt: SITE_NAME }] },
+    twitter: { card: "summary_large_image", title: view.seoTitle, description: view.description, images: [DEFAULT_OG_IMAGE] },
   }
 }
 
@@ -41,7 +42,11 @@ export default async function CountryAdvisoryPage({ params }: Props) {
   const guideSlug = view.guideSlug ?? view.slug
   const guide = guides.find((g) => g.kind === "destinations" && g.slug === guideSlug)
 
+  // Trips are linked only when a published trip's stored country is this country; no match means no block.
+  const trips = view.hasData ? tripsForCountry(await getPackagesForBrowse().catch(() => []), view.slug) : []
+
   const page = buildAdvisoryJsonLd(view, absoluteUrl)
+  const faqLd = buildAdvisoryFaqJsonLd(view)
   const crumbs = buildBreadcrumbJsonLd([
     { name: "Home", url: absoluteUrl("/") },
     { name: "Travel advisories", url: absoluteUrl(ADVISORY_INDEX_PATH) },
@@ -53,6 +58,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
       <Header language={language} currency={currency} />
       <main className="flex-1">
         {view.hasData && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(page) }} />}
+        {faqLd && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(faqLd) }} />}
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(crumbs) }} />
         <div className="border-b bg-muted/30">
           <div className="container mx-auto max-w-3xl px-4 py-10">
@@ -64,6 +70,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
             <p className="mt-3 text-pretty text-muted-foreground">
               This page shows what {[view.canada && "Canada", view.us && "the US", view.uk && "the UK"].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1") || "the governments we follow"} currently say{[view.canada, view.us, view.uk].filter(Boolean).length === 1 ? "s" : ""} about travel to {view.name}, in their own words, with a link to each official page. We do not rate or rewrite their advice.
             </p>
+            {view.meaning && <p className="mt-3 text-pretty text-foreground">{view.meaning}</p>}
             <p className="mt-2 text-sm text-muted-foreground">{FRESHNESS_NOTE}</p>
           </div>
         </div>
@@ -140,9 +147,24 @@ export default async function CountryAdvisoryPage({ params }: Props) {
             </section>
           )}
 
+          {view.faqs.length > 0 && (
+            <section aria-labelledby="faq-h">
+              <h2 id="faq-h" className="text-xl font-bold text-foreground">Questions Canadians ask about {view.name}</h2>
+              <dl className="mt-3 space-y-4">
+                {view.faqs.map((f, i) => (
+                  <div key={i} className="rounded-lg border bg-card p-4">
+                    <dt className="font-semibold text-foreground">{f.q}</dt>
+                    <dd className="mt-1 text-muted-foreground">{f.a}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+
           <section aria-labelledby="more-h">
             <h2 id="more-h" className="text-xl font-bold text-foreground">More</h2>
             <ul className="mt-3 list-disc space-y-1 pl-5 text-muted-foreground">
+              {trips.map((t) => <li key={t.path}><Link href={t.path} className="font-medium text-primary hover:underline">{t.name}</Link></li>)}
               {guide && <li><Link href={guidePath(guide.kind, guide.slug)} className="font-medium text-primary hover:underline">Our {view.name} destination guide</Link></li>}
               <li><Link href={ADVISORY_INDEX_PATH} className="font-medium text-primary hover:underline">All travel advisories</Link></li>
               <li><Link href="/packages" className="font-medium text-primary hover:underline">Browse our group trips</Link></li>

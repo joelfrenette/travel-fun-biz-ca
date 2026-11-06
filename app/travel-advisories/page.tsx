@@ -11,8 +11,8 @@ import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
 export const revalidate = 300
 
-const title = "Canada, UK and US travel advisories by country"
-const description = "Current government travel advisories by country, in the governments' own words, with the date and a link to each official page."
+const title = "Travel advisories for Canadians by country: Canada, UK and US levels"
+const description = "Travel advisory levels by country for Canadians: the Government of Canada, UK and US wording, quoted as published, with the date and a link to each official page."
 
 export async function generateMetadata(): Promise<Metadata> {
   const rows = await loadAdvisoryIndex()

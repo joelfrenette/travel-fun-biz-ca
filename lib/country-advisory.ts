@@ -641,6 +641,10 @@ export interface LogEntry {
   quote: string | null
   sourceUrl: string | null
 }
+export interface AdvisoryFaq {
+  q: string
+  a: string
+}
 export interface AdvisoryView {
   slug: string
   name: string
@@ -649,6 +653,12 @@ export interface AdvisoryView {
   h1: string
   description: string
   hasData: boolean
+  /** The <title> and social title: how a Canadian searches ("<Country> travel advisory for Canadians: current level and what it means"). */
+  seoTitle: string
+  /** One plain sentence pair built only from the official level wording (quoted verbatim); null without a Canada level. */
+  meaning: string | null
+  /** Question and answer pairs; every answer is built from stored text, dates and links only. Empty when fewer than two. */
+  faqs: AdvisoryFaq[]
   /** Index in search only when the page has real current data. */
   indexable: boolean
   canada: CanadaBlock | null
@@ -709,6 +719,76 @@ export function latestChange(row: CountryAdvisoryRow, log: AdvisoryLogRow[]): st
   return maxIsoOf([row.ca_source_published_at, row.uk_source_published_at, row.us_source_published_at, ...log.map((l) => l.source_published_at ?? l.created_at)])
 }
 
+const SEO_TITLE_MAX = 70
+const noQuote = (v: string): string => v.replace(/"/g, "'")
+
+/** The search-shaped title. Canada data: "<Country> travel advisory for Canadians: current level and what it means". The words
+ * "current level" are only used when a Canada level is stored and was checked recently; a long country name drops the tail
+ * rather than being cut mid-word. A page with no Canada data keeps the plain UK or US title (it does not claim a Canada advisory). */
+export function advisorySeoTitle(row: Pick<CountryAdvisoryRow, 'name' | 'ca_level' | 'ca_text' | 'uk_text'> & Partial<Pick<CountryAdvisoryRow, 'us_level' | 'us_text'>>, stale: boolean): string {
+  if (!(row.ca_level || row.ca_text)) return advisoryTitle(row)
+  const base = `${row.name} travel advisory for Canadians`
+  const word = stale ? 'official' : 'current'
+  const tries = row.ca_level ? [`${base}: ${word} level and what it means`, `${base}: ${word} level`, base] : [base]
+  return tries.find((t) => t.length <= SEO_TITLE_MAX) ?? base
+}
+
+/** What the Canadian wording means for a traveller, in the government's own words. No risk claim, rating or advice of ours. */
+export function advisoryMeaning(name: string, canadaLevel: string | null | undefined): string | null {
+  const level = plain(canadaLevel)
+  if (!level) return null
+  return `For a Canadian traveller, the Government of Canada's own wording for ${name} is "${noQuote(level)}". That is the advice the Government of Canada gives Canadians about travel there. We do not add a risk rating of our own, so read the full official advisory, linked on this page, before you book.`
+}
+
+/** FAQ pairs for the page and its FAQPage markup. Each answer is made only from stored wording, dates and links. */
+export function buildAdvisoryFaqs(name: string, canada: CanadaBlock | null, us: UsBlock | null, uk: UkBlock | null): AdvisoryFaq[] {
+  const out: AdvisoryFaq[] = []
+  if (canada?.level) {
+    const bits = [`The Government of Canada says: "${noQuote(canada.level)}".`]
+    if (canada.quote) bits.push(`Its advisory also says: "${noQuote(canada.quote)}"`)
+    if (canada.publishedLabel) bits.push(`The official source was published ${canada.publishedLabel}.`)
+    out.push({ q: `What is the Canada travel advisory for ${name}?`, a: bits.join(' ') })
+    const meaning = advisoryMeaning(name, canada.level)
+    if (meaning) out.push({ q: `What does the Canada travel advisory for ${name} mean for Canadian travellers?`, a: meaning })
+    if (canada.sourceUrl) {
+      out.push({
+        q: `Where does this ${name} advisory come from?`,
+        a: `It comes from the official Government of Canada advisory page for ${name}, linked on this page. We show its wording and do not rewrite it.${canada.checkedLabel ? ` We last checked it on ${canada.checkedLabel}.` : ''}${canada.staleNote ? ` ${canada.staleNote}` : ''}`,
+      })
+    }
+  }
+  if (us?.level) {
+    out.push({ q: `What does the US Department of State say about travel to ${name}?`, a: `The US Department of State says: "${noQuote(us.level)}".${us.quote ? ` From the same advisory: "${noQuote(us.quote)}"` : ''}${us.publishedLabel ? ` The official source was published ${us.publishedLabel}.` : ''}` })
+  }
+  if (uk?.updateLine) {
+    out.push({ q: `What is the latest UK FCDO update for ${name}?`, a: `The UK FCDO's latest update line says: "${noQuote(uk.updateLine)}"${uk.publishedLabel ? ` The official source was published ${uk.publishedLabel}.` : ''}` })
+  }
+  // One lonely question is thin; show the block only when there are at least two.
+  return out.length >= 2 ? out : []
+}
+
+/** FAQPage markup for exactly the questions printed on the page, or null when there are none. */
+export function buildAdvisoryFaqJsonLd(view: Pick<AdvisoryView, 'faqs'>): object | null {
+  if (view.faqs.length === 0) return null
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: view.faqs.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+  }
+}
+
+/** Up to `limit` trips whose stored country is this country (same slug rule as the pages). Never guesses by region. */
+export function tripsForCountry<T extends { slug?: string | null; name: string; country?: string | null }>(packages: T[], countrySlug: string, limit = 3): { name: string; path: string }[] {
+  const out: { name: string; path: string }[] = []
+  for (const p of packages) {
+    if (out.length >= limit) break
+    if (!p.slug || !p.country) continue
+    if (countrySlugOf(p.country) !== countrySlug) continue
+    out.push({ name: p.name, path: `/packages/${p.slug}` })
+  }
+  return out
+}
+
 /** Builds everything the page prints from one row and its log. Pure. Only fields the row has are filled in. */
 export function buildAdvisoryView(row: CountryAdvisoryRow, log: AdvisoryLogRow[], now: Date): AdvisoryView {
   const caHas = !!(row.ca_level || row.ca_text)
@@ -767,11 +847,11 @@ export function buildAdvisoryView(row: CountryAdvisoryRow, log: AdvisoryLogRow[]
   const data = caHas || ukHas || usHas
   const modified = latestChange(row, log)
   const parts: string[] = []
-  if (canada?.level) parts.push(`The Government of Canada's advisory for ${row.name} reads: "${canada.level.replace(/"/g, "'")}".`)
+  if (canada?.level) parts.push(`${row.name} travel advisory for Canadians: the Government of Canada says "${canada.level.replace(/"/g, "'")}".`)
   if (us?.level) parts.push(`The US Department of State's advisory reads: "${us.level.replace(/"/g, "'")}".`)
   if (uk?.updateLine) parts.push(`The UK FCDO's latest update line is shown with its link.`)
   const description = data
-    ? `${parts.join(' ')} Official sources, dates and links on one page. Always check the government page before you travel.`.slice(0, 300)
+    ? `${parts.join(' ')} What it means for a Canadian traveller, with official sources, dates and links. Check the government page before you travel.`.slice(0, 300)
     : `Travel advisory information for ${row.name} is not available on this page yet. Check the official government sources.`
   return {
     slug: row.slug,
@@ -781,6 +861,9 @@ export function buildAdvisoryView(row: CountryAdvisoryRow, log: AdvisoryLogRow[]
     h1: advisoryTitle(row),
     description,
     hasData: data,
+    seoTitle: advisorySeoTitle(row, canada?.stale ?? false),
+    meaning: advisoryMeaning(row.name, canada?.level),
+    faqs: data ? buildAdvisoryFaqs(row.name, canada, us, uk) : [],
     indexable: data && row.status === 'published',
     canada,
     uk,
@@ -801,7 +884,7 @@ export function buildAdvisoryJsonLd(view: AdvisoryView, absoluteUrl: (p: string)
   return {
     '@context': 'https://schema.org',
     '@type': 'WebPage',
-    name: view.title,
+    name: view.seoTitle,
     description: view.description,
     url: absoluteUrl(view.path),
     about: { '@type': 'Country', name: view.name },
