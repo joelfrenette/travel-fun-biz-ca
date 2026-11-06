@@ -1,6 +1,6 @@
 // Quick self-check for the compare and best-time page copy gate and the candidate rotation (no network, no database).
 // Run: pnpm dlx tsx scripts/check-page-copy.ts
-import { composePageCopy, COPY_MAX_TOKENS, COPY_RETRY_MAX_TOKENS, CUT_OFF_ERROR, copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, normalizePageCopy, pageCopyBlockers, ungroundedWordCounts, type ComposedPageCopy, type PageCopyBrief, type CopyGateContext } from '../lib/page-copy-composer'
+import { composePageCopy, copyPrompt, FIRST_SENTENCE_PROMPT_WORDS, COPY_MAX_TOKENS, COPY_RETRY_MAX_TOKENS, CUT_OFF_ERROR, copyGroundingText, copyPublishDecision, linkedPackageSlugs, monthRange, normalizePageCopy, pageCopyBlockers, ungroundedWordCounts, type ComposedPageCopy, type PageCopyBrief, type CopyGateContext } from '../lib/page-copy-composer'
 import { pickRowsToCheck, parseStaleState, STALE_CHECK_MAX_ROWS } from '../lib/page-copy-run'
 import { pickNextCopyCandidate, pageTypeOfPath, staleLinkedSlugs, type PageCopyCandidate } from '../lib/page-copy'
 
@@ -222,7 +222,30 @@ async function cutOffChecks() {
 // the stub signature matches callText(prompt, maxTokens, timeoutMs)
 const cutOffThenOkFix = (f: (p: string, m: number) => Promise<{ ok: false; error: string } | { ok: true; text: string }>) => (p: string, m: number, _t: number) => f(p, m)
 
-cutOffChecks().then(() => {
+// Self-heal fixes (2026-11): first-sentence cap in the prompt, and one bounded retry after a cut-off reply.
+async function healChecks() {
+  const b = makeBrief()
+  check('the prompt caps the first sentence (30 words), under the 45 word gate', copyPrompt(b).includes(`at most ${FIRST_SENTENCE_PROMPT_WORDS} words`) && FIRST_SENTENCE_PROMPT_WORDS < 45)
+  process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test-key-not-used'
+  const goodJson = JSON.stringify({ intro: `Alpha or Beta suit different trips. ${filler(200)}`, faq: [{ q: 'Q one?', a: 'A one.' }], key_takeaways: ['One', 'Two', 'Three'], meta_title: 'Alpha trips', meta_description: 'Short.', og_title: 'Alpha', og_description: 'Short.', primary_keyword: 'alpha trips' })
+  const calls: { tokens: number; prompt: string }[] = []
+  const cutThenOk = async (prompt: string, tokens: number) => {
+    calls.push({ tokens, prompt })
+    return calls.length === 1 ? ({ ok: false, error: 'the AI reply was cut off' } as const) : ({ ok: true, text: goodJson } as const)
+  }
+  const r1 = await composePageCopy(b, { callText: cutThenOk })
+  check('a cut-off reply is retried once with a larger token limit and a brevity note', 'copy' in r1 && calls.length === 2 && calls[1].tokens > calls[0].tokens && /cut off/.test(calls[1].prompt))
+  let n = 0
+  const alwaysCut = async () => { n++; return { ok: false, error: 'the AI reply was cut off' } as const }
+  const r2 = await composePageCopy(b, { callText: alwaysCut })
+  check('the retry is bounded: two cut-offs give up with the plain reason, never a third call', 'error' in r2 && n === 2 && /cut off/.test((r2 as { error: string }).error))
+  let m = 0
+  const otherError = async () => { m++; return { ok: false, error: 'the AI did not answer in time' } as const }
+  await composePageCopy(b, { callText: otherError })
+  check('only a cut-off is retried, not other errors', m === 1)
+}
+
+cutOffChecks().then(healChecks).then(() => {
   console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) FAILED.`)
   process.exit(failed === 0 ? 0 : 1)
 })

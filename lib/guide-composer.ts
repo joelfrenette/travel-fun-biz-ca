@@ -119,7 +119,7 @@ ${plannedRule(brief)}
 ${BANNED_WORDS_RULE}
 
 Write 1200 to 1800 words in markdown, warm, practical and plain English (Canadian spelling). Structure:
-- First an opening paragraph with no heading, 2 or 3 sentences. Its FIRST sentence must be a plain, quotable definition that answers "what is ${brief.name}?" and names it ("${brief.name} is ..."), complete enough for a search engine or AI answer to quote on its own.
+- First an opening paragraph with no heading, 2 or 3 sentences. Its FIRST sentence must be a plain, quotable definition that answers "what is ${brief.name}?" and names it ("${brief.name} is ..."), complete enough for a search engine or AI answer to quote on its own. The exact words "${brief.name}", spelled just so and not shortened to a nickname or a pronoun, must appear in that opening paragraph (the gate rejects an opening that does not name the subject, and that was the leading reason guide drafts were held back).
 - Then these sections in this order, each starting with a "## " heading. Write a natural, descriptive heading for each (it may include "${brief.name}"; the first heading should contain the main search phrase for this page). Do not number the headings:
 ${plan}
 - Under the longest section add at least one "### " sub-heading.

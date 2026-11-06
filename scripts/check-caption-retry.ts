@@ -41,7 +41,7 @@ const base = { title, summary, link }
   const dropped: Record<string, string[]> = {}
   const out = await generatePlatformCaptions(title, summary, link, ['facebook', 'threads'], {
     dropped,
-    caller: async (prompt) => {
+    caller: async (prompt): Promise<Record<string, string>> => {
       prompts.push(prompt)
       return prompts.length === 1 ? { facebook: good, threads: weak } : { threads: good }
     },

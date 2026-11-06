@@ -38,7 +38,7 @@ const LATER = '\n\n## What is included\n\nMeals, drinks and activities are cover
 
 // 3. No safe cut: a single long run with no clause boundary stays for the model.
 {
-  const run = 'Royalton resorts all inclusive solo travelers will find that the whole stay is organised around easy shared evenings on the beach for guests of every age and background from many countries.' + LATER
+  const run = 'Royalton resorts all inclusive solo travelers will find the whole stay organised around easy shared evenings beside the ocean on long warm nights of slow talk over dessert' + '.' + LATER
   check('no clause boundary means no cut', shortenOpening(run, KW) === null)
 }
 
@@ -81,6 +81,17 @@ const LATER = '\n\n## What is included\n\nMeals, drinks and activities are cover
   check('the cut is refused when the gate of the caller says no', cutFirstSentence(copyBody, 45, () => false) === null)
   const src2 = readFileSync('lib/heal-targets.ts', 'utf8')
   check('the page-copy heal target runs the cut only for the long-first-sentence blocker, and re-checks the real gate', /\/\^the first sentence is too long\/\.test\(b\)\)\) return f/.test(src2) && /pageCopyBlockers\(copyFrom\(copy,/.test(src2) && /tracker\.touch\('body', 'fixer', 'cut a first sentence over 45 words/.test(src2))
+}
+
+// 8. Openings with no comma or conjunction inside the limit (35 to 48 words, 2026-10-25 to 11-02) are cut before a trailing phrase.
+{
+  const kw = 'montego bay girls trip'
+  const open = 'A Montego Bay girls trip is an all inclusive getaway with friends that bundles the room, meals, drinks and pool time into one price for everyone in the group who wants a relaxed week away.'
+  const body = open + '\n\nNext paragraph stays.'
+  check('setup: no comma or conjunction cut exists in the long opening, so only the loose cut can help', words(open) > 25 && !/[,;:]/.test(open.slice(0, open.indexOf(' with friends'))))
+  const out = shortenOpening(body, kw)
+  check('a long opening with only a trailing phrase boundary is now cut and passes the gate', out !== null && firstSentenceIssue(out, kw) === null && out.endsWith('\n\nNext paragraph stays.'))
+  check('the loose cut removes words only', out !== null && open.startsWith(firstSentenceOf(out).replace(/\.$/, '')))
 }
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed')
