@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { MapPin, Calendar } from "lucide-react"
 import { Header } from "@/components/header"
+import { Breadcrumbs } from "@/components/breadcrumbs"
 import { Footer } from "@/components/footer"
 import { PackageCard } from "@/components/package-card"
 import { GuideHeaderFeature } from "@/components/guide-header-feature"
@@ -156,6 +157,12 @@ export default async function DestinationPage({ params }: Props) {
         <div className="border-b bg-muted/30">
           <div className={`container mx-auto px-4 py-10 ${feature.kind !== "none" ? "grid items-stretch gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]" : ""}`}>
             <div className="flex min-w-0 flex-col">
+            {/* With a guide, guideJsonLd above already emits this trail's BreadcrumbList (schema off here). Without one, this draws both. */}
+            <Breadcrumbs
+              crumbs={guide ? [{ name: "Home", path: "/" }, ...trail.map((s) => ({ name: s.name, path: s.path }))] : [{ name: "Home", path: "/" }, { name: guideKinds.destinations.plural, path: guideKinds.destinations.urlPrefix }, { name: destination }]}
+              currentPath={`/destinations/${params.slug}`}
+              schema={!guide}
+            />
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Destination</p>
             <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">{guide ? `${destination}: ${guideKinds.destinations.guideLabel}` : `${destination} Trips`}</h1>
             {guide && formatDate(guide.updated_at) && (

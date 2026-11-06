@@ -5,6 +5,7 @@ import { Calendar, Clock } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { PageSignupBox } from "@/components/page-signup-box"
+import { Breadcrumbs } from "@/components/breadcrumbs"
 import { Badge } from "@/components/ui/badge"
 import { getPublishedPostBySlug, getPublishedPosts, pickRelatedPosts } from "@/lib/posts"
 import { getRelatedPackages } from "@/lib/packages"
@@ -139,25 +140,16 @@ export default async function BlogPostPage({ params }: Props) {
       }
     : null
 
-  const breadcrumbJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Home", item: absoluteUrl("/") },
-      { "@type": "ListItem", position: 2, name: "Blog", item: absoluteUrl("/blog") },
-      { "@type": "ListItem", position: 3, name: post.title, item: pageUrl },
-    ],
-  }
-
   return (
     <div className="flex min-h-screen flex-col">
       <Header language={language} currency={currency} />
       <main className="flex-1">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
         {faqJsonLd && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(faqJsonLd) }} />}
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(breadcrumbJsonLd) }} />
 
         <article className="container mx-auto max-w-3xl px-4 py-12">
+          {/* The visible trail and the BreadcrumbList come from one list (components/breadcrumbs.tsx), so they cannot disagree. */}
+          <Breadcrumbs crumbs={[{ name: "Home", path: "/" }, { name: "Blog", path: "/blog" }, { name: post.title }]} currentPath={`/blog/${post.slug}`} />
           <Link href="/blog" className="text-sm text-muted-foreground hover:underline">&larr; All stories</Link>
 
           <header className="mt-4 mb-8">

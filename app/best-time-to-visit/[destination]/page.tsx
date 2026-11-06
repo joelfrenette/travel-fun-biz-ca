@@ -11,7 +11,8 @@ import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, priceOnRequestLine } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
-import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
+import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd } from "@/lib/jsonld"
+import { Breadcrumbs } from "@/components/breadcrumbs"
 import { bestTimePath } from "@/lib/page-copy"
 import { getUsablePageCopy } from "@/lib/page-copy-render"
 import { copyRobots } from "@/lib/page-copy-index"
@@ -75,12 +76,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
   const linked = linkPageFields(copySet.fields, affiliateRules, "pages")
   const structuredData: object[] = [...jsonLd]
   if (copy) {
-    structuredData.push(buildBreadcrumbJsonLd([
-      { name: "Home", url: absoluteUrl("/") },
-      { name: "Destinations", url: absoluteUrl("/destinations") },
-      { name: page.destination, url: absoluteUrl(`/destinations/${params.destination}`) },
-      { name: `Best time to visit ${page.destination}`, url: pageUrl },
-    ]))
+    // The BreadcrumbList is emitted by <Breadcrumbs> below (always, with or without copy), from the same list as the visible trail.
     if (copy.faq.length > 0) structuredData.push(buildFaqPageJsonLd(copy.faq))
   }
 
@@ -91,6 +87,7 @@ export default async function BestTimeToVisitPage({ params }: Props) {
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(copy ? structuredData : jsonLd) }} />
         <div className="border-b bg-muted/30">
           <div className="container mx-auto px-4 py-10">
+            <Breadcrumbs crumbs={[{ name: "Home", path: "/" }, { name: "Destinations", path: "/destinations" }, { name: page.destination, path: `/destinations/${params.destination}` }, { name: `Best time to visit ${page.destination}` }]} currentPath={`/best-time-to-visit/${params.destination}`} />
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Best Time to Visit</p>
             <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">Best Time to Visit {page.destination}</h1>
             <p className="mt-3 max-w-2xl text-pretty text-muted-foreground">

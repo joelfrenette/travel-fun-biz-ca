@@ -431,8 +431,10 @@ export const CHECKS: Record<string, CheckFn> = {
     if (pages.length === 0) return unknown('No guide, post or trip sample page loaded.', 'Run the audit again.')
     const with_ = pages.filter(({ facts }) => hasType(facts, 'BreadcrumbList'))
     if (with_.length === pages.length) return mk('pass', `BreadcrumbList is on all ${pages.length} sample pages.`, '')
-    if (with_.length === 0) return mk('fail', `No sample guide, post or trip page has BreadcrumbList (${pages.length} checked).`, 'Add breadcrumbs and BreadcrumbList schema to guides, posts and trips.')
-    return mk('warn', `BreadcrumbList is on ${with_.length} of ${pages.length} sample pages.`, 'Add it to the page types that lack it.')
+    // Name the sampled pages that lack it, so the owner can open the exact page instead of guessing.
+    const lacking = pages.filter(({ facts }) => !hasType(facts, 'BreadcrumbList')).map(({ p }) => `${p.kind} ${pathOf(p.url)}`).join(', ')
+    if (with_.length === 0) return mk('fail', `No sample guide, post or trip page has BreadcrumbList (${pages.length} checked: ${lacking}).`, 'Add breadcrumbs and BreadcrumbList schema to guides, posts and trips.')
+    return mk('warn', `BreadcrumbList is on ${with_.length} of ${pages.length} sample pages; missing on ${lacking}.`, 'Add it to the page types that lack it.')
   },
   'faq-schema': (i) => {
     const pages = okPages(i).filter(({ p }) => p.kind === 'guide' || p.kind === 'trip')

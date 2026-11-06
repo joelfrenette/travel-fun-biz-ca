@@ -12,12 +12,13 @@ export interface Crumb {
  * Visible breadcrumb trail plus its BreadcrumbList structured data (hub WP6). The last crumb is the current page. The visible
  * trail and the JSON-LD are built from the same list, so they cannot disagree. `currentPath` is the current page's own path.
  */
-export function Breadcrumbs({ crumbs, currentPath, className = "mb-4 text-sm text-muted-foreground" }: { crumbs: Crumb[]; currentPath: string; className?: string }) {
+export function Breadcrumbs({ crumbs, currentPath, className = "mb-4 text-sm text-muted-foreground", schema = true }: { crumbs: Crumb[]; currentPath: string; className?: string; schema?: boolean }) {
   if (crumbs.length < 2) return null
   const ld = buildBreadcrumbJsonLd(crumbs.map((c, i) => ({ name: c.name, url: absoluteUrl(i === crumbs.length - 1 ? currentPath : c.path || "/") })))
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(ld) }} />
+      {/* schema={false}: the page already emits its own BreadcrumbList for this same trail (a guide page's), so only the visible trail is drawn. */}
+      {schema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(ld) }} />}
       <nav aria-label="Breadcrumb" className={className}>
         <ol className="flex flex-wrap items-center gap-x-1.5">
           {crumbs.map((c, i) => {

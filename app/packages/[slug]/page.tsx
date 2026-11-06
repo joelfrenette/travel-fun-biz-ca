@@ -212,6 +212,10 @@ export default async function PackagePage({ params }: Props) {
           />
         ) : (
           <>
+            {/* Visible trail + BreadcrumbList for an upcoming trip, same component and same list as the past-trip page. */}
+            <div className="container mx-auto px-4 pt-4">
+              <Breadcrumbs crumbs={[{ name: translate(language, "Home"), path: "/" }, { name: translate(language, "Trips"), path: "/packages" }, { name: pkg.name }]} currentPath={`/packages/${pkg.slug}`} className="text-xs text-muted-foreground" />
+            </div>
             <TripKitPage pkg={pkg} heading={heading} image={image} kit={storedKit} price={confirmedPrice} fieldSet={fieldSet} linked={linked} language={language} phone={request.phone} telHref={request.telHref} />
             {itineraryMode === "on" && (
               <section id="itinerary" className="container mx-auto scroll-mt-24 px-4 py-10" aria-labelledby="itinerary-heading">

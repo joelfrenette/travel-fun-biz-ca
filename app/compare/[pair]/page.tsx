@@ -11,7 +11,8 @@ import { getUsdToRate } from "@/lib/fx"
 import { displayPackagePrice, type Currency } from "@/lib/currency"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl, formatDateRange, priceOnRequestLine } from "@/lib/site"
 import { ogImageEntry } from "@/lib/og-path"
-import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd, buildBreadcrumbJsonLd } from "@/lib/jsonld"
+import { jsonLdHtml, buildCollectionPageJsonLd, buildFaqPageJsonLd } from "@/lib/jsonld"
+import { Breadcrumbs } from "@/components/breadcrumbs"
 import type { DbPackage } from "@/lib/packages"
 import { comparePath } from "@/lib/page-copy"
 import { getUsablePageCopy } from "@/lib/page-copy-render"
@@ -76,11 +77,7 @@ export default async function ComparePage({ params }: Props) {
   const linked = linkPageFields(copySet.fields, affiliateRules, "pages")
   const structuredData: object[] = [...jsonLd]
   if (copy) {
-    structuredData.push(buildBreadcrumbJsonLd([
-      { name: "Home", url: absoluteUrl("/") },
-      { name: "Destinations", url: absoluteUrl("/destinations") },
-      { name: `${page.a.destination} vs ${page.b.destination}`, url: pageUrl },
-    ]))
+    // The BreadcrumbList is emitted by <Breadcrumbs> below (always, with or without copy), from the same list as the visible trail.
     if (copy.faq.length > 0) structuredData.push(buildFaqPageJsonLd(copy.faq))
   }
 
@@ -91,6 +88,7 @@ export default async function ComparePage({ params }: Props) {
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(copy ? structuredData : jsonLd) }} />
         <div className="border-b bg-muted/30">
           <div className="container mx-auto px-4 py-10">
+            <Breadcrumbs crumbs={[{ name: "Home", path: "/" }, { name: "Destinations", path: "/destinations" }, { name: `${page.a.destination} vs ${page.b.destination}` }]} currentPath={`/compare/${params.pair}`} />
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />Compare Destinations</p>
             <h1 className="mt-1 text-balance text-3xl font-bold uppercase text-foreground sm:text-4xl">
               {page.a.destination} vs {page.b.destination}
