@@ -6,7 +6,7 @@ import { Footer } from "@/components/footer"
 import { buildBreadcrumbJsonLd, jsonLdHtml } from "@/lib/jsonld"
 import { getVisitorPreferences } from "@/lib/preferences"
 import { getPublishedGuidePaths, guidePath } from "@/lib/guides"
-import { ADVISORY_INDEX_PATH, FRESHNESS_NOTE, buildAdvisoryJsonLd } from "@/lib/country-advisory"
+import { ADVISORY_INDEX_PATH, FRESHNESS_NOTE, UK_OGL_ATTRIBUTION, UK_OGL_URL, buildAdvisoryJsonLd } from "@/lib/country-advisory"
 import { loadAdvisoryPage } from "@/lib/country-advisory-public"
 import { SITE_NAME, DEFAULT_OG_IMAGE, absoluteUrl } from "@/lib/site"
 
@@ -120,6 +120,7 @@ export default async function CountryAdvisoryPage({ params }: Props) {
               {view.uk.sourceUrl && (
                 <p className="mt-3"><a href={view.uk.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">Read the official UK travel advice for {view.name}</a></p>
               )}
+              <p className="mt-3 text-xs text-muted-foreground">{UK_OGL_ATTRIBUTION} <a href={UK_OGL_URL} target="_blank" rel="noopener noreferrer" className="underline">Licence terms</a></p>
             </section>
           )}
 

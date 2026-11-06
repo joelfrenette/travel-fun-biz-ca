@@ -6,6 +6,8 @@ import { applyUsFeed, listAllAdvisories, markBackfillDone, markCanadaChecked, re
 import { parseUsAdvisoryFeed } from '@/lib/country-advisory'
 import { enrollAdvisoryIfDue } from '@/lib/country-advisory-social'
 import { pingIndexNow } from '@/lib/indexnow'
+import { fetchUkTravelAdviceIndex, recentlyAttempted, recordAttempt } from '@/lib/country-advisory-uk-api'
+import type { FetchDeps } from '@/lib/news-feed'
 
 // Travel advisories: the DUAL WRITE called from the news ingest (lib/news-ingest.ts). The news posts are created exactly as before;
 // this only also records the same advisory in country_advisories and country_advisory_log. Nothing here ever throws into the ingest,
@@ -154,6 +156,34 @@ export async function backfillAdvisories(admin: SupabaseClient, note: AdvisoryIn
     ;(note.backfill ??= []).push({ source: input.source, created: plan.created, filled: plan.filled, skipped: plan.skipped })
   } catch (e) {
     addNote(note, `travel advisories (${input.source} backfill): ${e instanceof Error ? e.message.slice(0, 120) : 'unexpected error'}`)
+  }
+}
+
+/** The one-time UK backfill from the GOV.UK Content API (see lib/country-advisory-uk-api.ts): every country, not only the 20 the Atom feed
+ * lists. Guarded by the 'uk-full-backfill' key of the same app_settings guard; an unreadable guard means do nothing; a refused or failed
+ * attempt is not repeated for 6 hours; one request plus robots.txt per run, 1 second apart. Additive and quiet like every backfill (a
+ * country that already has a UK line is left alone; no log row, no social, no news item). Never throws. */
+export async function ukFullBackfill(admin: SupabaseClient, note: AdvisoryIngestNote, deps: FetchDeps, now: Date, pauseMs?: number): Promise<void> {
+  try {
+    const guard = await readBackfillDone(admin)
+    if (guard.error) {
+      addNote(note, 'travel advisories (UK full backfill): could not read the backfill guard, so nothing was backfilled.')
+      return
+    }
+    if (guard.done['uk-full-backfill']) return
+    if (await recentlyAttempted(admin, now.getTime())) return
+    if (!(await recordAttempt(admin, now))) {
+      addNote(note, 'travel advisories (UK full backfill): could not save the attempt time, so GOV.UK was not read.')
+      return
+    }
+    const r = await fetchUkTravelAdviceIndex(deps, pauseMs)
+    if (!r.ok) {
+      addNote(note, `travel advisories (UK full backfill): ${r.error.slice(0, 140)}; it will be tried again later.`)
+      return
+    }
+    await backfillAdvisories(admin, note, { source: 'uk-full-backfill', events: r.events }, now)
+  } catch (e) {
+    addNote(note, `travel advisories (UK full backfill): ${e instanceof Error ? e.message.slice(0, 120) : 'unexpected error'}`)
   }
 }
 

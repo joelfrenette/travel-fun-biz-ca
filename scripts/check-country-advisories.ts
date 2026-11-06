@@ -15,6 +15,7 @@ import {
   BACKFILL_STATE_KEY,
   COUNTRY_ALIASES,
   FRESHNESS_NOTE,
+  UK_OGL_ATTRIBUTION,
   dateLabel,
   advisoryLinkForGuide,
   advisorySitemapEntries,
@@ -42,6 +43,7 @@ import { getAdvisoryMode, writeCanadaEvent, writeUkEvent, loadAdvisoryPostSource
 import { loadAdvisoryIndex, loadAdvisoryLinkForGuide, loadAdvisoryPage, loadAdvisorySitemap } from '../lib/country-advisory-public'
 import { decideAdvisorySocial, enrollAdvisoryIfDue, advisoryLedgerSlug } from '../lib/country-advisory-social'
 import { dualWriteCanada } from '../lib/country-advisory-ingest'
+import { UK_API_INDEX_URL, UK_API_MAX_COUNTRIES, UK_API_RETRY_MS, UK_API_USER_AGENT, fetchUkTravelAdviceIndex, parseUkTravelAdviceIndex } from '../lib/country-advisory-uk-api'
 import { emptyAdvisoryNote } from '../lib/country-advisory-ingest'
 
 delete process.env.ANTHROPIC_API_KEY
@@ -223,7 +225,7 @@ async function main() {
   const off = await runIngest({})
   const offBogus = await runIngest({ [ADVISORY_MODE_KEY]: 'ON' })
   // The checks in this section are about the normal change flow, so the one-time backfill is marked done for them (section 8 covers it).
-  const GUARDED = { [BACKFILL_STATE_KEY]: JSON.stringify({ v: 1, done: { ca: 'x', uk: 'x', us: 'x' } }) }
+  const GUARDED = { [BACKFILL_STATE_KEY]: JSON.stringify({ v: 1, done: { ca: 'x', uk: 'x', us: 'x', 'uk-full-backfill': 'x' } }) }
   const logRun = await runIngest({ [ADVISORY_MODE_KEY]: 'log', ...GUARDED })
   check('off: the ingest result carries no advisories note', off.res.advisories === undefined && offBogus.res.advisories === undefined)
   check('off: neither advisory table exists or has a row', rowsOf(off.db, 'country_advisories').length === 0 && rowsOf(off.db, 'country_advisory_log').length === 0 && rowsOf(offBogus.db, 'country_advisories').length === 0)
@@ -618,6 +620,104 @@ async function main() {
       check('backfill pages: the index and the sitemap list every backfilled country, sitemap dates are official dates (never now)', !!ix && ix.length === rows1.length && lm.length === rows1.length + 1 && lm.every((e) => e.lastModified !== null && Date.parse(e.lastModified) < NOW), `${ix?.length} / ${lm.length} / ${rows1.length}`)
       const haiti = await loadAdvisoryPage('haiti', new Date(NOW), live.admin)
       check('backfill pages: a backfilled page renders with the official level, is indexable and has no invented log', !!haiti && haiti.indexable && haiti.canada?.level === 'Avoid all travel' && haiti.log.length === 0 && haiti.title === 'Canada travel advisory for Haiti')
+
+      // ---- 8b. UK full backfill from the GOV.UK Content API (2026-11-05): the Atom feed lists only 20 countries ----
+      const child = (name: string, slug: string, line: string, at: string, extra: Record<string, unknown> = {}) => ({
+        api_url: `https://www.gov.uk/api/content/foreign-travel-advice/${slug}`, base_path: `/foreign-travel-advice/${slug}`, document_type: 'travel_advice', withdrawn: false,
+        web_url: `https://www.gov.uk/foreign-travel-advice/${slug}`, public_updated_at: at, title: `${name} travel advice`,
+        details: { change_description: line, country: { name, slug, synonyms: [] } }, ...extra,
+      })
+      const indexBody = (children: unknown[]) => JSON.stringify({ title: 'Foreign travel advice', document_type: 'travel_advice_index', links: { children } })
+      const HONDURAS = 'Updated information about visa requirements for British citizens (Entry requirements).'
+      const API_KIDS = [
+        child('Belgium', 'belgium', 'A different Belgium line from the API (Safety and security).', '2026-10-01T09:00:00Z'),
+        child('Honduras', 'honduras', HONDURAS, '2026-10-20T09:00:00Z'),
+        child('Chile', 'chile', 'Updated information on wildfires in central regions (Safety and security).', '2026-09-15T09:00:00Z'),
+        child('Old Place', 'old-place', 'Page withdrawn from the service entirely.', '2026-01-01T09:00:00Z', { withdrawn: true }),
+        child('', 'nameless', 'An entry with no country name at all.', '2026-01-01T09:00:00Z'),
+        child('Elsewhere', 'elsewhere', 'Bad link host for this entry.', '2026-01-01T09:00:00Z', { web_url: 'https://evil.example.com/foreign-travel-advice/elsewhere' }),
+      ]
+      const parsedIdx = parseUkTravelAdviceIndex(indexBody(API_KIDS))
+      check('UK index parse: official line, link and date per country; withdrawn, nameless and off-host entries are left out', parsedIdx.ok && parsedIdx.events.map((e) => e.country).join() === 'Belgium,Honduras,Chile' && parsedIdx.skipped === 3 && parsedIdx.events[1].summary === HONDURAS && parsedIdx.events[1].url === 'https://www.gov.uk/foreign-travel-advice/honduras' && parsedIdx.events[1].publishedAt === '2026-10-20T09:00:00Z', JSON.stringify(parsedIdx))
+      check('UK index parse: junk or an empty list is an error, never an empty success', !parseUkTravelAdviceIndex('<html>').ok && !parseUkTravelAdviceIndex('{"links":{"children":[]}}').ok && !parseUkTravelAdviceIndex('{}').ok)
+      const many = parseUkTravelAdviceIndex(indexBody(Array.from({ length: UK_API_MAX_COUNTRIES + 50 }, (_, i) => child(`Land${i}`, `land${i}`, 'Updated information on entry requirements (Entry requirements).', '2026-10-01T09:00:00Z'))))
+      check('UK index parse: capped per run', many.ok && many.events.length === UK_API_MAX_COUNTRIES)
+
+      // the reader itself: robots first, honest agent, one index request, no redirects followed
+      const apiLog: { url: string; ua: string }[] = []
+      const apiDeps = (o: { robots?: { status: number; body?: string }; index?: { status: number; body?: string; location?: string } } = {}): FetchDeps => ({
+        now: () => NOW,
+        fetch: (async (url: string, init?: RequestInit) => {
+          apiLog.push({ url: String(url), ua: String((init?.headers as Record<string, string> | undefined)?.['User-Agent'] ?? '') })
+          if (String(url).endsWith('/robots.txt')) return new Response(o.robots?.body ?? '', { status: o.robots?.status ?? 404 })
+          if (String(url) === UK_API_INDEX_URL) return new Response(o.index?.body ?? indexBody(API_KIDS), { status: o.index?.status ?? 200, headers: o.index?.location ? { location: o.index.location } : { 'content-type': 'application/json' } })
+          return new Response('', { status: 404 })
+        }) as unknown as typeof fetch,
+      })
+      const okRead = await fetchUkTravelAdviceIndex(apiDeps({ robots: { status: 200, body: 'User-agent: *\nDisallow: /search/all*\nDisallow: /*/print$\n' } }), 0)
+      check('UK index fetch: robots.txt first, then exactly one index request, both with the honest user agent', okRead.ok && apiLog.length === 2 && apiLog[0].url === 'https://www.gov.uk/robots.txt' && apiLog[1].url === UK_API_INDEX_URL && apiLog.every((c) => c.ua === UK_API_USER_AGENT) && /TravelFunBizNewsReader/.test(UK_API_USER_AGENT) && !/Mozilla|Chrome|Safari/.test(UK_API_USER_AGENT), JSON.stringify(apiLog))
+      apiLog.length = 0
+      const blocked = await fetchUkTravelAdviceIndex(apiDeps({ robots: { status: 200, body: 'User-agent: *\nDisallow: /api/\n' } }), 0)
+      check('UK index fetch: a robots.txt that disallows the API path means the index is never requested', !blocked.ok && apiLog.length === 1 && apiLog[0].url.endsWith('/robots.txt'), JSON.stringify(apiLog))
+      apiLog.length = 0
+      const namedBlock = await fetchUkTravelAdviceIndex(apiDeps({ robots: { status: 200, body: 'User-agent: TravelFunBizNewsReader\nDisallow: /\n\nUser-agent: *\nAllow: /\n' } }), 0)
+      check('UK index fetch: a rule naming our reader wins over the open * group', !namedBlock.ok && apiLog.length === 1)
+      apiLog.length = 0
+      const robots500 = await fetchUkTravelAdviceIndex(apiDeps({ robots: { status: 503 } }), 0)
+      check('UK index fetch: an unreadable robots.txt means do not go', !robots500.ok && apiLog.length === 1)
+      apiLog.length = 0
+      const redirected = await fetchUkTravelAdviceIndex(apiDeps({ index: { status: 302, location: 'https://evil.example.com/x' } }), 0)
+      check('UK index fetch: a redirect is an error, never followed', !redirected.ok && apiLog.length === 2)
+      const http403 = await fetchUkTravelAdviceIndex(apiDeps({ index: { status: 403 } }), 0)
+      check('UK index fetch: a 403 from the host is an error (no workaround, no other agent)', !http403.ok && /403/.test(http403.ok ? '' : http403.error))
+
+      // through the ingest: the guarded one-time backfill
+      const apiCalls: string[] = []
+      const apiPass = (wd: ReturnType<typeof world>, at: number, idx = indexBody(API_KIDS), status = 200) => {
+        const base = deps(allRoutes(mxFeed('Level 2: Exercise Increased Caution', 'Fri, 30 Oct 2026')), () => at)
+        return ingestFeeds(wd.admin, {
+          now: new Date(at),
+          sources: [gac, ukSrc, usSrc],
+          fetchDeps: {
+            now: () => at,
+            fetch: (async (url: string, init?: RequestInit) => {
+              if (String(url) === UK_API_INDEX_URL) {
+                apiCalls.push(String((init?.headers as Record<string, string> | undefined)?.['User-Agent'] ?? ''))
+                return new Response(idx, { status, headers: { 'content-type': 'application/json' } })
+              }
+              return base.fetch(url, init)
+            }) as unknown as typeof fetch,
+          },
+        })
+      }
+      const wu = world({ [ADVISORY_MODE_KEY]: 'log' }, { country_advisories: [], country_advisory_log: [] })
+      const ru = await apiPass(wu, tFirst)
+      const ukRows = rowsNow(wu.db)
+      const uk = (s: string) => ukRows.find((r) => r.slug === s)
+      check('UK full backfill: countries the Atom feed does not list (Honduras, Chile) now have the official UK line, link and date', uk('honduras')?.uk_text === HONDURAS && uk('honduras')?.uk_source_url === 'https://www.gov.uk/foreign-travel-advice/honduras' && uk('honduras')?.uk_source_published_at === '2026-10-20T09:00:00.000Z' && !!uk('chile')?.uk_text, JSON.stringify(ukRows.map((r) => r.slug)))
+      check('UK full backfill: a country the Atom feed already gave a line is not overwritten', uk('belgium')?.uk_text === ukLine && uk('colombia')?.uk_text !== null, String(uk('belgium')?.uk_text))
+      check('UK full backfill: never a level (UK has none); withdrawn, nameless and off-host entries make no page', uk('honduras')?.ca_level === null && uk('honduras')?.us_level === null && uk('chile')?.ca_level === null && !uk('old-place') && !uk('nameless') && !uk('elsewhere'))
+      check('UK full backfill: marked done under its own key, and the old uk key stays its own', guard(wu.db)['uk-full-backfill'] !== undefined && guard(wu.db).uk !== undefined && (ru.advisories?.backfill ?? []).some((b) => b.source === 'uk-full-backfill' && b.created === 2), JSON.stringify(ru.advisories?.backfill))
+      check('UK full backfill: one index request, with the honest user agent', apiCalls.length === 1 && apiCalls[0] === UK_API_USER_AGENT, JSON.stringify(apiCalls))
+      check('UK full backfill: quiet (no update-log row for Honduras or Chile, no social)', rowsOf(wu.db, 'country_advisory_log').every((l) => l.country_slug !== 'honduras' && l.country_slug !== 'chile') && postRows(wu.db) === 0)
+      const callsBefore = apiCalls.length
+      await apiPass(wu, tFirst + 2 * 3_600_000)
+      check('UK full backfill: with the guard set a later read never calls the API again', apiCalls.length === callsBefore)
+      // mode off: no advisory code runs, so the API is never touched
+      const wOff = world({}, { country_advisories: [], country_advisory_log: [] })
+      apiCalls.length = 0
+      await apiPass(wOff, tFirst)
+      check('UK full backfill (mode off): the API is not requested', apiCalls.length === 0 && rowsOf(wOff.db, 'country_advisories').length === 0)
+      // refused: a note, no guard, and no retry for 6 hours
+      const wf = world({ [ADVISORY_MODE_KEY]: 'log' }, { country_advisories: [], country_advisory_log: [] })
+      const rf = await apiPass(wf, tFirst, '{}', 403)
+      check('UK full backfill (host refuses): a plain note, nothing written for it, guard not set', (rf.advisories?.notes ?? []).some((n) => /UK full backfill/.test(n) && /403/.test(n)) && guard(wf.db)['uk-full-backfill'] === undefined && !rowsNow(wf.db).some((r) => r.slug === 'honduras'), JSON.stringify(rf.advisories?.notes))
+      await apiPass(wf, tFirst + 3_600_000, '{}', 403)
+      check('UK full backfill (host refuses): not asked again inside the retry window', apiCalls.length === 1, String(apiCalls.length))
+      await apiPass(wf, tFirst + UK_API_RETRY_MS + 3_600_000)
+      check('UK full backfill (retry later): after the window it tries again and finishes', apiCalls.length === 2 && !!rowsNow(wf.db).find((r) => r.slug === 'honduras')?.uk_text && guard(wf.db)['uk-full-backfill'] !== undefined, String(apiCalls.length))
+      check('UK full backfill: the attribution is the Open Government Licence v3.0 statement and the country page shows it', UK_OGL_ATTRIBUTION === 'Contains public sector information licensed under the Open Government Licence v3.0.' && /UK_OGL_ATTRIBUTION/.test(readFileSync(join(process.cwd(), 'app/travel-advisories/[country]/page.tsx'), 'utf8')))
+      check('UK full backfill: the new module has no em or en dashes', !new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']').test(readFileSync(join(process.cwd(), 'lib/country-advisory-uk-api.ts'), 'utf8')))
     }
   }
 

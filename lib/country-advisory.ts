@@ -504,8 +504,12 @@ export function planUsFeed(
 // One-time backfill: every country in a full snapshot gets its row, not only the ones that changed
 // ---------------------------------------------------------------------------------------------------
 
-export type BackfillSource = 'ca' | 'uk' | 'us'
-export const BACKFILL_SOURCES: readonly BackfillSource[] = ['ca', 'uk', 'us']
+/** 'uk-full-backfill' is the UK list read ONCE from the GOV.UK Content API (every country, not only the 20 the Atom feed lists). */
+export type BackfillSource = 'ca' | 'uk' | 'us' | 'uk-full-backfill'
+export const BACKFILL_SOURCES: readonly BackfillSource[] = ['ca', 'uk', 'us', 'uk-full-backfill']
+/** The attribution the Open Government Licence v3.0 asks for when no specific statement is given. Shown on every UK block. */
+export const UK_OGL_ATTRIBUTION = 'Contains public sector information licensed under the Open Government Licence v3.0.'
+export const UK_OGL_URL = 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/'
 /** app_settings key of the guard: JSON {"v":1,"done":{"ca":"<iso>","uk":"<iso>","us":"<iso>"}}. A source in `done` is never backfilled again. */
 export const BACKFILL_STATE_KEY = 'country_advisories_backfill'
 export const backfillSourceOfKey = (sourceKey: string): BackfillSource | null =>
@@ -524,9 +528,9 @@ export function parseBackfillState(raw: string | null | undefined): Partial<Reco
   }
 }
 
-const hasSourceData = (src: BackfillSource, r: CountryAdvisoryRow): boolean => (src === 'ca' ? !!(r.ca_level || r.ca_text) : src === 'uk' ? !!r.uk_text : !!(r.us_level || r.us_text))
+const hasSourceData = (src: BackfillSource, r: CountryAdvisoryRow): boolean => (src === 'ca' ? !!(r.ca_level || r.ca_text) : src === 'uk' || src === 'uk-full-backfill' ? !!r.uk_text : !!(r.us_level || r.us_text))
 
-export type BackfillInput = { source: 'ca'; events: CaEvent[] } | { source: 'uk'; events: UkEvent[] } | { source: 'us'; events: UsEvent[] }
+export type BackfillInput = { source: 'ca'; events: CaEvent[] } | { source: 'uk'; events: UkEvent[] } | { source: 'uk-full-backfill'; events: UkEvent[] } | { source: 'us'; events: UsEvent[] }
 
 export interface BackfillPlan {
   /** The full rows to save: new rows, and existing rows that had nothing yet from this source (all their other fields kept as read). */
@@ -573,7 +577,7 @@ export function planBackfill(input: BackfillInput, existing: CountryAdvisoryRow[
     }
   }
   if (input.source === 'ca') each(input.events, (e) => e.name, (cur, e) => planCanadaWrite(cur, e, null, nowIso, unsafe))
-  else if (input.source === 'uk') each(input.events, (e) => e.country, (cur, e) => planUkWrite(cur, e, nowIso, unsafe))
+  else if (input.source === 'uk' || input.source === 'uk-full-backfill') each(input.events, (e) => e.country, (cur, e) => planUkWrite(cur, e, nowIso, unsafe))
   else each(input.events, (e) => e.country, (cur, e) => planUsWrite(cur, e, nowIso, unsafe))
   for (const t of touched.values()) {
     out.rows.push(t.row)
