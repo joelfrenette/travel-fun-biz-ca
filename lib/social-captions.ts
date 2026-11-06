@@ -2,7 +2,7 @@ import { callAnthropic, anthropicText, parseModelJson, isAiConfigured } from '@/
 import { captionShapeProblems, captionFormatRules } from '@/lib/hook-rules'
 import { loadLearnedRules, withLearnedRules } from '@/lib/learn-loop'
 import { firstLineProblems, wantsCommentPrompt, HOOK_LINE_MAX_CHARS } from '@/lib/caption-plan'
-import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, hashtagCapFor, normaliseHashtags, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
+import { HOOK_STYLE_PROMPTS, CTA_STYLE_PROMPTS, HASHTAG_RULES, hashtagCapFor, hashtagMaxFor, countHashtags, trimHashtagsToMax, normaliseHashtags, ungroundedNumbers, repairDashes, type HookStyle, type CtaStyle } from '@/lib/hook-styles'
 
 // Per-platform caption generation + mechanical limit enforcement (factory spec: "one model call
 // writes every network's caption at once, each tailored to that network's actual constraints" +
@@ -100,6 +100,10 @@ export interface CaptionOpts {
   commentPrompts?: Record<string, string>
   /** The post's primary keyword: the first line should contain it when that reads naturally (asked in the prompt, not enforced). */
   keyword?: string | null
+  /** Out parameter: the reasons a network's caption was still rejected after the retry (that network used the no-AI caption). */
+  dropped?: Record<string, string[]>
+  /** Replaces the model call (offline checks). Not used in production. */
+  caller?: CaptionCaller
 }
 
 /** The long dash character, built from its code so this file never contains one itself. */
@@ -163,6 +167,10 @@ export function captionProblems(
   // Call to action: the bio networks must say "link in bio"; every other network needs a plain-words next step line.
   if (!hasCallToAction(caption, ctx.network, ctx.link)) problems.push('call to action is missing')
   if (caption.includes(EM_DASH)) problems.push('contains an em dash')
+  // Per-network hashtag ceiling (LinkedIn 0, X and Bluesky 2, TikTok 3, Instagram 8, see HASHTAG_MAX).
+  const tagMax = hashtagMaxFor(ctx.network)
+  const tagCount = countHashtags(caption)
+  if (tagCount > tagMax) problems.push(`too many hashtags for ${ctx.network} (${tagCount}, at most ${tagMax})`)
   // Hooks-in-content shape rules: weak opener, missing hook line, emoji and hashtag ceilings, shouting, paragraph walls.
   problems.push(...captionShapeProblems(caption, ctx.network))
   return problems
@@ -178,7 +186,8 @@ export const VIDEO_CTA_LINE = 'Plan your trip: link in bio, or tap here:'
 /** The shared reel caption: title, description, call to action, the UTM link, hashtags last. Only the text is ever cut; the CTA and link stay. */
 export function buildVideoCaption(parts: { title: string; description?: string; hashtags?: string[] }, link: string, limit: number): string {
   const body = [parts.title, parts.description].map((s) => (s ?? '').trim()).filter(Boolean).join('\n\n')
-  const tags = (parts.hashtags ?? []).join(' ').trim()
+  // One reel caption goes to every video network at once, so it carries no more hashtags than the strictest of them allows (TikTok, 3).
+  const tags = (parts.hashtags ?? []).slice(0, Math.min(...['tiktok', 'instagram', 'youtube', 'facebook'].map(hashtagMaxFor))).join(' ').trim()
   const tail = `${VIDEO_CTA_LINE}\n${link}`
   const withTags = tags ? `${tail}\n\n${tags}` : tail
   const chosen = withTags.length + 2 + Math.min(body.length, 40) <= limit ? withTags : tail
@@ -399,10 +408,70 @@ Never use an em dash (the long dash character); use a comma or a full stop inste
   return prompt
 }
 
+/** One network's raw model caption, mechanically repaired where a repair changes no fact (long dash, extra trailing hashtags,
+ * over the limit, missing link or call to action, missing comment prompt), then checked by the plain-code gate.
+ * `text` is the caption to send, or null when a problem is left; `problems` is that list (empty when it passed). Pure. */
+export function finalizeCaption(
+  raw: string,
+  network: string,
+  ctx: { title: string; summary: string | null; link: string; grounding?: string | null; commentPrompt?: string; requireQuestion?: boolean },
+): { text: string | null; problems: string[]; draft: string } {
+  const limit = PLATFORM_CHAR_LIMITS[network.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
+  // An em dash is repaired rather than failed: swapping it for a comma changes no fact. Hashtags above the network's ceiling are cut from the end.
+  const cleaned = trimHashtagsToMax(repairDashes(raw.trim()), hashtagMaxFor(network))
+  let fitted = fitKeepingLink(cleaned, ctx.link, limit)
+  const gate = { title: ctx.title, summary: ctx.summary, network, link: ctx.link, grounding: ctx.grounding }
+  // A missing link or call to action is repaired with the standard CTA line (never a reason to drop the caption).
+  if (captionProblems(fitted, gate).some((x) => x === 'link is missing' || x === 'call to action is missing')) {
+    fitted = repairCaptionCta(fitted, { network, link: ctx.link, limit })
+  }
+  // A comment prompt line the writer left out is added as its own block after the first block, when it still fits the limit.
+  if (ctx.commentPrompt && wantsCommentPrompt(network) && !fitted.includes(ctx.commentPrompt)) {
+    const blocks = fitted.split('\n\n')
+    const withPrompt = [blocks[0], ctx.commentPrompt, ...blocks.slice(1)].join('\n\n')
+    if (blocks.length > 1 && withPrompt.length <= limit) fitted = withPrompt
+  }
+  const problems = [...captionProblems(fitted, gate), ...firstLineProblems(fitted, { requireQuestion: !!ctx.requireQuestion })]
+  return { text: problems.length === 0 ? fitted : null, problems, draft: fitted }
+}
+
+/** The retry prompt: the normal prompt for only the rejected networks, plus each rejected draft with the exact reasons the
+ * checker gave, so the writer fixes those and nothing else. It never loosens a rule and never permits a new fact. Pure. */
+export function buildCaptionRetryPrompt(
+  postTitle: string,
+  postDescription: string | null,
+  link: string,
+  rejected: Record<string, { draft: string; problems: string[] }>,
+  opts: CaptionOpts = {},
+): string {
+  const networks = Object.keys(rejected)
+  const feedback = networks.map((p) => `- ${p}: your draft was rejected because: ${rejected[p].problems.join('; ')}.\n  Your draft was:\n${rejected[p].draft.split('\n').map((l) => `  | ${l}`).join('\n')}`).join('\n')
+  return `${buildCaptionPrompt(postTitle, postDescription, link, networks, opts)}
+
+A checker rejected your first answer for the platforms below. Write a NEW caption for each of them that fixes every listed reason. Every other rule above still applies in full, so do not add a number, price, date or claim that is not in the facts, and do not add urgency. Return entries only for these platforms, in the same JSON shape.
+${feedback}`
+}
+
+/** The model call behind the captions: a prompt in, the parsed {platform: text} out, or null on any failure. */
+export type CaptionCaller = (prompt: string) => Promise<Record<string, string> | null>
+
+const defaultCaptionCaller: CaptionCaller = async (prompt) => {
+  const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000, feature: 'social-captions' })
+  if (!r || !r.res.ok) return null
+  const parsed = parseModelJson<{ captions?: Record<string, string> }>(anthropicText(await r.res.json()))
+  const captions = parsed?.captions
+  return captions && typeof captions === 'object' ? captions : null
+}
+
+/** Attempts per call: the first answer plus one retry that is told why each rejected caption was rejected. Bounded on purpose. */
+export const CAPTION_MAX_ATTEMPTS = 2
+
 /** One model call writes every requested platform's caption at once (same post, same facts, each
- * voice genuinely adapted to its network) - never the same string copy-pasted everywhere. Returns
- * null when the AI is unconfigured or the call fails; caller falls back to the one shared generic
- * caption, same "never block the post over this" rule as every other AI step in this project. */
+ * voice genuinely adapted to its network) - never the same string copy-pasted everywhere. A caption the plain-code gate
+ * rejects gets ONE retry (only the rejected networks, with the checker's reasons in the prompt); a caption still rejected after
+ * that is left out of the result (and its reasons are written to `opts.dropped`), so that network falls back to the no-AI caption.
+ * Returns null when the AI is unconfigured or every call fails; caller falls back to the shared generic caption, same
+ * "never block the post over this" rule as every other AI step in this project. */
 export async function generatePlatformCaptions(
   postTitle: string,
   postDescription: string | null,
@@ -410,49 +479,47 @@ export async function generatePlatformCaptions(
   platforms: string[],
   opts: CaptionOpts = {},
 ): Promise<PlatformCaptions | null> {
-  if (!isAiConfigured() || platforms.length === 0) return null
+  const caller = opts.caller ?? defaultCaptionCaller
+  if ((!opts.caller && !isAiConfigured()) || platforms.length === 0) return null
 
   const linkFor = (p: string) => opts.links?.[p] || link
-  const prompt = withLearnedRules(buildCaptionPrompt(postTitle, postDescription, link, platforms, opts), await loadLearnedRules('caption'))
-
+  const learned = opts.caller ? [] : await loadLearnedRules('caption')
+  const result: PlatformCaptions = {}
+  let pending = [...platforms]
+  let rejected: Record<string, { draft: string; problems: string[] }> = {}
   try {
-    const r = await callAnthropic({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }, { timeoutMs: 40_000, feature: 'social-captions' })
-    if (!r || !r.res.ok) return null
-    const parsed = parseModelJson<{ captions?: Record<string, string> }>(anthropicText(await r.res.json()))
-    const captions = parsed?.captions
-    if (!captions || typeof captions !== 'object') return null
-    // Model output is untrusted: only keep entries for platforms actually requested, with real
-    // non-empty string values, and mechanically re-fit each to its own real limit regardless of
-    // what the model thought it was doing - same "never trust the model got the number right" rule.
-    // A caption that then fails the plain-code gate (captionProblems) is left out of the result, so
-    // that network falls back to the shared generic caption in lib/distribution.ts: the post still
-    // goes out, only with the safer text.
-    const result: PlatformCaptions = {}
-    for (const p of platforms) {
-      const raw = captions[p]
-      if (typeof raw !== 'string' || !raw.trim()) continue
-      const limit = PLATFORM_CHAR_LIMITS[p.toLowerCase()] ?? DEFAULT_CHAR_LIMIT
-      // An em dash is repaired rather than failed: swapping it for a comma changes no fact.
-      const cleaned = repairDashes(raw.trim())
-      let fitted = fitKeepingLink(cleaned, linkFor(p), limit)
-      const ctx = { title: postTitle, summary: postDescription, network: p, link: linkFor(p), grounding: opts.grounding }
-      // A missing link or call to action is repaired with the standard CTA line (never a reason to drop the caption).
-      if (captionProblems(fitted, ctx).some((x) => x === 'link is missing' || x === 'call to action is missing')) {
-        fitted = repairCaptionCta(fitted, { network: p, link: linkFor(p), limit })
+    for (let attempt = 1; attempt <= CAPTION_MAX_ATTEMPTS && pending.length > 0; attempt++) {
+      const base = attempt === 1 ? buildCaptionPrompt(postTitle, postDescription, link, pending, opts) : buildCaptionRetryPrompt(postTitle, postDescription, link, rejected, opts)
+      const captions = await caller(opts.caller ? base : withLearnedRules(base, learned))
+      if (!captions) break
+      // Model output is untrusted: only keep entries for platforms actually requested, with real non-empty string values, and
+      // mechanically re-fit each to its own real limit regardless of what the model thought it was doing.
+      const next: string[] = []
+      rejected = {}
+      for (const p of pending) {
+        const raw = captions[p]
+        if (typeof raw !== 'string' || !raw.trim()) {
+          next.push(p)
+          rejected[p] = { draft: '', problems: ['no caption was returned for this platform'] }
+          continue
+        }
+        const r = finalizeCaption(raw, p, { title: postTitle, summary: postDescription, link: linkFor(p), grounding: opts.grounding, commentPrompt: opts.commentPrompts?.[p], requireQuestion: !!opts.questionFirstLine?.[p] })
+        if (r.text) result[p] = r.text
+        else {
+          next.push(p)
+          rejected[p] = { draft: r.draft, problems: r.problems }
+        }
       }
-      // A comment prompt line the writer left out is added as its own block after the first block, when it still fits the limit.
-      const wanted = opts.commentPrompts?.[p]
-      if (wanted && wantsCommentPrompt(p) && !fitted.includes(wanted)) {
-        const blocks = fitted.split('\n\n')
-        const withPrompt = [blocks[0], wanted, ...blocks.slice(1)].join('\n\n')
-        if (blocks.length > 1 && withPrompt.length <= limit) fitted = withPrompt
-      }
-      const problems = [...captionProblems(fitted, ctx), ...firstLineProblems(fitted, { requireQuestion: !!opts.questionFirstLine?.[p] })]
-      if (problems.length === 0) result[p] = fitted
-      else console.warn(`[social-captions] ${p} caption dropped, using the shared caption: ${problems.join('; ')}`)
+      pending = next
     }
-    return Object.keys(result).length > 0 ? result : null
   } catch {
-    return null
+    // fall through with whatever passed
   }
+  for (const p of pending) {
+    const problems = rejected[p]?.problems ?? ['the caption request failed']
+    if (opts.dropped) opts.dropped[p] = problems
+    console.warn(`[social-captions] ${p} caption dropped after ${CAPTION_MAX_ATTEMPTS} tries, using the no-AI caption: ${problems.join('; ')}`)
+  }
+  return Object.keys(result).length > 0 ? result : null
 }
+

@@ -106,11 +106,13 @@ export interface CaptionLogEntry {
   style: string
   /** The caption text exactly as sent (cut at 900 characters). */
   text: string
+  /** Why the written caption was rejected and the no-AI caption was used instead (cut at 200 characters), when that happened. */
+  note?: string
 }
 
 const cleanEntry = (e: Partial<CaptionLogEntry>): CaptionLogEntry | null =>
   e && typeof e.slug === 'string' && typeof e.network === 'string' && typeof e.text === 'string'
-    ? { at: typeof e.at === 'string' ? e.at : new Date(0).toISOString(), slug: e.slug.slice(0, 160), network: e.network.slice(0, 80), format: e.format === 'carousel' || e.format === 'video' || e.format === 'recap' || e.format === 'evergreen' ? e.format : 'post', style: typeof e.style === 'string' && e.style ? e.style.slice(0, 40) : 'fallback', text: e.text.slice(0, CAPTION_TEXT_MAX) }
+    ? { at: typeof e.at === 'string' ? e.at : new Date(0).toISOString(), slug: e.slug.slice(0, 160), network: e.network.slice(0, 80), format: e.format === 'carousel' || e.format === 'video' || e.format === 'recap' || e.format === 'evergreen' ? e.format : 'post', style: typeof e.style === 'string' && e.style ? e.style.slice(0, 40) : 'fallback', text: e.text.slice(0, CAPTION_TEXT_MAX), ...(typeof e.note === 'string' && e.note ? { note: e.note.slice(0, 200) } : {}) }
     : null
 
 /** The stored log, newest first. Bad JSON or a non-array reads as empty. */
